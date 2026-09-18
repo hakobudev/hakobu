@@ -1,0 +1,26 @@
+# binaries
+/hako
+/hako-*
+*.exe
+
+# runtime data (sqlite, logs, cloned repos) — never commit
+/data/
+*.db
+*.db-shm
+*.db-wal
+*.log
+
+# env / secrets
+.env
+.env.*
+*.pem
+*.key
+
+# go
+/vendor/
+
+# os / editors
+.DS_Store
+.idea/
+.vscode/
+*.swp
