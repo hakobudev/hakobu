@@ -23,7 +23,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-if [ -z "$EDGE"; then
+if [ -z "$EDGE" ]; then
   echo "How should the panel be reachable?"
   echo "  1) tailscale   private, only your tailnet (recommended)"
   echo "  2) cloudflare  public quick-tunnel URL, no account needed"
@@ -89,12 +89,27 @@ else
   fi
   if [ "$GOT_BIN" != "1" ]; then
     echo "==> building hako from source..."
-    if ! command -v go >/dev/null; then
-      curl -fsSL https://go.dev/dl/?mode=json >/dev/null 2>&1 || true
-      (apt-get update && apt-get install -y golang-go) || (yum install -y golang) || {
-        echo "ERROR: could not install Go automatically. Install Go 1.27+ and rerun."; exit 1
-      }
+    # Need Go >= 1.27 (distro packages are often older, e.g. Fedora ships 1.26),
+    # so install the official toolchain when missing or too old.
+    GO_NEED="1.27.1"
+    GO_OK=0
+    if command -v go >/dev/null; then
+      GO_VER="$(go version 2>/dev/null | grep -o 'go[0-9.]*' | head -1 | cut -c3-)"
+      if [ "$(printf '%s\n%s' "$GO_NEED" "$GO_VER" | sort -V | head -1)" = "$GO_NEED" ]; then
+        GO_OK=1
+      else
+        echo "    system go $GO_VER too old, installing official go $GO_NEED..."
+      fi
     fi
+    if [ "$GO_OK" != "1" ]; then
+      GO_TGZ="go${GO_NEED}.linux-amd64.tar.gz"
+      curl -fsSL "https://go.dev/dl/${GO_TGZ}" -o /tmp/${GO_TGZ}
+      rm -rf /usr/local/go
+      tar -C /usr/local -xzf /tmp/${GO_TGZ}
+      rm -f /tmp/${GO_TGZ}
+      export PATH="/usr/local/go/bin:$PATH"
+    fi
+    export GOTOOLCHAIN=auto
     TMP_SRC="$(mktemp -d)"
     git clone --depth 1 "https://github.com/${HAKO_REPO}.git" "$TMP_SRC"
     (cd "$TMP_SRC" && go build -o /opt/hako/hako .)
