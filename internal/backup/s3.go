@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"hako/internal/store"
+	"github.com/x0ryz/hako/internal/store"
 )
 
 // Client talks to one S3-compatible bucket via path-style requests

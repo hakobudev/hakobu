@@ -1,6 +1,6 @@
 package main
 
-import "hako/cmd"
+import "github.com/x0ryz/hako/cmd"
 
 func main() {
 	cmd.Execute()

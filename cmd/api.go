@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"hako/internal/ops"
-	"hako/internal/store"
+	"github.com/x0ryz/hako/internal/ops"
+	"github.com/x0ryz/hako/internal/store"
 )
 
 // registerAPIRoutes wires the JSON HTTP API (for scripts/MCP/etc.) used to

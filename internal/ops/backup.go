@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"hako/internal/backup"
-	"hako/internal/store"
+	"github.com/x0ryz/hako/internal/backup"
+	"github.com/x0ryz/hako/internal/store"
 )
 
 // backupObjectKey namespaces every database's backups under its own

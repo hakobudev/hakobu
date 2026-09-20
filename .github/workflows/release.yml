@@ -1,0 +1,28 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.1"
+
+      - name: build
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o hako-linux-amd64 .
+
+      - name: release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: hako-linux-amd64
+          generate_release_notes: true

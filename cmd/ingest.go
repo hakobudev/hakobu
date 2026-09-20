@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"hako/internal/ingest"
-	"hako/internal/ops"
-	"hako/internal/store"
+	"github.com/x0ryz/hako/internal/ingest"
+	"github.com/x0ryz/hako/internal/ops"
+	"github.com/x0ryz/hako/internal/store"
 )
 
 // maxEnvelopeBytes caps decompressed envelope size — every official Sentry

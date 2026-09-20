@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"hako/internal/backup"
-	"hako/internal/deploy"
-	"hako/internal/store"
+	"github.com/x0ryz/hako/internal/backup"
+	"github.com/x0ryz/hako/internal/deploy"
+	"github.com/x0ryz/hako/internal/store"
 )
 
 // rustfsServiceContainer is hako's one self-hosted RustFS container
