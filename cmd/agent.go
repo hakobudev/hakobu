@@ -17,11 +17,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"hako/internal/build"
-	"hako/internal/config"
-	"hako/internal/github"
-	"hako/internal/ops"
-	"hako/internal/store"
+	"github.com/x0ryz/hako/internal/build"
+	"github.com/x0ryz/hako/internal/config"
+	"github.com/x0ryz/hako/internal/edge"
+	"github.com/x0ryz/hako/internal/github"
+	"github.com/x0ryz/hako/internal/ops"
+	"github.com/x0ryz/hako/internal/store"
 )
 
 var agentCmd = &cobra.Command{
@@ -86,6 +87,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 
 	go runHealthPoller(s)
 	go runBackupScheduler(s)
+	edge.Start(s, addr)
 
 	fmt.Println("Agent listening on", ln.Addr())
 	fmt.Println("Setup wizard: open http://" + ln.Addr().String() + "/setup (first run, no token needed)")

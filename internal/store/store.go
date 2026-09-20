@@ -421,6 +421,21 @@ func (s *Store) GetProjectByRepo(repo string) (*Project, error) {
 	return &p, nil
 }
 
+// GetProjectByDomain looks up the project whose custom domain matches host —
+// used by the automatic-HTTPS edge listener to route each incoming TLS
+// connection/request by SNI/Host without keeping a separate routing table.
+func (s *Store) GetProjectByDomain(domain string) (*Project, error) {
+	var p Project
+	err := s.db.QueryRow(
+		`SELECT id, name, repo, domain, port, container_port, build_path, build_strategy, linked_db, active_slot, custom_env, app_env, sentry_key, health_check_path, linked_storage FROM projects WHERE domain = ?`,
+		domain,
+	).Scan(&p.ID, &p.Name, &p.Repo, &p.Domain, &p.Port, &p.ContainerPort, &p.BuildPath, &p.BuildStrategy, &p.LinkedDB, &p.ActiveSlot, &p.CustomEnv, &p.AppEnv, &p.SentryKey, &p.HealthCheckPath, &p.LinkedStorage)
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
 // GetProjectBySentryProjectID looks up a project by the numeric id used as
 // the "project_id" path segment in its auto-issued Sentry DSN — the
 // projects table's own primary key, reused so no separate id needs

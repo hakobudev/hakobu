@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 # One-command install for hako on a fresh Linux server.
 # Usage (one line, nothing to download beforehand):
-#   curl -fsSL https://raw.githubusercontent.com/x0ryz/hako/main/install.sh | sudo bash -s -- --edge tailscale
-#   curl -fsSL https://raw.githubusercontent.com/x0ryz/hako/main/install.sh | sudo bash -s -- --edge cloudflare
-#   curl -fsSL https://raw.githubusercontent.com/x0ryz/hako/main/install.sh | sudo bash -s -- --edge none
+#   curl -fsSL https://raw.githubusercontent.com/x0ryz/hako/main/install.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/x0ryz/hako/main/install.sh | sudo HAKO_EDGE=tailscale bash
+#   curl -fsSL https://raw.githubusercontent.com/x0ryz/hako/main/install.sh | sudo HAKO_EDGE=public HAKO_DOMAIN=panel.example.com bash
 #
-# --edge tailscale|cloudflare|none  (or pick interactively)
-# Env: HAKO_VERSION=v1.0.0  (default: latest GitHub release; falls back to building from source)
-#      HAKO_REPO=x0ryz/hako
+# Env (all optional):
+#   HAKO_EDGE     tailscale|cloudflare|public|none  (skips the interactive menu; needed for curl|bash since stdin is the script itself)
+#   HAKO_DOMAIN   required only when HAKO_EDGE=public — the domain to point at the panel
+#                 (DNS must already resolve to this server; hako gets its own Let's Encrypt cert, no separate reverse proxy needed)
+#   HAKO_VERSION  v1.0.0  (default: latest GitHub release; falls back to building from source)
+#   HAKO_REPO     x0ryz/hako
 #
 # After install: open the printed URL -> /setup (no token needed on first run)
 # -> set public host + GitHub App -> restart -> sign in with the API token.
@@ -15,27 +18,30 @@ set -euo pipefail
 
 HAKO_REPO="${HAKO_REPO:-x0ryz/hako}"
 
-EDGE=""
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --edge) EDGE="${2:-}"; shift 2 ;;
-    *) echo "unknown arg: $1"; exit 1 ;;
-  esac
-done
+EDGE="${HAKO_EDGE:-}"
+DOMAIN="${HAKO_DOMAIN:-}"
 
 if [ -z "$EDGE" ]; then
   echo "How should the panel be reachable?"
   echo "  1) tailscale   private, only your tailnet (recommended)"
   echo "  2) cloudflare  public quick-tunnel URL, no account needed"
-  echo "  3) none        localhost only (reach it via ssh -L 9000:127.0.0.1:9000)"
-  printf "Choice [1/2/3]: "
+  echo "  3) public      your own domain, hako gets HTTPS for it automatically"
+  echo "  4) none        localhost only (reach it via ssh -L 9000:127.0.0.1:9000)"
+  printf "Choice [1/2/3/4]: "
   read -r CHOICE
   case "$CHOICE" in
     1|"") EDGE="tailscale" ;;
     2) EDGE="cloudflare" ;;
-    3) EDGE="none" ;;
+    3) EDGE="public" ;;
+    4) EDGE="none" ;;
     *) echo "unknown choice"; exit 1 ;;
   esac
+fi
+
+if [ "$EDGE" = "public" ] && [ -z "$DOMAIN" ]; then
+  printf "Domain to point at the panel (DNS A record must already point here): "
+  read -r DOMAIN
+  [ -n "$DOMAIN" ] || { echo "domain required for public"; exit 1; }
 fi
 
 if [ "$(id -u)" -ne 0 ]; then
@@ -167,6 +173,14 @@ EOF
     systemctl daemon-reload
     systemctl enable --now hako-panel-tunnel
     echo "Panel URL: journalctl -u hako-panel-tunnel -f  (look for trycloudflare.com link), then open <url>/setup"
+    ;;
+  public)
+    # No extra daemon needed: hako itself listens on :80/:443 and gets a
+    # Let's Encrypt cert for any host it recognizes (see internal/edge).
+    # It only recognizes the public host below, so nothing else changes.
+    echo "$DOMAIN" > /opt/hako/data/public_host
+    systemctl restart hako
+    echo "Panel: https://$DOMAIN/setup  (make sure DNS for $DOMAIN points at this server's public IP, and ports 80+443 are open)"
     ;;
   none)
     echo "Panel: ssh -L 9000:127.0.0.1:9000 <server>  ->  http://localhost:9000/setup"

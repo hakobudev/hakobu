@@ -11,12 +11,12 @@ import (
 	"strings"
 	"time"
 
-	"hako/internal/config"
-	"hako/internal/deploy"
-	"hako/internal/detect"
-	"hako/internal/hostinfo"
-	"hako/internal/ops"
-	"hako/internal/store"
+	"github.com/x0ryz/hako/internal/config"
+	"github.com/x0ryz/hako/internal/deploy"
+	"github.com/x0ryz/hako/internal/detect"
+	"github.com/x0ryz/hako/internal/hostinfo"
+	"github.com/x0ryz/hako/internal/ops"
+	"github.com/x0ryz/hako/internal/store"
 )
 
 // registerWebRoutes wires the browser dashboard (htmx + Alpine.js + Tailwind,
@@ -1439,7 +1439,7 @@ const templatesSrc = `
       <a href="/settings/access" class="flex items-center gap-2.5 py-1 hover:opacity-70 transition-opacity">
         <span>
           <span class="block text-sm font-medium">Access</span>
-          <span class="block text-xs text-faint">public host + how to expose the panel, projects and databases via Cloudflare or Tailscale</span>
+          <span class="block text-xs text-faint">public host + how to expose the panel, projects and databases via a custom domain, Cloudflare or Tailscale</span>
         </span>
       </a>
       <a href="/settings/github" class="flex items-center gap-2.5 py-1 hover:opacity-70 transition-opacity">
@@ -1466,15 +1466,16 @@ const templatesSrc = `
 <div id="settings-access-content" class="` + classCard + ` space-y-4">
   <div>
     <h2 class="font-medium">Access</h2>
-    <p class="text-xs text-faint">Everything listens on localhost only — each project on 127.0.0.1:&lt;port&gt;, the panel itself on 127.0.0.1:9000. You expose things with Cloudflare or Tailscale; nothing else to configure. (Deploys stay zero-downtime: an internal proxy swaps traffic between blue/green containers behind that port.)</p>
+    <p class="text-xs text-faint">Everything listens on localhost only — each project on 127.0.0.1:&lt;port&gt;, the panel itself on 127.0.0.1:9000. Set a domain below and hako gets its own Let's Encrypt cert and routes it automatically (no separate reverse proxy) — or expose things yourself with Cloudflare or Tailscale instead. (Deploys stay zero-downtime either way: an internal proxy swaps traffic between blue/green containers behind that port.)</p>
   </div>
   <form hx-post="/settings/access" hx-target="#settings-access-content" hx-swap="outerHTML" class="space-y-2">
-    <label class="block text-xs text-faint">Public host (used for SENTRY_DSN + webhook URL){{if .EnvManaged}} — managed by HAKO_PUBLIC_HOST, form disabled{{end}}</label>
+    <label class="block text-xs text-faint">Public host — set this to auto-HTTPS the panel on that domain (also used for SENTRY_DSN + webhook URL){{if .EnvManaged}}. Managed by HAKO_PUBLIC_HOST, form disabled{{end}}</label>
     <input name="public_host" placeholder="panel.example.com" value="{{.PublicHost}}" {{if .EnvManaged}}disabled{{end}} class="` + classInput + ` w-full ` + classMono + `">
     {{if not .EnvManaged}}<button class="` + classBtnPri + `">Save</button>{{end}}
   </form>
   <div class="space-y-1.5 pt-3 border-t border-edge">
     <p class="text-xs font-medium">Panel itself (127.0.0.1:9000) — protected by the token login either way</p>
+    <p class="text-xs text-faint">Point DNS for the public host above at this server and it just works — hako gets the cert itself. Or, bring your own edge instead:</p>
     <p class="text-xs text-faint">Cloudflare quick tunnel (public URL, no account):</p>
     <pre class="` + classConsole + ` text-xs overflow-x-auto">cloudflared tunnel --url http://127.0.0.1:9000</pre>
     <p class="text-xs text-faint">Tailscale (private, only your tailnet):</p>
@@ -1482,7 +1483,8 @@ const templatesSrc = `
   </div>
   {{range .Projects}}
   <div class="space-y-1.5 pt-3 border-t border-edge">
-    <p class="text-xs ` + classMono + `">{{.Name}} → 127.0.0.1:{{.Port}}{{if .Domain}} · {{.Domain}}{{end}}</p>
+    <p class="text-xs ` + classMono + `">{{.Name}} → 127.0.0.1:{{.Port}}{{if .Domain}} · {{.Domain}} (DNS pointed here → hako auto-HTTPS's it, no extra setup){{end}}</p>
+    {{if not .Domain}}<p class="text-xs text-faint">Set a domain on the project's page for automatic HTTPS, or bring your own edge:</p>{{end}}
     <p class="text-xs text-faint">Cloudflare:</p>
     <pre class="` + classConsole + ` text-xs overflow-x-auto">cloudflared tunnel --url http://127.0.0.1:{{.Port}}</pre>
     <p class="text-xs text-faint">Tailscale:</p>

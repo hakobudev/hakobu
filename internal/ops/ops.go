@@ -19,14 +19,14 @@ import (
 	"strings"
 	"time"
 
-	"hako/internal/build"
-	"hako/internal/config"
-	"hako/internal/deploy"
-	"hako/internal/detect"
-	"hako/internal/github"
-	"hako/internal/hostinfo"
-	"hako/internal/proxy"
-	"hako/internal/store"
+	"github.com/x0ryz/hako/internal/build"
+	"github.com/x0ryz/hako/internal/config"
+	"github.com/x0ryz/hako/internal/deploy"
+	"github.com/x0ryz/hako/internal/detect"
+	"github.com/x0ryz/hako/internal/github"
+	"github.com/x0ryz/hako/internal/hostinfo"
+	"github.com/x0ryz/hako/internal/proxy"
+	"github.com/x0ryz/hako/internal/store"
 )
 
 // EnsureProjectProxy makes sure a project's traffic proxy is running and,
@@ -328,14 +328,15 @@ func logDeploy(s *store.Store, project, trigger, status, output string) {
 	s.CreateDeployLog(store.DeployLog{Project: project, Trigger: trigger, Status: status, Output: output})
 }
 
+// SetProjectDomain saves the project's custom domain. Nothing else needs to
+// react to the change: the edge TLS listener (internal/edge) looks the
+// domain up in the store on every connection instead of keeping its own
+// routing table, so there's no separate config to (re)sync here.
 func SetProjectDomain(s *store.Store, projectName, domain string) error {
 	if _, err := s.GetProjectByName(projectName); err != nil {
 		return fmt.Errorf("project %q not found: %w", projectName, err)
 	}
-	if err := s.SetProjectDomain(projectName, domain); err != nil {
-		return err
-	}
-	return SyncDomainRouting(s)
+	return s.SetProjectDomain(projectName, domain)
 }
 
 // SetProjectHealthCheckPath changes the path CheckProjectHealth and the
@@ -359,14 +360,6 @@ func SetProjectCustomEnv(s *store.Store, projectName, env string) error {
 	return s.SetProjectCustomEnv(projectName, env)
 }
 
-// SyncDomainRouting is a no-op kept for call-site compatibility: domains are
-// now just stored on the project, and exposure is bring-your-own — point
-// Cloudflare or Tailscale at 127.0.0.1:<project port> (see Settings →
-// Access). The port serves our in-process proxy, which is what makes
-// blue/green swaps zero-downtime.
-func SyncDomainRouting(s *store.Store) error {
-	return nil
-}
 
 // FindGitHubInstallation resolves which installation of the hako
 // GitHub App can access repo, and its clone URL.
@@ -541,16 +534,11 @@ func parseEnvKeys(content string) []string {
 	return keys
 }
 
-// CreateProject stores the project. Exposure is bring-your-own: point your
-// edge (Cloudflare or Tailscale) at 127.0.0.1:<port>.
+// CreateProject stores the project. Exposure is bring-your-own: point
+// Tailscale/Cloudflare at 127.0.0.1:<port> yourself, or set a domain here and
+// let the edge TLS listener (internal/edge) route + auto-HTTPS it.
 func CreateProject(s *store.Store, name, repo, domain string, containerPort int, buildPath, buildStrategy string) error {
-	if err := s.CreateProject(name, repo, domain, containerPort, buildPath, buildStrategy); err != nil {
-		return err
-	}
-	if domain != "" {
-		return SyncDomainRouting(s)
-	}
-	return nil
+	return s.CreateProject(name, repo, domain, containerPort, buildPath, buildStrategy)
 }
 
 // LinkDatabase records which database a project uses. No container/network
