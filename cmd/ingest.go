@@ -56,12 +56,15 @@ func sentryKeyFromRequest(r *http.Request) string {
 
 // ingestLimiter is a minimal per-IP token bucket: capacity burst tokens,
 // refilled at rate tokens/sec. Prevents a single client from flooding the
-// public DSN endpoint and growing SQLite unboundedly.
+// public DSN endpoint and growing SQLite unboundedly. Idle buckets are swept
+// periodically (see startIngestLimiterSweeper) so the map can't grow without
+// bound from a client that hammers the endpoint from many distinct source
+// ports/connections and then goes away.
 type ingestLimiter struct {
-	mu     sync.Mutex
+	mu      sync.Mutex
 	buckets map[string]*ingestBucket
-	rate   float64
-	burst  int
+	rate    float64
+	burst   int
 }
 
 type ingestBucket struct {
@@ -73,6 +76,33 @@ var globalIngestLimiter = &ingestLimiter{
 	buckets: map[string]*ingestBucket{},
 	rate:    10, // 10 req/sec sustained
 	burst:   30,
+}
+
+func init() {
+	globalIngestLimiter.startSweeper()
+}
+
+// ingestBucketIdleTTL is how long a bucket can sit untouched before the
+// sweeper reclaims it — long enough that a client sending bursts every few
+// minutes still keeps its accumulated state, short enough that scanning many
+// distinct IPs doesn't leave the map growing forever.
+const ingestBucketIdleTTL = 10 * time.Minute
+
+func (l *ingestLimiter) startSweeper() {
+	go func() {
+		ticker := time.NewTicker(ingestBucketIdleTTL)
+		defer ticker.Stop()
+		for range ticker.C {
+			cutoff := time.Now().Add(-ingestBucketIdleTTL)
+			l.mu.Lock()
+			for ip, b := range l.buckets {
+				if b.last.Before(cutoff) {
+					delete(l.buckets, ip)
+				}
+			}
+			l.mu.Unlock()
+		}
+	}()
 }
 
 func (l *ingestLimiter) allow(ip string) bool {
@@ -97,10 +127,14 @@ func (l *ingestLimiter) allow(ip string) bool {
 	return true
 }
 
+// clientIP identifies the caller for rate-limiting purposes. It deliberately
+// ignores X-Forwarded-For: this endpoint is public and unauthenticated, and
+// hako has no notion of a trusted reverse proxy in front of it, so trusting
+// a client-supplied header here would let a single caller mint unlimited
+// distinct "IPs" (a new one per request) and both bypass the rate limit and
+// grow the bucket map without bound. TCP's own RemoteAddr can't be spoofed
+// the same way.
 func clientIP(r *http.Request) string {
-	if h := r.Header.Get("X-Forwarded-For"); h != "" {
-		return h
-	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr

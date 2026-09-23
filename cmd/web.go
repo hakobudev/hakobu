@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -82,7 +83,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store, token string) {
 	authed := func(h http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			c, err := r.Cookie(sessionCookie)
-			if err != nil || c.Value != token {
+			if err != nil || subtle.ConstantTimeCompare([]byte(c.Value), []byte(token)) != 1 {
 				http.Redirect(w, r, "/login", http.StatusSeeOther)
 				return
 			}
@@ -95,7 +96,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store, token string) {
 	})
 
 	mux.HandleFunc("POST /login", func(w http.ResponseWriter, r *http.Request) {
-		if r.FormValue("token") != token {
+		if subtle.ConstantTimeCompare([]byte(r.FormValue("token")), []byte(token)) != 1 {
 			render(w, "login", map[string]string{"Error": "invalid token"})
 			return
 		}
