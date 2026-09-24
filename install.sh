@@ -49,6 +49,15 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
+# Releases ship linux/amd64 and linux/arm64 binaries (see .goreleaser.yml) —
+# map uname -m to Go's arch names so both prebuilt-binary and build-from-source
+# fallback paths below fetch the right thing on ARM servers too.
+case "$(uname -m)" in
+  x86_64|amd64) HAKO_ARCH="amd64" ;;
+  aarch64|arm64) HAKO_ARCH="arm64" ;;
+  *) HAKO_ARCH="" ;;
+esac
+
 echo "==> installing dependencies (docker, git, railpack, buildkit)..."
 if ! command -v docker >/dev/null; then
   curl -fsSL https://get.docker.com | sh
@@ -84,14 +93,16 @@ else
     HAKO_VER="$(curl -fsSL "https://api.github.com/repos/${HAKO_REPO}/releases/latest" | grep -o '"tag_name": *"[^"]*"' | head -1 | cut -d'"' -f4 || true)"
   fi
   GOT_BIN=0
-  if [ -n "${HAKO_VER:-}" ]; then
-    echo "==> downloading hako $HAKO_VER..."
-    if curl -fsSL "https://github.com/${HAKO_REPO}/releases/download/${HAKO_VER}/hako-linux-amd64" -o /opt/hako/hako; then
+  if [ -n "${HAKO_VER:-}" ] && [ -n "$HAKO_ARCH" ]; then
+    echo "==> downloading hako $HAKO_VER ($HAKO_ARCH)..."
+    if curl -fsSL "https://github.com/${HAKO_REPO}/releases/download/${HAKO_VER}/hako-linux-${HAKO_ARCH}" -o /opt/hako/hako; then
       chmod +x /opt/hako/hako
       GOT_BIN=1
     else
-      echo "WARNING: no prebuilt binary for $HAKO_VER, will build from source."
+      echo "WARNING: no prebuilt binary for $HAKO_VER/$HAKO_ARCH, will build from source."
     fi
+  elif [ -n "${HAKO_VER:-}" ]; then
+    echo "WARNING: unrecognized CPU architecture $(uname -m), no prebuilt binary — will build from source."
   fi
   if [ "$GOT_BIN" != "1" ]; then
     echo "==> building hako from source..."
@@ -108,7 +119,7 @@ else
       fi
     fi
     if [ "$GO_OK" != "1" ]; then
-      GO_TGZ="go${GO_NEED}.linux-amd64.tar.gz"
+      GO_TGZ="go${GO_NEED}.linux-${HAKO_ARCH:-amd64}.tar.gz"
       curl -fsSL "https://go.dev/dl/${GO_TGZ}" -o /tmp/${GO_TGZ}
       rm -rf /usr/local/go
       tar -C /usr/local -xzf /tmp/${GO_TGZ}

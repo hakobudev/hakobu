@@ -1,0 +1,54 @@
+version: 2
+
+project_name: hako
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: hako
+    main: .
+    binary: hako
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/x0ryz/hako/cmd.version={{ .Version }}
+
+# Raw binaries, not tar/zip archives: install.sh downloads
+# hako-<os>-<arch> directly by name, no unpacking step.
+archives:
+  - id: hako
+    formats: [binary]
+    name_template: "hako-{{ .Os }}-{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^ci:'
+      - '^chore:'
+      - "^Merge pull request"
+      - "^Merge branch"
+  groups:
+    - title: "Features"
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 0
+    - title: "Bug fixes"
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 1
+    - title: "Other changes"
+      order: 999
+
+release:
+  name_template: "{{ .Tag }}"

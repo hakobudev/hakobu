@@ -7,9 +7,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// version is injected at build time via
+// -ldflags "-X github.com/x0ryz/hako/cmd.version=vX.Y.Z" (see .goreleaser.yml);
+// a plain `go build` leaves it as "dev".
+var version = "dev"
+
 var rootCmd = &cobra.Command{
-	Use:   "hako",
-	Short: "Self-hosted deployment tool",
+	Use:     "hako",
+	Short:   "Self-hosted deployment tool",
+	Version: version,
 }
 
 func Execute() {
