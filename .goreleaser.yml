@@ -1,15 +1,15 @@
 version: 2
 
-project_name: hako
+project_name: hakobu
 
 before:
   hooks:
     - go mod tidy
 
 builds:
-  - id: hako
+  - id: hakobu
     main: .
-    binary: hako
+    binary: hakobu
     env:
       - CGO_ENABLED=0
     goos:
@@ -18,14 +18,14 @@ builds:
       - amd64
       - arm64
     ldflags:
-      - -s -w -X github.com/x0ryz/hako/cmd.version={{ .Version }}
+      - -s -w -X github.com/x0ryz/hakobu/cmd.version={{ .Version }}
 
 # Raw binaries, not tar/zip archives: install.sh downloads
-# hako-<os>-<arch> directly by name, no unpacking step.
+# hakobu-<os>-<arch> directly by name, no unpacking step.
 archives:
-  - id: hako
+  - id: hakobu
     formats: [binary]
-    name_template: "hako-{{ .Os }}-{{ .Arch }}"
+    name_template: "hakobu-{{ .Os }}-{{ .Arch }}"
 
 checksum:
   name_template: "checksums.txt"

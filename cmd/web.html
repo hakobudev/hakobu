@@ -1,0 +1,582 @@
+{{define "head"}}<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{if .}}{{.}} · {{end}}Hakobu</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/htmx.org@2.0.3"></script>
+<script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {theme: {extend: {
+  fontFamily: {sans: ['Inter', 'ui-sans-serif', 'system-ui'], mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace']},
+  colors: {edge: '#e4e4e7', ink: '#18181b', dim: '#71717a', faint: '#a1a1aa', accent: '#6d5ef7', good: '#16a34a', warn: '#d97706', bad: '#dc2626', console: '#0a0a0b'},
+}}};
+
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg || 'Something went wrong';
+  el.hidden = false;
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.hidden = true, 8000);
+}
+document.addEventListener('htmx:responseError', e => toast(e.detail.xhr.responseText));
+document.addEventListener('htmx:sendError', () => toast('Network error'));
+
+// Key/value editor over the "KEY=value" text the server stores, with a raw
+// .env mode for pasting and optional suggestions from the repo's .env.example.
+function envEditor(seed, suggestURL) {
+  return {
+    mode: 'rows', rows: [], raw: '', suggestFile: '', suggestKeys: [],
+    init() {
+      this.parse(seed);
+      if (suggestURL) this.suggest(suggestURL);
+    },
+    parse(text) {
+      this.rows = text.split('\n').map(l => l.trim()).filter(Boolean).map(line => {
+        const i = line.indexOf('=');
+        return i === -1 ? {key: line, value: '', show: false} : {key: line.slice(0, i).trim(), value: line.slice(i + 1), show: false};
+      });
+    },
+    serialize() { return this.rows.filter(r => r.key.trim()).map(r => r.key.trim() + '=' + r.value).join('\n'); },
+    get value() { return this.mode === 'raw' ? this.raw : this.serialize(); },
+    toggle() {
+      if (this.mode === 'rows') { this.raw = this.serialize(); this.mode = 'raw'; }
+      else { this.parse(this.raw); this.mode = 'rows'; }
+    },
+    async suggest(url) {
+      try {
+        const data = await (await fetch(url)).json();
+        const have = new Set(this.rows.map(r => r.key.trim()));
+        this.suggestFile = data.file || '';
+        this.suggestKeys = (data.keys || []).filter(k => !have.has(k));
+      } catch (e) {}
+    },
+    add(key) {
+      this.rows.push({key, value: '', show: false});
+      this.suggestKeys = this.suggestKeys.filter(k => k !== key);
+    },
+  };
+}
+</script>
+<style type="text/tailwindcss">
+  [x-cloak] { display: none !important; }
+  .htmx-indicator { display: none; }
+  .htmx-request.htmx-indicator { display: block; }
+  body { @apply bg-white text-ink antialiased min-h-screen font-sans; }
+  .card { @apply border border-edge rounded-xl p-5 space-y-4; }
+  .input { @apply bg-white border border-edge rounded-lg px-3 py-1.5 text-sm placeholder-faint outline-none focus:border-accent/60 focus:ring-2 focus:ring-accent/20; }
+  .btn { @apply inline-flex items-center justify-center text-sm font-medium rounded-lg px-3.5 py-1.5 border border-edge bg-white hover:bg-zinc-50 transition-colors; }
+  .btn-pri { @apply inline-flex items-center justify-center text-sm font-medium rounded-lg px-3.5 py-1.5 bg-ink text-white hover:bg-zinc-700 transition-colors; }
+  .btn-danger { @apply inline-flex items-center justify-center text-sm font-medium rounded-lg px-3.5 py-1.5 border border-bad/30 text-bad hover:bg-red-50 transition-colors; }
+  .link { @apply text-xs text-dim hover:text-ink transition-colors; }
+  .label { @apply block text-xs text-dim mb-1; }
+  .mono { @apply font-mono text-[13px]; }
+  .console { @apply bg-console text-zinc-300 font-mono text-xs rounded-lg p-3 whitespace-pre-wrap overflow-x-auto; }
+  .h2 { @apply text-sm font-semibold; }
+  .row { @apply flex items-center justify-between gap-3 px-4 py-3 border border-edge rounded-xl hover:border-zinc-300 transition-colors; }
+  .tab { @apply pb-2.5 border-b-2 text-sm font-medium shrink-0 transition-colors; }
+  .htmx-request.btn, .htmx-request.btn-pri, .htmx-request .btn, .htmx-request .btn-pri, .htmx-request .btn-danger { @apply opacity-50 pointer-events-none; }
+</style>
+</head>
+<body hx-swap="none">
+<div id="toast" hidden class="fixed bottom-4 right-4 z-50 max-w-md bg-bad text-white text-sm rounded-lg px-4 py-3 shadow-lg whitespace-pre-wrap" onclick="this.hidden=true"></div>
+{{end}}
+
+{{define "nav"}}
+<div class="max-w-4xl mx-auto px-4 sm:px-6 py-6">
+<nav class="flex items-center justify-between mb-8 pb-4 border-b border-edge">
+  <a href="/" class="flex items-center gap-2 font-semibold"><span class="w-2 h-2 rounded-full bg-accent"></span>Hakobu</a>
+  <div class="flex gap-4 text-sm"><a href="/settings" class="text-dim hover:text-ink">Settings</a><a href="/logout" class="text-dim hover:text-ink">Sign out</a></div>
+</nav>
+{{end}}
+
+{{define "foot"}}</div></body></html>{{end}}
+
+{{define "status-dot"}}<span class="w-2 h-2 rounded-full shrink-0 {{if eq . "running"}}bg-good{{else if eq . "restarting"}}bg-warn{{else}}bg-bad{{end}}"></span>{{end}}
+
+{{/* Takes {Name, Value, SuggestURL}. */}}
+{{define "env-editor"}}
+<div x-data="envEditor($el.dataset.seed, $el.dataset.suggest)" data-seed="{{.Value}}" data-suggest="{{.SuggestURL}}">
+  <input type="hidden" name="{{.Name}}" :value="value">
+  <div x-show="mode==='rows' && suggestKeys.length" x-cloak class="flex flex-wrap items-center gap-2 mb-2 text-xs bg-accent/5 border border-accent/20 rounded-lg px-3 py-2">
+    <span class="text-dim">In <span x-text="suggestFile" class="mono"></span>:</span>
+    <template x-for="k in suggestKeys" :key="k">
+      <button type="button" @click="add(k)" class="mono bg-white border border-edge rounded px-1.5 hover:border-accent" x-text="'+ ' + k"></button>
+    </template>
+  </div>
+  <div x-show="mode==='rows'" class="space-y-1.5">
+    <template x-for="(row, i) in rows" :key="i">
+      <div class="flex gap-1.5 items-center">
+        <input x-model="row.key" placeholder="KEY" class="input mono w-2/5 py-1">
+        <input :type="row.show ? 'text' : 'password'" x-model="row.value" placeholder="value" class="input mono flex-1 py-1">
+        <button type="button" @click="row.show = !row.show" class="link w-8" x-text="row.show ? 'hide' : 'show'"></button>
+        <button type="button" @click="rows.splice(i, 1)" class="link hover:text-bad" aria-label="Remove">✕</button>
+      </div>
+    </template>
+    <button type="button" @click="add('')" class="link">+ Add variable</button>
+  </div>
+  <textarea x-show="mode==='raw'" x-cloak x-model="raw" rows="8" placeholder="KEY=value" class="input mono w-full"></textarea>
+  <div class="text-right"><button type="button" @click="toggle()" class="link" x-text="mode==='rows' ? 'Edit as .env' : 'Back to list'"></button></div>
+</div>
+{{end}}
+
+{{/* Takes {Zones, Sub, Zone, Domain}. A domain outside the listed zones (or no
+     zones at all) gets a plain text field, so saving never drops it. */}}
+{{define "domain-field"}}
+{{if and .Zones (or .Zone (not .Domain))}}
+<div class="flex items-center gap-1.5">
+  <input name="sub" {{if .Model}}x-model="sub" @input="subEdited = true"{{else}}value="{{.Sub}}"{{end}} placeholder="(root)" class="input mono w-2/5">
+  <span class="text-faint">.</span>
+  <select name="zone" class="input mono flex-1">
+    <option value="">private, no domain</option>
+    {{range .Zones}}<option value="{{.}}" {{if eq . $.Zone}}selected{{end}}>{{.}}</option>{{end}}
+  </select>
+</div>
+{{else}}
+<input name="domain" value="{{.Domain}}" placeholder="app.example.com" class="input w-full mono">
+{{end}}
+{{end}}
+
+{{define "login"}}{{template "head" "Sign in"}}
+<div class="min-h-screen flex items-center justify-center px-4">
+  <div class="card w-full max-w-sm">
+    <div class="flex items-center gap-2 font-semibold"><span class="w-2 h-2 rounded-full bg-accent"></span>Hakobu</div>
+    {{if .Error}}<p class="text-sm text-bad">{{.Error}}</p>{{end}}
+    {{if .Connected}}
+    <a href="/auth/login" class="btn-pri w-full">Sign in with GitHub</a>
+    {{else}}
+    <p class="text-sm text-dim">Setup isn't finished. Open the setup link the installer printed (<span class="mono">journalctl -u hakobu | grep setup</span>).</p>
+    {{end}}
+  </div>
+</div>
+</body></html>{{end}}
+
+{{define "setup"}}{{template "head" "Setup"}}
+<div class="min-h-screen flex items-center justify-center px-4">
+  <div class="card w-full max-w-md">
+    <h1 class="font-semibold">Connect GitHub</h1>
+    {{if .Manifest}}
+    <p class="text-sm text-dim">This creates a private GitHub App for <span class="mono">{{.PublicHost}}</span>. It's used to sign in to this panel, clone your repos and deploy on push. You'll then sign in and become the owner.</p>
+    <form method="post" action="https://github.com/settings/apps/new">
+      <input type="hidden" name="manifest" value="{{.Manifest}}">
+      <input type="hidden" name="state" value="{{.State}}">
+      <button class="btn-pri w-full">Connect GitHub</button>
+    </form>
+    {{else}}
+    <p class="text-sm text-bad">No public host is configured. Re-run the installer, or start the agent with <span class="mono">--public-host</span>.</p>
+    {{end}}
+  </div>
+</div>
+</body></html>{{end}}
+
+{{define "home"}}{{template "head" ""}}{{template "nav"}}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-lg font-semibold">Projects</h1>
+</div>
+<div class="space-y-2 mb-6">
+  {{range .Projects}}
+  <a href="/projects/{{.Name}}" class="row"><span class="font-medium">{{.Name}}</span><span class="text-faint">→</span></a>
+  {{else}}
+  <p class="text-sm text-faint">No projects yet.</p>
+  {{end}}
+</div>
+<form hx-post="/projects" class="flex gap-2">
+  <input name="name" placeholder="new project name" required class="input flex-1">
+  <button class="btn-pri">Create project</button>
+</form>
+{{template "foot"}}{{end}}
+
+{{define "project"}}{{template "head" .Project.Name}}{{template "nav"}}
+<div x-data="{appModal:false}">
+<div class="flex items-center justify-between gap-3 mb-8">
+  <div>
+    <a href="/" class="link">← Projects</a>
+    <h1 class="text-xl font-semibold">{{.Project.Name}}</h1>
+  </div>
+  <button hx-delete="/projects/{{.Project.Name}}" hx-confirm="Delete project {{.Project.Name}} with all its apps, databases (data is lost) and storages?" class="btn-danger">Delete project</button>
+</div>
+
+<section class="space-y-3 mb-10">
+  <div class="flex items-center justify-between">
+    <h2 class="h2">Apps</h2>
+    <button @click="appModal=true" hx-get="/projects/{{.Project.Name}}/new-app" hx-target="#new-app" hx-swap="innerHTML" class="btn">+ New app</button>
+  </div>
+  {{range .Apps}}
+  <a href="/apps/{{.Name}}" class="row">
+    <span class="flex items-center gap-3 min-w-0">
+      {{template "status-dot" .Status}}
+      <span class="font-medium">{{.Name}}</span>
+      <span class="mono text-faint truncate hidden sm:inline">{{.Repo}}</span>
+    </span>
+    <span class="text-xs text-dim shrink-0">{{if .Deploying}}deploying…{{else if publicURL .App}}{{publicURL .App}}{{else}}{{.Status}}{{end}}</span>
+  </a>
+  {{else}}
+  <p class="text-sm text-faint">No apps yet — add one from a GitHub repo.</p>
+  {{end}}
+</section>
+
+<section class="space-y-3 mb-10">
+  <h2 class="h2">Databases <span class="font-normal text-faint">· PostgreSQL</span></h2>
+  {{range .Databases}}
+  <a href="/databases/{{.Name}}" class="row"><span class="font-medium mono">{{.Name}}</span><span class="text-faint">→</span></a>
+  {{end}}
+  <form hx-post="/projects/{{.Project.Name}}/databases" class="flex gap-2">
+    <input name="name" placeholder="database name, e.g. main" required class="input flex-1">
+    <button class="btn">Create database</button>
+  </form>
+</section>
+
+<section class="space-y-3 mb-10">
+  <h2 class="h2">Storages <span class="font-normal text-faint">· S3-compatible buckets</span></h2>
+  {{range .Storages}}
+  <div class="row">
+    <span class="flex items-center gap-2 min-w-0"><span class="font-medium mono">{{.Name}}</span><span class="text-xs text-faint truncate">{{.Provider}} · {{.Bucket}}</span></span>
+    <button hx-delete="/storages/{{.Name}}" hx-confirm="Remove storage {{.Name}} from hakobu? The bucket and its files are not deleted." class="link hover:text-bad">Remove</button>
+  </div>
+  {{end}}
+  <details class="card">
+    <summary class="cursor-pointer text-sm font-medium">+ Add storage</summary>
+    <form hx-post="/projects/{{.Project.Name}}/storages" x-data="{provider:'rustfs'}" class="space-y-2">
+      <input name="name" placeholder="name, e.g. files" required class="input w-full">
+      <select name="provider" x-model="provider" class="input w-full">
+        <option value="rustfs">Self-hosted on this server (RustFS)</option>
+        <option value="r2">Cloudflare R2</option>
+        <option value="s3">S3-compatible (AWS, MinIO, …)</option>
+      </select>
+      <div x-show="provider!=='rustfs'" x-cloak class="space-y-2">
+        <input name="account_id" placeholder="Cloudflare account ID" x-show="provider==='r2'" class="input w-full mono">
+        <input name="endpoint" placeholder="Endpoint URL" x-show="provider==='s3'" class="input w-full mono">
+        <input name="bucket" placeholder="Bucket" class="input w-full mono">
+        <input name="access_key_id" placeholder="Access key ID" class="input w-full mono">
+        <input name="secret_access_key" type="password" placeholder="Secret access key" class="input w-full mono">
+        <input name="region" placeholder="Region (default: auto)" class="input w-full mono">
+      </div>
+      <button class="btn-pri">Add storage</button>
+    </form>
+  </details>
+</section>
+
+<section class="space-y-3">
+  <div>
+    <h2 class="h2">Shared variables</h2>
+    <p class="text-xs text-faint">Passed to every app and worker in this project. Service variables on an app override them. Applied on the next deploy.</p>
+  </div>
+  <form hx-post="/projects/{{.Project.Name}}/env" class="space-y-2">
+    {{template "env-editor" (dict "Name" "env" "Value" .Project.SharedEnv "SuggestURL" "")}}
+    <button class="btn">Save shared variables</button>
+  </form>
+</section>
+
+<div x-show="appModal" x-cloak @keydown.escape.window="appModal=false" class="fixed inset-0 z-40 flex items-start justify-center p-4 pt-24">
+  <div class="absolute inset-0 bg-ink/25" @click="appModal=false"></div>
+  <div class="relative card bg-white w-full max-w-md shadow-xl">
+    <div class="flex items-center justify-between"><h2 class="font-semibold">New app</h2><button @click="appModal=false" class="link">✕</button></div>
+    <div id="new-app"><p class="text-sm text-faint">Loading repositories…</p></div>
+  </div>
+</div>
+</div>
+{{template "foot"}}{{end}}
+
+{{define "new-app"}}
+<form hx-post="/projects/{{.Project}}/apps" class="space-y-4"
+  x-data="{repo: '', name: '', nameEdited: false, sub: '', subEdited: false}"
+  x-effect="if (!nameEdited) name = repo.split('/').pop().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^[^a-z]+/, '');
+            if (!subEdited) sub = name">
+  <div>
+    <label class="label">Repository</label>
+    {{if .Repos}}
+    <select name="repo" x-model="repo" required class="input w-full"
+      hx-post="/projects/{{.Project}}/apps/scan" hx-trigger="change" hx-target="#presets" hx-swap="innerHTML" hx-indicator="#scanning">
+      <option value="" disabled selected>Select a repository…</option>
+      {{range .Repos}}<option value="{{.}}">{{.}}</option>{{end}}
+    </select>
+    {{else}}
+    <input name="repo" x-model="repo" placeholder="owner/repo" required class="input w-full mono"
+      hx-post="/projects/{{.Project}}/apps/scan" hx-trigger="change" hx-target="#presets" hx-swap="innerHTML" hx-indicator="#scanning">
+    {{if .RepoError}}<p class="text-xs text-bad mt-1">Couldn't list repositories: {{.RepoError}}</p>{{end}}
+    {{end}}
+    {{if .InstallURL}}<p class="text-xs text-faint mt-1">Repo missing? <a href="{{.InstallURL}}" target="_blank" class="underline">Give the GitHub App access to it</a>, then reopen this dialog.</p>{{end}}
+  </div>
+
+  <div>
+    <label class="label">Build</label>
+    <p id="scanning" class="htmx-indicator text-sm text-faint">Detecting the stack…</p>
+    <div id="presets"><p class="text-sm text-faint" x-show="!repo">Pick a repository first.</p></div>
+  </div>
+
+  <div>
+    <label class="label">App name</label>
+    <input name="name" x-model="name" @input="nameEdited = true" required class="input w-full">
+  </div>
+
+  <div>
+    <label class="label">Address</label>
+    {{template "domain-field" (dict "Zones" .Zones "Zone" .DefaultZone "Model" true)}}
+    <p class="text-xs text-faint mt-1">Hakobu adds the DNS record in Cloudflare; HTTPS works right away. Leave the subdomain empty for the root domain.</p>
+  </div>
+
+  <p class="text-xs text-faint">The port is detected when the app starts; it also gets <span class="mono">PORT</span> to listen on.</p>
+  <button class="btn-pri w-full">Create and deploy</button>
+</form>
+{{end}}
+
+{{define "presets"}}
+{{if .Error}}<p class="text-sm text-bad">{{.Error}}</p>{{end}}
+<div class="space-y-1.5">
+  {{range $i, $p := .Presets}}
+  <label class="flex items-start gap-2 text-sm border border-edge rounded-lg px-3 py-2 cursor-pointer has-[:checked]:border-ink">
+    <input type="radio" name="preset" value="{{$p.Path}}::{{$p.Strategy}}" {{if eq $i 0}}checked{{end}} required class="mt-1">
+    <span>
+      <span class="font-medium">{{if eq $p.Strategy "dockerfile"}}Dockerfile{{else}}{{$p.Stack}}{{end}}</span>
+      <span class="mono text-faint">{{if eq $p.Path "."}}/{{else}}{{$p.Path}}/{{end}}</span><br>
+      <span class="text-xs text-dim">{{if eq $p.Strategy "dockerfile"}}{{if $p.Stack}}{{$p.Stack}} · {{end}}built from its Dockerfile{{if $p.Port}} · EXPOSE {{$p.Port}}{{end}}{{else}}built automatically by Railpack{{end}}</span>
+    </span>
+  </label>
+  {{end}}
+</div>
+{{end}}
+
+{{define "app-status"}}
+<span id="app-status" hx-get="/apps/{{.Name}}/status" hx-trigger="every 3s" hx-swap="outerHTML" class="inline-flex items-center gap-1.5 text-xs text-dim">
+  {{if .Deploying}}<span class="w-2 h-2 rounded-full bg-accent animate-pulse"></span>deploying…
+  {{else}}{{template "status-dot" .Status}}{{.Status}}{{if gt .Restarts 0}} <span class="text-warn">· {{.Restarts}} restarts</span>{{end}}{{end}}
+</span>
+{{end}}
+
+{{define "app"}}{{template "head" .App.Name}}{{template "nav"}}
+<div x-data="{tab: location.hash.slice(1) || 'overview'}" x-init="$watch('tab', t => history.replaceState(null, '', '#' + t))">
+<a href="/projects/{{.App.ProjectName}}" class="link">← {{.App.ProjectName}}</a>
+<div class="flex flex-wrap items-center justify-between gap-3 mt-1 mb-6">
+  <div class="min-w-0">
+    <div class="flex items-center gap-3"><h1 class="text-xl font-semibold">{{.App.Name}}</h1>{{template "app-status" .App}}</div>
+    <p class="mono text-faint truncate">{{.App.Repo}}{{if and .App.BuildPath (ne .App.BuildPath ".")}} · {{.App.BuildPath}}{{end}}</p>
+  </div>
+  <div class="flex gap-2">
+    <button hx-post="/apps/{{.App.Name}}/rollback" hx-confirm="Roll back to the build before the latest one?" class="btn">Rollback</button>
+    <button hx-post="/apps/{{.App.Name}}/deploy" class="btn-pri">Redeploy</button>
+  </div>
+</div>
+
+<div class="flex gap-5 border-b border-edge mb-6 overflow-x-auto">
+  {{range $t := list "overview" "variables" "deployments" "output" "errors" "worker"}}
+  <button type="button" @click="tab='{{$t}}'" :class="tab==='{{$t}}' ? 'text-ink border-ink' : 'text-faint border-transparent hover:text-ink'" class="tab capitalize">{{$t}}</button>
+  {{end}}
+</div>
+
+<div x-show="tab==='overview'" class="space-y-6">
+  <form hx-post="/apps/{{.App.Name}}/settings" class="card">
+    <div class="flex items-center justify-between gap-3">
+      <h2 class="h2">Settings</h2>
+      {{with publicURL .App.App}}<a href="{{.}}" target="_blank" class="text-sm text-accent hover:underline mono truncate">{{.}}</a>{{end}}
+    </div>
+    <div class="grid sm:grid-cols-2 gap-3">
+      <div class="sm:col-span-2"><label class="label">Address</label>{{template "domain-field" (dict "Zones" .Zones "Sub" .Sub "Zone" .Zone "Domain" .App.Domain)}}</div>
+      <div><label class="label">Port</label><input name="container_port" type="number" value="{{if .App.ContainerPort}}{{.App.ContainerPort}}{{end}}" placeholder="auto{{if .App.LivePort}} ({{.App.LivePort}}){{end}}" class="input w-full mono"></div>
+      <div><label class="label">Health check path</label><input name="health_check_path" value="{{.App.HealthCheckPath}}" placeholder="/" class="input w-full mono"></div>
+    </div>
+    <p class="text-xs text-faint">Hakobu manages the DNS record in Cloudflare; a private app is only reachable on the server at <span class="mono">127.0.0.1:{{.App.Port}}</span>. Leave the port empty to use whatever port the app listens on. A new deploy goes live only after the health check path answers: any response for "/", a 2xx for anything else.</p>
+    <button class="btn">Save</button>
+  </form>
+
+  <form hx-post="/apps/{{.App.Name}}/links" class="card">
+    <h2 class="h2">Resources</h2>
+    <div class="grid sm:grid-cols-2 gap-3">
+      <div>
+        <label class="label">Database</label>
+        <select name="database" class="input w-full">
+          <option value="">none</option>
+          {{range .Databases}}<option value="{{.Name}}" {{if eq .Name $.App.LinkedDB}}selected{{end}}>{{.Name}}</option>{{end}}
+        </select>
+      </div>
+      <div>
+        <label class="label">Storage</label>
+        <select name="storage" class="input w-full">
+          <option value="">none</option>
+          {{range .Storages}}<option value="{{.Name}}" {{if eq .Name $.App.LinkedStorage}}selected{{end}}>{{.Name}} ({{.Provider}})</option>{{end}}
+        </select>
+      </div>
+    </div>
+    <p class="text-xs text-faint">Injects <span class="mono">DATABASE_URL</span>/<span class="mono">POSTGRES_*</span> and <span class="mono">S3_*</span> variables on the next deploy. Create databases and storages on the <a href="/projects/{{.App.ProjectName}}" class="underline">project page</a>.</p>
+    <button class="btn">Save</button>
+  </form>
+
+  <div class="flex justify-end">
+    <button hx-delete="/apps/{{.App.Name}}" hx-confirm="Delete app {{.App.Name}}? Its containers are stopped and removed." class="btn-danger">Delete app</button>
+  </div>
+</div>
+
+<div x-show="tab==='variables'" x-cloak class="space-y-6">
+  <form hx-post="/apps/{{.App.Name}}/env" class="space-y-2">
+    <div><h2 class="h2">Service variables</h2><p class="text-xs text-faint">Only for this app; they override shared variables. Applied on the next deploy.</p></div>
+    {{template "env-editor" (dict "Name" "env" "Value" .App.Env "SuggestURL" (printf "/apps/%s/env/suggest" .App.Name))}}
+    <button class="btn">Save</button>
+  </form>
+  <div class="space-y-2">
+    <div class="flex items-center justify-between"><h2 class="h2">Shared variables</h2><a href="/projects/{{.App.ProjectName}}" class="link">edit on the project →</a></div>
+    <pre class="console">{{if .Project.SharedEnv}}{{.Project.SharedEnv}}{{else}}(none){{end}}</pre>
+  </div>
+  <div class="space-y-2">
+    <h2 class="h2">Effective environment</h2>
+    {{if .EnvError}}<p class="text-sm text-bad">{{.EnvError}}</p>{{end}}
+    <div class="space-y-1">
+      {{range .Effective}}
+      <div class="flex gap-2 items-center mono" x-data="{show:false}">
+        <span class="w-2/5 truncate" title="{{.Key}}">{{.Key}}</span>
+        <span class="flex-1 truncate" :class="show ? '' : 'text-faint'" data-v="{{.Value}}" x-text="show ? $el.dataset.v : '••••••••'"></span>
+        <button type="button" @click="show=!show" class="link w-8" x-text="show ? 'hide' : 'show'"></button>
+      </div>
+      {{end}}
+    </div>
+  </div>
+</div>
+
+<div x-show="tab==='deployments'" x-cloak>
+  <div hx-get="/apps/{{.App.Name}}/deploys" hx-trigger="load" hx-swap="outerHTML"></div>
+</div>
+
+<div x-show="tab==='output'" x-cloak class="space-y-2">
+  <div class="flex justify-between items-center"><span class="text-xs text-faint">Last 300 lines of the running container's stdout/stderr</span>
+  <button class="link" hx-get="/apps/{{.App.Name}}/output" hx-target="#output" hx-swap="innerHTML">↻ Refresh</button></div>
+  <div id="output" hx-get="/apps/{{.App.Name}}/output" hx-trigger="load" hx-swap="innerHTML"></div>
+</div>
+
+<div x-show="tab==='errors'" x-cloak class="space-y-2">
+  <p class="text-xs text-faint">Errors and logs sent by a Sentry SDK using the injected <span class="mono">SENTRY_DSN</span>.</p>
+  <div hx-get="/apps/{{.App.Name}}/errors" hx-trigger="load" hx-swap="innerHTML"></div>
+</div>
+
+<div x-show="tab==='worker'" x-cloak class="space-y-6">
+  <p class="text-xs text-faint">A background process running the same image as the app with its own start command and no port. It restarts after every deploy.</p>
+  {{with .Worker}}
+  <div class="flex items-center justify-between">
+    <span class="inline-flex items-center gap-2 text-sm">{{template "status-dot" $.WorkerStatus}}{{.Name}} <span class="text-dim">{{$.WorkerStatus}}</span></span>
+    <div class="flex gap-2">
+      <button hx-post="/apps/{{$.App.Name}}/worker/restart" class="btn">Restart</button>
+      <button hx-delete="/apps/{{$.App.Name}}/worker" hx-confirm="Delete the worker?" class="btn-danger">Delete</button>
+    </div>
+  </div>
+  {{end}}
+  <form hx-post="/apps/{{.App.Name}}/worker" class="card">
+    <div class="grid sm:grid-cols-3 gap-3">
+      <div><label class="label">Name</label><input name="name" value="{{with .Worker}}{{.Name}}{{else}}worker{{end}}" required class="input w-full"></div>
+      <div class="sm:col-span-2"><label class="label">Start command</label><input name="command" value="{{with .Worker}}{{.Command}}{{end}}" placeholder="e.g. celery -A app worker" required class="input w-full mono"></div>
+    </div>
+    <div>
+      <label class="label">Worker variables (on top of shared variables and linked resources)</label>
+      {{template "env-editor" (dict "Name" "env" "Value" (or (and .Worker .Worker.Env) "") "SuggestURL" "")}}
+    </div>
+    <button class="btn">{{if .Worker}}Save and restart{{else}}Create worker{{end}}</button>
+  </form>
+  {{if .Worker}}
+  <div class="space-y-2">
+    <div class="flex justify-between items-center"><h2 class="h2">Worker output</h2>
+    <button class="link" hx-get="/apps/{{.App.Name}}/output?worker=1" hx-target="#worker-output" hx-swap="innerHTML">↻ Refresh</button></div>
+    <div id="worker-output" hx-get="/apps/{{.App.Name}}/output?worker=1" hx-trigger="load" hx-swap="innerHTML"></div>
+  </div>
+  {{end}}
+</div>
+</div>
+{{template "foot"}}{{end}}
+
+{{define "deploys"}}
+<div class="space-y-3" {{if .Running}}hx-get="/apps/{{.App}}/deploys" hx-trigger="every 2s" hx-swap="outerHTML"{{end}}>
+  {{range .Logs}}
+  <details class="border border-edge rounded-xl" {{if eq .Status "running"}}open{{end}}>
+    <summary class="cursor-pointer flex items-center justify-between px-4 py-3 text-sm">
+      <span class="flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full {{if eq .Status "success"}}bg-good{{else if eq .Status "running"}}bg-accent animate-pulse{{else}}bg-bad{{end}}"></span>
+        <span class="font-medium">{{.Status}}</span><span class="text-dim">· {{.Trigger}}</span>
+      </span>
+      <span class="mono text-faint">{{.CreatedAt}}</span>
+    </summary>
+    <pre class="console rounded-t-none max-h-[32rem] overflow-y-auto">{{.Output}}</pre>
+  </details>
+  {{else}}
+  <p class="text-sm text-faint">No deploys yet.</p>
+  {{end}}
+</div>
+{{end}}
+
+{{define "output"}}<pre class="console max-h-[32rem] overflow-y-auto">{{if .}}{{.}}{{else}}(no output){{end}}</pre>{{end}}
+
+{{define "errors"}}
+<div class="space-y-2">
+  {{range .}}
+  <div class="console">
+    <p class="text-zinc-500">{{.CreatedAt}} · <span class="{{if eq .Kind "error"}}text-red-400{{end}}">{{.Kind}}</span>{{if .Level}} · {{.Level}}{{end}}</p>
+    <p class="mt-1">{{.Message}}</p>
+  </div>
+  {{else}}
+  <p class="text-sm text-faint">Nothing received yet.</p>
+  {{end}}
+</div>
+{{end}}
+
+{{define "database"}}{{template "head" .DB.Name}}{{template "nav"}}
+{{with .Project}}<a href="/projects/{{.Name}}" class="link">← {{.Name}}</a>{{end}}
+<div class="flex flex-wrap items-center justify-between gap-3 mt-1 mb-6">
+  <div class="flex items-center gap-3">
+    <h1 class="text-xl font-semibold mono">{{.DB.Name}}</h1>
+    <span class="inline-flex items-center gap-1.5 text-xs text-dim">{{if .Ready}}<span class="w-2 h-2 rounded-full bg-good"></span>ready{{else}}<span class="w-2 h-2 rounded-full bg-bad"></span>not responding{{end}}</span>
+  </div>
+  <button hx-delete="/databases/{{.DB.Name}}" hx-confirm="Delete database {{.DB.Name}}? All its data is permanently lost." class="btn-danger">Delete database</button>
+</div>
+
+<div class="space-y-6">
+  <div class="card">
+    <h2 class="h2">Connection</h2>
+    <p class="text-xs text-faint">Used by: {{range $i, $a := .UsedBy}}{{if $i}}, {{end}}<a href="/apps/{{$a}}" class="underline">{{$a}}</a>{{else}}no apps — link it from an app's Overview.{{end}} Reachable from apps only (host <span class="mono">hakobu-postgres</span> on the internal docker network).</p>
+    <div x-data="{show:false}">
+      <button type="button" @click="show=!show" class="link" x-text="show ? 'Hide variables' : 'Show variables'"></button>
+      <pre x-show="show" x-cloak class="console mt-2">{{range .Env}}{{.Key}}={{.Value}}
+{{end}}</pre>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="flex items-center justify-between">
+      <h2 class="h2">Backups</h2>
+      {{if .DB.BackupStorage}}<button hx-post="/databases/{{.DB.Name}}/backups" class="btn">Back up now</button>{{end}}
+    </div>
+    <form hx-post="/databases/{{.DB.Name}}/backup-storage" class="flex gap-2 items-center">
+      <select name="storage" class="input flex-1">
+        <option value="">no backups</option>
+        {{range .Storages}}<option value="{{.Name}}" {{if eq .Name $.DB.BackupStorage}}selected{{end}}>daily to {{.Name}} ({{.Provider}} · {{.Bucket}})</option>{{end}}
+      </select>
+      <button class="btn">Save</button>
+    </form>
+    {{if not .Storages}}<p class="text-xs text-faint">Add a storage to the project to enable backups.</p>{{end}}
+    <div class="space-y-1.5">
+      {{range .Backups}}
+      <div class="flex items-center justify-between gap-3 text-xs">
+        <span class="mono truncate" title="{{.ObjectKey}}">{{.CreatedAt}} · {{mb .SizeBytes}}</span>
+        <button hx-post="/databases/{{$.DB.Name}}/restore" hx-vals='{"object_key": "{{.ObjectKey}}"}' hx-confirm="Restore this backup into {{$.DB.Name}}? If existing rows conflict, the restore fails and nothing changes." class="link">Restore</button>
+      </div>
+      {{end}}
+    </div>
+  </div>
+</div>
+{{template "foot"}}{{end}}
+
+{{define "settings"}}{{template "head" "Settings"}}{{template "nav"}}
+<h1 class="text-xl font-semibold mb-6">Settings</h1>
+<div class="space-y-6">
+  <div class="card">
+    <h2 class="h2">Panel</h2>
+    <p class="text-sm text-dim">Public URL: <span class="mono">https://{{.PublicHost}}</span></p>
+    {{if .GitHubSlug}}<p class="text-sm text-dim">GitHub App: <a href="https://github.com/apps/{{.GitHubSlug}}" target="_blank" class="underline mono">{{.GitHubSlug}}</a> · <a href="https://github.com/apps/{{.GitHubSlug}}/installations/new" target="_blank" class="underline">manage repository access</a></p>{{end}}
+  </div>
+  <form hx-post="/settings/access" class="card">
+    <h2 class="h2">Who can sign in</h2>
+    <p class="text-sm text-dim">Owner: <span class="mono">{{.Owner}}</span></p>
+    <div>
+      <label class="label">Other GitHub usernames, comma-separated</label>
+      <input name="allowed_logins" value="{{.Allowed}}" placeholder="teammate1, teammate2" class="input w-full mono">
+    </div>
+    <button class="btn">Save</button>
+  </form>
+</div>
+{{template "foot"}}{{end}}

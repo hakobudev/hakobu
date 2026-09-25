@@ -1,125 +1,88 @@
 package ops
 
 import (
-	"context"
 	"fmt"
 	"time"
 
-	"github.com/x0ryz/hako/internal/backup"
-	"github.com/x0ryz/hako/internal/store"
+	"github.com/x0ryz/hakobu/internal/backup"
+	"github.com/x0ryz/hakobu/internal/store"
 )
 
-// backupObjectKey namespaces every database's backups under its own
-// prefix, timestamped so nothing ever collides and listing naturally comes
-// back newest-last.
-func backupObjectKey(dbName string, at time.Time) string {
-	return fmt.Sprintf("backups/%s/%s.sql.gz", dbName, at.UTC().Format("20060102-150405"))
+func SetBackupStorage(s *store.Store, dbName, storageName string) error {
+	d, err := s.GetDatabase(ctx(), dbName)
+	if err != nil {
+		return err
+	}
+	if storageName != "" {
+		st, err := s.GetStorage(ctx(), storageName)
+		if err != nil || st.ProjectID != d.ProjectID {
+			return fmt.Errorf("storage %q not found in this project", storageName)
+		}
+	}
+	return s.SetDatabaseBackupStorage(ctx(), store.SetDatabaseBackupStorageParams{Name: dbName, BackupStorage: storageName})
 }
 
-// SetDatabaseBackupStorage picks which storage dbName's backups upload to
-// — chosen per database, right where its backups live, since different
-// databases often want different buckets.
-func SetDatabaseBackupStorage(s *store.Store, dbName, storageName string) error {
-	if _, err := s.GetDatabase(dbName); err != nil {
-		return fmt.Errorf("database %q not found: %w", dbName, err)
+func backupClient(s *store.Store, d store.Database) (*backup.Client, error) {
+	if d.BackupStorage == "" {
+		return nil, fmt.Errorf("pick a backup storage for %s first", d.Name)
 	}
-	if _, err := s.GetStorage(storageName); err != nil {
-		return fmt.Errorf("storage %q not found: %w", storageName, err)
+	st, err := s.GetStorage(ctx(), d.BackupStorage)
+	if err != nil {
+		return nil, err
 	}
-	return s.SetDatabaseBackupStorage(dbName, storageName)
+	return hostClient(st)
 }
 
-// BackupDatabase dumps dbName via pg_dump and uploads the gzip-compressed
-// result to whatever storage was picked for it (see
-// SetDatabaseBackupStorage), recording it in the local backups table so
-// the dashboard can list history without an API round trip.
-func BackupDatabase(s *store.Store, dbName string) (objectKey string, sizeBytes int, err error) {
-	db, err := s.GetDatabase(dbName)
+// BackupDatabase uploads a gzipped pg_dump to the database's backup storage.
+func BackupDatabase(s *store.Store, dbName string) error {
+	d, err := s.GetDatabase(ctx(), dbName)
 	if err != nil {
-		return "", 0, fmt.Errorf("database %q not found: %w", dbName, err)
+		return err
 	}
-	if db.BackupStorage == "" {
-		return "", 0, fmt.Errorf("no backup storage picked for %q yet — pick one on its Backups panel first", dbName)
-	}
-
-	ctx := context.Background()
-	st, err := s.GetStorage(db.BackupStorage)
+	client, err := backupClient(s, d)
 	if err != nil {
-		return "", 0, fmt.Errorf("backup storage %q not found: %w", db.BackupStorage, err)
+		return err
 	}
-	hostSt, err := hostReachableStorage(ctx, *st)
+	dump, err := backup.DumpDatabase(ctx(), PostgresContainer, d.User, d.Name)
 	if err != nil {
-		return "", 0, err
+		return err
 	}
-
-	dump, err := backup.DumpDatabase(ctx, db.ContainerName, db.DBUser, db.DBName)
-	if err != nil {
-		return "", 0, err
+	key := fmt.Sprintf("backups/%s/%s.sql.gz", d.Name, time.Now().UTC().Format("20060102-150405"))
+	if err := client.PutObject(key, dump, "application/gzip"); err != nil {
+		return err
 	}
-
-	objectKey = backupObjectKey(dbName, time.Now())
-	if err := backup.NewClient(hostSt).PutObject(objectKey, dump, "application/gzip"); err != nil {
-		return "", 0, err
-	}
-
-	if err := s.CreateBackup(store.Backup{Database: dbName, ObjectKey: objectKey, SizeBytes: int64(len(dump))}); err != nil {
-		return "", 0, err
-	}
-
-	return objectKey, len(dump), nil
+	return s.CreateBackup(ctx(), store.CreateBackupParams{Database: d.Name, ObjectKey: key, SizeBytes: int64(len(dump))})
 }
 
-// RestoreDatabase downloads objectKey (from dbName's own backup storage)
-// and restores it into dbName. See backup.RestoreDatabase for what
-// "restore" actually does to existing data.
+// RestoreDatabase replays a backup into the database. The dump is plain SQL,
+// so rows that already exist cause errors rather than being overwritten.
 func RestoreDatabase(s *store.Store, dbName, objectKey string) error {
-	db, err := s.GetDatabase(dbName)
-	if err != nil {
-		return fmt.Errorf("database %q not found: %w", dbName, err)
-	}
-	if db.BackupStorage == "" {
-		return fmt.Errorf("no backup storage picked for %q yet — pick one on its Backups panel first", dbName)
-	}
-
-	ctx := context.Background()
-	st, err := s.GetStorage(db.BackupStorage)
-	if err != nil {
-		return fmt.Errorf("backup storage %q not found: %w", db.BackupStorage, err)
-	}
-	hostSt, err := hostReachableStorage(ctx, *st)
+	d, err := s.GetDatabase(ctx(), dbName)
 	if err != nil {
 		return err
 	}
-
-	dump, err := backup.NewClient(hostSt).GetObject(objectKey)
+	client, err := backupClient(s, d)
 	if err != nil {
 		return err
 	}
-
-	return backup.RestoreDatabase(ctx, db.ContainerName, db.DBUser, db.DBName, dump)
+	dump, err := client.GetObject(objectKey)
+	if err != nil {
+		return err
+	}
+	return backup.RestoreDatabase(ctx(), PostgresContainer, d.User, d.Name, dump)
 }
 
-func ListBackups(s *store.Store, dbName string) ([]store.Backup, error) {
-	return s.ListBackups(dbName, 30)
-}
-
-// BackupAllDatabases runs BackupDatabase for every database that has a
-// backup storage picked — the daily scheduled job (see cmd/agent.go's
-// runBackupScheduler) calls this. A per-database failure is reported but
-// doesn't stop the others from being attempted; a database with no
-// storage picked yet is silently skipped, not an error.
-func BackupAllDatabases(s *store.Store) (results map[string]error) {
-	results = map[string]error{}
-	databases, err := s.ListDatabases()
+// BackupAll backs up every database that has a backup storage.
+func BackupAll(s *store.Store) map[string]error {
+	results := map[string]error{}
+	dbs, err := s.ListDatabases(ctx())
 	if err != nil {
 		return results
 	}
-	for _, db := range databases {
-		if db.BackupStorage == "" {
-			continue
+	for _, d := range dbs {
+		if d.BackupStorage != "" {
+			results[d.Name] = BackupDatabase(s, d.Name)
 		}
-		_, _, err := BackupDatabase(s, db.Name)
-		results[db.Name] = err
 	}
 	return results
 }

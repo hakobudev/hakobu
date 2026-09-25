@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -12,88 +11,79 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
-	"github.com/x0ryz/hako/internal/build"
-	"github.com/x0ryz/hako/internal/config"
-	"github.com/x0ryz/hako/internal/edge"
-	"github.com/x0ryz/hako/internal/github"
-	"github.com/x0ryz/hako/internal/ops"
-	"github.com/x0ryz/hako/internal/store"
+	"github.com/x0ryz/hakobu/internal/config"
+	"github.com/x0ryz/hakobu/internal/edge"
+	"github.com/x0ryz/hakobu/internal/ops"
+	"github.com/x0ryz/hakobu/internal/store"
 )
-
-var agentCmd = &cobra.Command{
-	Use:   "agent",
-	Short: "Run the deploy agent daemon",
-	RunE:  runAgent,
-}
-
-func init() {
-	agentCmd.Flags().StringVar(&agentAddr, "addr", "", "listen address (default 127.0.0.1:9000, or HAKO_ADDR)")
-	agentCmd.Flags().StringVar(&agentPublicHost, "public-host", "", "public host for SENTRY_DSN + webhook URL (or HAKO_PUBLIC_HOST)")
-}
 
 var (
 	agentAddr       string
 	agentPublicHost string
 )
 
-var agentStartedAt = time.Now()
+var agentCmd = &cobra.Command{
+	Use:   "agent",
+	Short: "Run the hakobu agent (panel, deploys, webhooks)",
+	RunE:  runAgent,
+}
+
+func init() {
+	agentCmd.Flags().StringVar(&agentAddr, "addr", config.AgentAddr, "listen address (or HAKOBU_ADDR)")
+	agentCmd.Flags().StringVar(&agentPublicHost, "public-host", "", "public host of the panel, e.g. panel.example.com (saved to data/public_host)")
+}
 
 func runAgent(cmd *cobra.Command, args []string) error {
-	s, err := store.Open("data/hako.db")
-	if err != nil {
+	if err := os.MkdirAll("data", 0o755); err != nil {
 		return err
 	}
-
-	apiToken, err := s.GetOrCreateAPIToken(func() (string, error) { return ops.RandomHex(32) })
+	s, err := store.Open("data/hakobu.db")
 	if err != nil {
 		return err
-	}
-
-	if err := configureR2FromEnv(s); err != nil {
-		return fmt.Errorf("failed to save R2 config from environment: %w", err)
-	}
-
-	addr := agentAddr
-	if addr == "" {
-		addr = config.AgentAddr
 	}
 	if agentPublicHost != "" {
 		if err := config.SetPublicHost(agentPublicHost); err != nil {
-			return fmt.Errorf("failed to save public host: %w", err)
+			return err
 		}
+	}
+	if err := s.FailRunningDeployLogs(context.Background()); err != nil {
+		return err
+	}
+
+	setupURL, err := ensureSetupToken(s)
+	if err != nil {
+		return err
 	}
 
 	mux := http.NewServeMux()
-	if app, err := s.GetGitHubApp(); err != nil {
-		fmt.Println("warning: no GitHub App connected, skipping /webhook/github (connect it via web UI)")
-	} else {
-		mux.HandleFunc("/webhook/github", makeWebhookHandler(s, app.AppID, app.PrivateKey, app.WebhookSecret))
-	}
-	registerAPIRoutes(mux, s, apiToken)
-	registerWebRoutes(mux, s, apiToken)
+	mux.HandleFunc("POST /webhook/github", webhookHandler(s))
+	registerWebRoutes(mux, s)
 	registerIngestRoutes(mux, s)
 
-	// Bind BEFORE printing anything: a stale process on the same port used
-	// to print a token and a fake "listening" line before failing.
-	ln, err := net.Listen("tcp", addr)
+	ln, err := net.Listen("tcp", agentAddr)
 	if err != nil {
-		return fmt.Errorf("listen %s: %w\n(hint: another hako agent may already be running — check `ss -tlnp | grep 9000`)", addr, err)
+		return fmt.Errorf("listen %s: %w (is another hakobu agent running?)", agentAddr, err)
 	}
 
-	go runHealthPoller(s)
+	go runProxyPoller(s)
 	go runBackupScheduler(s)
-	edge.Start(s, addr)
+	ops.StartTunnel(s)
 
-	fmt.Println("Agent listening on", ln.Addr())
-	fmt.Println("Setup wizard: open http://" + ln.Addr().String() + "/setup (first run, no token needed)")
-	fmt.Println("Dashboard: open the agent's URL in a browser and sign in with this API token:", apiToken)
+	fmt.Println("hakobu listening on", ln.Addr())
+	switch {
+	case config.PublicHost() == "":
+		fmt.Println("No panel address yet: run `hakobu setup`.")
+	case setupURL != "":
+		fmt.Println("Finish setup:", setupURL)
+	default:
+		fmt.Println("Panel: https://" + config.PublicHost())
+	}
 	srv := &http.Server{
-		Handler:      mux,
+		Handler:      edge.Router(s, mux),
 		ReadTimeout:  config.ReadTimeout,
 		WriteTimeout: config.WriteTimeout,
 		IdleTimeout:  config.IdleTimeout,
@@ -101,222 +91,101 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	return srv.Serve(ln)
 }
 
-// runHealthPoller periodically checks every project/database and records the
-// result, so the dashboard's uptime bars have real history instead of just
-// a single point-in-time check made when the page happens to load.
-func runHealthPoller(s *store.Store) {
-	ticker := time.NewTicker(config.HealthPollEvery)
-	defer ticker.Stop()
+// ensureSetupToken keeps a one-time setup token on disk until an owner has
+// signed in; only the holder of the setup link can connect GitHub and claim
+// the panel.
+func ensureSetupToken(s *store.Store) (string, error) {
+	if owner, err := s.Owner(context.Background()); err != nil || owner != "" {
+		return "", err
+	}
+	token := config.SetupToken()
+	if token == "" {
+		var err error
+		if token, err = ops.RandomHex(16); err != nil {
+			return "", err
+		}
+		if err := config.SetSetupToken(token); err != nil {
+			return "", err
+		}
+	}
+	return "https://" + config.PublicHost() + "/setup?token=" + token, nil
+}
 
-	check := func() {
-		if projects, err := s.ListProjects(); err == nil {
-			for _, p := range projects {
-				ops.EnsureProjectProxy(p)
-				ops.CheckProjectHealth(s, p)
-				ops.SampleResources(s, "project:"+p.Name, p.ContainerName())
-				if worker, err := s.GetWorker(p.Name); err == nil {
-					ops.CheckWorkerHealth(s, p.Name)
-					ops.SampleResources(s, "worker:"+p.Name, worker.ContainerName())
+// runProxyPoller keeps every app's proxy listening; after an agent restart
+// this re-attaches them to their running containers.
+func runProxyPoller(s *store.Store) {
+	for {
+		if apps, err := s.ListApps(context.Background()); err == nil {
+			for _, a := range apps {
+				if !ops.IsDeploying(a.Name) { // a running job (or deletion) owns the proxy
+					ops.EnsureProxy(a)
 				}
 			}
 		}
-		if databases, err := s.ListDatabases(); err == nil {
-			for _, d := range databases {
-				ops.CheckDatabaseHealth(s, d)
-				ops.SampleResources(s, "database:"+d.Name, d.ContainerName)
-			}
-		}
-		ops.SampleHostAndAgent(s)
-	}
-
-	check()
-	for range ticker.C {
-		check()
+		time.Sleep(config.ProxyPollEvery)
 	}
 }
 
-// envStorageName is the name given to a storage entry synced in from
-// R2_* env vars — a plain constant since there's only ever one env-synced
-// entry. It still has to be picked as a database's backup storage
-// explicitly (per database, on that database's Backups panel) — env vars
-// only save retyping the credentials, not the per-database choice.
-const envStorageName = "r2-env"
-
-// configureR2FromEnv syncs R2_* env vars into a storage entry named
-// unit, .env, or process manager config) and the agent creates/updates a
-// storage entry named "r2-env" on every startup, so restarting the agent
-// after an env change is enough; no extra step needed. A no-op if any of the
-// four are unset, so an existing config set another way isn't wiped out by
-// a partially configured environment.
-func configureR2FromEnv(s *store.Store) error {
-	accountID := os.Getenv("R2_ACCOUNT_ID")
-	accessKeyID := os.Getenv("R2_ACCESS_KEY_ID")
-	secretAccessKey := os.Getenv("R2_SECRET_ACCESS_KEY")
-	bucket := os.Getenv("R2_BUCKET_NAME")
-
-	if accountID == "" || accessKeyID == "" || secretAccessKey == "" || bucket == "" {
-		return nil
-	}
-
-	return s.SaveStorage(store.Storage{
-		Name:            envStorageName,
-		Provider:        "r2",
-		AccountID:       accountID,
-		AccessKeyID:     accessKeyID,
-		SecretAccessKey: secretAccessKey,
-		Bucket:          bucket,
-		Region:          "auto",
-	})
-}
-
-// runBackupScheduler backs up every database that has a backup storage
-// picked, once a day. It deliberately doesn't back up immediately on
-// startup: an agent restart during normal operation (a redeploy, a crash)
-// shouldn't trigger an extra backup cycle on top of the daily one.
 func runBackupScheduler(s *store.Store) {
-	ticker := time.NewTicker(config.BackupEvery)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		for name, err := range ops.BackupAllDatabases(s) {
+	for range time.Tick(config.BackupEvery) {
+		for name, err := range ops.BackupAll(s) {
 			if err != nil {
-				fmt.Println("scheduled backup failed for", name, ":", err)
+				fmt.Println("backup failed for", name+":", err)
 			}
 		}
-		if err := s.PruneOldData(config.RetentionDays); err != nil {
-			fmt.Println("retention prune failed:", err)
+		if err := s.PruneOldData(context.Background(), config.RetentionDays); err != nil {
+			fmt.Println("prune failed:", err)
 		}
 	}
 }
 
-func makeWebhookHandler(s *store.Store, appID int64, privateKey, webhookSecret string) http.HandlerFunc {
+// webhookHandler redeploys every app built from the pushed repo when the
+// push is to its default branch.
+func webhookHandler(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(r.Body)
+		app, err := s.GetGitHubApp(context.Background())
+		if err != nil {
+			http.Error(w, "github app not connected", http.StatusServiceUnavailable)
+			return
+		}
+		body, err := io.ReadAll(io.LimitReader(r.Body, 25<<20))
 		if err != nil {
 			http.Error(w, "failed to read body", http.StatusBadRequest)
 			return
 		}
-
-		signature := r.Header.Get("X-Hub-Signature-256")
-		if !verifySignature(webhookSecret, body, signature) {
+		mac := hmac.New(sha256.New, []byte(app.WebhookSecret))
+		mac.Write(body)
+		if !hmac.Equal([]byte("sha256="+hex.EncodeToString(mac.Sum(nil))), []byte(r.Header.Get("X-Hub-Signature-256"))) {
 			http.Error(w, "invalid signature", http.StatusUnauthorized)
 			return
 		}
-
-		event := r.Header.Get("X-GitHub-Event")
-		if event != "push" {
-			w.WriteHeader(http.StatusOK)
+		if r.Header.Get("X-GitHub-Event") != "push" {
 			return
 		}
 
-		var payload struct {
+		var push struct {
 			Ref        string `json:"ref"`
 			Repository struct {
-				FullName string `json:"full_name"`
-				CloneURL string `json:"clone_url"`
+				FullName      string `json:"full_name"`
+				DefaultBranch string `json:"default_branch"`
 			} `json:"repository"`
-			Installation struct {
-				ID int64 `json:"id"`
-			} `json:"installation"`
 		}
-		if err := json.Unmarshal(body, &payload); err != nil {
+		if err := json.Unmarshal(body, &push); err != nil {
 			http.Error(w, "invalid payload", http.StatusBadRequest)
 			return
 		}
-
-		fmt.Printf("push received: repo=%s ref=%s installation=%d\n",
-			payload.Repository.FullName, payload.Ref, payload.Installation.ID)
-
-		w.WriteHeader(http.StatusOK)
-
-		go func() {
-			var log bytes.Buffer
-			out := io.MultiWriter(&log, os.Stdout)
-
-			projectName := payload.Repository.FullName
-			fail := func(step string, err error) {
-				fmt.Fprintln(out, step+": "+err.Error())
-				if project, lookupErr := s.GetProjectByRepo(payload.Repository.FullName); lookupErr == nil {
-					projectName = project.Name
-				}
-				s.CreateDeployLog(store.DeployLog{Project: projectName, Trigger: "push", Status: "failed", Output: log.String()})
-			}
-
-			token, err := github.GetInstallationToken(appID, privateKey, payload.Installation.ID)
-			if err != nil {
-				fail("failed to get installation token", err)
-				return
-			}
-
-			project, err := s.GetProjectByRepo(payload.Repository.FullName)
-			if err != nil {
-				fmt.Println("no matching project for repo:", payload.Repository.FullName)
-				return
-			}
-			projectName = project.Name
-
-			repoName := strings.ReplaceAll(payload.Repository.FullName, "/", "-")
-			workDir := "data/work/" + repoName
-
-			fmt.Fprintln(out, "cloning", payload.Repository.FullName)
-			if err := build.CloneRepo(payload.Repository.CloneURL, token, workDir, out); err != nil {
-				fail("clone failed", err)
-				return
-			}
-
-		buildDir, err := ops.SafeBuildDir(workDir, project.BuildPath)
-		if err != nil {
-			fail("invalid build path", err)
+		if push.Ref != "refs/heads/"+push.Repository.DefaultBranch {
 			return
 		}
-
-			imageTag := ops.ImageTag(*project)
-			if err := ops.SnapshotPreviousImage(context.Background(), *project); err != nil {
-				fmt.Fprintln(out, "warning: failed to snapshot previous image for rollback:", err)
+		apps, err := s.ListAppsByRepo(context.Background(), push.Repository.FullName)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		for _, a := range apps {
+			if err := ops.StartDeploy(s, a.Name, "push"); err != nil {
+				fmt.Println("push deploy of", a.Name, "skipped:", err)
 			}
-			fmt.Fprintln(out, "building", imageTag, "from", buildDir, "strategy:", project.BuildStrategy)
-			if err := build.BuildWithStrategy(buildDir, imageTag, project.BuildStrategy, out); err != nil {
-				fail("build failed", err)
-				return
-			}
-
-			fmt.Fprintln(out, "build succeeded:", imageTag)
-
-			env, err := ops.AppEnv(s, *project)
-			if err != nil {
-				fail("failed to build env", err)
-				return
-			}
-
-			if _, err := ops.DeployImage(s, *project, imageTag, env, out); err != nil {
-				fail("deploy failed", err)
-				return
-			}
-
-			// The worker shares this same image/repo, so a fresh app build
-			// means its code changed too — roll it forward right along with
-			// the app instead of leaving it on stale code until someone
-			// notices and redeploys it by hand.
-			if _, err := s.GetWorker(project.Name); err == nil {
-				fmt.Fprintln(out, "redeploying worker with the new image")
-				if _, err := ops.RedeployWorker(s, project.Name); err != nil {
-					fmt.Fprintln(out, "worker redeploy failed:", err)
-				}
-			}
-
-			s.CreateDeployLog(store.DeployLog{Project: projectName, Trigger: "push", Status: "success", Output: log.String()})
-		}()
+		}
 	}
-}
-
-func verifySignature(secret string, body []byte, signatureHeader string) bool {
-	if signatureHeader == "" {
-		return false
-	}
-
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write(body)
-	expected := "sha256=" + hex.EncodeToString(mac.Sum(nil))
-
-	return hmac.Equal([]byte(expected), []byte(signatureHeader))
 }

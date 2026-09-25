@@ -1,6 +1,6 @@
 # binaries
-/hako
-/hako-*
+/hakobu
+/hakobu-*
 *.exe
 
 # runtime data (sqlite, logs, cloned repos) — never commit
@@ -24,3 +24,6 @@
 .idea/
 .vscode/
 *.swp
+
+# wrangler cache (account id, email)
+.wrangler/

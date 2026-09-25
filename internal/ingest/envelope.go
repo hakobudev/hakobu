@@ -1,6 +1,5 @@
-// Package ingest parses Sentry's envelope wire format, so any official
-// Sentry SDK can send errors and structured logs straight to hako's
-// own ingestion endpoint (cmd/ingest.go) instead of a Sentry account.
+// Package ingest parses Sentry's envelope format
+// (https://develop.sentry.dev/sdk/data-model/envelopes/).
 package ingest
 
 import (
@@ -10,25 +9,17 @@ import (
 	"io"
 )
 
-// Item is one envelope item: a type tag ("event", "transaction", "log", ...)
-// and its raw JSON payload, kept unparsed beyond what a summary needs so a
-// later feature can read fields this package doesn't know about yet.
 type Item struct {
 	Type    string
 	Payload []byte
 }
 
-// ParseEnvelope parses the newline-delimited envelope format described at
-// https://develop.sentry.dev/sdk/data-model/envelopes/: an envelope header
-// line, followed by (item header, item payload) pairs. An item header's
-// "length" field, when present, is the exact byte count of its payload
-// (which may itself contain newlines); when absent, the payload is exactly
-// the following line.
+// ParseEnvelope reads the header line, then (item header, payload) pairs. A
+// header's "length" is the exact payload size; without it the payload is
+// the next line.
 func ParseEnvelope(body []byte) ([]Item, error) {
 	r := bufio.NewReader(bytes.NewReader(body))
 
-	// Envelope header — carries event_id/dsn/sent_at, none of which this
-	// package needs; just consume the line to reach the items.
 	if _, err := r.ReadBytes('\n'); err != nil && err != io.EOF {
 		return nil, err
 	}
@@ -73,17 +64,13 @@ func ParseEnvelope(body []byte) ([]Item, error) {
 	return items, nil
 }
 
-// Summary is what's worth storing as a searchable row for an error or log
-// item — the rest of the item stays in TelemetryEvent.Payload for a detail
-// view.
 type Summary struct {
 	Level   string
 	Message string
 }
 
-// ExtractEventSummary reads an "event" or "transaction" item's top-level
-// message, falling back to the first exception's "type: value" when the SDK
-// didn't set one directly (the common case for uncaught exceptions).
+// ExtractEventSummary falls back to the first exception's "type: value"
+// when the event has no message (uncaught exceptions).
 func ExtractEventSummary(item Item) Summary {
 	var e struct {
 		Message   string `json:"message"`
@@ -109,9 +96,7 @@ func ExtractEventSummary(item Item) Summary {
 	return Summary{Level: level, Message: msg}
 }
 
-// ExtractLogEntries reads a "log" item, which batches multiple log records
-// per Sentry's structured-logs format (one envelope item, an "items" array
-// of {level, body, ...} records).
+// ExtractLogEntries reads a "log" item, which batches several records.
 func ExtractLogEntries(item Item) []Summary {
 	var l struct {
 		Items []struct {

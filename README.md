@@ -1,74 +1,92 @@
-# hako — self-hosted deployment tool
+# hakobu — self-hosted deployment tool
 
-Deploy apps from GitHub repos to your own server, without paying for a PaaS.
-Push to `main`, hako builds and rolls out the new container with zero
-downtime.
+Deploy apps from GitHub to your own server. Push to the default branch and
+hakobu rebuilds and rolls out the new version with zero downtime.
 
-- **Auto-detects the stack** — Railpack or Dockerfile, no config needed for most repos.
-- **Zero-downtime deploys** — blue/green containers behind an internal proxy that swaps traffic atomically.
-- **Postgres + backups** built in — one-click database, scheduled dumps to S3/R2.
-- **No reverse-proxy setup** — give a project a domain and hako gets its own Let's Encrypt cert and routes it automatically.
-- **Bring your own edge if you'd rather** — Tailscale or a Cloudflare quick tunnel work too, for the panel and for individual projects.
-- **Built-in error/log ingestion** — a Sentry-compatible endpoint, so deployed apps just need a `SENTRY_DSN`, no extra service to run.
-- Single Go binary + SQLite. No external dependencies to operate beyond Docker.
+- **Projects** group apps, PostgreSQL databases, S3 storages and shared variables.
+- **Apps** come from GitHub repos, built with a Dockerfile or [Railpack](https://railpack.com) (auto-detected).
+- **Zero-downtime deploys** with blue/green containers behind an in-process proxy, plus one-click rollback.
+- **Databases** live in one shared Postgres container, each with its own role; optional daily backups to a storage.
+- **Storages**: self-hosted RustFS on the same server, Cloudflare R2 or any S3-compatible bucket.
+- **Variables**: shared per project and per service; linked databases/storages inject `DATABASE_URL`, `POSTGRES_*`, `S3_*`.
+- **Logs**: build/deploy logs, container output, and errors via an auto-injected `SENTRY_DSN`.
+- **Sign-in with GitHub only**; the owner can allow more GitHub users.
+- **Cloudflare Tunnel**: panel and apps on your domain with HTTPS, no open ports.
+- Single Go binary + SQLite. Needs only Docker.
 
-## Install on a fresh server
+## Install
 
-One line, nothing to download beforehand — installs Docker/git/Railpack/buildkit
-if missing, builds or downloads the `hako` binary, and sets up a systemd
-service:
+You need a Linux server and a domain on Cloudflare (the free plan is enough).
+The server needs no public IP or open ports: everything goes through a Cloudflare Tunnel.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/x0ryz/hako/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/x0ryz/hakobu/main/install.sh | sudo bash
 ```
 
-That drops you into an interactive menu asking how the panel should be
-reachable (Tailscale / Cloudflare quick tunnel / your own domain / localhost
-only). For scripted installs (stdin isn't available for prompts when piping
-into `sudo bash`), skip the menu with an env var instead:
+1. The installer shows a Cloudflare link: sign in and select **Authorize**. Hakobu gets
+   permission to read your domains, manage their DNS records and create a tunnel.
+   Nothing to copy: the terminal continues on its own.
+2. Pick one of your domains from the list and the panel's subdomain (default `hakobu`).
+   Hakobu creates the tunnel and a DNS record for the panel.
+3. Open the printed link, `https://hakobu.example.com/setup?token=…`, click
+   **Connect GitHub** (this registers a private GitHub App for your panel), sign in with
+   GitHub and you are the owner. Only that link can claim a fresh panel.
+
+Every app then gets its own address in any domain of the account (`app.example.com`,
+`myapp.dev`, …); hakobu creates and removes the DNS records itself.
+
+Lost the setup link: `journalctl -u hakobu | grep setup`. Sign in to Cloudflare again:
+`cd /opt/hakobu && sudo ./hakobu setup --reconnect`.
+
+### OAuth relay
+
+Cloudflare OAuth clients have one redirect URL while every hakobu server has its own
+address, so the login goes through a tiny Worker (`relay/`): it keeps the authorization
+code for up to five minutes until the installer that started the login fetches it.
+The code is useless without the PKCE verifier that stays on the server.
+
+## Using it
+
+1. Create a project.
+2. **New app** → pick a repo (give the GitHub App access to it first), check the detected stack. The name and the `<app>.<your domain>` address are filled in; pick another domain from the list or "private". The first deploy starts right away.
+3. Add databases and storages on the project page, then link them on the app's Overview tab.
+4. Put variables used by all apps under **Shared variables**, app-specific ones on the app's **Variables** tab. Changes apply on the next deploy.
+5. Pushes to the repo's default branch redeploy automatically; **Redeploy** rebuilds the latest commit, **Rollback** returns to the previous build.
+
+The app gets `PORT` to listen on; hakobu detects the port it actually listens on either way.
+
+## Local development
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/x0ryz/hako/main/install.sh | sudo HAKO_EDGE=tailscale bash
-curl -fsSL https://raw.githubusercontent.com/x0ryz/hako/main/install.sh | sudo HAKO_EDGE=public HAKO_DOMAIN=panel.example.com bash
+go build -o hakobu . && ./hakobu agent --public-host <host that reaches 127.0.0.1:9000 over https>
+# e.g. cloudflared tunnel --url http://127.0.0.1:9000 for a throwaway host
 ```
 
-Requirements: a Linux server (root access), and that's it — `install.sh`
-handles the rest.
+Requires Go 1.27+ and Docker (plus Railpack and a `buildkit` container for non-Dockerfile builds).
+State lives in `data/` (SQLite, certificates, clones).
 
-After install, open the printed URL → `/setup` → set public host + connect a
-GitHub App → restart → sign in with the API token
-(`journalctl -u hako | grep 'API token'`).
+### Database changes
 
-## Local dev
-
-```bash
-go build -o hako . && ./hako agent   # panel on http://127.0.0.1:9000
-```
-
-Or, with Go installed: `go install github.com/x0ryz/hako@latest`.
-
-Requires: Go 1.27+, Docker. Railpack + buildkit are optional, only needed for
-non-Dockerfile projects:
+- Schema: `internal/store/migrations/NNN_name.sql`, applied in order at startup and tracked in `PRAGMA user_version`. Add a new file for every change, never edit one that has shipped.
+- Queries: `internal/store/queries.sql`, compiled by [sqlc](https://sqlc.dev) into `internal/store/*.gen.go`. After changing either, run:
 
 ```bash
-curl -fsSL https://railpack.com/install.sh | bash -s -- --yes
-docker run --privileged -d --name buildkit --restart unless-stopped moby/buildkit
+go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
+sqlc generate
 ```
 
 ## Layout
 
-- `cmd/` — CLI (`agent`, web panel, API)
-- `internal/build/` — builders (railpack, dockerfile)
-- `internal/detect/` — repo preset scanner
-- `internal/deploy/`, `internal/ops/` — containers, domains, databases
-- `internal/edge/` — optional public TLS entrypoint (auto Let's Encrypt for the panel and per-project domains)
-- `internal/backup/`, `internal/store/` — backups (S3/R2), sqlite state
-- `install.sh` — one-command server install
-
-## Notes
-
-- Runtime state lives in `data/` (sqlite, logs, work clones) — git-ignored, never commit it.
-- Old projects stored with `build_strategy='nixpacks'` still build: it's kept as an alias for `railpack`.
+- `cmd/` — CLI, web panel (`web.go` + `web.html`), GitHub webhook, Sentry ingest
+- `internal/ops/` — projects, apps, deploys, databases, storages, backups
+- `internal/deploy/` — Docker Engine API client
+- `internal/proxy/` — per-app reverse proxy for blue/green swaps
+- `internal/edge/` — routes tunnel traffic by host to the panel or an app
+- `internal/cloudflare/`, `internal/tunnel/` — Cloudflare OAuth + API, the cloudflared process
+- `relay/` — Cloudflare Worker for the OAuth callback
+- `internal/build/`, `internal/detect/` — cloning and building repos
+- `internal/github/` — GitHub App, OAuth
+- `internal/store/` — SQLite: migrations, sqlc queries
 
 ## License
 
