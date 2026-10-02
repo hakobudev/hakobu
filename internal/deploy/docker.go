@@ -42,12 +42,37 @@ func dockerSocket() string {
 var dockerClient = &http.Client{
 	Transport: &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return (&net.Dialer{}).DialContext(ctx, "unix", dockerSocket())
+			return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, "unix", dockerSocket())
 		},
 	},
 }
 
+// withDeadline bounds a Docker call whose caller set no deadline (most pass
+// context.Background()): a hung daemon mustn't hold a deploy, a backup or
+// the health checks forever. No timeout on the client itself: the event
+// stream stays open for days.
+func withDeadline(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
+	if _, ok := ctx.Deadline(); ok {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, d)
+}
+
+// requestTimeout is how long an API call may take: pulls and prunes can
+// take a while, everything else answers in seconds.
+func requestTimeout(path string) time.Duration {
+	if strings.HasPrefix(path, "/images/create") || strings.HasPrefix(path, "/build/prune") {
+		return 30 * time.Minute
+	}
+	return 2 * time.Minute
+}
+
+// maxResponse caps what hakobu reads from one API answer.
+const maxResponse = 64 << 20
+
 func dockerRequest(ctx context.Context, method, path string, body any) ([]byte, int, error) {
+	ctx, cancel := withDeadline(ctx, requestTimeout(path))
+	defer cancel()
 	var reader io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -67,7 +92,7 @@ func dockerRequest(ctx context.Context, method, path string, body any) ([]byte, 
 		return nil, 0, fmt.Errorf("docker daemon unreachable: %w", err)
 	}
 	defer resp.Body.Close()
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponse))
 	return respBody, resp.StatusCode, err
 }
 
@@ -500,6 +525,8 @@ func demux(r io.Reader) string {
 }
 
 func execInContainer(ctx context.Context, containerName string, cmd []string) (output string, exitCode int, err error) {
+	ctx, cancel := withDeadline(ctx, 30*time.Minute)
+	defer cancel()
 	respBody, status, err := dockerRequest(ctx, "POST", "/containers/"+containerName+"/exec", map[string]any{
 		"Cmd": cmd, "AttachStdout": true, "AttachStderr": true,
 	})
@@ -530,7 +557,7 @@ func execInContainer(ctx context.Context, containerName string, cmd []string) (o
 		body, _ := io.ReadAll(resp.Body)
 		return "", 0, fmt.Errorf("exec start failed (%d): %s", resp.StatusCode, body)
 	}
-	output = demux(resp.Body)
+	output = demux(io.LimitReader(resp.Body, maxResponse))
 
 	inspectBody, status, err := dockerRequest(ctx, "GET", "/exec/"+created.ID+"/json", nil)
 	if err != nil {
@@ -580,6 +607,8 @@ func PostgresExec(ctx context.Context, containerName, sql string) error {
 
 // ContainerLogs returns the last tailLines of stdout+stderr.
 func ContainerLogs(ctx context.Context, containerName string, tailLines int) (string, error) {
+	ctx, cancel := withDeadline(ctx, time.Minute)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("http://docker/containers/%s/logs?stdout=1&stderr=1&tail=%d&timestamps=1", containerName, tailLines), nil)
 	if err != nil {
 		return "", err
@@ -596,7 +625,7 @@ func ContainerLogs(ctx context.Context, containerName string, tailLines int) (st
 		body, _ := io.ReadAll(resp.Body)
 		return "", fmt.Errorf("logs failed (%d): %s", resp.StatusCode, body)
 	}
-	return demux(resp.Body), nil
+	return demux(io.LimitReader(resp.Body, maxResponse)), nil
 }
 
 type containerInfo struct {

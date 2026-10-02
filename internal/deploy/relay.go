@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
+	"time"
 )
 
 // scratchImage is an image with no files at all, made locally: the ingest
@@ -22,6 +23,8 @@ func ensureScratchImage(ctx context.Context) error {
 	if ok, err := ImageExists(ctx, scratchImage); err != nil || ok {
 		return err
 	}
+	ctx, cancel := withDeadline(ctx, 2*time.Minute)
+	defer cancel()
 	// An empty tar archive: two zeroed 512-byte blocks.
 	req, err := http.NewRequestWithContext(ctx, "POST", "http://docker/images/create?fromSrc=-&repo=hakobu-scratch&tag=1", bytes.NewReader(make([]byte, 1024)))
 	if err != nil {

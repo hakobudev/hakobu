@@ -18,9 +18,11 @@ import (
 
 // DumpDatabase writes a compressed custom-format pg_dump to w as it's
 // produced. It uses the docker CLI so stdout (the dump) and stderr stay
-// separate without demuxing the exec stream.
+// separate without demuxing the exec stream. A table an app keeps locked
+// (a long migration, say) fails the dump after a while instead of holding
+// up every backup after it.
 func DumpDatabase(ctx context.Context, containerName, dbUser, dbName string, w io.Writer) error {
-	cmd := exec.CommandContext(ctx, "docker", "exec", "-u", "postgres", containerName, "pg_dump", "-Fc", "-U", dbUser, "-d", dbName)
+	cmd := exec.CommandContext(ctx, "docker", "exec", "-u", "postgres", containerName, "pg_dump", "-Fc", "--lock-wait-timeout=10min", "-U", dbUser, "-d", dbName)
 	cmd.Stdout = w
 	stderr := &tail{}
 	cmd.Stderr = stderr

@@ -12,25 +12,51 @@ package cloudflare
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 )
 
-// httpClient waits at most two minutes for the API to answer, so a hung
-// request can't hold a deploy or backup forever. It isn't a limit on the
-// whole request: backups upload parts of hundreds of MB.
+// httpClient waits at most two minutes for the API to answer, and gives up
+// on a connection that moves no data for as long, so a hung request can't
+// hold a deploy or backup forever. It isn't a limit on the whole request:
+// backups upload and download parts of hundreds of MB.
 var httpClient = func() *http.Client {
 	t := http.DefaultTransport.(*http.Transport).Clone()
-	t.ResponseHeaderTimeout = 2 * time.Minute
+	t.ResponseHeaderTimeout = connIdle
+	dialer := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
+	t.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		c, err := dialer.DialContext(ctx, network, addr)
+		if err != nil {
+			return nil, err
+		}
+		return idleConn{c}, nil
+	}
 	return &http.Client{Transport: t}
 }()
+
+const connIdle = 2 * time.Minute
+
+// idleConn fails a read or write that makes no progress for connIdle.
+type idleConn struct{ net.Conn }
+
+func (c idleConn) Read(b []byte) (int, error) {
+	_ = c.SetReadDeadline(time.Now().Add(connIdle))
+	return c.Conn.Read(b)
+}
+
+func (c idleConn) Write(b []byte) (int, error) {
+	_ = c.SetWriteDeadline(time.Now().Add(connIdle))
+	return c.Conn.Write(b)
+}
 
 // APIURL is the API's base; tests point it at a fake.
 var APIURL = "https://api.cloudflare.com/client/v4"

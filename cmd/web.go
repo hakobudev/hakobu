@@ -234,7 +234,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 		apps, _ := s.ListAppsByProject(r.Context(), p.ID)
 		var rows []appView
 		for _, a := range apps {
-			rows = append(rows, newAppView(a))
+			rows = append(rows, newAppView(r.Context(), a))
 		}
 		dbs, _ := s.ListDatabasesByProject(r.Context(), p.ID)
 		storages, _ := s.ListStoragesByProject(r.Context(), p.ID)
@@ -349,7 +349,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			envErr = err.Error()
 		}
 		data := map[string]any{
-			"App": newAppView(app), "Project": p, "Databases": dbs, "Storages": storages,
+			"App": newAppView(r.Context(), app), "Project": p, "Databases": dbs, "Storages": storages,
 			"Effective": env, "EnvError": envErr, "Zones": zoneNames(s),
 			"SealedApp": ops.SealedKeys(s, "app", app.Name), "SealedWorker": ops.SealedKeys(s, "worker", app.Name),
 			"SealedProject": ops.SealedKeys(s, "project", app.ProjectName),
@@ -377,7 +377,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 
 	handle("GET /apps/{a}/status", func(w http.ResponseWriter, r *http.Request) {
 		if app, ok := getApp(w, r); ok {
-			render(w, "app-status", newAppView(app))
+			render(w, "app-status", newAppView(r.Context(), app))
 		}
 	})
 
@@ -969,8 +969,8 @@ type volumeBackups struct {
 	Job     ops.DBJob
 }
 
-func newAppView(a store.App) appView {
-	return appView{App: a, State: deploy.ContainerState(context.Background(), a.ContainerName()), Deploying: ops.IsDeploying(a.Name)}
+func newAppView(ctx context.Context, a store.App) appView {
+	return appView{App: a, State: deploy.ContainerState(ctx, a.ContainerName()), Deploying: ops.IsDeploying(a.Name)}
 }
 
 type envVar struct{ Key, Value string }

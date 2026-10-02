@@ -1,10 +1,12 @@
 package build
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"time"
 
 	"github.com/x0ryz/hakobu/internal/config"
 )
@@ -20,11 +22,22 @@ func BuildWithStrategy(sourceDir, imageTag, strategy string, out io.Writer) erro
 	return nil
 }
 
+// buildTimeout ends a build that hangs, which would otherwise hold the
+// app's deploys until hakobu restarts.
+const buildTimeout = time.Hour
+
 func run(out io.Writer, name string, args ...string) error {
-	cmd := exec.Command(name, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), buildTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Stdout = out
 	cmd.Stderr = out
-	return cmd.Run()
+	cmd.WaitDelay = 10 * time.Second
+	err := cmd.Run()
+	if ctx.Err() != nil {
+		return fmt.Errorf("gave up after %s", buildTimeout)
+	}
+	return err
 }
 
 // ensureBuildKit points railpack at the "buildkit" container install.sh
@@ -35,7 +48,8 @@ func ensureBuildKit(out io.Writer) {
 	}
 	if exec.Command("docker", "inspect", "buildkit").Run() != nil {
 		fmt.Fprintln(out, "starting buildkit container for railpack...")
-		if exec.Command("docker", "run", "--privileged", "-d", "--restart", "unless-stopped", "--name", "buildkit", config.BuildKitImage).Run() != nil {
+		if b, err := exec.Command("docker", "run", "--privileged", "-d", "--restart", "unless-stopped", "--name", "buildkit", config.BuildKitImage).CombinedOutput(); err != nil {
+			fmt.Fprintf(out, "failed to start buildkit: %v: %s\n", err, b)
 			return
 		}
 	}

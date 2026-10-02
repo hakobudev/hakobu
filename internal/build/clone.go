@@ -1,9 +1,12 @@
 package build
 
 import (
+	"context"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"time"
 )
 
 // CloneRepo shallow-clones cloneURL into destDir. The token goes through a
@@ -26,7 +29,10 @@ func CloneRepo(cloneURL, token, destDir string, out io.Writer) error {
 		return err
 	}
 
-	cmd := exec.Command("git", "clone", "--depth=1", cloneURL, destDir)
+	ctx, cancel := context.WithTimeout(context.Background(), cloneTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "clone", "--depth=1", "--", cloneURL, destDir)
+	cmd.WaitDelay = 10 * time.Second
 	cmd.Stdout = out
 	cmd.Stderr = out
 	cmd.Env = append(os.Environ(),
@@ -34,5 +40,12 @@ func CloneRepo(cloneURL, token, destDir string, out io.Writer) error {
 		"GIT_HAKOBU_TOKEN="+token,
 		"GIT_TERMINAL_PROMPT=0",
 	)
-	return cmd.Run()
+	err = cmd.Run()
+	if ctx.Err() != nil {
+		return fmt.Errorf("gave up after %s", cloneTimeout)
+	}
+	return err
 }
+
+// cloneTimeout ends a clone that hangs on the network.
+const cloneTimeout = 10 * time.Minute
