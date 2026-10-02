@@ -11,7 +11,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -82,6 +84,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	ops.SyncDatabasePasswords(s)
 	ops.ReconcileSlots(s)
 	go runProxyPoller(s)
 	go ops.WatchDeaths(s)
@@ -108,7 +111,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		IdleTimeout:  config.IdleTimeout,
 	}
 	go func() {
-		if err := srv.Serve(sock); err != nil {
+		if err := srv.Serve(sock); err != nil && err != http.ErrServerClosed {
 			fmt.Println("panel socket:", err)
 		}
 	}()
@@ -119,7 +122,29 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		}
 	}()
 	go ops.KeepIngestRelay(s)
-	return srv.Serve(ln)
+
+	stopping, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
+	defer stop()
+	served := make(chan error, 1)
+	go func() { served <- srv.Serve(ln) }()
+	select {
+	case err := <-served:
+		return err
+	case <-stopping.Done():
+	}
+	// systemd waits 90 seconds before killing: let requests and running
+	// deploys finish meanwhile. One cut short is tidied up at the next
+	// start (ReconcileSlots, FailRunningDeployLogs).
+	fmt.Println("stopping: finishing requests and running deploys")
+	shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdown); err != nil {
+		fmt.Println("some requests were cut short:", err)
+	}
+	if !ops.WaitForJobs(time.Minute) {
+		fmt.Println("a deploy was still running and is cut short; the next start tidies up after it")
+	}
+	return nil
 }
 
 // listenPanelSocket is where cloudflared, in its own container, reaches the
@@ -249,7 +274,7 @@ func runBackupScheduler(s *store.Store) {
 // push is to its default branch.
 func webhookHandler(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		app, err := s.GetGitHubApp(context.Background())
+		app, err := s.GetGitHubApp(r.Context())
 		if err != nil {
 			http.Error(w, "github app not connected", http.StatusServiceUnavailable)
 			return
@@ -303,7 +328,7 @@ func webhookHandler(s *store.Store) http.HandlerFunc {
 			http.Error(w, "delivery handled before", http.StatusConflict)
 			return
 		}
-		apps, err := s.ListAppsByRepo(context.Background(), push.Repository.FullName)
+		apps, err := s.ListAppsByRepo(r.Context(), push.Repository.FullName)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

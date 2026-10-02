@@ -55,6 +55,22 @@ func reserve(name string, queuePush bool) (ok bool, err error) {
 	return true, nil
 }
 
+// WaitForJobs waits up to timeout for running deploys, rollbacks and
+// deletions to end, as the agent stops; false if some still run.
+func WaitForJobs(timeout time.Duration) bool {
+	for deadline := time.Now().Add(timeout); ; time.Sleep(500 * time.Millisecond) {
+		jobsMu.Lock()
+		n := len(running)
+		jobsMu.Unlock()
+		if n == 0 {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+	}
+}
+
 // release frees the app and reports whether a queued push should run now.
 func release(name string) (runQueued bool) {
 	jobsMu.Lock()
@@ -186,11 +202,8 @@ func StartDeploy(s *store.Store, appName, trigger string) error {
 		if err := rollOut(s, app, next, out); err != nil {
 			return err
 		}
-		if err := promote(app, out); err != nil {
+		if err := withSnapshot(s, app, snapshot, out, func() error { return promote(app, out) }); err != nil {
 			return err
-		}
-		if err := keepSnapshot(s, app.Name, app.LinkedDB, snapshot); err != nil {
-			fmt.Fprintln(out, "warning: failed to keep the database snapshot:", err)
 		}
 		if w, err := s.GetWorker(ctx(), app.Name); err == nil {
 			if err := runWorker(s, app, w, out); err != nil {
@@ -199,6 +212,24 @@ func StartDeploy(s *store.Store, appName, trigger string) error {
 		}
 		return nil
 	})
+}
+
+// withSnapshot runs retag, which gives :previous a new image, and makes
+// dump ("" for none) the snapshot that goes with it. The old snapshot is
+// unpaired first: a failure or crash in between must leave no snapshot
+// rather than pair the new :previous with data it never ran with.
+func withSnapshot(s *store.Store, app store.App, dump string, out io.Writer, retag func() error) error {
+	if err := s.SetAppSnapshot(ctx(), store.SetAppSnapshotParams{Name: app.Name}); err != nil {
+		return err
+	}
+	if err := retag(); err != nil {
+		return err
+	}
+	if err := keepSnapshot(s, app.Name, app.LinkedDB, dump); err != nil {
+		fmt.Fprintln(out, "warning: failed to keep the database snapshot, Rollback will only restore the code:", err)
+		os.Remove(snapshotPath(app.Name))
+	}
+	return nil
 }
 
 // buildDir resolves the app's build path inside the clone. Symlinks are
@@ -284,15 +315,17 @@ func StartRollback(s *store.Store, appName string, withData bool) error {
 			}
 			return err
 		}
-		for _, t := range [][2]string{{latest, swap}, {prev, latest}, {swap, prev}} {
-			if err := deploy.TagImage(ctx(), t[0], t[1]); err != nil {
-				return err
-			}
-		}
 		// The snapshot must match the new :previous: the data it ran with,
 		// or nothing after a code-only rollback.
-		if err := keepSnapshot(s, app.Name, app.LinkedDB, current); err != nil {
-			fmt.Fprintln(out, "warning: failed to keep the database snapshot:", err)
+		if err := withSnapshot(s, app, current, out, func() error {
+			for _, t := range [][2]string{{latest, swap}, {prev, latest}, {swap, prev}} {
+				if err := deploy.TagImage(ctx(), t[0], t[1]); err != nil {
+					return err
+				}
+			}
+			return nil
+		}); err != nil {
+			return err
 		}
 		if w, err := s.GetWorker(ctx(), app.Name); err == nil {
 			return runWorker(s, app, w, out)

@@ -514,6 +514,13 @@ func TestDockerRotateSecrets(t *testing.T) {
 	if login(string(dbAfter.Password)) != nil || login(string(dbBefore.Password)) == nil {
 		t.Error("database password not rotated")
 	}
+	// A rotation cut short after the panel stored the password: the next
+	// start gives it to Postgres.
+	must(setPostgresPassword(dbAfter.User, "0123456789abcdef"))
+	SyncDatabasePasswords(s)
+	if login(string(dbAfter.Password)) != nil {
+		t.Error("startup didn't give Postgres the stored password")
+	}
 	// The app was restarted with the new values and still serves.
 	expectServing(t, a, "v1")
 	env, _ := deploy.ContainerEnv(ctx(), a.ContainerName())
