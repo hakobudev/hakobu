@@ -21,7 +21,37 @@ var errNewerSchema = errors.New("upgrade hakobu")
 
 // migrate applies the panel's migrations.
 func migrate(db *sql.DB) error {
-	return migrateWith(db, migrationFiles, "migrations/*.sql")
+	if err := migrateWith(db, migrationFiles, "migrations/*.sql"); err != nil {
+		return err
+	}
+	return ensureIndexes(db, indexes)
+}
+
+// Indexes are made at every start, outside the numbered migrations: one
+// changes no data and an older hakobu works with it, so it mustn't bump
+// the schema version, which makes a rollback put back the database from
+// before the update.
+var (
+	indexes = []string{
+		// deploy_logs holds every deploy's output: without these, listing
+		// an app's deploys and the daily prune read all of it.
+		`CREATE INDEX IF NOT EXISTS idx_deploy_logs_app ON deploy_logs (app_name, id)`,
+		`CREATE INDEX IF NOT EXISTS idx_deploy_logs_created ON deploy_logs (created_at)`,
+	}
+	telemetryIndexes = []string{
+		// An app's errors without walking past its logs, and the prune of traces.
+		`CREATE INDEX IF NOT EXISTS telemetry_events_kind ON telemetry_events (app_name, kind, id)`,
+		`CREATE INDEX IF NOT EXISTS traces_created ON traces (created_at)`,
+	}
+)
+
+func ensureIndexes(db *sql.DB, stmts []string) error {
+	for _, stmt := range stmts {
+		if _, err := db.Exec(stmt); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // migrateWith applies the files matching pattern in file-name order. PRAGMA

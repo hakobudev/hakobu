@@ -51,6 +51,10 @@ func openTelemetry(dir string, keyMissing bool) (*sql.DB, error) {
 			db.Close()
 			return nil, err
 		}
+		if err := ensureIndexes(db, telemetryIndexes); err != nil {
+			db.Close()
+			return nil, err
+		}
 		return db, nil
 	}
 	db, err := open()
