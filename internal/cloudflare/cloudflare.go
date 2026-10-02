@@ -246,8 +246,16 @@ type Zone struct {
 
 func (c Client) Zones() ([]Zone, error) {
 	var zones []Zone
-	err := c.call("GET", "/zones?per_page=50&status=active", nil, &zones)
-	return zones, err
+	for page := 1; ; page++ {
+		var list []Zone
+		if err := c.call("GET", fmt.Sprintf("/zones?per_page=50&status=active&page=%d", page), nil, &list); err != nil {
+			return nil, err
+		}
+		zones = append(zones, list...)
+		if len(list) < 50 {
+			return zones, nil
+		}
+	}
 }
 
 // ZoneFor returns the zone a hostname belongs to (the longest matching name).

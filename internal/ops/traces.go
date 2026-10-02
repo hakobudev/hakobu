@@ -82,7 +82,12 @@ type RouteStats struct {
 }
 
 // ErrorPct is the share of requests that failed, in percent.
-func (r RouteStats) ErrorPct() float64 { return float64(r.Errors) / float64(r.Count) * 100 }
+func (r RouteStats) ErrorPct() float64 {
+	if r.Count == 0 {
+		return 0
+	}
+	return float64(r.Errors) / float64(r.Count) * 100
+}
 
 // RoutesOf sums an app's routes over the span, the ones that took the
 // most time in all first.

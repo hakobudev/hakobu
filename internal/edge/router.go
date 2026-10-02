@@ -4,6 +4,8 @@
 package edge
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httputil"
@@ -20,8 +22,13 @@ func Router(s *store.Store, panel http.Handler) http.Handler {
 			host = host[:i]
 		}
 		app, err := s.GetAppByDomain(r.Context(), host)
-		if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
 			panel.ServeHTTP(w, r)
+			return
+		}
+		if err != nil {
+			// Not the panel: the host may well be an app's.
+			http.Error(w, "temporarily unavailable", http.StatusBadGateway)
 			return
 		}
 		u, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", app.Port))

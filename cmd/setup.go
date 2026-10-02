@@ -65,15 +65,22 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		}
 		for {
 			fmt.Printf("Choice [1-%d]: ", len(zones))
-			n, err := strconv.Atoi(strings.TrimSpace(readLine(in)))
-			if err == nil && n >= 1 && n <= len(zones) {
+			line, err := readLine(in)
+			if err != nil {
+				return err
+			}
+			if n, err := strconv.Atoi(strings.TrimSpace(line)); err == nil && n >= 1 && n <= len(zones) {
 				zone = zones[n-1]
 				break
 			}
 		}
 	}
 	fmt.Printf("Panel address: <subdomain>.%s [hakobu]: ", zone.Name)
-	sub := strings.TrimSpace(readLine(in))
+	sub, err := readLine(in)
+	if err != nil {
+		return err
+	}
+	sub = strings.TrimSpace(sub)
 	if sub == "" {
 		sub = "hakobu"
 	}
@@ -141,7 +148,13 @@ func readSecret() (string, error) {
 	return line, nil
 }
 
-func readLine(r *bufio.Reader) string {
-	line, _ := r.ReadString('\n')
-	return line
+// readLine reads an answer; a closed stdin ends setup instead of asking
+// forever.
+func readLine(r *bufio.Reader) (string, error) {
+	line, err := r.ReadString('\n')
+	if err != nil && line == "" {
+		fmt.Println() // end the prompt's line
+		return "", errors.New("no answer: run this in a terminal")
+	}
+	return line, nil
 }

@@ -150,6 +150,7 @@ func registerOAuthRoutes(mux *http.ServeMux, s *store.Store) {
 	})
 
 	mux.HandleFunc("POST /oauth/authorize", func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, 16<<10) // read before the session is checked
 		ar, ok := parseAuthorizeRequest(w, r, s)
 		if !ok || !freshOwnerSession(w, r, s) {
 			return

@@ -87,7 +87,11 @@ func listPanelBackups(c cloudflare.Client, account, bucket string) ([]panelBacku
 	}
 	byKey := map[string]*panelBackup{}
 	for _, k := range keys {
-		base := k[:strings.LastIndexByte(k, '/')]
+		i := strings.LastIndexByte(k, '/')
+		if i == -1 {
+			continue
+		}
+		base := k[:i]
 		name := strings.TrimSuffix(strings.TrimPrefix(base, panelPrefix), ".db.enc")
 		at, err := time.Parse(panelTimeFormat, name)
 		if err != nil {

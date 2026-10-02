@@ -750,7 +750,9 @@ func ExposedPort(ctx context.Context, image string) int {
 			ExposedPorts map[string]struct{} `json:"ExposedPorts"`
 		} `json:"Config"`
 	}
-	json.Unmarshal(respBody, &img)
+	if json.Unmarshal(respBody, &img) != nil {
+		return 0
+	}
 	ports := []int{}
 	for p := range img.Config.ExposedPorts {
 		if n, err := strconv.Atoi(strings.TrimSuffix(p, "/tcp")); err == nil {
@@ -857,6 +859,9 @@ func WatchDeaths(ctx context.Context, fn func(container, app string, d Death)) e
 		}
 		id, attrs := ev.Actor.ID, ev.Actor.Attributes
 		name, app := attrs["name"], attrs[AppLabel]
+		// fn runs outside the lock: it may email the owner, and the event
+		// loop mustn't wait on that.
+		var death *Death
 		mu.Lock()
 		switch ev.Action {
 		case "start":
@@ -868,7 +873,7 @@ func WatchDeaths(ctx context.Context, fn func(container, app string, d Death)) e
 			if !oomSeen[id] {
 				oomSeen[id] = true
 				delete(pending, id)
-				fn(name, app, Death{OOM: true, Sure: true})
+				death = &Death{OOM: true, Sure: true}
 			}
 		case "die":
 			code := attrs["exitCode"]
@@ -878,18 +883,22 @@ func WatchDeaths(ctx context.Context, fn func(container, app string, d Death)) e
 				pending[id] = true
 				time.AfterFunc(oomEventGrace, func() {
 					mu.Lock()
-					defer mu.Unlock()
-					if pending[id] {
-						delete(pending, id)
+					report := pending[id]
+					delete(pending, id)
+					mu.Unlock()
+					if report {
 						fn(name, app, Death{OOM: true})
 					}
 				})
 			default:
-				fn(name, app, Death{ExitCode: code})
+				death = &Death{ExitCode: code}
 			}
 			delete(killed, id)
 		}
 		mu.Unlock()
+		if death != nil {
+			fn(name, app, *death)
+		}
 	}
 }
 

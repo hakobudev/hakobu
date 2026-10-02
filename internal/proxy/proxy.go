@@ -10,6 +10,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"sync"
+	"time"
 
 	"github.com/x0ryz/hakobu/internal/deploy"
 )
@@ -58,7 +59,9 @@ func Ensure(name string, port int64) (isNew bool, err error) {
 		return false, err
 	}
 	p := &appProxy{}
-	srv := &http.Server{Handler: p}
+	// No write timeout: apps stream responses. Slow headers or idle
+	// connections don't get to hold a connection forever.
+	srv := &http.Server{Handler: p, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute}
 	registry[name] = &entry{proxy: p, server: srv}
 	go func() {
 		if err := srv.Serve(ln); err != http.ErrServerClosed {

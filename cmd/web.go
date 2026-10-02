@@ -192,6 +192,13 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 	// action wraps a mutating handler: an error becomes a toast, success reloads the page.
 	action := func(pattern string, h func(r *http.Request) (redirect string, err error)) {
 		handle(pattern, func(w http.ResponseWriter, r *http.Request) {
+			// A body that didn't arrive whole must not read as empty fields:
+			// a missing "zone" would make an app private.
+			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+			if err := r.ParseForm(); err != nil {
+				fail(w, err)
+				return
+			}
 			redirect, err := h(r)
 			if err != nil {
 				fmt.Println(r.Method, r.URL.Path, "failed:", err)
@@ -817,6 +824,10 @@ func registerAuthRoutes(mux *http.ServeMux, s *store.Store) {
 	})
 
 	mux.HandleFunc("GET /github-app/callback", func(w http.ResponseWriter, r *http.Request) {
+		if owner, err := s.Owner(r.Context()); err != nil || owner.GitHubID != 0 {
+			http.Error(w, "the panel already has an owner", http.StatusForbidden)
+			return
+		}
 		if !cookieMatches(r, manifestCookie, r.URL.Query().Get("state")) || !setupAllowed(r) {
 			http.Error(w, "invalid or expired setup session, open the setup link again", http.StatusBadRequest)
 			return
@@ -890,7 +901,9 @@ func registerAuthRoutes(mux *http.ServeMux, s *store.Store) {
 				fail(w, err)
 				return
 			}
-			config.ClearSetupToken()
+			if err := config.ClearSetupToken(); err != nil {
+				fmt.Println("failed to remove the setup token:", err)
+			}
 			setCookie(w, setupCookie, "", -1)
 		} else if owner.GitHubID == user.ID && owner.GitHubLogin != user.Login {
 			// The owner renamed their account; the panel shows the new name.
@@ -987,7 +1000,7 @@ func zoneNames(s *store.Store) []string {
 // formDomain builds the domain from the "sub" and "zone" fields (an empty
 // zone keeps the app private), or takes a plain "domain" field.
 func formDomain(r *http.Request) string {
-	r.ParseForm()
+	_ = r.ParseForm() // a no-op after action, which checks its error
 	if !r.Form.Has("zone") {
 		return r.FormValue("domain")
 	}

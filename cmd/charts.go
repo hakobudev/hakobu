@@ -113,6 +113,9 @@ func usageChart(title string, ts []int64, res, from, to int64, limit float64, fo
 		for _, v := range append(slices.Clone(l.avg), l.peak...) {
 			highest = max(highest, v)
 		}
+		if len(l.avg) == 0 {
+			continue
+		}
 		now = append(now, name+format(l.avg[len(l.avg)-1]))
 		peak = append(peak, name+format(highest))
 	}
