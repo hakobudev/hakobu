@@ -34,9 +34,9 @@ const RequestFile = "data/update-request"
 // the status are root's; the database and its copy are hakobu's.
 const (
 	binaryFile   = "hakobu"
-	prevFile     = "hakobu.prev"     // the binary before the last update
-	downloadFile = "hakobu.download" // a release being checked
-	StateFile    = "update-state.json" // readable by the panel
+	prevFile     = "hakobu.prev"        // the binary before the last update
+	downloadFile = "hakobu.download"    // a release being checked
+	StateFile    = "update-state.json"  // readable by the panel
 	StatusFile   = "update-status.json" // read by the panel
 	lockFile     = "update.lock"
 	databaseFile = "data/hakobu.db"
@@ -160,17 +160,25 @@ func (in *Install) Update(tag string) error {
 		in.setStatus("failed", tag, err.Error())
 		return err
 	}
-	if err := os.Rename(in.path(binaryFile), in.path(prevFile)); err != nil {
+	// The old binary is linked aside, then the new one renamed over it:
+	// there's a hakobu at its path at every moment, should the server go
+	// down in between.
+	if err := os.Remove(in.path(prevFile)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		in.startAgain()
+		in.setStatus("failed", tag, err.Error())
+		return err
+	}
+	if err := os.Link(in.path(binaryFile), in.path(prevFile)); err != nil {
 		in.startAgain()
 		in.setStatus("failed", tag, err.Error())
 		return err
 	}
 	if err := os.Rename(in.path(downloadFile), in.path(binaryFile)); err != nil {
-		_ = os.Rename(in.path(prevFile), in.path(binaryFile))
 		in.startAgain()
 		in.setStatus("failed", tag, err.Error())
 		return err
 	}
+	syncDir(in.Dir)
 
 	// The new version's systemd units, for buttons it brings.
 	if out, err := in.command(in.Dir, in.path(binaryFile), "install-units"); err != nil {
@@ -319,6 +327,14 @@ func ReadStatus(dir string) (Status, bool) {
 		return st, false
 	}
 	return st, true
+}
+
+// syncDir makes the renames in dir survive a power loss.
+func syncDir(dir string) {
+	if d, err := os.Open(dir); err == nil {
+		_ = d.Sync()
+		d.Close()
+	}
 }
 
 // writeFileAtomic writes path through a temporary file in the same
