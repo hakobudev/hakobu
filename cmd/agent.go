@@ -82,6 +82,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	ops.ReconcileSlots(s)
 	go runProxyPoller(s)
 	go ops.WatchDeaths(s)
 	go ops.WatchHealth(s)

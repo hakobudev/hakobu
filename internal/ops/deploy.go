@@ -1,7 +1,6 @@
 package ops
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -67,23 +66,54 @@ func release(name string) (runQueued bool) {
 }
 
 // deployLog streams job output into its deploy_logs row, at most once a second.
+// A long build's output is cut in the middle: the start says what ran, the
+// end why it failed, and the row is rewritten whole on every flush.
 type deployLog struct {
 	s       *store.Store
 	id      int64
 	mu      sync.Mutex
-	buf     bytes.Buffer
+	head    []byte // the first deployLogHead bytes
+	tail    []byte // what came after, the last deployLogTail of it kept
+	cut     int    // bytes dropped between the two
 	flushed time.Time
 }
+
+const (
+	deployLogHead = 64 << 10
+	deployLogTail = 1 << 20
+)
 
 func (l *deployLog) Write(p []byte) (int, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.buf.Write(p)
+	l.add(p)
 	if time.Since(l.flushed) > time.Second {
-		_ = l.s.UpdateDeployLog(ctx(), store.UpdateDeployLogParams{ID: l.id, Status: "running", Output: secret.String(l.buf.String())})
+		_ = l.s.UpdateDeployLog(ctx(), store.UpdateDeployLogParams{ID: l.id, Status: "running", Output: secret.String(l.text())})
 		l.flushed = time.Now()
 	}
 	return len(p), nil
+}
+
+func (l *deployLog) add(p []byte) {
+	n := min(len(p), deployLogHead-len(l.head))
+	l.head = append(l.head, p[:n]...)
+	l.tail = append(l.tail, p[n:]...)
+	if over := len(l.tail) - deployLogTail; over > deployLogTail { // trimmed in batches
+		l.cut += over
+		l.tail = append([]byte(nil), l.tail[over:]...)
+	}
+}
+
+// text is the output so far; the caller holds mu.
+func (l *deployLog) text() string {
+	tail, cut := l.tail, l.cut
+	if over := len(tail) - deployLogTail; over > 0 {
+		tail, cut = tail[over:], cut+over
+	}
+	if cut == 0 {
+		return string(l.head) + string(tail)
+	}
+	return fmt.Sprintf("%s\n[... %d bytes of output cut ...]\n%s", l.head, cut, tail)
 }
 
 func (l *deployLog) finish(err error) {
@@ -92,9 +122,9 @@ func (l *deployLog) finish(err error) {
 	status := "success"
 	if err != nil {
 		status = "failed"
-		fmt.Fprintln(&l.buf, "error:", err)
+		l.add([]byte(fmt.Sprintln("error:", err)))
 	}
-	_ = l.s.UpdateDeployLog(ctx(), store.UpdateDeployLogParams{ID: l.id, Status: status, Output: secret.String(l.buf.String())})
+	_ = l.s.UpdateDeployLog(ctx(), store.UpdateDeployLogParams{ID: l.id, Status: status, Output: secret.String(l.text())})
 }
 
 // startJob runs fn in the background with a deploy log; only one job per
@@ -194,7 +224,9 @@ func buildDir(clone, buildPath string) (string, error) {
 func promote(app store.App, out io.Writer) error {
 	latest, prev := ImageTag(app), PreviousImageTag(app)
 	dropped := deploy.ImageID(ctx(), prev)
-	if ok, _ := deploy.ImageExists(ctx(), latest); ok {
+	if ok, err := deploy.ImageExists(ctx(), latest); err != nil {
+		fmt.Fprintln(out, "warning: failed to keep the previous image for rollback:", err)
+	} else if ok {
 		if err := deploy.TagImage(ctx(), latest, prev); err != nil {
 			fmt.Fprintln(out, "warning: failed to keep the previous image for rollback:", err)
 		}
@@ -218,7 +250,9 @@ func StartRollback(s *store.Store, appName string, withData bool) error {
 	if err != nil {
 		return err
 	}
-	if ok, _ := deploy.ImageExists(ctx(), PreviousImageTag(app)); !ok {
+	if ok, err := deploy.ImageExists(ctx(), PreviousImageTag(app)); err != nil {
+		return err
+	} else if !ok {
 		return fmt.Errorf("no previous build to roll back to")
 	}
 	if reason := DataRollbackBlocker(s, app); withData && reason != "" {
@@ -441,30 +475,37 @@ func rollOut(s *store.Store, app store.App, imageTag string, out io.Writer) erro
 	}
 
 	// Healthy: keep it running, and let the tunnel find it under the app's
-	// alias next to the old version.
-	for _, step := range []func() error{
-		func() error { return deploy.KeepRestarting(ctx(), candidate) },
-		func() error {
-			return deploy.ConnectNetwork(ctx(), candidate, projectEdge(app.ProjectName), EdgeAlias(app.Name))
-		},
-	} {
-		if err := step(); err != nil {
-			if rerr := deploy.RemoveContainer(ctx(), candidate); rerr != nil {
-				fmt.Fprintln(out, "warning:", rerr)
-			}
-			restoreOld()
-			return err
+	// alias next to the old version. Until the proxy points at it, any
+	// failure removes it and leaves the old version serving: two versions
+	// left answering under the alias would split the traffic.
+	abandon := func(err error) error {
+		if rerr := deploy.RemoveContainer(ctx(), candidate); rerr != nil {
+			fmt.Fprintln(out, "warning:", rerr)
 		}
+		restoreOld()
+		return err
+	}
+	if err := deploy.KeepRestarting(ctx(), candidate); err != nil {
+		return abandon(err)
+	}
+	if err := deploy.ConnectNetwork(ctx(), candidate, projectEdge(app.ProjectName), EdgeAlias(app.Name)); err != nil {
+		return abandon(err)
 	}
 	if _, err := proxy.Ensure(app.Name, app.Port); err != nil {
-		return err
+		return abandon(err)
+	}
+	// The database first: after a crash between the two, the agent points
+	// the proxy at the slot the database names (EnsureProxy), and
+	// ReconcileSlots removes the other one.
+	if err := s.SetAppLive(ctx(), store.SetAppLiveParams{Name: app.Name, ActiveSlot: newSlot, LivePort: port}); err != nil {
+		return abandon(err)
 	}
 	u, _ := url.Parse(fmt.Sprintf("http://%s:%d", ip, port))
 	if err := proxy.SetTarget(app.Name, u); err != nil {
-		return err
-	}
-	if err := s.SetAppLive(ctx(), store.SetAppLiveParams{Name: app.Name, ActiveSlot: newSlot, LivePort: port}); err != nil {
-		return err
+		if rerr := s.SetAppLive(ctx(), store.SetAppLiveParams{Name: app.Name, ActiveSlot: app.ActiveSlot, LivePort: app.LivePort}); rerr != nil {
+			fmt.Fprintln(out, "warning:", rerr)
+		}
+		return abandon(err)
 	}
 	if err := SyncTunnel(s); err != nil {
 		fmt.Fprintln(out, "warning: failed to update the tunnel's routes, retrying in the background:", err)
@@ -553,6 +594,45 @@ func EnsureProxy(app store.App) {
 }
 
 func RemoveProxy(name string) { proxy.Remove(name) }
+
+// ReconcileSlots tidies up after a job the agent didn't live to finish, run
+// at startup before any job: the slot the database doesn't name is a
+// leftover candidate or old version (still answering under the app's edge
+// alias), and a stopped live container was stopped by a recreate deploy or
+// data rollback that never started it again.
+func ReconcileSlots(s *store.Store) {
+	apps, err := s.ListApps(ctx())
+	if err != nil {
+		fmt.Println("failed to check the apps' containers:", err)
+		return
+	}
+	for _, app := range apps {
+		if IsDeploying(app.Name) {
+			continue
+		}
+		live := app.ContainerName()
+		status, _ := deploy.ContainerStatus(ctx(), live)
+		if status == "not found" || status == "unknown" {
+			continue // never deployed, or Docker isn't answering: leave both alone
+		}
+		other := app.Name + "-green"
+		if live == other {
+			other = app.Name + "-blue"
+		}
+		if st, _ := deploy.ContainerStatus(ctx(), other); st != "not found" && st != "unknown" {
+			fmt.Println("removing", other+", left by an unfinished deploy of", app.Name)
+			if err := deploy.RemoveContainer(ctx(), other); err != nil {
+				fmt.Println("failed to remove", other+":", err)
+			}
+		}
+		if status == "exited" || status == "created" {
+			fmt.Println("starting", live+", stopped by an unfinished deploy")
+			if err := deploy.StartContainer(ctx(), live); err != nil {
+				fmt.Println("failed to start", live+":", err)
+			}
+		}
+	}
+}
 
 // Workers.
 

@@ -168,6 +168,40 @@ func TestDockerDeploys(t *testing.T) {
 	}
 }
 
+// After an agent dies mid-deploy, startup removes the slot the database
+// doesn't name and starts the live one if a recreate deploy stopped it.
+func TestDockerReconcileSlots(t *testing.T) {
+	if os.Getenv("HAKOBU_DOCKER_TEST") == "" {
+		t.Skip("set HAKOBU_DOCKER_TEST=1 to run against the local Docker")
+	}
+	s, err := store.Open(filepath.Join(t.TempDir(), "hakobu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := newDockerTestApp(t, s)
+	t.Cleanup(func() { DeleteApp(s, app.Name) })
+	buildTestImage(t, nextImageTag(app), "v1")
+	var out strings.Builder
+	if err := rollOut(s, app, nextImageTag(app), &out); err != nil {
+		t.Fatalf("deploy: %v\n%s", err, out.String())
+	}
+	app, _ = s.GetApp(ctx(), app.Name)
+	live, other := app.ContainerName(), app.Name+"-green"
+	if live == other {
+		other = app.Name + "-blue"
+	}
+	dockerOut(t, "run", "-d", "--name", other, "busybox:1.36", "sleep", "3600")
+	dockerOut(t, "stop", "-t", "0", live)
+
+	ReconcileSlots(s)
+	if n := countContainers(t, other); n != 0 {
+		t.Errorf("leftover slot %s still there", other)
+	}
+	if st, _ := deploy.ContainerStatus(ctx(), live); st != "running" {
+		t.Errorf("live slot is %s, want running", st)
+	}
+}
+
 // newDockerTestApp creates an app whose proxy port is free on this machine
 // (a real hakobu may be using the first ones).
 func newDockerTestApp(t *testing.T, s *store.Store) store.App {

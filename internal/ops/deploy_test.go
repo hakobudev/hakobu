@@ -2,6 +2,7 @@ package ops
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/x0ryz/hakobu/internal/store"
@@ -79,5 +80,26 @@ func TestDatabaseNames(t *testing.T) {
 		if validDBName.MatchString(name) != ok {
 			t.Errorf("validDBName(%q) = %v, want %v", name, !ok, ok)
 		}
+	}
+}
+
+// A long build's log keeps its start and its end, and says what it cut.
+func TestDeployLogCutsTheMiddle(t *testing.T) {
+	l := &deployLog{}
+	l.add([]byte("start\n"))
+	line := []byte(strings.Repeat("x", 1023) + "\n")
+	for range 4 * (deployLogTail + deployLogHead) / len(line) {
+		l.add(line)
+	}
+	l.add([]byte("the end\n"))
+	out := l.text()
+	if !strings.HasPrefix(out, "start\n") || !strings.HasSuffix(out, "the end\n") || !strings.Contains(out, "bytes of output cut") {
+		t.Fatalf("log lost its start, end or cut marker: %q...%q", out[:20], out[len(out)-20:])
+	}
+	if len(out) > deployLogHead+deployLogTail+100 {
+		t.Fatalf("log is %d bytes", len(out))
+	}
+	if len(l.tail) > 2*deployLogTail {
+		t.Fatalf("kept %d bytes of tail", len(l.tail))
 	}
 }
