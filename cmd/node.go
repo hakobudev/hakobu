@@ -7,10 +7,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -19,6 +23,7 @@ import (
 	"github.com/x0ryz/hakobu/internal/config"
 	"github.com/x0ryz/hakobu/internal/link"
 	"github.com/x0ryz/hakobu/internal/node"
+	"github.com/x0ryz/hakobu/internal/ops"
 	"github.com/x0ryz/hakobu/internal/secret"
 )
 
@@ -151,6 +156,18 @@ func runNode(ctx context.Context, cfg nodeConfig, key ed25519.PrivateKey) error 
 		return fmt.Errorf("%s: the panel's key is corrupt", nodeConfigFile)
 	}
 	panelKey := ed25519.PublicKey(raw)
+	// The apps' errors and traces come in through the ingest relay, a
+	// container the panel starts here, and go on to the panel over the
+	// link while there is one.
+	var toPanel atomic.Pointer[http.Client]
+	ingestSock, err := listenSocket(ops.IngestSocketDir, filepath.Base(ops.IngestSocket()))
+	if err != nil {
+		return err
+	}
+	go func() {
+		srv := &http.Server{Handler: forwardIngest(&toPanel), ReadTimeout: config.ReadTimeout, WriteTimeout: config.ReadTimeout}
+		_ = srv.Serve(ingestSock)
+	}()
 	for wait := time.Second; ctx.Err() == nil; {
 		dial, cancel := context.WithTimeout(ctx, time.Minute)
 		sess, panelVersion, err := link.Dial(dial, cfg.Panel, key, panelKey, "", version)
@@ -166,6 +183,9 @@ func runNode(ctx context.Context, cfg nodeConfig, key ed25519.PrivateKey) error 
 		}
 		wait = time.Second
 		fmt.Println("connected to the panel at", cfg.Panel+", hakobu", panelVersion)
+		toPanel.Store(&http.Client{Transport: &http.Transport{
+			DialContext: func(context.Context, string, string) (net.Conn, error) { return sess.Open() },
+		}})
 		go func() {
 			select {
 			case <-ctx.Done():
@@ -174,10 +194,42 @@ func runNode(ctx context.Context, cfg nodeConfig, key ed25519.PrivateKey) error 
 			}
 		}()
 		_ = node.Serve(sess, node.Local{}, sess.Open)
+		toPanel.Store(nil)
 		sess.Close()
 		if ctx.Err() == nil {
 			fmt.Println("lost the panel; connecting again")
 		}
 	}
 	return nil
+}
+
+// forwardIngest passes the envelopes the ingest relay brings on to the
+// panel over the link; while there's none, they're turned away, as the
+// panel's own endpoint does when it's down.
+func forwardIngest(toPanel *atomic.Pointer[http.Client]) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c := toPanel.Load()
+		if c == nil {
+			http.Error(w, "not connected to the panel", http.StatusServiceUnavailable)
+			return
+		}
+		req, err := http.NewRequestWithContext(r.Context(), r.Method, "http://panel"+r.URL.RequestURI(), r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		for _, h := range []string{"Content-Type", "Content-Encoding", "X-Sentry-Auth"} {
+			if v := r.Header.Get(h); v != "" {
+				req.Header.Set(h, v)
+			}
+		}
+		resp, err := c.Do(req)
+		if err != nil {
+			http.Error(w, "the panel isn't reachable", http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+		w.WriteHeader(resp.StatusCode)
+		_, _ = io.Copy(w, io.LimitReader(resp.Body, 64<<10))
+	})
 }

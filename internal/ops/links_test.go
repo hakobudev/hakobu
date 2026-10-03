@@ -3,8 +3,12 @@ package ops
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net"
+	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,7 +25,7 @@ func TestServerJoinsAndServes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := LinkServer(s, "v1")
+	h, err := LinkServer(s, "v1", http.NotFoundHandler())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,4 +119,68 @@ func waitServer(t *testing.T, name string) node.Node {
 	}
 	t.Fatalf("server %s never connected", name)
 	return nil
+}
+
+// A server passes on its apps' envelopes over its link, and only theirs.
+func TestServerSendsItsAppsEnvelopes(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "hakobu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	ingest := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r.PathValue("app_id")+" "+r.Header.Get("X-Sentry-Auth"))
+	})
+	h, err := LinkServer(s, "v1", ingest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	token, _ := AddServer(s, "far")
+	tok, _ := link.ParseToken(token)
+	key, _ := link.NewKey()
+	sess, _, err := link.Dial(context.Background(), srv.URL, key, tok.PanelKey, tok.Secret, "v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close()
+	go func() { _ = node.Serve(sess, nodetest.New(), sess.Open) }()
+	waitServer(t, "far")
+
+	for _, p := range []string{"there", "here"} {
+		server := ""
+		if p == "there" {
+			server = "far"
+		}
+		if err := CreateProjectOn(s, p, server); err != nil {
+			t.Fatal(err)
+		}
+		pr, _ := s.GetProject(ctx(), p)
+		if err := s.CreateApp(ctx(), store.CreateAppParams{ProjectID: pr.ID, Name: p + "-app", BuildStrategy: "dockerfile"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	there, _ := s.GetApp(ctx(), "there-app")
+	here, _ := s.GetApp(ctx(), "here-app")
+	toPanel := &http.Client{Transport: &http.Transport{DialContext: func(context.Context, string, string) (net.Conn, error) { return sess.Open() }}}
+	post := func(id int64) int {
+		req, _ := http.NewRequest(http.MethodPost, fmt.Sprintf("http://panel/api/%d/envelope/", id), strings.NewReader("{}"))
+		req.Header.Set("X-Sentry-Auth", "Sentry sentry_key=k")
+		resp, err := toPanel.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	if code := post(there.ID); code != http.StatusOK {
+		t.Errorf("its own app's envelope: %d", code)
+	}
+	if code := post(here.ID); code != http.StatusForbidden {
+		t.Errorf("another server's app's envelope: %d", code)
+	}
+	if fmt.Sprint(got) != fmt.Sprintf("[%d Sentry sentry_key=k]", there.ID) {
+		t.Errorf("ingested %v", got)
+	}
 }

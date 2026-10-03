@@ -66,14 +66,14 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /webhook/github", webhookHandler(s))
 	registerWebRoutes(mux, s)
+	ingest := ingestHandler(s)
 	// Servers that joined connect here; their key, checked inside the
 	// link, admits them, not a session.
-	links, err := ops.LinkServer(s, version)
+	links, err := ops.LinkServer(s, version, ingest)
 	if err != nil {
 		return err
 	}
 	mux.Handle("GET "+link.Path, links)
-	ingest := ingestHandler(s)
 	mux.HandleFunc("POST /api/{app_id}/envelope/", ingest)
 	ingestMux := http.NewServeMux()
 	ingestMux.HandleFunc("POST /api/{app_id}/envelope/", ingest)

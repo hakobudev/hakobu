@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -176,8 +177,10 @@ func (l *linkSet) drop(name string) {
 	}
 }
 
-// LinkServer takes nodes' connections at link.Path.
-func LinkServer(s *store.Store, version string) (http.Handler, error) {
+// LinkServer takes nodes' connections at link.Path. ingest takes the
+// errors, logs and traces a server's apps send (POST
+// /api/{app_id}/envelope/), passed on by the server over its link.
+func LinkServer(s *store.Store, version string, ingest http.Handler) (http.Handler, error) {
 	key, err := linkKey(s)
 	if err != nil {
 		return nil, err
@@ -196,7 +199,7 @@ func LinkServer(s *store.Store, version string) (http.Handler, error) {
 				old.session.Close() // the node came back on a new connection
 			}
 			fmt.Println("server", name, "connected, hakobu", v)
-			go func() { _ = http.Serve(sess, r.Handler()) }()
+			go func() { _ = http.Serve(sess, fromServer(s, name, r, ingest)) }()
 			watching, stopWatching := context.WithCancel(context.Background())
 			go serverConnected(s, name, r, watching)
 			<-sess.CloseChan()
@@ -262,6 +265,11 @@ func serverConnected(s *store.Store, name string, n node.Node, watching context.
 			fmt.Printf("%s: %v\n", t.label(), err)
 		}
 	}
+	// The relay its apps send errors and traces to; it joins the projects'
+	// networks next.
+	if err := n.StartIngestRelay(ctx(), IngestSocket()); err != nil {
+		fmt.Println("ingest relay of", sv.label()+":", err)
+	}
 	if err := ensureServerNetworks(s, sv); err != nil {
 		fmt.Println("networks of", sv.label()+":", err)
 	}
@@ -287,4 +295,35 @@ func serverConnected(s *store.Store, name string, n node.Node, watching context.
 			time.Sleep(5 * time.Second)
 		}
 	}
+}
+
+// fromServer answers what a server asks of the panel over its link: the
+// URLs of its backups' parts, and its apps' envelopes, taken only for
+// apps that run on it: a server can't write into another's apps.
+func fromServer(s *store.Store, name string, r *node.Remote, ingest http.Handler) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("POST /callback/{id}", r.Handler())
+	mux.HandleFunc("POST /api/{app_id}/envelope/", func(w http.ResponseWriter, req *http.Request) {
+		id, _ := strconv.ParseInt(req.PathValue("app_id"), 10, 64)
+		if !appOnServer(s, id, name) {
+			http.Error(w, "not an app of this server", http.StatusForbidden)
+			return
+		}
+		ingest.ServeHTTP(w, req)
+	})
+	return mux
+}
+
+// appOnServer reports whether the app with ID id runs on server name.
+func appOnServer(s *store.Store, id int64, name string) bool {
+	app, err := s.GetAppByID(ctx(), id)
+	if err != nil {
+		return false
+	}
+	p, err := s.GetProject(ctx(), app.ProjectName)
+	if err != nil {
+		return false
+	}
+	sv, err := projectServer(s, p)
+	return err == nil && sv.Name == name && name != ""
 }
