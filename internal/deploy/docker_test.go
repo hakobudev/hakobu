@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -19,6 +20,11 @@ func TestDockerWatchDeaths(t *testing.T) {
 	got := make(chan [2]string, 4)
 	go func() { // ends with ctx
 		_ = WatchDeaths(ctx, func(container, app string, d Death) {
+			// The stream is the whole daemon's: other tests' containers
+			// (a crash-looping cloudflared, say) die on it too.
+			if !strings.HasPrefix(container, "zt-oom") && !strings.HasPrefix(container, "zt-exit-") && container != "zt-killed" {
+				return
+			}
 			if d.OOM {
 				app += " oom"
 			} else {
