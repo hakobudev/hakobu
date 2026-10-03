@@ -75,11 +75,13 @@ func InstallationToken(appID int64, privateKeyPEM string, installationID int64) 
 	var res struct {
 		Token string `json:"token"`
 	}
-	err = call("POST", fmt.Sprintf("https://api.github.com/app/installations/%d/access_tokens", installationID), j, nil, http.StatusCreated, &res)
+	err = call("POST", fmt.Sprintf(apiURL+"/app/installations/%d/access_tokens", installationID), j, nil, http.StatusCreated, &res)
 	return res.Token, err
 }
 
-// RepoToken returns an installation token that can read repo ("owner/name").
+// RepoToken returns an installation token that can read repo ("owner/name")
+// and nothing else: the contents of that one repository, for cloning it,
+// on whatever server builds it.
 func RepoToken(appID int64, privateKeyPEM, repo string) (string, error) {
 	j, err := appJWT(appID, privateKeyPEM)
 	if err != nil {
@@ -88,11 +90,23 @@ func RepoToken(appID int64, privateKeyPEM, repo string) (string, error) {
 	var inst struct {
 		ID int64 `json:"id"`
 	}
-	if err := call("GET", "https://api.github.com/repos/"+repo+"/installation", j, nil, http.StatusOK, &inst); err != nil {
+	if err := call("GET", apiURL+"/repos/"+repo+"/installation", j, nil, http.StatusOK, &inst); err != nil {
 		return "", fmt.Errorf("repo %s is not accessible — install the GitHub App on it: %w", repo, err)
 	}
-	return InstallationToken(appID, privateKeyPEM, inst.ID)
+	_, name, _ := strings.Cut(repo, "/")
+	body, _ := json.Marshal(map[string]any{
+		"repositories": []string{name},
+		"permissions":  map[string]string{"contents": "read"},
+	})
+	var res struct {
+		Token string `json:"token"`
+	}
+	err = call("POST", fmt.Sprintf(apiURL+"/app/installations/%d/access_tokens", inst.ID), j, bytes.NewReader(body), http.StatusCreated, &res)
+	return res.Token, err
 }
+
+// apiURL is GitHub's API; tests point it at a fake.
+var apiURL = "https://api.github.com"
 
 // SetWebhookSecret changes the secret GitHub signs the app's webhook
 // deliveries with.
@@ -102,7 +116,7 @@ func SetWebhookSecret(appID int64, privateKeyPEM, secret string) error {
 		return err
 	}
 	body, _ := json.Marshal(map[string]string{"secret": secret})
-	return call("PATCH", "https://api.github.com/app/hook/config", j, bytes.NewReader(body), http.StatusOK, nil)
+	return call("PATCH", apiURL+"/app/hook/config", j, bytes.NewReader(body), http.StatusOK, nil)
 }
 
 func CloneURL(repo string) string {
@@ -118,7 +132,7 @@ func ListRepos(appID int64, privateKeyPEM string) ([]string, error) {
 	var installations []struct {
 		ID int64 `json:"id"`
 	}
-	if err := call("GET", "https://api.github.com/app/installations?per_page=100", j, nil, http.StatusOK, &installations); err != nil {
+	if err := call("GET", apiURL+"/app/installations?per_page=100", j, nil, http.StatusOK, &installations); err != nil {
 		return nil, err
 	}
 	var repos []string
@@ -133,7 +147,7 @@ func ListRepos(appID int64, privateKeyPEM string) ([]string, error) {
 					FullName string `json:"full_name"`
 				} `json:"repositories"`
 			}
-			if err := call("GET", fmt.Sprintf("https://api.github.com/installation/repositories?per_page=100&page=%d", page), token, nil, http.StatusOK, &res); err != nil {
+			if err := call("GET", fmt.Sprintf(apiURL+"/installation/repositories?per_page=100&page=%d", page), token, nil, http.StatusOK, &res); err != nil {
 				return nil, err
 			}
 			for _, r := range res.Repositories {
@@ -156,7 +170,7 @@ func RepoFiles(repo, token string) ([]string, error) {
 			Type string `json:"type"`
 		} `json:"tree"`
 	}
-	if err := call("GET", "https://api.github.com/repos/"+repo+"/git/trees/HEAD?recursive=1", token, nil, http.StatusOK, &res); err != nil {
+	if err := call("GET", apiURL+"/repos/"+repo+"/git/trees/HEAD?recursive=1", token, nil, http.StatusOK, &res); err != nil {
 		return nil, err
 	}
 	var files []string
@@ -175,7 +189,7 @@ func FileContent(repo, path, token string) (content string, ok bool) {
 		Encoding string `json:"encoding"`
 		Content  string `json:"content"`
 	}
-	if call("GET", "https://api.github.com/repos/"+repo+"/contents/"+path, token, nil, http.StatusOK, &res) != nil || res.Encoding != "base64" {
+	if call("GET", apiURL+"/repos/"+repo+"/contents/"+path, token, nil, http.StatusOK, &res) != nil || res.Encoding != "base64" {
 		return "", false
 	}
 	raw, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(res.Content, "\n", ""))
@@ -224,7 +238,7 @@ type ManifestConversion struct {
 
 func ConvertManifestCode(code string) (*ManifestConversion, error) {
 	var mc ManifestConversion
-	err := call("POST", "https://api.github.com/app-manifests/"+url.PathEscape(code)+"/conversions", "", nil, http.StatusCreated, &mc)
+	err := call("POST", apiURL+"/app-manifests/"+url.PathEscape(code)+"/conversions", "", nil, http.StatusCreated, &mc)
 	if err != nil {
 		return nil, err
 	}
@@ -284,7 +298,7 @@ func SignIn(clientID, clientSecret, code, redirectURI string) (User, error) {
 	}
 
 	var user User
-	if err := call("GET", "https://api.github.com/user", tok.AccessToken, nil, http.StatusOK, &user); err != nil {
+	if err := call("GET", apiURL+"/user", tok.AccessToken, nil, http.StatusOK, &user); err != nil {
 		return User{}, err
 	}
 	if user.ID == 0 {
@@ -296,7 +310,7 @@ func SignIn(clientID, clientSecret, code, redirectURI string) (User, error) {
 		Email             string `json:"email"`
 		Primary, Verified bool
 	}
-	if call("GET", "https://api.github.com/user/emails", tok.AccessToken, nil, http.StatusOK, &emails) == nil {
+	if call("GET", apiURL+"/user/emails", tok.AccessToken, nil, http.StatusOK, &emails) == nil {
 		for _, e := range emails {
 			if e.Primary && e.Verified {
 				user.Email = e.Email
