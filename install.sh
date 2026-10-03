@@ -327,6 +327,9 @@ WorkingDirectory=/opt/hakobu
 ExecStart=/opt/hakobu/hakobu agent
 Restart=always
 RestartSec=5
+# SIGTERM reaches only hakobu, which lets running builds finish; whatever
+# still runs is killed when the stop times out.
+KillMode=mixed
 
 [Install]
 WantedBy=multi-user.target
@@ -351,6 +354,9 @@ ExecStartPre=/bin/sh -c 'for i in \$\$(seq 1 120); do docker info >/dev/null 2>&
 ExecStart=/opt/hakobu/hakobu agent
 Restart=always
 RestartSec=5
+# SIGTERM reaches only hakobu, which lets running builds finish; whatever
+# still runs is killed when the stop times out.
+KillMode=mixed
 TimeoutStartSec=150
 
 # Sandboxing. The container dialer is the Docker user's, so hakobu enters no

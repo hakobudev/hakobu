@@ -2,6 +2,7 @@ package ops
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -32,7 +33,30 @@ var (
 	jobsMu  sync.Mutex
 	running = map[string]bool{} // apps with a deploy, rollback or deletion in progress
 	queued  = map[string]bool{} // a push arrived during a deploy; deploy again after it
+	closed  string              // why no job may start now, "" when they may
 )
+
+// CloseJobs stops new deploys, rollbacks, deletions and database jobs from
+// starting, saying why: while the agent starts up or as it stops.
+func CloseJobs(why string) {
+	jobsMu.Lock()
+	closed = why
+	jobsMu.Unlock()
+}
+
+func OpenJobs() { CloseJobs("") }
+
+// JobsOpen reports whether jobs may start.
+func JobsOpen() bool { return jobsClosed() == nil }
+
+func jobsClosed() error {
+	jobsMu.Lock()
+	defer jobsMu.Unlock()
+	if closed != "" {
+		return errors.New(closed + ", try again in a minute")
+	}
+	return nil
+}
 
 func IsDeploying(name string) bool {
 	jobsMu.Lock()
@@ -45,6 +69,9 @@ func IsDeploying(name string) bool {
 func reserve(name string, queuePush bool) (ok bool, err error) {
 	jobsMu.Lock()
 	defer jobsMu.Unlock()
+	if closed != "" {
+		return false, errors.New(closed + ", try again in a minute")
+	}
 	if running[name] {
 		if queuePush {
 			queued[name] = true
@@ -56,14 +83,15 @@ func reserve(name string, queuePush bool) (ok bool, err error) {
 	return true, nil
 }
 
-// WaitForJobs waits up to timeout for running deploys, rollbacks and
-// deletions to end, as the agent stops; false if some still run.
+// WaitForJobs waits up to timeout for running deploys, rollbacks,
+// deletions and database jobs to end, as the agent stops; false if some
+// still run.
 func WaitForJobs(timeout time.Duration) bool {
 	for deadline := time.Now().Add(timeout); ; time.Sleep(500 * time.Millisecond) {
 		jobsMu.Lock()
 		n := len(running)
 		jobsMu.Unlock()
-		if n == 0 {
+		if n == 0 && !dbJobsRunning() {
 			return true
 		}
 		if time.Now().After(deadline) {
@@ -231,7 +259,10 @@ func withSnapshot(s *store.Store, app store.App, dump string, out io.Writer, ret
 	if err := s.SetAppSnapshot(ctx(), store.SetAppSnapshotParams{Name: app.Name}); err != nil {
 		return err
 	}
-	if err := retag(); err != nil {
+	if err := retag(); errors.Is(err, errPreviousNotKept) {
+		fmt.Fprintln(out, "warning:", err)
+		return nil // :previous didn't change, so no snapshot goes with it
+	} else if err != nil {
 		return err
 	}
 	if err := keepSnapshot(s, app.Name, app.LinkedDB, dump); err != nil {
@@ -261,14 +292,17 @@ func buildDir(clone, buildPath string) (string, error) {
 
 // promote makes the :next build that just went live :latest; the image it
 // replaced becomes the rollback target and the old rollback target is deleted.
+// It returns errPreviousNotKept, once :latest is the new build, if the
+// replaced image couldn't become :previous.
 func promote(app store.App, out io.Writer) error {
 	latest, prev := ImageTag(app), PreviousImageTag(app)
 	dropped := deploy.ImageID(ctx(), prev)
+	var kept error
 	if ok, err := deploy.ImageExists(ctx(), latest); err != nil {
-		fmt.Fprintln(out, "warning: failed to keep the previous image for rollback:", err)
+		kept = fmt.Errorf("%w: %v", errPreviousNotKept, err)
 	} else if ok {
 		if err := deploy.TagImage(ctx(), latest, prev); err != nil {
-			fmt.Fprintln(out, "warning: failed to keep the previous image for rollback:", err)
+			kept = fmt.Errorf("%w: %v", errPreviousNotKept, err)
 		}
 	}
 	if err := deploy.TagImage(ctx(), nextImageTag(app), latest); err != nil {
@@ -277,8 +311,10 @@ func promote(app store.App, out io.Writer) error {
 	if dropped != "" && dropped != deploy.ImageID(ctx(), prev) && dropped != deploy.ImageID(ctx(), latest) {
 		deploy.RemoveImage(ctx(), dropped)
 	}
-	return nil
+	return kept
 }
+
+var errPreviousNotKept = errors.New("failed to keep the previous image for rollback")
 
 // StartRollback redeploys the image that was live before the current one;
 // the two swap places, so rolling back again returns to where it started.

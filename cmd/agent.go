@@ -84,8 +84,14 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	ops.SyncDatabasePasswords(s)
-	ops.ReconcileSlots(s)
+	// Tidying up after the last run waits on Docker, which may be slow to
+	// answer at boot: the panel serves meanwhile, and jobs wait for it.
+	ops.CloseJobs("hakobu is starting")
+	go func() {
+		ops.SyncDatabasePasswords(s)
+		ops.ReconcileSlots(s)
+		ops.OpenJobs()
+	}()
 	go runProxyPoller(s)
 	go ops.WatchDeaths(s)
 	go ops.WatchHealth(s)
@@ -136,6 +142,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	// deploys finish meanwhile. One cut short is tidied up at the next
 	// start (ReconcileSlots, FailRunningDeployLogs).
 	fmt.Println("stopping: finishing requests and running deploys")
+	ops.CloseJobs("hakobu is stopping")
 	shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdown); err != nil {
@@ -237,6 +244,9 @@ func syncBackoff(last time.Duration, err error) time.Duration {
 // about, and cleans up once a day.
 func runBackupScheduler(s *store.Store) {
 	time.Sleep(time.Minute) // let Docker and the databases come up first
+	for !ops.JobsOpen() {
+		time.Sleep(5 * time.Second)
+	}
 	lastCleanup := time.Now()
 	for ; ; time.Sleep(time.Hour) {
 		for name, err := range ops.BackupDue(s) {

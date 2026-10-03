@@ -129,6 +129,17 @@ var (
 	dbJobs   = map[string]*DBJob{}
 )
 
+func dbJobsRunning() bool {
+	dbJobsMu.Lock()
+	defer dbJobsMu.Unlock()
+	for _, j := range dbJobs {
+		if j.Running != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func DatabaseJob(name string) DBJob {
 	dbJobsMu.Lock()
 	defer dbJobsMu.Unlock()
@@ -139,6 +150,9 @@ func DatabaseJob(name string) DBJob {
 }
 
 func reserveDB(name, what string) error {
+	if err := jobsClosed(); err != nil {
+		return err
+	}
 	dbJobsMu.Lock()
 	defer dbJobsMu.Unlock()
 	j := dbJobs[name]
