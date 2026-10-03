@@ -28,7 +28,7 @@ import (
 type Upload struct {
 	FileKey  string
 	PartSize int64
-	URL      func(part int) (string, error)
+	URL      func(part int) (string, error) `json:"-"`
 }
 
 // Uploaded is a backup as it went up.
@@ -45,7 +45,7 @@ type Download struct {
 	FileKey string
 	SHA256  string
 	Parts   int
-	URL     func(part int) (string, error)
+	URL     func(part int) (string, error) `json:"-"`
 }
 
 // tmpDir holds backups on their way; it's on the data disk rather than

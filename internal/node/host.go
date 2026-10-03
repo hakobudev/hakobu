@@ -44,7 +44,7 @@ type ContainerReading struct {
 // asked for. HostErr says why there are none of the machine's.
 type Readings struct {
 	Host       HostCounters
-	HostErr    error
+	HostErr    string
 	Containers []ContainerReading
 }
 
@@ -52,7 +52,10 @@ type Readings struct {
 // containers among names; it fails only when Docker doesn't answer.
 func (Local) Readings(ctx context.Context, names map[string]bool) (Readings, error) {
 	var r Readings
-	r.Host, r.HostErr = readHost(ctx)
+	var err error
+	if r.Host, err = readHost(ctx); err != nil {
+		r.HostErr = err.Error()
+	}
 	running, err := deploy.RunningContainers(ctx)
 	if err != nil {
 		return r, err

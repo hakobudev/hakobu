@@ -25,6 +25,7 @@ import (
 type Fake struct {
 	mu    sync.Mutex
 	fail  map[string]error
+	hooks map[string]func()
 	calls []string
 	n     int // for build, dump and container IDs
 
@@ -48,7 +49,7 @@ var _ node.Node = (*Fake)(nil)
 
 func New() *Fake {
 	return &Fake{
-		fail: map[string]error{}, Port: 8080,
+		fail: map[string]error{}, hooks: map[string]func(){}, Port: 8080,
 		Containers: map[string]string{}, Runs: map[string]string{}, Images: map[string]map[node.Image]string{},
 		Proxies: map[string]string{}, DBs: map[string]string{}, Passwords: map[string]string{},
 		Dumps: map[node.Dump]string{}, Volumes: map[string]string{}, Bucket: map[string]string{}, Tunnels: map[string]node.TunnelSpec{},
@@ -68,6 +69,14 @@ func (f *Fake) Fail(method string, err error) {
 	}
 }
 
+// OnCall runs fn when method is called, before it does its work: to drop
+// the link mid-call, say.
+func (f *Fake) OnCall(method string, fn func()) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.hooks[method] = fn
+}
+
 // Calls are the methods called so far, in order.
 func (f *Fake) Calls() []string {
 	f.mu.Lock()
@@ -82,6 +91,11 @@ func (f *Fake) Called(method string) bool { return slices.Contains(f.Calls(), me
 // is to fail with.
 func (f *Fake) call(method string) (unlock func(), err error) {
 	f.mu.Lock()
+	if hook := f.hooks[method]; hook != nil {
+		f.mu.Unlock()
+		hook()
+		f.mu.Lock()
+	}
 	f.calls = append(f.calls, method)
 	return f.mu.Unlock, f.fail[method]
 }

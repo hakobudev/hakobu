@@ -154,7 +154,7 @@ func collectUsage(s *store.Store, st *metricState, now time.Time) []teldb.Sample
 	}
 	r, err := local.Readings(ctx(), names)
 	var out []teldb.Sample
-	if r.HostErr == nil {
+	if r.HostErr == "" {
 		if u, ok := hostUsage(st, r.Host); ok {
 			out = append(out, u)
 		}

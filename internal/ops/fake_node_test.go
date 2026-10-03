@@ -16,14 +16,15 @@ import (
 // records when the node fails at each step. The Docker tests cover the
 // node's side.
 
-// fakeNode makes every project's node a nodetest.Fake for the test, and
+// fakeNode makes every project's node a nodetest.Fake for the test,
+// reached over the link's protocol as a node on another server is, and
 // gives it app "web" in project "shop" with database "main", live in the
 // blue slot on build "build-old".
 func fakeNode(t *testing.T) (*store.Store, *nodetest.Fake) {
 	t.Helper()
 	f := nodetest.New()
 	old := local
-	local = f
+	local = nodetest.Linked(t, f)
 	t.Cleanup(func() { local = old })
 	s, err := store.Open(filepath.Join(t.TempDir(), "hakobu.db"))
 	if err != nil {
@@ -222,5 +223,34 @@ func TestBackupsGoBetweenTheNodeAndR2(t *testing.T) {
 	}
 	if IsDeploying("web") {
 		t.Error("the app is still held after its volume's backup")
+	}
+}
+
+// The link drops while the node starts a new version: the panel can't
+// know how far it got, so it keeps naming the old slot, and once the node
+// is back, Reconcile removes the candidate it left.
+func TestLinkDropsMidRollOut(t *testing.T) {
+	s, f := fakeNode(t)
+	r, closeLink, err := nodetest.Link(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	local = r
+	f.Images["web"][node.Next] = "build-new"
+	f.OnCall("StartCandidate", closeLink)
+	err = rollOut(s, webApp(t, s), node.Next, &strings.Builder{})
+	if !errors.Is(err, node.ErrUnreachable) {
+		t.Fatalf("rollOut: %v, want ErrUnreachable", err)
+	}
+	if app := webApp(t, s); app.ActiveSlot != "blue" || f.Proxies["web"] != "web-blue" {
+		t.Errorf("record %s, proxy %s: want both on blue", app.ActiveSlot, f.Proxies["web"])
+	}
+	if f.Containers["web-green"] != "running" {
+		t.Fatalf("the fake didn't start the candidate: %v", f.Containers)
+	}
+	local = nodetest.Linked(t, f) // back
+	ReconcileSlots(s)
+	if _, left := f.Containers["web-green"]; left || f.Containers["web-blue"] != "running" {
+		t.Errorf("after Reconcile: %v", f.Containers)
 	}
 }
