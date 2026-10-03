@@ -213,7 +213,7 @@ func newDockerTestApp(t *testing.T, s *store.Store) store.App {
 	p, _ := s.GetProject(ctx(), project)
 	// Runs after the tests' own cleanups (LIFO), once the apps are gone.
 	t.Cleanup(func() {
-		if err := removeProjectNetworks(project); err != nil {
+		if err := removeProjectNetworks(s, project); err != nil {
 			t.Error(err)
 		}
 	})
@@ -628,7 +628,7 @@ func TestDockerRestoreOnNewServer(t *testing.T) {
 	must(SetupBackups(s))
 	project := "zt" + suffix
 	must(CreateProject(s, project))
-	t.Cleanup(func() { _ = removeProjectNetworks(project) })
+	t.Cleanup(func() { _ = removeProjectNetworks(s, project) })
 	must(CreateDatabase(s, project, "zt"+suffix))
 	d, _ := s.GetDatabase(ctx(), "zt"+suffix)
 	dockerOut(t, "exec", PostgresContainer, "psql", "-U", d.User, "-d", d.Name, "-c", "CREATE TABLE t (n int); INSERT INTO t VALUES (7)")

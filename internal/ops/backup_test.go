@@ -167,7 +167,7 @@ func TestR2Backups(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := uploadParts(s, "k", strings.NewReader("x"), 1); err == nil {
+	if _, err := uploadParts(s, backupTarget{}, "k", strings.NewReader("x"), 1); err == nil {
 		t.Error("uploaded before backups were set up")
 	}
 	if err := SetupBackups(s); err != nil {
@@ -182,7 +182,7 @@ func TestR2Backups(t *testing.T) {
 	backupPartSize = 10
 	t.Cleanup(func() { backupPartSize = old })
 	dump := strings.Repeat("0123456789", 3) + "tail"
-	parts, err := uploadParts(s, "main/1.sql.gz", strings.NewReader(dump), int64(len(dump)))
+	parts, err := uploadParts(s, backupTarget{}, "main/1.sql.gz", strings.NewReader(dump), int64(len(dump)))
 	if err != nil || parts != 4 || string(objects["main/1.sql.gz/003"]) != "tail" {
 		t.Fatalf("parts = %d, %v, objects %v", parts, err, objects)
 	}
@@ -212,7 +212,7 @@ func TestR2Backups(t *testing.T) {
 	// A sealed backup shows nothing of the dump in the bucket and reads
 	// back with its own key.
 	secretDump := strings.Repeat("password=hunter2 ", 50)
-	obj, err := uploadSealed(s, "other/2.dump.enc", func(w io.Writer) error {
+	obj, err := uploadSealed(s, backupTarget{}, "other/2.dump.enc", func(w io.Writer) error {
 		_, err := io.WriteString(w, secretDump)
 		return err
 	})
@@ -238,7 +238,7 @@ func TestR2Backups(t *testing.T) {
 		t.Errorf("temporary files left: %v", left)
 	}
 	// An empty dump still makes one (empty) part, so it can be read.
-	if parts, _ := uploadParts(s, "empty", strings.NewReader(""), 0); parts != 1 {
+	if parts, _ := uploadParts(s, backupTarget{}, "empty", strings.NewReader(""), 0); parts != 1 {
 		t.Errorf("empty dump: %d parts", parts)
 	}
 

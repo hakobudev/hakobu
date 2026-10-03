@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"strings"
+
 	"github.com/x0ryz/hakobu/internal/cloudflare"
 	"github.com/x0ryz/hakobu/internal/ops"
 	"github.com/x0ryz/hakobu/internal/store"
@@ -19,6 +21,8 @@ type settingsPage struct {
 	Update                        ops.UpdateInfo
 	TokenURL                      string
 	Token                         []cloudflare.Permission
+	Clients                       []ops.ClientAccount
+	ClientTokenURL                string
 	Usage                         []usageRow
 	OAuthGrants                   []store.OAuthGrant
 }
@@ -60,6 +64,12 @@ templ settingsView(v settingsPage) {
 						if len(cloudflare.Lacking(v.Token)) > 0 {
 							<span class="subnav-count"><span class="dot dot-attention"></span></span>
 						}
+					</a>
+				}
+				if v.CloudflareConnected {
+					<a href="#clients" class="subnav-item">
+						@ic("users", "icon-muted")
+						Clients
 					</a>
 				}
 				<a href="#ai-apps" class="subnav-item">
@@ -143,6 +153,9 @@ templ settingsView(v settingsPage) {
 				}
 				if v.Token != nil {
 					@settingsToken(v)
+				}
+				if v.CloudflareConnected {
+					@settingsClients(v)
 				}
 				@settingsAIApps(v)
 				@settingsSecurity(v)
@@ -363,6 +376,9 @@ templ settingsBackups(v settingsPage) {
 			<div class="box-body">
 				if v.BackupBucket != "" {
 					<p>Every database, every app's volumes and the panel itself are backed up daily to the R2 bucket <span class="mono">{ v.BackupBucket }</span> in your Cloudflare account, sealed with the master key.</p>
+					if len(v.Clients) > 0 {
+						<p class="field-hint">The databases and volumes of a client's projects go to a bucket of their own in the client's account instead, sealed the same way.</p>
+					}
 					<p class="field-hint">Its files can't be deleted or overwritten for 7 days, so a bug in hakobu can't wipe recent backups (someone in control of this server could still change the lock).</p>
 				} else {
 					<p>Creates a private R2 bucket in your Cloudflare account and backs up every database and volume to it daily. Backups live off this server, so they survive losing it. R2's free plan includes 10 GB.</p>
@@ -502,6 +518,83 @@ templ settingsToken(v settingsPage) {
 			</form>
 		</div>
 	}
+}
+
+templ settingsClients(v settingsPage) {
+	@section("clients", "Clients", "A client's Cloudflare account: projects assigned to it get their domains, R2 storages and backups there, through a tunnel of its own. The client keeps their account; you only get a token for it.", nil) {
+		<div class="space-y-6">
+			if len(v.Clients) > 0 {
+				<div class="box">
+					for _, c := range v.Clients {
+						<details>
+							<summary class="box-row cursor-pointer">
+								<span class="row-main">
+									@ic("users", "icon-muted")
+									<span class="row-title">{ c.Name }</span>
+								</span>
+								<span class="row-meta">{ clientProjects(c) }</span>
+							</summary>
+							<div class="box-body space-y-4">
+								<div class="kv">
+									<span class="kv-key">Account ID</span>
+									<span class="mono">{ c.AccountID }</span>
+								</div>
+								<form hx-post={ "/settings/clients/" + c.Name + "/token" } class="space-y-2">
+									<p class="field-hint">A new token from the client, for the same account. Then they delete the old one.</p>
+									<div class="flex gap-2">
+										<input name="token" type="password" required autocomplete="off" placeholder="New API token" class="input mono"/>
+										@submit("Replace token", false)
+									</div>
+								</form>
+								<div class="flex items-center justify-between gap-3">
+									<p class="field-hint">
+										if len(c.Projects) > 0 {
+											Move or delete its projects first.
+										} else {
+											Stops its tunnel. Buckets and backups in the client's account stay.
+										}
+									</p>
+									<button
+										class="btn btn-danger"
+										hx-delete={ "/settings/clients/" + c.Name }
+										hx-confirm={ "hakobu deletes the tunnel in " + c.Name + "'s account and forgets its token. Its buckets and backups stay in the account." }
+										data-confirm-title={ "Remove client " + c.Name + "?" }
+										data-confirm-action="Remove client"
+										disabled?={ len(c.Projects) > 0 }
+									>
+										@ic("trash-2")
+										Remove
+									</button>
+								</div>
+							</div>
+						</details>
+					}
+				</div>
+			}
+			<form class="box" hx-post="/settings/clients">
+				<div class="box-header">Add a client</div>
+				<div class="box-body space-y-4">
+					<p class="field-hint">Send the client <a href={ templ.SafeURL(v.ClientTokenURL) } target="_blank" rel="noopener">this link</a>: signed in to their Cloudflare account, they select <span class="strong">Continue to summary</span> → <span class="strong">Create Token</span> and give you the token. It needs Zone Read, DNS Edit, Cloudflare Tunnel Edit and Workers R2 Storage Edit, and must be made in their account (account-owned).</p>
+					@field("Name", "Lowercase letters, digits and dashes; shown in project settings.") {
+						<input name="name" required pattern="[a-z][a-z0-9\-]{0,39}" placeholder="e.g. acme" class="input mono"/>
+					}
+					@field("API token", "") {
+						<input name="token" type="password" required autocomplete="off" class="input mono"/>
+					}
+				</div>
+				@boxFooter("hakobu creates a tunnel in the client's account.") {
+					@submit("Add client", true)
+				}
+			</form>
+		</div>
+	}
+}
+
+func clientProjects(c ops.ClientAccount) string {
+	if len(c.Projects) == 0 {
+		return "no projects"
+	}
+	return strings.Join(c.Projects, ", ")
 }
 
 templ settingsAIApps(v settingsPage) {

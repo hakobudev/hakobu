@@ -312,6 +312,14 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			}
 			v.Calls = appCalls(apps)
 			v.Watchdog = ops.Watchdog(s).On
+			if clients, err := ops.ClientAccounts(s); err == nil {
+				for _, c := range clients {
+					v.Clients = append(v.Clients, c.Name)
+					if p.CloudflareAccountID.Valid && p.CloudflareAccountID.Int64 == c.ID {
+						v.Client = c.Name
+					}
+				}
+			}
 			v.Sealed = ops.SealedKeys(s, "project", p.Name)
 			v.SuggestedDB = ops.SuggestDatabaseName(s, p)
 			v.BackupBucket = ops.BackupBucket(s)
@@ -349,13 +357,18 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 		return "/", ops.DeleteProject(s, r.PathValue("p"))
 	})
 
+	action("POST /projects/{p}/account", func(r *http.Request) (string, error) {
+		return "", ops.SetProjectAccount(s, r.PathValue("p"), r.FormValue("client"))
+	})
+
 	action("POST /projects/{p}/env", func(r *http.Request) (string, error) {
 		return "", ops.SetSharedEnv(s, r.PathValue("p"), r.FormValue("env"))
 	})
 
 	handle("GET /projects/{p}/new-app", func(w http.ResponseWriter, r *http.Request) {
 		repos, err := ops.ListRepos(s)
-		v := newAppData{Project: r.PathValue("p"), Repos: repos, Zones: zoneNames(s), DefaultZone: config.AppsDomain()}
+		v := newAppData{Project: r.PathValue("p"), Repos: repos}
+		v.Zones, v.DefaultZone, _ = ops.ProjectZones(s, v.Project)
 		if err != nil {
 			v.RepoError = err.Error()
 		}
@@ -524,7 +537,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			case "settings":
 				p.Databases, _ = s.ListDatabasesByProject(r.Context(), app.ProjectID)
 				p.Storages, _ = s.ListStoragesByProject(r.Context(), app.ProjectID)
-				p.Zones = zoneNames(s)
+				p.Zones, _, _ = ops.ProjectZones(s, app.ProjectName)
 				p.Sub, p.Zone = splitDomain(app.Domain, p.Zones)
 				p.Volumes, _ = s.ListVolumes(r.Context(), app.Name)
 				for _, v := range p.Volumes {
@@ -783,6 +796,8 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 		}
 		if v.CloudflareConnected {
 			v.Token = ops.TokenPermissions(s, false)
+			v.Clients, _ = ops.ClientAccounts(s)
+			v.ClientTokenURL = ops.ClientTokenURL("client")
 		}
 		if usage, err := ops.CurrentUsage(s); err == nil {
 			v.Usage = usageRows(usage)
@@ -808,6 +823,18 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 
 	action("POST /settings/cleanup", func(r *http.Request) (string, error) {
 		return "", ops.Cleanup(s)
+	})
+
+	action("POST /settings/clients", func(r *http.Request) (string, error) {
+		return "", ops.AddClientAccount(s, strings.TrimSpace(r.FormValue("name")), r.FormValue("token"))
+	})
+
+	action("POST /settings/clients/{c}/token", func(r *http.Request) (string, error) {
+		return "", ops.ReplaceClientToken(s, r.PathValue("c"), r.FormValue("token"))
+	})
+
+	action("DELETE /settings/clients/{c}", func(r *http.Request) (string, error) {
+		return "", ops.RemoveClientAccount(s, r.PathValue("c"))
 	})
 
 	action("POST /settings/backups", func(r *http.Request) (string, error) {
@@ -1101,19 +1128,6 @@ func splitEnv(env []string) []envVar {
 		out = append(out, envVar{k, v})
 	}
 	return out
-}
-
-// zoneNames lists the connected Cloudflare account's domains, nil if none.
-func zoneNames(s *store.Store) []string {
-	zones, err := ops.Zones(s)
-	if err != nil {
-		return nil
-	}
-	names := make([]string, len(zones))
-	for i, z := range zones {
-		names[i] = z.Name
-	}
-	return names
 }
 
 // formDomain builds the domain from the "sub" and "zone" fields (an empty

@@ -125,6 +125,11 @@ func containerTargets(s *store.Store) map[string]containerTarget {
 		tunnelContainer:   {name: "service:cloudflared"},
 		"buildkit":        {name: "service:buildkit"},
 	}
+	for _, a := range tunnelAccounts(s) {
+		if !a.isPanel() {
+			targets[a.container()] = containerTarget{name: "service:cloudflared-" + a.Name}
+		}
+	}
 	apps, err := s.ListApps(ctx())
 	if err != nil {
 		return targets

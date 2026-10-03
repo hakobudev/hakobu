@@ -47,31 +47,94 @@ func SetupBackups(s *store.Store) error {
 	if err != nil {
 		return err
 	}
-	suffix, err := RandomHex(4)
+	bucket, err := createBackupBucket(c, cf.AccountID)
 	if err != nil {
-		return err
-	}
-	bucket := "hakobu-backups-" + suffix
-	if err := c.CreateBucket(cf.AccountID, bucket); err != nil {
-		return fmt.Errorf("creating the R2 bucket failed (is R2 enabled in the Cloudflare dashboard?): %w", err)
-	}
-	if err := c.LockBucket(cf.AccountID, bucket, backupLockDays); err != nil {
 		return err
 	}
 	return s.SetBackupBucket(ctx(), bucket)
 }
 
-// r2 returns an API client with a fresh token, the account and the backup
-// bucket. It's called per request: a long upload can outlive a token.
-func r2(s *store.Store) (cloudflare.Client, string, string, error) {
-	c, cf, err := cfClient(s)
+// createBackupBucket creates a locked bucket for backups in the account.
+func createBackupBucket(c cloudflare.Client, account string) (string, error) {
+	suffix, err := RandomHex(4)
 	if err != nil {
-		return c, "", "", err
+		return "", err
 	}
-	if cf.BackupBucket == "" {
-		return c, "", "", errors.New("backups aren't set up yet (Settings → Backups)")
+	bucket := "hakobu-backups-" + suffix
+	if err := c.CreateBucket(account, bucket); err != nil {
+		return "", fmt.Errorf("creating the R2 bucket failed (is R2 enabled in the Cloudflare dashboard?): %w", err)
 	}
-	return c, cf.AccountID, cf.BackupBucket, nil
+	if err := c.LockBucket(account, bucket, backupLockDays); err != nil {
+		return "", err
+	}
+	return bucket, nil
+}
+
+// backupTarget is where a backup goes or went: a Cloudflare account and a
+// bucket in it. The zero target is the panel's backup bucket, where every
+// backup went before clients' accounts.
+type backupTarget struct{ AccountID, Bucket string }
+
+// r2 is r2At for the panel's backup bucket.
+func r2(s *store.Store) (cloudflare.Client, string, string, error) {
+	return r2At(s, backupTarget{})
+}
+
+// r2At returns an API client with a fresh token, the account and the
+// bucket of t. It's called per request: a long upload can outlive a token.
+func r2At(s *store.Store, t backupTarget) (cloudflare.Client, string, string, error) {
+	a, err := accountByCloudflareID(s, t.AccountID)
+	if err != nil {
+		return cloudflare.Client{}, "", "", err
+	}
+	bucket := t.Bucket
+	if bucket == "" && a.isPanel() {
+		bucket = a.BackupBucket
+	}
+	if bucket == "" {
+		return a.Client, "", "", errors.New("backups aren't set up yet (Settings → Backups)")
+	}
+	return a.Client, a.AccountID, bucket, nil
+}
+
+var clientBucketMu sync.Mutex
+
+// projectBackupTarget is where the project's backups go: the panel's
+// bucket, or a locked bucket in the client's account, made at its first
+// backup. Backups are on for every project once they're set up.
+func projectBackupTarget(s *store.Store, projectID int64) (backupTarget, error) {
+	if BackupBucket(s) == "" {
+		return backupTarget{}, errors.New("backups aren't set up yet (Settings → Backups)")
+	}
+	p, err := s.GetProjectByID(ctx(), projectID)
+	if err != nil {
+		return backupTarget{}, err
+	}
+	clientBucketMu.Lock()
+	defer clientBucketMu.Unlock()
+	a, err := projectAccount(s, p) // read under the lock: another backup may have made the bucket
+	if err != nil {
+		return backupTarget{}, err
+	}
+	if !a.isPanel() && a.BackupBucket == "" {
+		if a.BackupBucket, err = createBackupBucket(a.Client, a.AccountID); err != nil {
+			return backupTarget{}, fmt.Errorf("%s: %w", a.label(), err)
+		}
+		if err := s.SetCloudflareAccountBackupBucket(ctx(), store.SetCloudflareAccountBackupBucketParams{BackupBucket: a.BackupBucket, ID: a.ID}); err != nil {
+			return backupTarget{}, err
+		}
+	}
+	return backupTarget{a.AccountID, a.BackupBucket}, nil
+}
+
+// accountBackupBucket is the backup bucket of the account with
+// Cloudflare's account ID id, "" if it has none.
+func accountBackupBucket(s *store.Store, id string) string {
+	a, err := accountByCloudflareID(s, id)
+	if err != nil {
+		return ""
+	}
+	return a.BackupBucket
 }
 
 func partKey(b string, i int) string { return fmt.Sprintf("%s/%03d", b, i) }
@@ -258,8 +321,12 @@ func BackupDatabase(s *store.Store, dbName string) (id int64, err error) {
 	if err != nil {
 		return 0, err
 	}
+	target, err := projectBackupTarget(s, d.ProjectID)
+	if err != nil {
+		return 0, err
+	}
 	key := fmt.Sprintf("%s/%s.dump.enc", d.Name, time.Now().UTC().Format("20060102-150405"))
-	obj, err := uploadSealed(s, key, func(w io.Writer) error {
+	obj, err := uploadSealed(s, target, key, func(w io.Writer) error {
 		return backup.DumpDatabase(ctx(), PostgresContainer, d.User, d.Name, w)
 	})
 	if err != nil {
@@ -267,6 +334,7 @@ func BackupDatabase(s *store.Store, dbName string) (id int64, err error) {
 	}
 	return s.CreateBackup(ctx(), store.CreateBackupParams{
 		Database: d.Name, ObjectKey: key, Parts: int64(obj.parts), SizeBytes: obj.size, SHA256: obj.sha256, FileKey: secret.String(obj.fileKey),
+		AccountID: target.AccountID, Bucket: target.Bucket,
 	})
 }
 
@@ -283,8 +351,8 @@ type sealedObject struct {
 // uploadSealed seals what write produces into a temporary file on the data
 // disk and uploads it as key's parts. A backup in the bucket is no use to
 // whoever gets at the bucket without the master key.
-func uploadSealed(s *store.Store, key string, write func(io.Writer) error) (sealedObject, error) {
-	if _, _, _, err := r2(s); err != nil {
+func uploadSealed(s *store.Store, t backupTarget, key string, write func(io.Writer) error) (sealedObject, error) {
+	if _, _, _, err := r2At(s, t); err != nil {
 		return sealedObject{}, err
 	}
 	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
@@ -311,7 +379,7 @@ func uploadSealed(s *store.Store, key string, write func(io.Writer) error) (seal
 	if err != nil {
 		return sealedObject{}, err
 	}
-	parts, err := uploadParts(s, key, f, info.Size())
+	parts, err := uploadParts(s, t, key, f, info.Size())
 	if err != nil {
 		return sealedObject{}, err
 	}
@@ -336,7 +404,7 @@ func (t tempReader) Close() error {
 // bucket is never restored; it's read through its own key, or as it is
 // for a dump from before backups were sealed (fileKey ""). The caller
 // closes it, which removes the file.
-func fetchSealed(s *store.Store, objectKey string, parts int64, sha, fileKey string) (io.ReadCloser, error) {
+func fetchSealed(s *store.Store, t backupTarget, objectKey string, parts int64, sha, fileKey string) (io.ReadCloser, error) {
 	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
 		return nil, err
 	}
@@ -345,7 +413,7 @@ func fetchSealed(s *store.Store, objectKey string, parts int64, sha, fileKey str
 		return nil, err
 	}
 	body := &partsReader{parts: int(parts), open: func(i int) (io.ReadCloser, error) {
-		c, acc, bucket, err := r2(s) // per part: a long download can outlive a token
+		c, acc, bucket, err := r2At(s, t) // per part: a long download can outlive a token
 		if err != nil {
 			return nil, err
 		}
@@ -374,13 +442,13 @@ func fetchSealed(s *store.Store, objectKey string, parts int64, sha, fileKey str
 
 // fetchBackup is fetchSealed for a database backup.
 func fetchBackup(s *store.Store, b store.Backup) (io.ReadCloser, error) {
-	return fetchSealed(s, b.ObjectKey, b.Parts, b.SHA256, string(b.FileKey))
+	return fetchSealed(s, backupTarget{b.AccountID, b.Bucket}, b.ObjectKey, b.Parts, b.SHA256, string(b.FileKey))
 }
 
 // uploadParts uploads size bytes of r as key/000, key/001, ...
-func uploadParts(s *store.Store, key string, r io.ReaderAt, size int64) (parts int, err error) {
+func uploadParts(s *store.Store, t backupTarget, key string, r io.ReaderAt, size int64) (parts int, err error) {
 	for offset := int64(0); offset < size || parts == 0; offset += backupPartSize {
-		c, acc, bucket, err := r2(s)
+		c, acc, bucket, err := r2At(s, t)
 		if err != nil {
 			return 0, err
 		}
@@ -481,7 +549,7 @@ func RotateBackups(s *store.Store, dbName string, now time.Time) error {
 		return err
 	}
 	for _, b := range backupsToDrop(all, dbBackupAge, config.BackupKeep, now) {
-		if err := deleteParts(s, b.ObjectKey, b.Parts); err != nil {
+		if err := deleteParts(s, backupTarget{b.AccountID, b.Bucket}, b.ObjectKey, b.Parts); err != nil {
 			return err // retried by the next rotation
 		}
 		if err := s.DeleteBackup(ctx(), b.ID); err != nil {
@@ -492,9 +560,9 @@ func RotateBackups(s *store.Store, dbName string, now time.Time) error {
 }
 
 // deleteParts deletes a backup's parts from the bucket.
-func deleteParts(s *store.Store, objectKey string, parts int64) error {
+func deleteParts(s *store.Store, t backupTarget, objectKey string, parts int64) error {
 	for i := range int(parts) {
-		c, acc, bucket, err := r2(s)
+		c, acc, bucket, err := r2At(s, t)
 		if err != nil {
 			return err
 		}

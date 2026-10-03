@@ -105,14 +105,15 @@ func checkKeyNotLost(db *sql.DB, keyPath string, missing bool) error {
 // secretColumns are the columns sqlc maps to secret.String (sqlc.yaml);
 // TestSecretColumnsMatchSqlc keeps the two in step.
 var secretColumns = map[string][]string{
-	"projects":    {"shared_env"},
-	"apps":        {"env", "sentry_key"},
-	"workers":     {"env", "command"},
-	"databases":   {"db_password"},
-	"storages":    {"secret_access_key"},
-	"github_app":  {"private_key", "webhook_secret", "client_secret"},
-	"cloudflare":  {"api_token", "tunnel_token"},
-	"sealed_vars": {"value"},
+	"projects":            {"shared_env"},
+	"apps":                {"env", "sentry_key"},
+	"workers":             {"env", "command"},
+	"databases":           {"db_password"},
+	"storages":            {"secret_access_key"},
+	"github_app":          {"private_key", "webhook_secret", "client_secret"},
+	"cloudflare":          {"api_token", "tunnel_token"},
+	"cloudflare_accounts": {"api_token", "tunnel_token"},
+	"sealed_vars":         {"value"},
 	// The keys of backups in the bucket (secret.NewFileWriterKey).
 	"backups":        {"file_key"},
 	"volume_backups": {"file_key"},

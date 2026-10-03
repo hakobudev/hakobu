@@ -98,10 +98,13 @@ func rotateSecrets(s *store.Store, out io.Writer) (manual []string, failures int
 	// Cloudflare: a new tunnel secret, which disconnects any other
 	// connector. The API token is the owner's to roll.
 	if CloudflareConnected(s) {
-		if TunnelReady(s) {
-			step("tunnel token (other connectors were disconnected)", rotateTunnel(s))
+		for _, a := range tunnelAccounts(s) {
+			step("tunnel token of "+a.label()+" (other connectors were disconnected)", rotateTunnel(s, a))
 		}
 		manual = append(manual, "Cloudflare API token: roll it in the Cloudflare dashboard (Manage Account → API Tokens → Roll) and give hakobu the new one with `cd /opt/hakobu && sudo -u hakobu ./hakobu setup --reconnect`")
+		if clients, _ := s.ListCloudflareAccounts(ctx()); len(clients) > 0 {
+			manual = append(manual, "Clients' Cloudflare API tokens: ask each client to roll theirs and paste the new one in Settings → Clients")
+		}
 	}
 
 	// Databases: new passwords; their apps get them on restart.
@@ -156,21 +159,23 @@ func rotateSecrets(s *store.Store, out io.Writer) (manual []string, failures int
 	return manual, failures
 }
 
-// rotateTunnel gives the tunnel a new token and restarts cloudflared with
-// it; the panel and apps are unreachable for a few seconds.
-func rotateTunnel(s *store.Store) error {
-	c, cf, err := cfClient(s)
+// rotateTunnel gives the account's tunnel a new token and restarts its
+// cloudflared with it; its domains are unreachable for a few seconds.
+func rotateTunnel(s *store.Store, a cfAccount) error {
+	token, err := a.Client.RotateTunnelSecret(a.AccountID, a.TunnelID)
 	if err != nil {
 		return err
 	}
-	token, err := c.RotateTunnelSecret(cf.AccountID, cf.TunnelID)
+	a.TunnelToken = secret.String(token)
+	if a.isPanel() {
+		err = s.SetTunnelToken(ctx(), a.TunnelToken)
+	} else {
+		err = s.SetCloudflareAccountTunnel(ctx(), store.SetCloudflareAccountTunnelParams{TunnelID: a.TunnelID, TunnelToken: a.TunnelToken, ID: a.ID})
+	}
 	if err != nil {
 		return err
 	}
-	if err := s.SetTunnelToken(ctx(), secret.String(token)); err != nil {
-		return err
-	}
-	return StartTunnel(s)
+	return startTunnel(s, a)
 }
 
 // rotateDatabasePassword stores the new password before Postgres gets it:

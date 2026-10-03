@@ -84,7 +84,7 @@ func CreateDatabase(s *store.Store, projectName, name string) error {
 	if err := ensurePostgres(); err != nil {
 		return fmt.Errorf("failed to start postgres: %w", err)
 	}
-	if err := ensureProjectNetworks(projectName); err != nil {
+	if err := ensureProjectNetworks(s, projectName); err != nil {
 		return err
 	}
 	password, err := RandomHex(16)
@@ -119,7 +119,7 @@ func ensureInPostgres(s *store.Store, d store.Database) error {
 		return fmt.Errorf("failed to start postgres: %w", err)
 	}
 	if p, err := s.GetProjectByID(ctx(), d.ProjectID); err == nil {
-		if err := ensureProjectNetworks(p.Name); err != nil {
+		if err := ensureProjectNetworks(s, p.Name); err != nil {
 			return err
 		}
 	}

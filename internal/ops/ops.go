@@ -88,7 +88,7 @@ func DeleteProject(s *store.Store, name string) error {
 	if err := s.DeleteSealedVarsOf(ctx(), store.DeleteSealedVarsOfParams{Scope: "project", Owner: name}); err != nil {
 		return err
 	}
-	if err := removeProjectNetworks(name); err != nil {
+	if err := removeProjectNetworks(s, name); err != nil {
 		return err
 	}
 	return s.DeleteProject(ctx(), name)

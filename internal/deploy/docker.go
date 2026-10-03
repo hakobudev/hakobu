@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -240,22 +241,34 @@ func RunServiceContainer(ctx context.Context, name, image string, env []string, 
 }
 
 // RunTunnelContainer runs cloudflared for the tunnel with the given token on
-// the edge network. socketDir, holding the panel's unix socket, is mounted
-// at /run/hakobu.
-func RunTunnelContainer(ctx context.Context, name, image, token, socketDir string) (string, error) {
+// network and, from the start, on edges: the edge networks of the projects
+// it serves. socketDir, holding the panel's unix socket, is mounted at
+// /run/hakobu; "" mounts nothing, for a tunnel that must not reach the panel.
+func RunTunnelContainer(ctx context.Context, name, image, token, network, socketDir string, edges []string) (string, error) {
 	if err := pullImageIfMissing(ctx, image); err != nil {
 		return "", fmt.Errorf("failed to pull image %q: %w", image, err)
 	}
-	return runContainer(ctx, name, map[string]any{
-		"Image": image,
-		"Cmd":   []string{"tunnel", "run"},
-		"Env":   []string{"TUNNEL_TOKEN=" + token},
-	}, map[string]any{
-		"NetworkMode": EdgeNetwork,
-		"Binds":       []string{socketDir + ":/run/hakobu:z"},
+	endpoints := map[string]any{network: map[string]any{}}
+	for _, n := range edges {
+		if err := ensureNetwork(ctx, n); err != nil {
+			return "", err
+		}
+		endpoints[n] = map[string]any{}
+	}
+	host := map[string]any{
+		"NetworkMode": network,
 		"SecurityOpt": []string{"no-new-privileges"},
 		"CapDrop":     []string{"ALL"}, // it runs as a plain user and needs none
-	})
+	}
+	if socketDir != "" {
+		host["Binds"] = []string{socketDir + ":/run/hakobu:z"}
+	}
+	return runContainer(ctx, name, map[string]any{
+		"Image":            image,
+		"Cmd":              []string{"tunnel", "run"},
+		"Env":              []string{"TUNNEL_TOKEN=" + token},
+		"NetworkingConfig": map[string]any{"EndpointsConfig": endpoints},
+	}, host)
 }
 
 // ConnectNetwork adds a container to another network, with aliases if
@@ -282,6 +295,9 @@ func ConnectNetwork(ctx context.Context, container, network string, aliases ...s
 		return err
 	}
 	if status != http.StatusOK {
+		if info.State.Status != "running" {
+			return fmt.Errorf("%w: connecting %s to %s: %s", ErrNotRunning, container, network, respBody)
+		}
 		return fmt.Errorf("connecting %s to %s failed (%d): %s", container, network, status, respBody)
 	}
 	return nil
@@ -302,10 +318,23 @@ func DisconnectNetwork(ctx context.Context, container, network string) error {
 		return err
 	}
 	if status != http.StatusOK {
+		if strings.Contains(string(respBody), "is not connected") {
+			return fmt.Errorf("%w: %s from %s", ErrStaleNetwork, container, network)
+		}
 		return fmt.Errorf("disconnecting %s from %s failed (%d): %s", container, network, status, respBody)
 	}
 	return nil
 }
+
+// ErrStaleNetwork: Docker won't take a container that isn't running (one
+// restarting again and again, say) off a network its configuration still
+// lists, and it would join that network again at its next start; only
+// recreating the container drops it.
+var ErrStaleNetwork = errors.New("container can't leave a network it isn't running on")
+
+// ErrNotRunning: Docker can't connect a container that isn't running (one
+// restarting again and again, say) to a network.
+var ErrNotRunning = errors.New("container isn't running")
 
 // RemoveNetwork deletes a network; a missing one is fine.
 func RemoveNetwork(ctx context.Context, name string) error {

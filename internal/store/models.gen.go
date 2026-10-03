@@ -5,6 +5,8 @@
 package store
 
 import (
+	"database/sql"
+
 	"github.com/x0ryz/hakobu/internal/secret"
 )
 
@@ -75,6 +77,8 @@ type Backup struct {
 	VerifyError string
 	Tables      int64
 	FileKey     secret.String
+	AccountID   string
+	Bucket      string
 }
 
 type Cloudflare struct {
@@ -86,6 +90,16 @@ type Cloudflare struct {
 	PanelZoneID   string
 	PanelRecordID string
 	BackupBucket  string
+}
+
+type CloudflareAccount struct {
+	ID           int64
+	Name         string
+	ApiToken     secret.String
+	AccountID    string
+	TunnelID     string
+	TunnelToken  secret.String
+	BackupBucket string
 }
 
 type Database struct {
@@ -159,9 +173,10 @@ type Owner struct {
 }
 
 type Project struct {
-	ID        int64
-	Name      string
-	SharedEnv secret.String
+	ID                  int64
+	Name                string
+	SharedEnv           secret.String
+	CloudflareAccountID sql.NullInt64
 }
 
 type SealedVar struct {
@@ -209,6 +224,8 @@ type VolumeBackup struct {
 	VerifiedAt  string
 	VerifyError string
 	Files       int64
+	AccountID   string
+	Bucket      string
 }
 
 type Watchdog struct {

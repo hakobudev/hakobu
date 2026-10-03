@@ -1,0 +1,319 @@
+package ops
+
+import (
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/x0ryz/hakobu/internal/cloudflare"
+	"github.com/x0ryz/hakobu/internal/deploy"
+	"github.com/x0ryz/hakobu/internal/store"
+)
+
+// fakeAccounts is Cloudflare with the panel's account and a client's, each
+// reachable only with its own token.
+type fakeAccounts struct {
+	mu      sync.Mutex
+	ingress map[string][]cloudflare.IngressRule // by tunnel
+	records map[string]string                   // host → CNAME target
+	buckets map[string][]string                 // by account
+	objects map[string]bool                     // account/bucket/key
+}
+
+var fakeTokens = map[string][]map[string]any{
+	"panel-tok": {{"id": "z-panel", "name": "panel.com", "account": map[string]string{"id": "acc"}}},
+	"acme-tok":  {{"id": "z-acme", "name": "acme.com", "account": map[string]string{"id": "acme-acc"}}},
+	"multi-tok": {
+		{"id": "z-acme", "name": "acme.com", "account": map[string]string{"id": "acme-acc"}},
+		{"id": "z-other", "name": "other.com", "account": map[string]string{"id": "other-acc"}},
+	},
+}
+
+func newFakeAccounts(t *testing.T) *fakeAccounts {
+	f := &fakeAccounts{ingress: map[string][]cloudflare.IngressRule{}, records: map[string]string{}, buckets: map[string][]string{}, objects: map[string]bool{}}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		ok := func(result any) { _ = json.NewEncoder(w).Encode(map[string]any{"success": true, "result": result}) }
+		zones := fakeTokens[strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")]
+		// What the token may reach: its zones and their accounts.
+		reaches := func(id string) bool {
+			for _, z := range zones {
+				if z["id"] == id || z["account"].(map[string]string)["id"] == id {
+					return true
+				}
+			}
+			return false
+		}
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		if len(parts) >= 2 && (parts[0] == "accounts" || parts[0] == "zones") && !reaches(parts[1]) {
+			w.WriteHeader(http.StatusForbidden)
+			fmt.Fprint(w, `{"success":false,"errors":[{"code":10000,"message":"Authentication error"}]}`)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		route := r.Method + " " + r.URL.Path
+		switch {
+		case route == "GET /zones":
+			ok(zones)
+		case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/cfd_tunnel"):
+			ok([]any{})
+		case r.Method == "PUT" && strings.HasSuffix(r.URL.Path, "/configurations"):
+			var cfg struct {
+				Config struct{ Ingress []cloudflare.IngressRule } `json:"config"`
+			}
+			_ = json.Unmarshal(body, &cfg)
+			f.ingress[parts[3]] = cfg.Config.Ingress
+			ok(nil)
+		case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/dns_records"):
+			ok([]any{})
+		case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/dns_records"):
+			var rec struct{ Name, Content string }
+			_ = json.Unmarshal(body, &rec)
+			f.records[rec.Name] = rec.Content
+			ok(map[string]string{"id": "rec-" + rec.Name})
+		case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/r2/buckets"):
+			var b struct{ Name string }
+			_ = json.Unmarshal(body, &b)
+			f.buckets[parts[1]] = append(f.buckets[parts[1]], b.Name)
+			ok(nil)
+		case r.Method == "PUT" && strings.HasSuffix(r.URL.Path, "/lock"):
+			ok(nil)
+		case r.Method == "PUT" && strings.Contains(r.URL.Path, "/objects/"):
+			_, key, _ := strings.Cut(r.URL.Path, "/objects/")
+			f.objects[parts[1]+"/"+parts[4]+"/"+key] = true
+			ok(nil)
+		default:
+			t.Errorf("unexpected %s", route)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	old := cloudflare.APIURL
+	cloudflare.APIURL = srv.URL
+	t.Cleanup(func() { cloudflare.APIURL = old })
+	return f
+}
+
+// accountsStore has the panel's account with its tunnel, client acme's
+// with its own, project "own" in the panel's and "shop" in acme's.
+func accountsStore(t *testing.T) (*store.Store, store.Project, store.Project) {
+	t.Helper()
+	s, err := store.Open(filepath.Join(t.TempDir(), "hakobu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(s.SaveCloudflareToken(ctx(), "panel-tok"))
+	must(s.SaveCloudflareTunnel(ctx(), store.SaveCloudflareTunnelParams{AccountID: "acc", TunnelID: "t-panel", TunnelToken: "x"}))
+	id, err := s.CreateCloudflareAccount(ctx(), store.CreateCloudflareAccountParams{Name: "acme", ApiToken: "acme-tok", AccountID: "acme-acc"})
+	must(err)
+	must(s.SetCloudflareAccountTunnel(ctx(), store.SetCloudflareAccountTunnelParams{TunnelID: "t-acme", TunnelToken: "y", ID: id}))
+	must(s.CreateProject(ctx(), "own"))
+	must(s.CreateProject(ctx(), "shop"))
+	own, _ := s.GetProject(ctx(), "own")
+	shop, _ := s.GetProject(ctx(), "shop")
+	must(s.SetProjectCloudflareAccount(ctx(), store.SetProjectCloudflareAccountParams{CloudflareAccountID: sql.NullInt64{Int64: id, Valid: true}, ID: shop.ID}))
+	shop, _ = s.GetProject(ctx(), "shop")
+	return s, own, shop
+}
+
+func TestClientTunnelsAreIsolated(t *testing.T) {
+	f := newFakeAccounts(t)
+	s, own, shop := accountsStore(t)
+	for _, a := range []struct {
+		project store.Project
+		name    string
+	}{{own, "web"}, {shop, "store"}} {
+		if err := s.CreateApp(ctx(), store.CreateAppParams{ProjectID: a.project.ID, Name: a.name, BuildStrategy: "dockerfile"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetAppLive(ctx(), store.SetAppLiveParams{Name: a.name, ActiveSlot: "blue", LivePort: 3000}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	web, _ := s.GetApp(ctx(), "web")
+	shopApp, _ := s.GetApp(ctx(), "store")
+
+	// A domain goes to the tunnel of its project's account, from that
+	// account's domains only.
+	if err := SetAppDomain(s, shopApp, "store.panel.com"); err == nil {
+		t.Error("a client's app got a domain of the panel's account")
+	}
+	if err := SetAppDomain(s, shopApp, "store.acme.com"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetAppDomain(s, web, "web.panel.com"); err != nil {
+		t.Fatal(err)
+	}
+	if f.records["store.acme.com"] != "t-acme.cfargotunnel.com" || f.records["web.panel.com"] != "t-panel.cfargotunnel.com" {
+		t.Errorf("records %v", f.records)
+	}
+
+	// Each tunnel routes its own projects' apps, and only the panel's
+	// reaches the panel.
+	if err := SyncTunnel(s); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"t-panel": "[{web.panel.com http://web.hakobu:3000} { unix:/run/hakobu/panel.sock}]",
+		"t-acme":  "[{store.acme.com http://store.hakobu:3000} { http_status:404}]",
+	}
+	for tunnel, rules := range want {
+		if got := fmt.Sprint(f.ingress[tunnel]); got != rules {
+			t.Errorf("ingress of %s = %s, want %s", tunnel, got, rules)
+		}
+	}
+}
+
+func TestAddClientAccountRefuses(t *testing.T) {
+	newFakeAccounts(t)
+	s, _, _ := accountsStore(t)
+	for token, want := range map[string]string{
+		"multi-tok": "several Cloudflare accounts",
+		"panel-tok": "panel's own",
+		"acme-tok":  "already connected as acme",
+	} {
+		if err := AddClientAccount(s, "new", token); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("token %s: %v, want %q", token, err, want)
+		}
+	}
+	if err := AddClientAccount(s, "Bad Name", "acme-tok"); err == nil {
+		t.Error("took an invalid name")
+	}
+	// The panel's token can't be swapped for one that sees a client.
+	if _, err := ConnectCloudflare(s, "acme-tok"); err == nil {
+		t.Error("the panel took a client's token")
+	}
+	if err := ReplaceClientToken(s, "acme", "panel-tok"); err == nil {
+		t.Error("client acme took a token of another account")
+	}
+}
+
+func TestSetProjectAccountNeedsPrivateApps(t *testing.T) {
+	newFakeAccounts(t)
+	s, own, _ := accountsStore(t)
+	if err := s.CreateApp(ctx(), store.CreateAppParams{ProjectID: own.ID, Name: "web", BuildStrategy: "dockerfile"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetAppDomain(ctx(), store.SetAppDomainParams{Name: "web", Domain: "web.panel.com"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetProjectAccount(s, "own", "acme"); err == nil || !strings.Contains(err.Error(), "make it private") {
+		t.Errorf("moved a project with a public app: %v", err)
+	}
+	if err := SetProjectAccount(s, "own", "nobody"); err == nil {
+		t.Error("moved a project to an unknown client")
+	}
+	if err := RemoveClientAccount(s, "acme"); err == nil || !strings.Contains(err.Error(), "shop") {
+		t.Errorf("removed a client that still has a project: %v", err)
+	}
+}
+
+func TestClientBackupsStayInClientAccount(t *testing.T) {
+	f := newFakeAccounts(t)
+	s, own, shop := accountsStore(t)
+	if _, err := projectBackupTarget(s, shop.ID); err == nil {
+		t.Error("backed up before backups were set up")
+	}
+	if err := s.SetBackupBucket(ctx(), "hakobu-backups-panel"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := projectBackupTarget(s, own.ID); err != nil || got != (backupTarget{"acc", "hakobu-backups-panel"}) {
+		t.Errorf("own project's target %+v, %v", got, err)
+	}
+	// The client's bucket is made at its first backup, once.
+	first, err := projectBackupTarget(s, shop.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, _ := projectBackupTarget(s, shop.ID)
+	if first.AccountID != "acme-acc" || !strings.HasPrefix(first.Bucket, "hakobu-backups-") || again != first || len(f.buckets["acme-acc"]) != 1 {
+		t.Fatalf("targets %+v, %+v, buckets %v", first, again, f.buckets)
+	}
+	if accountBackupBucket(s, "acme-acc") != first.Bucket || accountBackupBucket(s, "") != "hakobu-backups-panel" {
+		t.Error("accountBackupBucket doesn't follow the accounts")
+	}
+	if _, err := uploadParts(s, first, "db/1.dump.enc", strings.NewReader("x"), 1); err != nil {
+		t.Fatal(err)
+	}
+	if !f.objects["acme-acc/"+first.Bucket+"/db/1.dump.enc/000"] {
+		t.Errorf("objects %v", f.objects)
+	}
+	// Backups made before clients are the panel's.
+	if _, acc, bucket, err := r2At(s, backupTarget{}); err != nil || acc != "acc" || bucket != "hakobu-backups-panel" {
+		t.Errorf("legacy target: %s %s %v", acc, bucket, err)
+	}
+	if _, _, _, err := r2At(s, backupTarget{"gone-acc", "b"}); err == nil {
+		t.Error("reached an account that isn't connected")
+	}
+}
+
+// TestDockerClientTunnelNetworks: a client's cloudflared reaches only its
+// projects' edge networks and never the panel's socket, also after a
+// project moves between accounts.
+func TestDockerClientTunnelNetworks(t *testing.T) {
+	if os.Getenv("HAKOBU_DOCKER_TEST") == "" {
+		t.Skip("set HAKOBU_DOCKER_TEST=1 to run against the local Docker")
+	}
+	t.Chdir(t.TempDir()) // for the panel's socket directory
+	newFakeAccounts(t)
+	s, _, _ := accountsStore(t)
+	accounts := tunnelAccounts(s)
+	if len(accounts) != 2 {
+		t.Fatalf("tunnel accounts %+v", accounts)
+	}
+	panel, acme := accounts[0], accounts[1]
+	t.Cleanup(func() {
+		for _, a := range accounts {
+			_ = deploy.RemoveContainer(ctx(), a.container())
+		}
+		for _, p := range []string{"own", "shop"} {
+			_ = removeProjectNetworks(s, p)
+		}
+		_ = deploy.RemoveNetwork(ctx(), acme.network())
+	})
+	// The tokens are made up: cloudflared restarts again and again, which
+	// leaves its networks and mounts as they are.
+	for _, a := range accounts {
+		if err := startTunnel(s, a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, p := range []string{"own", "shop"} {
+		if err := ensureProjectNetworks(s, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	on := func(a cfAccount) string {
+		return dockerOut(t, "inspect", "-f", "{{range $n, $_ := .NetworkSettings.Networks}}{{$n}} {{end}}| {{range .Mounts}}{{.Destination}}{{end}}", a.container())
+	}
+	expect := func(a cfAccount, has, hasNot string, socket bool) {
+		t.Helper()
+		got := on(a)
+		if !strings.Contains(got, has+" ") || strings.Contains(got, hasNot+" ") || strings.Contains(got, "/run/hakobu") != socket {
+			t.Errorf("%s: %s (want %s, not %s, panel socket %v)", a.container(), got, has, hasNot, socket)
+		}
+	}
+	expect(panel, projectEdge("own"), projectEdge("shop"), true)
+	expect(acme, projectEdge("shop"), projectEdge("own"), false)
+
+	if err := SetProjectAccount(s, "shop", ""); err != nil {
+		t.Fatal(err)
+	}
+	expect(panel, projectEdge("shop"), "-", true)
+	expect(acme, acme.network(), projectEdge("shop"), false)
+}

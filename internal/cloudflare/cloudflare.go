@@ -79,12 +79,26 @@ var tokenPermissions = []struct{ Key, Type string }{
 	{"d1", "edit"},
 }
 
+// clientTokenPermissions are what hakobu needs in a client's account: its
+// domains and their DNS records, a tunnel, and R2 for storages and backups.
+var clientTokenPermissions = tokenPermissions[:4]
+
 // TokenTemplateURL opens the dashboard's form for a new account-owned API
 // token with hakobu's permissions filled in; name is the token's name.
 func TokenTemplateURL(name string) string {
+	return templateURL(name, tokenPermissions)
+}
+
+// ClientTokenTemplateURL is TokenTemplateURL for a client's account, which
+// needs only domains, a tunnel and R2.
+func ClientTokenTemplateURL(name string) string {
+	return templateURL(name, clientTokenPermissions)
+}
+
+func templateURL(name string, permissions []struct{ Key, Type string }) string {
 	perms, _ := json.Marshal(func() []map[string]string {
 		var out []map[string]string
-		for _, p := range tokenPermissions {
+		for _, p := range permissions {
 			out = append(out, map[string]string{"key": p.Key, "type": p.Type})
 		}
 		return out
@@ -309,6 +323,16 @@ func (c Client) CreateTunnel(accountID, name, service string) (id, token string,
 	}
 	err = c.call("GET", "/accounts/"+accountID+"/cfd_tunnel/"+t.ID+"/token", nil, &token)
 	return t.ID, token, err
+}
+
+// DeleteTunnel deletes the tunnel, dropping its connections first; one
+// already gone is no error.
+func (c Client) DeleteTunnel(accountID, tunnelID string) error {
+	err := c.call("DELETE", "/accounts/"+accountID+"/cfd_tunnel/"+url.PathEscape(tunnelID)+"?cascade=true", nil, nil)
+	if err != nil && (strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "Not Found")) {
+		return nil
+	}
+	return err
 }
 
 // RotateTunnelSecret gives the tunnel a new secret and returns its new run

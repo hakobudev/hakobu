@@ -8,6 +8,7 @@ package cmd
 
 import (
 	"context"
+	"database/sql"
 	"net/http"
 	"os"
 	"testing"
@@ -81,6 +82,9 @@ func TestDevServer(t *testing.T) {
 	// Backups on, as if Cloudflare were connected; nothing here calls it.
 	must(s.SaveCloudflareToken(ctx, "dev"))
 	must(s.SetBackupBucket(ctx, "hakobu-backups-1a2b3c"))
+	client, err := s.CreateCloudflareAccount(ctx, store.CreateCloudflareAccountParams{Name: "globex", ApiToken: "dev", AccountID: "9f3c2a1b"})
+	must(err)
+	must(s.SetProjectCloudflareAccount(ctx, store.SetProjectCloudflareAccountParams{CloudflareAccountID: sql.NullInt64{Int64: client, Valid: true}, ID: shop.ID}))
 	vid, err := s.CreateVolumeBackup(ctx, store.CreateVolumeBackupParams{AppName: "api", Volume: "data", ObjectKey: "vol/api/data/1", SizeBytes: 42 << 20})
 	must(err)
 	must(s.SetVolumeBackupVerified(ctx, store.SetVolumeBackupVerifiedParams{ID: vid, VerifiedAt: "2026-10-03T03:00:00Z", Files: 1200}))

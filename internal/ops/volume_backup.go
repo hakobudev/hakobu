@@ -34,15 +34,20 @@ var errAppBusy = errors.New("a deploy is in progress")
 // BackupVolume uploads a backup of the volume; it returns errAppBusy while
 // the app is deploying, and 0 for a volume no deploy has created yet.
 func BackupVolume(s *store.Store, app, volume string) (int64, error) {
-	if _, err := s.GetApp(ctx(), app); err != nil {
+	a, err := s.GetApp(ctx(), app)
+	if err != nil {
 		return 0, err
 	}
 	name := dockerVolume(app, volume)
 	if ok, err := deploy.VolumeExists(ctx(), name); err != nil || !ok {
 		return 0, err
 	}
+	target, err := projectBackupTarget(s, a.ProjectID)
+	if err != nil {
+		return 0, err
+	}
 	key := fmt.Sprintf("volumes/%s_%s/%s.tar.enc", app, volume, time.Now().UTC().Format("20060102-150405"))
-	obj, err := uploadSealed(s, key, func(w io.Writer) error {
+	obj, err := uploadSealed(s, target, key, func(w io.Writer) error {
 		// Held like a deploy while the app is paused, so no deploy starts
 		// or stops its containers meanwhile.
 		if ok, _ := reserve(app, false); !ok {
@@ -64,6 +69,7 @@ func BackupVolume(s *store.Store, app, volume string) (int64, error) {
 	}
 	return s.CreateVolumeBackup(ctx(), store.CreateVolumeBackupParams{
 		AppName: app, Volume: volume, ObjectKey: key, Parts: int64(obj.parts), SizeBytes: obj.size, SHA256: obj.sha256, FileKey: secret.String(obj.fileKey),
+		AccountID: target.AccountID, Bucket: target.Bucket,
 	})
 }
 
@@ -97,7 +103,7 @@ func unpause(containers []string) {
 
 // fetchVolumeBackup is fetchSealed for a volume backup.
 func fetchVolumeBackup(s *store.Store, b store.VolumeBackup) (io.ReadCloser, error) {
-	return fetchSealed(s, b.ObjectKey, b.Parts, b.SHA256, string(b.FileKey))
+	return fetchSealed(s, backupTarget{b.AccountID, b.Bucket}, b.ObjectKey, b.Parts, b.SHA256, string(b.FileKey))
 }
 
 // VerifyVolumeBackup downloads a backup and reads the whole tar in it; the
@@ -264,7 +270,7 @@ func RotateVolumeBackups(s *store.Store, app, volume string, now time.Time) erro
 		return err
 	}
 	for _, b := range backupsToDrop(all, volumeBackupAge, config.BackupKeep, now) {
-		if err := deleteParts(s, b.ObjectKey, b.Parts); err != nil {
+		if err := deleteParts(s, backupTarget{b.AccountID, b.Bucket}, b.ObjectKey, b.Parts); err != nil {
 			return err // retried by the next rotation
 		}
 		if err := s.DeleteVolumeBackup(ctx(), b.ID); err != nil {

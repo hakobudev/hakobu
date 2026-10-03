@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -31,69 +32,103 @@ var tunnelContainer = "hakobu-cloudflared"
 // have no dots, so it can't clash with a container name.
 func EdgeAlias(app string) string { return app + ".hakobu" }
 
-// StartTunnel runs cloudflared once `hakobu setup` has created the tunnel,
-// leaving an already running one alone.
+// StartTunnel runs cloudflared for the panel's tunnel, once `hakobu setup`
+// has created it, and for each client's, leaving running ones alone.
 func StartTunnel(s *store.Store) error {
-	cf, err := s.GetCloudflare(ctx())
-	if err != nil || cf.TunnelToken == "" {
-		return nil
-	}
-	env, err := deploy.ContainerEnv(ctx(), tunnelContainer)
-	if err != nil {
-		return err
-	}
-	if env != nil && env["TUNNEL_TOKEN"] == string(cf.TunnelToken) {
-		err = deploy.StartContainer(ctx(), tunnelContainer)
-	} else {
-		var dir string
-		if dir, err = filepath.Abs(PanelSocketDir); err == nil {
-			_, err = deploy.RunTunnelContainer(ctx(), tunnelContainer, config.CloudflaredImage, string(cf.TunnelToken), dir)
+	var errs []error
+	for _, a := range tunnelAccounts(s) {
+		if err := startTunnel(s, a); err != nil {
+			errs = append(errs, fmt.Errorf("tunnel of %s: %w", a.label(), err))
 		}
 	}
+	// A container made before is on no newer project's edge network yet.
+	return errors.Join(append(errs, ensureAllProjectNetworks(s))...)
+}
+
+// startTunnel runs the account's cloudflared on the edge networks of its
+// projects, or starts it again if it already has the tunnel's current
+// token. Only the panel's gets the panel's socket.
+func startTunnel(s *store.Store, a cfAccount) error {
+	if a.TunnelToken == "" {
+		return nil
+	}
+	env, err := deploy.ContainerEnv(ctx(), a.container())
 	if err != nil {
 		return err
 	}
-	// A new container is on no project's edge network yet.
-	return ensureAllProjectNetworks(s)
+	if env != nil && env["TUNNEL_TOKEN"] == string(a.TunnelToken) {
+		return deploy.StartContainer(ctx(), a.container())
+	}
+	return runTunnel(s, a, "")
+}
+
+// runTunnel (re)creates the account's cloudflared on the edge networks of
+// its projects, except the project skip (one being deleted).
+func runTunnel(s *store.Store, a cfAccount, skip string) error {
+	socketDir := ""
+	if a.isPanel() {
+		var err error
+		if socketDir, err = filepath.Abs(PanelSocketDir); err != nil {
+			return err
+		}
+	}
+	projects, err := s.ListProjects(ctx())
+	if err != nil {
+		return err
+	}
+	var edges []string
+	for _, p := range projects {
+		if p.CloudflareAccountID.Int64 == a.ID && p.Name != skip {
+			edges = append(edges, projectEdge(p.Name))
+		}
+	}
+	_, err = deploy.RunTunnelContainer(ctx(), a.container(), config.CloudflaredImage, string(a.TunnelToken), a.network(), socketDir, edges)
+	return err
 }
 
 var (
 	ingressMu sync.Mutex
-	applied   string // the ingress last sent to Cloudflare
+	applied   = map[string]string{} // by tunnel ID: the ingress last sent to Cloudflare
 )
 
-// SyncTunnel points every public app's domain at its live container, if
-// that changed since the last sync.
+// SyncTunnel points every public app's domain at its live container
+// through its project's account's tunnel, for each tunnel whose routes
+// changed since the last sync.
 func SyncTunnel(s *store.Store) error {
 	ingressMu.Lock()
 	defer ingressMu.Unlock()
-	if !TunnelReady(s) {
+	accounts := tunnelAccounts(s)
+	if len(accounts) == 0 {
 		return nil
 	}
 	apps, err := s.ListApps(ctx())
 	if err != nil {
 		return err
 	}
-	var rules []cloudflare.IngressRule
-	for _, a := range apps {
-		if a.Domain != "" && a.LivePort > 0 {
-			rules = append(rules, cloudflare.IngressRule{Hostname: a.Domain, Service: fmt.Sprintf("http://%s:%d", EdgeAlias(a.Name), a.LivePort)})
-		}
-	}
-	rules = append(rules, cloudflare.IngressRule{Service: panelService})
-	key := fmt.Sprint(rules)
-	if key == applied {
-		return nil
-	}
-	c, cf, err := cfClient(s)
+	owners, err := projectAccounts(s)
 	if err != nil {
 		return err
 	}
-	if err := c.SetIngress(cf.AccountID, cf.TunnelID, rules); err != nil {
-		return err
+	var errs []error
+	for _, a := range accounts {
+		var rules []cloudflare.IngressRule
+		for _, app := range apps {
+			if owners[app.ProjectID] == a.ID && app.Domain != "" && app.LivePort > 0 {
+				rules = append(rules, cloudflare.IngressRule{Hostname: app.Domain, Service: fmt.Sprintf("http://%s:%d", EdgeAlias(app.Name), app.LivePort)})
+			}
+		}
+		rules = append(rules, cloudflare.IngressRule{Service: a.fallback()})
+		key := fmt.Sprint(rules)
+		if applied[a.TunnelID] == key {
+			continue
+		}
+		if err := a.Client.SetIngress(a.AccountID, a.TunnelID, rules); err != nil {
+			errs = append(errs, fmt.Errorf("tunnel of %s: %w", a.label(), err))
+			continue
+		}
+		applied[a.TunnelID] = key
 	}
-	applied = key
-	return nil
+	return errors.Join(errs...)
 }
 
 func CloudflareConnected(s *store.Store) bool {
@@ -122,6 +157,11 @@ func ConnectCloudflare(s *store.Store, token string) ([]cloudflare.Zone, error) 
 		}
 		if !same {
 			return nil, fmt.Errorf("the token is for another Cloudflare account than the one hakobu's tunnel is in")
+		}
+	}
+	for _, z := range zones {
+		if client, err := s.GetCloudflareAccountByAccountID(ctx(), z.Account.ID); err == nil {
+			return nil, fmt.Errorf("the token sees the Cloudflare account of client %s: the panel's token must be for your own account alone", client.Name)
 		}
 	}
 	return zones, s.SaveCloudflareToken(ctx(), secret.String(token))
@@ -194,8 +234,9 @@ func SetupTunnel(s *store.Store, zoneID, sub string) (string, error) {
 	return host, nil
 }
 
-// SetAppDomain points domain at the tunnel (replacing the app's previous
-// record) or, with domain "", makes the app private.
+// SetAppDomain points domain at the tunnel of the app's project's account
+// (replacing the app's previous record) or, with domain "", makes the app
+// private.
 func SetAppDomain(s *store.Store, app store.App, domain string) error {
 	domain = strings.Trim(strings.ToLower(strings.TrimSpace(domain)), ".")
 	if domain == app.Domain {
@@ -206,32 +247,34 @@ func SetAppDomain(s *store.Store, app store.App, domain string) error {
 	}
 	params := store.SetAppDomainParams{Name: app.Name, Domain: domain}
 	connected := TunnelReady(s)
-	var c cloudflare.Client
-	var cf store.Cloudflare
+	var a cfAccount
 	if connected {
 		var err error
-		if c, cf, err = cfClient(s); err != nil {
+		if a, err = appAccount(s, app); err != nil {
 			return err
 		}
 	}
 	if connected && domain != "" {
-		zones, err := c.Zones()
+		if a.TunnelID == "" {
+			return fmt.Errorf("%s has no tunnel yet", a.label())
+		}
+		zones, err := a.Client.Zones()
 		if err != nil {
 			return err
 		}
 		zone, ok := cloudflare.ZoneFor(zones, domain)
 		if !ok {
-			return fmt.Errorf("%s is not in a domain of your Cloudflare account", domain)
+			return fmt.Errorf("%s is not in a domain of %s", domain, a.label())
 		}
-		if params.DnsRecordID, err = c.RouteHost(cf.AccountID, zone.ID, domain, cf.TunnelID); err != nil {
+		if params.DnsRecordID, err = a.Client.RouteHost(a.AccountID, zone.ID, domain, a.TunnelID); err != nil {
 			return err
 		}
 		params.DnsZoneID = zone.ID
 	}
 	if connected && app.DnsRecordID != "" {
-		if err := c.DeleteRecord(app.DnsZoneID, app.DnsRecordID); err != nil {
+		if err := a.Client.DeleteRecord(app.DnsZoneID, app.DnsRecordID); err != nil {
 			if params.DnsRecordID != "" {
-				c.DeleteRecord(params.DnsZoneID, params.DnsRecordID)
+				_ = a.Client.DeleteRecord(params.DnsZoneID, params.DnsRecordID)
 			}
 			return fmt.Errorf("failed to delete the DNS record of %s: %w", app.Domain, err)
 		}
@@ -249,9 +292,9 @@ func removeAppDNS(s *store.Store, app store.App) error {
 	if app.DnsRecordID == "" || !CloudflareConnected(s) {
 		return nil
 	}
-	c, _, err := cfClient(s)
+	a, err := appAccount(s, app)
 	if err != nil {
 		return err
 	}
-	return c.DeleteRecord(app.DnsZoneID, app.DnsRecordID)
+	return a.Client.DeleteRecord(app.DnsZoneID, app.DnsRecordID)
 }

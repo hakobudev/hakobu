@@ -485,7 +485,7 @@ func rollOut(s *store.Store, app store.App, imageTag string, out io.Writer) erro
 		}
 	}
 
-	if err := ensureProjectNetworks(app.ProjectName); err != nil {
+	if err := ensureProjectNetworks(s, app.ProjectName); err != nil {
 		restoreOld()
 		return err
 	}
@@ -715,7 +715,7 @@ func ReconcileSlots(s *store.Store) {
 // Workers.
 
 func runWorker(s *store.Store, app store.App, w store.Worker, out io.Writer) error {
-	if err := ensureProjectNetworks(app.ProjectName); err != nil {
+	if err := ensureProjectNetworks(s, app.ProjectName); err != nil {
 		return err
 	}
 	env, err := WorkerEnv(s, app, w)

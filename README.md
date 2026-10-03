@@ -167,6 +167,19 @@ let a third party see your tokens. An API token goes straight from the dashboard
 server, never needs refreshing and works from any network. You can also limit it to the
 server's IP address in the dashboard (Client IP Address Filtering).
 
+### Clients' Cloudflare accounts
+
+One server can host projects for several clients, each keeping their own Cloudflare account.
+Under **Settings → Clients**, send the client the token link: they create an account-owned
+token in their account (Zone Read, DNS Edit, Cloudflare Tunnel Edit, Workers R2 Storage Edit)
+and give it to you. hakobu creates a tunnel in their account; a project assigned to the
+client (project **Settings**) gets its domains, R2 storages and database and volume backups
+there. The panel, email and the watchdog stay in your account.
+
+A client's tunnel is theirs to edit, so its cloudflared has no way to the panel and joins
+only the networks of that client's projects. Removing a client deletes its tunnel; buckets
+and backups stay in their account.
+
 ## Using it
 
 1. Create a project.

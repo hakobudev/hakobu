@@ -141,7 +141,7 @@ func BackupPanel(s *store.Store) (err error) {
 		return err
 	}
 	key := panelPrefix + time.Now().UTC().Format(panelTimeFormat) + ".db.enc"
-	if _, err := uploadParts(s, key, sealed, info.Size()); err != nil {
+	if _, err := uploadParts(s, backupTarget{}, key, sealed, info.Size()); err != nil {
 		return err
 	}
 	if err := rotatePanelBackups(s, time.Now()); err != nil {

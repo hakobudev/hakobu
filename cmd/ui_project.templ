@@ -19,6 +19,8 @@ type projectView struct {
 	Volumes      map[string][]volumeCard // by app
 	Calls        map[string][]string     // app → apps whose address its variables name
 	Watchdog     bool
+	Client       string   // the client whose Cloudflare account the project is in, "" for yours
+	Clients      []string // every client, to move the project to
 }
 
 // volumeCard is an app's volume on the canvas, with its latest backup.
@@ -156,6 +158,12 @@ templ projectMeta(v projectView) {
 		@ic("archive")
 		{ plural(len(v.Storages), "storage", "storages") }
 	</span>
+	if v.Client != "" {
+		<span class="meta-item">
+			@ic("users")
+			{ "client " + v.Client }
+		</span>
+	}
 }
 
 templ projectNew(v projectView) {
@@ -539,6 +547,23 @@ templ projectVariables(v projectView) {
 }
 
 templ projectSettings(v projectView) {
+	if len(v.Clients) > 0 || v.Client != "" {
+		<form class="box mb-6" hx-post={ "/projects/" + v.Project.Name + "/account" }>
+			<div class="box-header">Cloudflare account</div>
+			<div class="box-body space-y-3">
+				<p class="field-hint">Where the project's domains, R2 storages and backups are: your account, or a client's (Settings → Clients). Apps must be private to move; storages made before stay where they are.</p>
+				<select name="client" class="input">
+					<option value="" selected?={ v.Client == "" }>Your account</option>
+					for _, c := range v.Clients {
+						<option value={ c } selected?={ v.Client == c }>{ "Client " + c }</option>
+					}
+				</select>
+			</div>
+			@boxFooter("") {
+				@submit("Save", false)
+			}
+		</form>
+	}
 	<div class="box box-danger">
 		<div class="box-header">Danger zone</div>
 		<div class="box-row">
@@ -586,11 +611,11 @@ templ projectDialogs(v projectView) {
 			}
 			@field("Where", "") {
 				<select name="provider" class="input">
-					<option value="r2">Cloudflare R2 in your account</option>
+					<option value="r2">{ r2Option(v.Client) }</option>
 					<option value="s3">S3-compatible (AWS, Backblaze, MinIO, …)</option>
 				</select>
 			}
-			<p class="field-hint" data-show-if="provider=r2">hakobu creates the bucket in your Cloudflare account; then you give it the keys of a token for that bucket alone. R2's free plan includes 10 GB, and downloads are free.</p>
+			<p class="field-hint" data-show-if="provider=r2">hakobu creates the bucket in { accountName(v.Client) }; then you give it the keys of a token for that bucket alone. R2's free plan includes 10 GB, and downloads are free.</p>
 			<div class="space-y-3" data-show-if="provider=s3" hidden>
 				<input name="endpoint" placeholder="Endpoint URL" class="input mono"/>
 				<input name="bucket" placeholder="Bucket" class="input mono"/>
@@ -604,4 +629,15 @@ templ projectDialogs(v projectView) {
 			</button>
 		</form>
 	}
+}
+
+func accountName(client string) string {
+	if client == "" {
+		return "your Cloudflare account"
+	}
+	return client + "'s Cloudflare account"
+}
+
+func r2Option(client string) string {
+	return "Cloudflare R2 in " + accountName(client)
 }

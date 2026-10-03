@@ -9,8 +9,8 @@ import (
 	"github.com/x0ryz/hakobu/internal/store"
 )
 
-// Storages are buckets for the apps' files: R2 in the Cloudflare account
-// hakobu is connected to, or any S3-compatible service. hakobu creates an
+// Storages are buckets for the apps' files: R2 in the Cloudflare account of
+// the project (the panel's or its client's), or any S3-compatible service. hakobu creates an
 // R2 storage's bucket itself; the keys the app gets come from an R2 API
 // token the owner makes for that bucket alone (hakobu's own token can't
 // make one, and its keys would reach every bucket, the backups included).
@@ -34,7 +34,7 @@ func CreateStorage(s *store.Store, projectName string, st store.Storage) error {
 	}
 	switch st.Provider {
 	case "r2":
-		if err := createR2Bucket(s, &st); err != nil {
+		if err := createR2Bucket(s, p, &st); err != nil {
 			return err
 		}
 	case "s3":
@@ -52,12 +52,12 @@ func CreateStorage(s *store.Store, projectName string, st store.Storage) error {
 
 // createR2Bucket creates the storage's bucket in the connected account. Its
 // keys come later (SetStorageKeys), for a token limited to this bucket.
-func createR2Bucket(s *store.Store, st *store.Storage) error {
-	c, cf, err := cfClient(s)
+func createR2Bucket(s *store.Store, p store.Project, st *store.Storage) error {
+	a, err := projectAccount(s, p)
 	if err != nil {
 		return err
 	}
-	if cf.AccountID == "" {
+	if a.AccountID == "" {
 		return fmt.Errorf("finish `hakobu setup` first")
 	}
 	// Removing a storage keeps its bucket and files: the random part keeps
@@ -67,9 +67,9 @@ func createR2Bucket(s *store.Store, st *store.Storage) error {
 	if err != nil {
 		return err
 	}
-	st.AccountID, st.Bucket = cf.AccountID, "hakobu-"+st.Name+"-"+suffix
+	st.AccountID, st.Bucket = a.AccountID, "hakobu-"+st.Name+"-"+suffix
 	st.AccessKeyID, st.SecretAccessKey = "", ""
-	if err := c.CreateBucket(cf.AccountID, st.Bucket); err != nil {
+	if err := a.Client.CreateBucket(a.AccountID, st.Bucket); err != nil {
 		return fmt.Errorf("creating the R2 bucket: %w", err)
 	}
 	return nil
@@ -102,7 +102,7 @@ func checkStorageKeys(s *store.Store, st store.Storage) error {
 	} else if !ok {
 		return fmt.Errorf("these keys can't read bucket %s: give the token Object Read & Write on it", st.Bucket)
 	}
-	if backups := BackupBucket(s); st.Provider == "r2" && backups != "" && backups != st.Bucket {
+	if backups := accountBackupBucket(s, st.AccountID); st.Provider == "r2" && backups != "" && backups != st.Bucket {
 		if ok, err := c.CanList(backups); err != nil {
 			return fmt.Errorf("checking the keys: %w", err)
 		} else if ok {

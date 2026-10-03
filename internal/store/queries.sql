@@ -182,7 +182,7 @@ DELETE FROM storages WHERE name = ?;
 -- Backups
 
 -- name: CreateBackup :one
-INSERT INTO backups (database, object_key, parts, size_bytes, sha256, file_key) VALUES (?, ?, ?, ?, ?, ?) RETURNING id;
+INSERT INTO backups (database, object_key, parts, size_bytes, sha256, file_key, account_id, bucket) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id;
 
 -- name: GetBackup :one
 SELECT * FROM backups WHERE id = ?;
@@ -203,7 +203,7 @@ DELETE FROM backups WHERE id = ?;
 DELETE FROM backups WHERE database = ?;
 
 -- name: CreateVolumeBackup :one
-INSERT INTO volume_backups (app_name, volume, object_key, parts, size_bytes, sha256, file_key) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id;
+INSERT INTO volume_backups (app_name, volume, object_key, parts, size_bytes, sha256, file_key, account_id, bucket) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id;
 
 -- name: GetVolumeBackup :one
 SELECT * FROM volume_backups WHERE id = ?;
@@ -304,6 +304,41 @@ UPDATE cloudflare SET backup_bucket = ? WHERE id = 1;
 
 -- name: SetTunnelToken :exec
 UPDATE cloudflare SET tunnel_token = ? WHERE id = 1;
+
+-- Clients' Cloudflare accounts
+
+-- name: ListCloudflareAccounts :many
+SELECT * FROM cloudflare_accounts ORDER BY name;
+
+-- name: GetCloudflareAccount :one
+SELECT * FROM cloudflare_accounts WHERE id = ?;
+
+-- name: GetCloudflareAccountByName :one
+SELECT * FROM cloudflare_accounts WHERE name = ?;
+
+-- name: GetCloudflareAccountByAccountID :one
+SELECT * FROM cloudflare_accounts WHERE account_id = ?;
+
+-- name: CreateCloudflareAccount :one
+INSERT INTO cloudflare_accounts (name, api_token, account_id) VALUES (?, ?, ?) RETURNING id;
+
+-- name: SetCloudflareAccountToken :exec
+UPDATE cloudflare_accounts SET api_token = ? WHERE id = ?;
+
+-- name: SetCloudflareAccountTunnel :exec
+UPDATE cloudflare_accounts SET tunnel_id = ?, tunnel_token = ? WHERE id = ?;
+
+-- name: SetCloudflareAccountBackupBucket :exec
+UPDATE cloudflare_accounts SET backup_bucket = ? WHERE id = ?;
+
+-- name: DeleteCloudflareAccount :exec
+DELETE FROM cloudflare_accounts WHERE id = ?;
+
+-- name: ProjectsInCloudflareAccount :many
+SELECT name FROM projects WHERE cloudflare_account_id = ? ORDER BY name;
+
+-- name: SetProjectCloudflareAccount :exec
+UPDATE projects SET cloudflare_account_id = ? WHERE id = ?;
 
 -- name: SaveCloudflareTunnel :exec
 UPDATE cloudflare SET account_id = ?, tunnel_id = ?, tunnel_token = ?, panel_zone_id = ?, panel_record_id = ? WHERE id = 1;
