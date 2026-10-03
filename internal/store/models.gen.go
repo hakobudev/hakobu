@@ -33,6 +33,7 @@ type App struct {
 	Cpus            float64
 	SnapshotDB      string
 	SnapshotAt      string
+	Stack           string
 }
 
 type AppRecord struct {
@@ -59,6 +60,7 @@ type AppRecord struct {
 	Cpus            float64
 	SnapshotDB      string
 	SnapshotAt      string
+	Stack           string
 }
 
 type Backup struct {

@@ -1,0 +1,242 @@
+package cmd
+
+import (
+	"fmt"
+
+	"github.com/x0ryz/hakobu/internal/detect"
+	"github.com/x0ryz/hakobu/internal/ops"
+)
+
+// Parts that htmx loads into a page.
+
+templ usageFragment(v usageView) {
+	<div class="usage space-y-5">
+		{{ segs := []segment{} }}
+		for _, r := range v.Ranges {
+			{{ segs = append(segs, segment{Label: r, Href: "/usage?" + string(v.Query) + "&range=" + r, Current: r == v.Range, HX: true, Target: "closest .usage"}) }}
+		}
+		@segmented(segs)
+		for _, c := range v.Charts {
+			<div>
+				<div class="flex flex-wrap items-baseline justify-between gap-x-3 small">
+					<span class="strong">{ c.Title }</span>
+					<span class="mono muted">{ c.Now } · peak { c.Peak }</span>
+				</div>
+				@templ.Raw(string(c.SVG))
+			</div>
+		}
+		if len(v.Charts) == 0 {
+			<p class="muted">Nothing recorded yet: hakobu records usage every minute.</p>
+		}
+	</div>
+}
+
+// uptimeBadge is the 30 days' uptime next to a domain; nothing without
+// history.
+templ uptimeBadge(v uptimeView) {
+	if !v.NoHistory && v.Err == "" && len(v.Uptime.Windows) > 2 && v.Uptime.Windows[2].Checks > 0 {
+		{{ w := v.Uptime.Windows[2] }}
+		<span class={ "meta-item", templ.KV("text-danger", w.Pct < 99) }>
+			if w.Pct < 99 {
+				@ic("triangle-alert", "icon-sm")
+			} else {
+				@ic("activity", "icon-sm text-success")
+			}
+			{ fmt.Sprintf("%.2f%%", w.Pct) }
+		</span>
+	}
+}
+
+type uptimeView struct {
+	Uptime    ops.Uptime
+	NoHistory bool
+	Err       string
+}
+
+templ uptimeFragment(v uptimeView) {
+	if v.NoHistory {
+		<p class="muted">No history yet: the watchdog keeps it once it's on and hakobu's token has D1 Edit (<a href="/settings#cloudflare">Cloudflare token</a>).</p>
+	} else if v.Err != "" {
+		@flash("danger") {
+			{ v.Err }
+		}
+	} else {
+		<div class="space-y-3">
+			<div class="tiles box">
+				for _, w := range v.Uptime.Windows {
+					<div class="tile">
+						<div class="tile-label">{ w.Label }</div>
+						<div class={ "tile-value", templ.KV("text-danger", w.Checks > 0 && w.Pct < 99) }>
+							if w.Checks > 0 {
+								{ fmt.Sprintf("%.2f", w.Pct) }<span class="tile-unit">%</span>
+							} else {
+								—
+							}
+						</div>
+					</div>
+				}
+				if v.Uptime.AvgMs > 0 {
+					<div class="tile">
+						<div class="tile-label">Answers in</div>
+						<div class="tile-value">{ itoa(v.Uptime.AvgMs) }<span class="tile-unit">ms</span></div>
+					</div>
+				}
+			</div>
+			if len(v.Uptime.Outages) > 0 {
+				<ul class="space-y-1 small">
+					for _, o := range v.Uptime.Outages {
+						<li class={ "meta-item mono", templ.KV("text-danger", o.Ongoing), templ.KV("muted", !o.Ongoing) }>
+							@ic("circle-x", "icon-sm")
+							{ o.Start.UTC().Format("2006-01-02 15:04") }
+							if o.Ongoing {
+								→ now
+							} else {
+								– { o.End.UTC().Format("15:04") }
+							}
+							UTC · { fmt.Sprint(o.Minutes()) } min ·
+							if o.Status != 0 {
+								HTTP { itoa(o.Status) }
+							} else {
+								no answer
+							}
+						</li>
+					}
+				</ul>
+			} else if len(v.Uptime.Windows) > 2 && v.Uptime.Windows[2].Checks > 0 {
+				<p class="meta-item muted small">
+					@ic("circle-check", "icon-sm text-success")
+					No outages in the last 30 days.
+				</p>
+			}
+		</div>
+	}
+}
+
+templ tracePage(t traceView) {
+	@shell(t.Name, crumb{Label: t.AppName, Href: "/apps/" + t.AppName, Icon: "box"}, crumb{Label: "Performance", Href: "/apps/" + t.AppName + "/performance", Icon: "gauge"}) {
+		@pageHeader(pageHead{Icon: "gauge", Title: t.Name, Mono: true, Meta: traceMeta(t)})
+		<div class="box">
+			<div class="box-body space-y-1.5">
+				for _, r := range t.Rows {
+					<div class="grid grid-cols-12 gap-2 items-center small">
+						<div class="col-span-5 truncate mono" style={ fmt.Sprintf("padding-left: %drem", r.Depth) } title={ r.Op + " " + r.Description }><span class="muted">{ r.Op }</span> { r.Description }</div>
+						<div class="col-span-6 bar">
+							<div class={ "bar-fill", templ.KV("bar-fill-danger", r.Status != "" && r.Status != "ok") } style={ fmt.Sprintf("left: %.2f%%; width: %.2f%%", r.LeftPct, r.WidthPct) }></div>
+						</div>
+						<div class="col-span-1 text-right mono muted">{ fmt.Sprintf("%.0f", r.Ms) }</div>
+					</div>
+				}
+				if len(t.Tx.Spans) > len(t.Rows) {
+					<p class="field-hint">Showing the first { fmt.Sprint(len(t.Rows)) } spans.</p>
+				}
+			</div>
+		</div>
+	}
+}
+
+templ traceMeta(t traceView) {
+	<span class="meta-item">
+		@ic("clock")
+		{ itoa(t.DurationMs) } ms
+	</span>
+	if t.HttpStatus != 0 {
+		<span class="meta-item">HTTP { itoa(t.HttpStatus) }</span>
+	}
+	if t.Status != "" {
+		<span class="meta-item">{ t.Status }</span>
+	}
+	<span class="meta-item">{ t.At }</span>
+	<span class="meta-item mono">trace { t.TraceID }</span>
+}
+
+type newAppData struct {
+	Project     string
+	Repos       []string
+	RepoError   string
+	InstallURL  string
+	Zones       []string
+	DefaultZone string
+}
+
+templ newAppForm(v newAppData) {
+	<form hx-post={ "/projects/" + v.Project + "/apps" } class="space-y-4" data-autoname>
+		@field("Repository", "") {
+			if len(v.Repos) > 0 {
+				<select name="repo" required class="input" hx-post={ "/projects/" + v.Project + "/apps/scan" } hx-trigger="change" hx-target="#presets" hx-swap="innerHTML" hx-indicator="#scanning">
+					<option value="" disabled selected>Select a repository…</option>
+					for _, r := range v.Repos {
+						<option value={ r }>{ r }</option>
+					}
+				</select>
+			} else {
+				<input name="repo" placeholder="owner/repo" required class="input mono" hx-post={ "/projects/" + v.Project + "/apps/scan" } hx-trigger="change" hx-target="#presets" hx-swap="innerHTML" hx-indicator="#scanning"/>
+				if v.RepoError != "" {
+					<p class="field-error">Couldn't list repositories: { v.RepoError }</p>
+				}
+			}
+			if v.InstallURL != "" {
+				<p class="field-hint">Repo missing? <a href={ templ.SafeURL(v.InstallURL) } target="_blank" rel="noopener">Give the GitHub App access to it</a>, then reopen this dialog.</p>
+			}
+		}
+		@field("Build", "") {
+			<div id="scanning" class="htmx-indicator">
+				@skeleton(2, false)
+			</div>
+			<div id="presets"><p class="field-hint">Pick a repository first.</p></div>
+		}
+		@field("App name", "") {
+			<input name="name" required pattern="[a-z][a-z0-9\-]{0,39}" class="input mono"/>
+		}
+		@field("Address", "Hakobu adds the DNS record in Cloudflare; HTTPS works right away. Leave the subdomain empty for the root domain.") {
+			@domainField(v.Zones, "", v.DefaultZone, "", true)
+		}
+		<p class="field-hint">The port is detected when the app starts; it also gets <span class="mono">PORT</span> to listen on.</p>
+		<button class="btn btn-primary btn-block">
+			@ic("loader-circle", "btn-spinner")
+			Create and deploy
+		</button>
+	</form>
+}
+
+templ presetsFragment(presets []detect.Preset, errMsg string) {
+	if errMsg != "" {
+		<p class="field-error">{ errMsg }</p>
+	}
+	<div class="space-y-2">
+		for i, p := range presets {
+			<label class="choice">
+				<input type="radio" name="preset" value={ p.Path + "::" + p.Strategy } checked?={ i == 0 } required/>
+				<span>
+					<span class="strong">
+						if p.Strategy == "dockerfile" {
+							Dockerfile
+						} else {
+							{ p.Stack }
+						}
+					</span>
+					<span class="mono muted">
+						if p.Path == "." {
+							/
+						} else {
+							{ p.Path }/
+						}
+					</span>
+					<br/>
+					<span class="field-hint">
+						if p.Strategy == "dockerfile" {
+							if p.Stack != "" {
+								{ p.Stack } ·
+							}
+							built from its Dockerfile
+							if p.Port != 0 {
+								· EXPOSE { fmt.Sprint(p.Port) }
+							}
+						} else {
+							built automatically by Railpack
+						}
+					</span>
+				</span>
+			</label>
+		}
+	</div>
+}

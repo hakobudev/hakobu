@@ -1,0 +1,109 @@
+package cmd
+
+import "github.com/x0ryz/hakobu/internal/cloudflare"
+
+// homeProject is a project's card on the home page.
+type homeProject struct {
+	Name                       string
+	Apps, Databases, Storages  int
+	Down                       int // apps not running
+	Deploying                  int
+	Logos                      []string // what it's made of, at most five
+}
+
+templ lackingFlash(lacking []cloudflare.Permission) {
+	if len(lacking) > 0 {
+		<div class="mb-6">
+			@flash("warn") {
+				{ "hakobu's Cloudflare token lacks " }
+				for i, p := range lacking {
+					if i > 0 {
+						{ ", " }
+					}
+					<span class="strong">{ p.Name }</span>{ " (" + p.For + ")" }
+				}
+				{ ". " }<a href="/settings#cloudflare">Replace it in Settings</a>.
+			}
+		</div>
+	}
+}
+
+templ homePage(projects []homeProject, lacking []cloudflare.Permission) {
+	@shell("") {
+		@pageHeader(pageHead{Title: "Projects", Actions: newProjectButton()})
+		@lackingFlash(lacking)
+		if len(projects) == 0 {
+			<div class="box">
+				<div class="blankslate">
+					<p>No projects yet. A project groups apps with the databases and storages they use.</p>
+					<div class="mt-4">
+						<button type="button" class="btn btn-primary" data-dialog="new-project">
+							@ic("plus")
+							New project
+						</button>
+					</div>
+				</div>
+			</div>
+		} else {
+			<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+				for _, p := range projects {
+					<a href={ "/projects/" + p.Name } class="node">
+						<div class="node-head">
+							<div class="min-w-0 flex-1">
+								<div class="node-title">{ p.Name }</div>
+								<div class="node-kind">{ plural(p.Apps, "app", "apps") } · { plural(p.Databases, "database", "databases") } · { plural(p.Storages, "storage", "storages") }</div>
+							</div>
+							if len(p.Logos) > 0 {
+								<div class="logo-stack">
+									for _, l := range p.Logos {
+										<span>
+											@logo(l)
+										</span>
+									}
+								</div>
+							}
+						</div>
+						<div class="node-row">
+							if p.Deploying > 0 {
+								<span class="meta-item">
+									@ic("loader-circle", "icon-sm icon-spin text-attention")
+									{ plural(p.Deploying, "deploy", "deploys") } running
+								</span>
+							} else if p.Down > 0 {
+								<span class="meta-item text-danger">
+									@ic("circle-x", "icon-sm")
+									{ plural(p.Down, "app", "apps") } not running
+								</span>
+							} else if p.Apps > 0 {
+								<span class="meta-item">
+									@ic("circle-check", "icon-sm text-success")
+									All running
+								</span>
+							} else {
+								<span>Nothing deployed yet</span>
+							}
+						</div>
+					</a>
+				}
+			</div>
+		}
+		@dialog("new-project", "New project") {
+			<form hx-post="/projects" class="space-y-4">
+				@field("Name", "Lowercase letters, digits and dashes, starting with a letter.") {
+					<input name="name" required autofocus pattern="[a-z][a-z0-9\-]{0,39}" class="input mono" placeholder="e.g. shop"/>
+				}
+				<button class="btn btn-primary btn-block">
+					@ic("loader-circle", "btn-spinner")
+					Create project
+				</button>
+			</form>
+		}
+	}
+}
+
+templ newProjectButton() {
+	<button type="button" class="btn btn-primary" data-dialog="new-project">
+		@ic("plus")
+		New project
+	</button>
+}

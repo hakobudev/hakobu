@@ -52,6 +52,9 @@ UPDATE apps SET domain = ?, dns_zone_id = ?, dns_record_id = ? WHERE name = ?;
 -- name: SetAppBuild :exec
 UPDATE apps SET build_path = ?, build_strategy = ? WHERE name = ?;
 
+-- name: SetAppStack :exec
+UPDATE apps SET stack = ? WHERE name = ?;
+
 -- name: SetAppLive :exec
 UPDATE apps SET active_slot = ?, live_port = ? WHERE name = ?;
 
@@ -269,6 +272,14 @@ UPDATE deploy_logs SET status = ?, output = ? WHERE id = ?;
 
 -- name: ListDeployLogs :many
 SELECT * FROM deploy_logs WHERE app_name = ? ORDER BY id DESC LIMIT ?;
+
+-- ListDeploySummaries is ListDeployLogs without the output, which is
+-- large and decrypted on read.
+-- name: ListDeploySummaries :many
+SELECT id, app_name, trigger_source, status, created_at FROM deploy_logs WHERE app_name = ? ORDER BY id DESC LIMIT ?;
+
+-- name: GetDeployLog :one
+SELECT * FROM deploy_logs WHERE id = ? AND app_name = ?;
 
 -- name: ListRunningDeployLogs :many
 SELECT id, output FROM deploy_logs WHERE status = 'running';

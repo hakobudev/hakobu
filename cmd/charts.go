@@ -63,7 +63,7 @@ func usageChart(title string, ts []int64, res, from, to int64, limit float64, fo
 	var b strings.Builder
 	fmt.Fprintf(&b, `<svg viewBox="0 0 %d %d" preserveAspectRatio="none" style="display:block;width:100%%;height:7rem" role="img" aria-label="%s">`, chartW, chartH, template.HTMLEscapeString(title))
 	for _, frac := range []float64{0.25, 0.5, 0.75} {
-		fmt.Fprintf(&b, `<line x1="0" x2="%d" y1="%.1f" y2="%.1f" stroke="#f4f4f5" stroke-width="1" vector-effect="non-scaling-stroke"/>`, chartW, chartH*frac, chartH*frac)
+		fmt.Fprintf(&b, `<line x1="0" x2="%d" y1="%.1f" y2="%.1f" style="stroke:var(--border);opacity:.6" stroke-width="1" vector-effect="non-scaling-stroke"/>`, chartW, chartH*frac, chartH*frac)
 	}
 	segments := func(values []float64) [][]int { // index runs without gaps
 		var runs [][]int
@@ -86,7 +86,7 @@ func usageChart(title string, ts []int64, res, from, to int64, limit float64, fo
 				for _, i := range slices.Backward(run) {
 					fmt.Fprintf(&p, "%.1f,%.1f ", x(ts[i]), y(l.avg[i]))
 				}
-				fmt.Fprintf(&b, `<polygon points="%s" fill="%s" fill-opacity="0.15"/>`, p.String(), l.color)
+				fmt.Fprintf(&b, `<polygon points="%s" style="fill:%s" fill-opacity="0.15"/>`, p.String(), l.color)
 			}
 		}
 		for _, run := range segments(l.avg) {
@@ -94,11 +94,11 @@ func usageChart(title string, ts []int64, res, from, to int64, limit float64, fo
 			for _, i := range run {
 				fmt.Fprintf(&p, "%.1f,%.1f ", x(ts[i]), y(l.avg[i]))
 			}
-			fmt.Fprintf(&b, `<polyline points="%s" fill="none" stroke="%s" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`, p.String(), l.color)
+			fmt.Fprintf(&b, `<polyline points="%s" fill="none" style="stroke:%s" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`, p.String(), l.color)
 		}
 	}
 	if limit > 0 {
-		fmt.Fprintf(&b, `<line x1="0" x2="%d" y1="%.1f" y2="%.1f" stroke="#dc2626" stroke-dasharray="4 3" stroke-width="1" vector-effect="non-scaling-stroke"/>`, chartW, y(limit), y(limit))
+		fmt.Fprintf(&b, `<line x1="0" x2="%d" y1="%.1f" y2="%.1f" style="stroke:var(--danger)" stroke-dasharray="4 3" stroke-width="1" vector-effect="non-scaling-stroke"/>`, chartW, y(limit), y(limit))
 	}
 	b.WriteString(`</svg>`)
 	c.SVG = template.HTML(b.String())
@@ -189,14 +189,14 @@ func targetCharts(target string, rows []teldb.Sample, from, to int64) []chart {
 	last := rows[len(rows)-1]
 	title := targetTitle(target)
 	charts := []chart{
-		usageChart(title+" · CPU", ts, res, from, to, last.CpuLimit, cores, series{name: "CPU", color: "#6d5ef7", avg: cpu, peak: cpuMax}),
-		usageChart(title+" · memory", ts, res, from, to, float64(last.MemLimit), bytesText, series{name: "memory", color: "#0891b2", avg: mem, peak: memMax}),
+		usageChart(title+" · CPU", ts, res, from, to, last.CpuLimit, cores, series{name: "CPU", color: "var(--chart-1)", avg: cpu, peak: cpuMax}),
+		usageChart(title+" · memory", ts, res, from, to, float64(last.MemLimit), bytesText, series{name: "memory", color: "var(--chart-2)", avg: mem, peak: memMax}),
 	}
 	if target == ops.HostTarget {
-		return append(charts, usageChart(title+" · load", ts, res, from, to, 0, loadText, series{name: "load", color: "#d97706", avg: load}))
+		return append(charts, usageChart(title+" · load", ts, res, from, to, 0, loadText, series{name: "load", color: "var(--chart-3)", avg: load}))
 	}
 	return append(charts, usageChart(title+" · network", ts, res, from, to, 0, rateText,
-		series{name: "in", color: "#16a34a", avg: rx}, series{name: "out", color: "#d97706", avg: tx}))
+		series{name: "in", color: "var(--chart-4)", avg: rx}, series{name: "out", color: "var(--chart-3)", avg: tx}))
 }
 
 // usageRanges are the spans offered, shortest first.
@@ -232,7 +232,7 @@ func registerUsageRoutes(handle func(string, http.HandlerFunc), s *store.Store) 
 			}
 			v.Charts = append(v.Charts, targetCharts(target, rows, from, to)...)
 		}
-		render(w, "usage", v)
+		renderPage(w, r, usageFragment(v))
 	})
 }
 
@@ -241,11 +241,15 @@ func registerUsageRoutes(handle func(string, http.HandlerFunc), s *store.Store) 
 func registerUptimeRoutes(handle func(string, http.HandlerFunc), s *store.Store) {
 	handle("GET /uptime", func(w http.ResponseWriter, r *http.Request) {
 		u, err := ops.UptimeOf(s, r.URL.Query().Get("target"))
-		v := map[string]any{"Uptime": u, "NoHistory": errors.Is(err, ops.ErrNoHistory)}
+		v := uptimeView{Uptime: u, NoHistory: errors.Is(err, ops.ErrNoHistory)}
 		if err != nil && !errors.Is(err, ops.ErrNoHistory) {
-			v["Err"] = err.Error()
+			v.Err = err.Error()
 		}
-		render(w, "uptime", v)
+		if r.URL.Query().Get("compact") != "" {
+			renderPage(w, r, uptimeBadge(v))
+			return
+		}
+		renderPage(w, r, uptimeFragment(v))
 	})
 }
 
@@ -279,7 +283,7 @@ func usageRows(rows []teldb.Sample) []usageRow {
 		case "app":
 			row.Name, row.Link = name, "/apps/"+name
 		case "worker":
-			row.Name, row.Link = name+" worker", "/apps/"+name+"#worker"
+			row.Name, row.Link = name+" worker", "/apps/"+name+"/settings#worker"
 		default:
 			row.Name = name
 		}

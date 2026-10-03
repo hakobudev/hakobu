@@ -96,7 +96,7 @@ func noteHealth(s *store.Store, app string, ok bool, why string) {
 		message := fmt.Sprintf("%s %s %d times in a row: it's running but not serving.", app, why, healthFailures)
 		recordHealth(s, app, "error", message)
 		problem(s, "health:"+app, notifyAgain, app+": not responding",
-			message+"\n\nIts output: "+panelURL("/apps/"+app+"#output"))
+			message+"\n\nIts output: "+panelURL("/apps/"+app+"/logs"))
 	case wasDown && !isDown:
 		recordHealth(s, app, "info", app+" answers its health check again.")
 		solved(s, "health:"+app, app+": responding again", app+" answers its health check again.\n\n"+panelURL("/apps/"+app))

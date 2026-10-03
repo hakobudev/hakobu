@@ -1,0 +1,650 @@
+package cmd
+
+import (
+	"fmt"
+
+	"github.com/x0ryz/hakobu/internal/ops"
+	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/x0ryz/hakobu/internal/store/teldb"
+)
+
+// appPage is an app's pages, one per tab; each fills what it shows.
+type appPage struct {
+	App                 appView
+	Project             store.Project
+	Tab                 string
+	Worker              *store.Worker
+	WorkerStatus        string
+	DataRollbackBlocker string
+	LastOOM             string
+
+	Deploys []store.DeployLog         // overview, deployments
+	Events  []teldb.TelemetryEvent    // overview, errors
+	Logs    bool                      // errors: with logs
+	Output  string                    // logs
+	OutputErr string
+	OfWorker bool                     // logs: the worker's
+	Range   string                    // performance
+	Routes  []ops.RouteStats
+	Traces  []teldb.ListTracesRow
+
+	Effective     []ops.EnvVar // variables
+	EnvError      string
+	SealedApp     []string
+	SealedProject []string
+
+	Zones            []string // settings
+	Sub, Zone        string
+	Databases        []store.Database
+	Storages         []store.Storage
+	Volumes          []store.Volume
+	VolumeBackups    []volumeBackups
+	VolumeJobRunning bool
+	BackupBucket     string
+	SealedWorker     []string
+}
+
+func (p appPage) path(tab string) string {
+	if tab == "" || tab == "overview" {
+		return "/apps/" + p.App.Name
+	}
+	return "/apps/" + p.App.Name + "/" + tab
+}
+
+func buildText(a appView) string {
+	text := builder(a)
+	if a.BuildPath != "" && a.BuildPath != "." {
+		text += " · " + a.BuildPath
+	}
+	return text
+}
+
+// eventIsProblem marks the kinds of event shown as problems.
+func eventIsProblem(e teldb.TelemetryEvent) bool {
+	return e.Kind == "error" || e.Kind == "oom" || e.Kind == "crash" || (e.Kind == "health" && e.Level == "error")
+}
+
+func eventIcon(e teldb.TelemetryEvent) (string, string) {
+	switch {
+	case e.Kind == "oom":
+		return "memory-stick", "text-danger"
+	case e.Kind == "crash":
+		return "circle-x", "text-danger"
+	case e.Kind == "health":
+		return "activity", map[bool]string{true: "text-danger", false: "icon-muted"}[e.Level == "error"]
+	case eventIsProblem(e):
+		return "triangle-alert", "text-danger"
+	}
+	return "terminal", "icon-muted"
+}
+
+templ appShell(p appPage) {
+	@shell(p.App.Name, projectCrumb(p.App.ProjectName), resourceCrumb(p.App.ProjectName, p.App.Name, p.path(""), appLogo(p.App.App), "box")) {
+		@pageHeader(pageHead{Icon: "box", Logo: appLogo(p.App.App), Title: p.App.Name, Status: appStatus(p.App), Meta: appMeta(p.App), Actions: appActions(p)})
+		@tabBar([]tab{
+			{Label: "Overview", Icon: "activity", Href: p.path(""), Current: p.Tab == "overview"},
+			{Label: "Deployments", Icon: "history", Href: p.path("deployments"), Current: p.Tab == "deployments"},
+			{Label: "Logs", Icon: "terminal", Href: p.path("logs"), Current: p.Tab == "logs"},
+			{Label: "Errors", Icon: "triangle-alert", Href: p.path("errors"), Current: p.Tab == "errors"},
+			{Label: "Performance", Icon: "gauge", Href: p.path("performance"), Current: p.Tab == "performance"},
+			{Label: "Variables", Icon: "key-round", Href: p.path("variables"), Current: p.Tab == "variables"},
+			{Label: "Settings", Icon: "settings", Href: p.path("settings"), Current: p.Tab == "settings"},
+		})
+		{ children... }
+	}
+}
+
+// appStatus refreshes itself while the page is open.
+templ appStatus(a appView) {
+	<span id="app-status" hx-get={ "/apps/" + a.Name + "/status" } hx-trigger="every 3s" hx-swap="outerHTML" class="inline-flex items-center gap-2">
+		if a.Deploying {
+			<span class="badge badge-accent"><span class="dot dot-accent dot-pulse"></span>Deploying</span>
+		} else if a.Status == "running" {
+			<span class="badge badge-success"><span class="dot dot-success"></span>Running</span>
+		} else {
+			<span class="badge badge-danger"><span class="dot dot-danger"></span>{ a.Status }</span>
+		}
+		if a.OOMKilled {
+			<span class="badge badge-danger">out of memory</span>
+		}
+		if a.Restarts > 0 {
+			<span class="badge badge-attention">{ plural(a.Restarts, "restart", "restarts") }</span>
+		}
+	</span>
+}
+
+templ appMeta(a appView) {
+	<span class="meta-item">
+		@ic("github")
+		<a href={ templ.SafeURL("https://github.com/" + a.Repo) } target="_blank" rel="noopener" class="mono">{ a.Repo }</a>
+	</span>
+	<span class="meta-item">
+		@ic("box")
+		{ buildText(a) }
+	</span>
+	if u := ops.PublicURL(a.App); u != "" {
+		<span class="meta-item">
+			@ic("globe")
+			<a href={ templ.SafeURL(u) } target="_blank" rel="noopener">{ shortHost(u) }</a>
+		</span>
+	} else {
+		<span class="meta-item">
+			@ic("lock")
+			private
+		</span>
+	}
+}
+
+templ appActions(p appPage) {
+	@menu("rollback-menu", "Rollback", "history", false) {
+		<button
+			class="menu-item"
+			hx-post={ "/apps/" + p.App.Name + "/rollback" }
+			hx-confirm="The build before the latest one goes live again. The data stays as it is."
+			data-confirm-title={ "Roll back " + p.App.Name + "?" }
+			data-confirm-action="Roll back"
+		>
+			<span class="strong">Code only</span>
+			<br/>
+			<span class="muted small">The previous build, with today's data.</span>
+		</button>
+		if p.App.LinkedDB != "" {
+			if p.DataRollbackBlocker != "" {
+				<button class="menu-item" disabled>
+					<span class="strong">Code and database</span>
+					<br/>
+					<span class="muted small">Unavailable: { p.DataRollbackBlocker }.</span>
+				</button>
+			} else {
+				<button
+					class="menu-item"
+					hx-post={ "/apps/" + p.App.Name + "/rollback" }
+					hx-vals='{"data": "1"}'
+					hx-confirm={ p.App.LinkedDB + " returns to its snapshot from " + p.App.SnapshotAt + ". Everything written since then is replaced, and the app is down for the swap. Rolling back again returns today's data." }
+					data-confirm-title={ "Roll back " + p.App.Name + " and its database?" }
+					data-confirm-action="Roll back code and data"
+					data-confirm-name={ p.App.LinkedDB }
+					data-confirm-danger
+				>
+					<span class="strong">Code and database</span>
+					<br/>
+					<span class="muted small">Also returns <span class="mono">{ p.App.LinkedDB }</span> to before the last deploy, e.g. after a bad migration.</span>
+				</button>
+			}
+		}
+	}
+	<button class="btn btn-primary" hx-post={ "/apps/" + p.App.Name + "/deploy" }>
+		@ic("loader-circle", "btn-spinner")
+		@ic("refresh-cw", "btn-label-icon")
+		Redeploy
+	</button>
+}
+
+// Overview.
+
+templ appOverview(p appPage) {
+	@appShell(p) {
+		if p.LastOOM != "" {
+			<div class="mb-6">
+				@flash("danger") {
+					Killed for running out of memory <time datetime={ p.LastOOM }>{ p.LastOOM }</time>. <a href={ p.path("settings") + "#limits" }>Raise the memory limit</a> or <a href={ p.path("errors") }>see what happened</a>.
+				}
+			</div>
+		}
+		<div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
+			<div class="space-y-6 min-w-0">
+				@productionBox(p)
+				if ops.PublicURL(p.App.App) != "" {
+					<div class="box">
+						<div class="box-header">
+							<span>From outside</span>
+							<span class="row-meta">checked every minute by the watchdog</span>
+						</div>
+						<div class="box-body" hx-get={ "/uptime?target=app:" + p.App.Name } hx-trigger="load" hx-swap="innerHTML">
+							@skeleton(2, false)
+						</div>
+					</div>
+				}
+				<div class="box">
+					<div class="box-header"><span>Usage</span></div>
+					<div class="box-body">
+						<div hx-get={ usageQuery(p) } hx-trigger="load" hx-swap="outerHTML">
+							@skeleton(1, true)
+						</div>
+					</div>
+				</div>
+				@section("", "Recent deployments", "", viewAll(p.path("deployments"))) {
+					@deployRows(p, 5)
+				}
+			</div>
+			<aside class="space-y-6">
+				@workerBox(p)
+				<div class="box">
+					<div class="box-header">
+						<span>Latest problems</span>
+						<a href={ p.path("errors") } class="small">View all</a>
+					</div>
+					if len(p.Events) == 0 {
+						<div class="box-body small muted">No errors, crashes, out-of-memory kills or failed health checks.</div>
+					}
+					for _, e := range p.Events {
+						<a href={ p.path("errors") } class="box-row small">
+							<span class="row-main">
+								@eventIconOf(e)
+								<span class="min-w-0">
+									<span class="row-title block">{ string(e.Message) }</span>
+									<span class="row-meta block">{ e.Kind + " · " }
+										@timeAgo(e.CreatedAt)
+									</span>
+								</span>
+							</span>
+						</a>
+					}
+				</div>
+			</aside>
+		</div>
+	}
+}
+
+func usageQuery(p appPage) string {
+	q := "/usage?target=app:" + p.App.Name
+	if p.Worker != nil {
+		q += "&target=worker:" + p.App.Name
+	}
+	return q + "&range=24h"
+}
+
+templ viewAll(href string) {
+	<a href={ href } class="small">View all</a>
+}
+
+templ eventIconOf(e teldb.TelemetryEvent) {
+	{{ name, class := eventIcon(e) }}
+	@ic(name, class)
+}
+
+templ productionBox(p appPage) {
+	<div class="box">
+		<div class="box-header">
+			<span>Production</span>
+			if len(p.Deploys) > 0 {
+				<span class="row-meta meta-item">
+					@deployIcon(p.Deploys[0].Status, true)
+					{ deployLabel(p.Deploys[0]) + " · " }
+					@timeAgo(p.Deploys[0].CreatedAt)
+				</span>
+			}
+		</div>
+		<div class="box-body">
+			<div class="kv">
+				<span class="kv-key">Address</span>
+				<span class="flex items-center gap-1 min-w-0">
+					if u := ops.PublicURL(p.App.App); u != "" {
+						<a href={ templ.SafeURL(u) } target="_blank" rel="noopener" class="truncate">{ shortHost(u) }</a>
+						@ic("external-link", "icon-sm icon-muted")
+						@copyButton(u)
+					} else {
+						<span class="mono">127.0.0.1:{ itoa(p.App.Port) }</span>
+						<span class="muted">· private, on the server only</span>
+					}
+				</span>
+				<span class="kv-key">Build</span>
+				<span>{ buildText(p.App) }</span>
+				<span class="kv-key">Port</span>
+				<span class="mono">
+					if p.App.LivePort > 0 {
+						{ itoa(p.App.LivePort) }
+					} else {
+						auto
+					}
+				</span>
+				<span class="kv-key">Health check</span>
+				<span class="mono">
+					if p.App.HealthCheckPath != "" {
+						{ p.App.HealthCheckPath }
+					} else {
+						/
+					}
+				</span>
+				<span class="kv-key">Linked</span>
+				<span class="flex flex-wrap gap-2">
+					if p.App.LinkedDB != "" {
+						<a href={ "/databases/" + p.App.LinkedDB } class="badge">
+							@ic("database", "icon-sm")
+							{ p.App.LinkedDB }
+						</a>
+					}
+					if p.App.LinkedStorage != "" {
+						<a href={ "/storages/" + p.App.LinkedStorage } class="badge">
+							@ic("archive", "icon-sm")
+							{ p.App.LinkedStorage }
+						</a>
+					}
+					if p.App.LinkedDB == "" && p.App.LinkedStorage == "" {
+						<a href={ p.path("settings") + "#resources" } class="muted">nothing, link a database or storage</a>
+					}
+				</span>
+				if p.App.MemoryMB > 0 || p.App.Cpus > 0 {
+					<span class="kv-key">Limits</span>
+					<span>
+						if p.App.MemoryMB > 0 {
+							{ itoa(p.App.MemoryMB) } MB
+						}
+						if p.App.MemoryMB > 0 && p.App.Cpus > 0 {
+							·
+						}
+						if p.App.Cpus > 0 {
+							{ fmt.Sprint(p.App.Cpus) } CPU
+						}
+					</span>
+				}
+			</div>
+		</div>
+	</div>
+}
+
+templ workerBox(p appPage) {
+	<div class="box">
+		<div class="box-header">
+			<span>Worker</span>
+			if p.Worker != nil {
+				@statusText(p.WorkerStatus)
+			}
+		</div>
+		<div class="box-body small">
+			if p.Worker != nil {
+				<p class="mono break-all">{ string(p.Worker.Command) }</p>
+				<p class="muted">Same image as the app; restarts after every deploy.</p>
+				<div class="btn-group">
+					<button class="btn btn-sm" hx-post={ "/apps/" + p.App.Name + "/worker/restart" }>
+						@ic("loader-circle", "btn-spinner")
+						@ic("refresh-cw", "icon-sm btn-label-icon")
+						Restart
+					</button>
+					<a href={ p.path("logs") + "?worker=1" } class="btn btn-sm">
+						@ic("terminal", "icon-sm")
+						Output
+					</a>
+				</div>
+			} else {
+				<p class="muted">A background process from the same image, e.g. a queue consumer.</p>
+				<a href={ p.path("settings") + "#worker" } class="btn btn-sm">
+					@ic("plus", "icon-sm")
+					Add a worker
+				</a>
+			}
+		</div>
+	</div>
+}
+
+templ deployRows(p appPage, limit int) {
+	<div class="box">
+		if len(p.Deploys) == 0 {
+			@blankslate("No deploys yet.")
+		}
+		for i, d := range p.Deploys {
+			if i < limit {
+				<a href={ p.path("deployments") + "#d-" + itoa(d.ID) } class="box-row">
+					<span class="row-main">
+						@deployIcon(d.Status, false)
+						<span class="row-title">{ deployLabel(d) }</span>
+					</span>
+					<span class="row-meta tabular">
+						@timeAgo(d.CreatedAt)
+					</span>
+				</a>
+			}
+		}
+	</div>
+}
+
+// Deployments.
+
+templ appDeployments(p appPage) {
+	@appShell(p) {
+		<div id="deploys" class="space-y-3">
+			if len(p.Deploys) == 0 {
+				<div class="box">
+					@blankslate("No deploys yet: push to the repo's default branch, or Redeploy.")
+				</div>
+			}
+			for _, d := range p.Deploys {
+				@deployItem(p.App.Name, d)
+			}
+		</div>
+	}
+}
+
+// deployItem is one deploy and its output; a running one reloads itself
+// until it ends, leaving the others (and which of them are open) alone.
+templ deployItem(app string, d store.DeployLog) {
+	<details
+		class="box"
+		id={ "d-" + itoa(d.ID) }
+		open?={ d.Status == "running" }
+		if d.Status == "running" {
+			hx-get={ "/apps/" + app + "/deploys/" + itoa(d.ID) }
+			hx-trigger="every 2s"
+			hx-swap="outerHTML"
+		}
+	>
+		<summary class="box-row cursor-pointer">
+			<span class="row-main">
+				@deployIcon(d.Status, false)
+				<span class="row-title">{ deployLabel(d) }</span>
+			</span>
+			<span class="row-meta tabular">
+				@timeAgo(d.CreatedAt)
+			</span>
+		</summary>
+		@console(string(d.Output), "(no output)")
+	</details>
+}
+
+// Logs.
+
+templ appLogs(p appPage) {
+	@appShell(p) {
+		<div class="section-header">
+			<div>
+				if p.Worker != nil {
+					@segmented([]segment{{Label: "App", Href: p.path("logs"), Current: !p.OfWorker}, {Label: "Worker", Href: p.path("logs") + "?worker=1", Current: p.OfWorker}})
+				}
+			</div>
+			<span class="meta-item muted small">
+				Last 300 lines of the container's output
+				<button class="btn btn-sm" hx-get={ logsURL(p) } hx-select="#output" hx-target="#output" hx-swap="outerHTML">
+					@ic("loader-circle", "btn-spinner")
+					@ic("refresh-cw", "icon-sm btn-label-icon")
+					Refresh
+				</button>
+			</span>
+		</div>
+		<div id="output">
+			if p.OutputErr != "" {
+				@flash("danger") {
+					{ p.OutputErr }
+				}
+			} else {
+				@console(p.Output, "(no output)")
+			}
+		</div>
+	}
+}
+
+func logsURL(p appPage) string {
+	if p.OfWorker {
+		return p.path("logs") + "?worker=1"
+	}
+	return p.path("logs")
+}
+
+// Errors.
+
+templ appErrors(p appPage) {
+	@appShell(p) {
+		<div class="section-header">
+			@segmented([]segment{{Label: "Problems", Href: p.path("errors"), Current: !p.Logs}, {Label: "With logs", Href: p.path("errors") + "?logs=1", Current: p.Logs}})
+		</div>
+		<p class="field-hint mb-4">Errors and logs sent by a Sentry SDK using the injected <span class="mono">SENTRY_DSN</span>, and crashes, out-of-memory kills and failed health checks of the app and its worker.</p>
+		<div class="box">
+			if len(p.Events) == 0 {
+				if p.Logs {
+					@blankslate("Nothing received yet.")
+				} else {
+					@blankslate("No problems: no errors, crashes, out-of-memory kills or failed health checks.")
+				}
+			}
+			for _, e := range p.Events {
+				<div class="box-body">
+					<div class="flex items-start gap-3">
+						@eventIconOf(e)
+						<div class="min-w-0 flex-1 space-y-1">
+							<p class="row-meta">
+								<span class={ "badge", templ.KV("badge-danger", eventIsProblem(e)) }>{ e.Kind }</span>
+								if e.Level != "" {
+									{ " · " + e.Level }
+								}
+								{ " · " }
+								@timeAgo(e.CreatedAt)
+								if e.TraceID != "" {
+									{ " · " }<a href={ "/apps/" + e.AppName + "/traces/by-trace/" + e.TraceID }>its trace</a>
+								}
+							</p>
+							<pre class="mono whitespace-pre-wrap break-words">{ string(e.Message) }</pre>
+						</div>
+					</div>
+				</div>
+			}
+		</div>
+	}
+}
+
+// Performance.
+
+templ appPerformance(p appPage) {
+	@appShell(p) {
+		<div class="section-header">
+			@segmented([]segment{{Label: "24h", Href: p.path("performance"), Current: p.Range == "24h"}, {Label: "7d", Href: p.path("performance") + "?range=7d", Current: p.Range == "7d"}})
+			<span class="muted small">Traced by a Sentry SDK using the injected <span class="mono">SENTRY_DSN</span></span>
+		</div>
+		if len(p.Routes) == 0 {
+			<div class="box">
+				<div class="blankslate">
+					{ noTracesText(p.Range) } To send them, set <span class="mono">traces_sample_rate</span> (e.g. 0.1, or 1.0 for every request) in the Sentry SDK's init.
+				</div>
+			</div>
+		} else {
+			<div class="box overflow-x-auto">
+				<table class="table">
+					<thead>
+						<tr><th>Route</th><th class="num">Requests</th><th class="num">p50</th><th class="num">p95</th><th class="num">Avg</th><th class="num">Failed</th></tr>
+					</thead>
+					<tbody>
+						for _, r := range p.Routes {
+							<tr>
+								<td class="mono break-all">{ r.Name }</td>
+								<td class="num muted">{ itoa(r.Count) }</td>
+								<td class="num muted">{ itoa(r.P50Ms) } ms</td>
+								<td class={ "num", templ.KV("text-danger", r.P95Over || r.P95Ms >= 1000), templ.KV("muted", !(r.P95Over || r.P95Ms >= 1000)) }>
+									if r.P95Over {
+										&gt;
+									}
+									{ itoa(r.P95Ms) } ms
+								</td>
+								<td class="num muted">{ itoa(r.AvgMs) } ms</td>
+								<td class={ "num", templ.KV("text-danger", r.Errors > 0), templ.KV("muted", r.Errors == 0) }>{ fmt.Sprintf("%.1f%%", r.ErrorPct()) }</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+		}
+		if len(p.Traces) > 0 {
+			<div class="mt-10">
+				@section("", "Slow and failed", "Kept whole for a week: requests of 1 s and over, and failed ones. Newest first.", nil) {
+					<div class="box">
+						for _, t := range p.Traces {
+							<a href={ "/apps/" + t.AppName + "/traces/" + itoa(t.ID) } class="box-row">
+								<span class="row-main">
+									if traceFailed(t.HttpStatus, t.Status) {
+										@ic("circle-x", "text-danger")
+									} else {
+										@ic("clock", "icon-muted")
+									}
+									<span class="row-title mono">{ t.Name }</span>
+								</span>
+								<span class={ "row-meta mono", templ.KV("text-danger", traceFailed(t.HttpStatus, t.Status)) }>
+									{ itoa(t.DurationMs) } ms
+									if t.HttpStatus != 0 {
+										· { itoa(t.HttpStatus) }
+									}
+									if t.Status != "" && t.Status != "ok" {
+										· { t.Status }
+									}
+								</span>
+							</a>
+						}
+					</div>
+				}
+			</div>
+		}
+	}
+}
+
+func traceFailed(httpStatus int64, status string) bool {
+	return httpStatus >= 500 || (status != "" && status != "ok" && status != "unknown")
+}
+
+// Variables.
+
+templ appVariables(p appPage) {
+	@appShell(p) {
+		<div class="space-y-6">
+			<form hx-post={ "/apps/" + p.App.Name + "/env" } class="box" id="app-env" data-saved>
+				<div class="box-header"><span>Service variables</span></div>
+				<div class="box-body">
+					<p class="field-hint">Only for this app; they override the project's shared variables.</p>
+					@envEditor("env", string(p.App.Env), "/apps/"+p.App.Name+"/env/suggest")
+				</div>
+				@boxFooter("Applies on the next deploy.") {
+					@submit("Save", true)
+				}
+			</form>
+			@sealedVars("app", p.App.Name, p.SealedApp)
+			<div class="box">
+				<div class="box-header">
+					<span>Effective environment</span>
+					<a href={ "/projects/" + p.App.ProjectName + "/variables" } class="small">Shared variables</a>
+				</div>
+				<div class="box-body">
+					<p class="field-hint">What the app gets on its next deploy: shared, linked and service variables together.</p>
+				</div>
+				if p.EnvError != "" {
+					<div class="box-body">
+						@flash("danger") {
+							{ p.EnvError }
+						}
+					</div>
+				}
+				for _, v := range p.Effective {
+					<div class="box-row">
+						<div class="kv-row" data-secret-row>
+							<span class="kv-row-key" title={ v.Key }>{ v.Key }</span>
+							if v.Sealed {
+								<span class="kv-row-value muted">•••••••• sealed</span>
+							} else {
+								<span class="kv-row-value muted" data-secret={ v.Value }>••••••••</span>
+							}
+						</div>
+						if !v.Sealed {
+							<button type="button" class="btn btn-sm btn-invisible btn-icon" data-reveal title="Show">
+								@ic("eye", "icon-sm")
+							</button>
+						}
+					</div>
+				}
+			</div>
+		</div>
+	}
+}

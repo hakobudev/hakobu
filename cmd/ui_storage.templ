@@ -1,0 +1,125 @@
+package cmd
+
+import (
+	"strings"
+
+	"github.com/x0ryz/hakobu/internal/store"
+)
+
+type storagePage struct {
+	Storage store.Storage
+	Project store.Project
+	UsedBy  []string
+}
+
+templ storageView(v storagePage) {
+	@shell(v.Storage.Name, projectCrumb(v.Project.Name), resourceCrumb(v.Project.Name, v.Storage.Name, "/storages/"+v.Storage.Name, storageLogo(v.Storage), "archive")) {
+		@pageHeader(pageHead{Icon: "archive", Logo: storageLogo(v.Storage), Title: v.Storage.Name, Mono: true, Status: storageStatus(v.Storage), Meta: storageMeta(v.Storage)})
+		<div class="space-y-10">
+			@section("", "Used by", "Linked apps get S3_ENDPOINT, S3_BUCKET_NAME, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY and S3_REGION.", nil) {
+				<div class="box">
+					for _, a := range v.UsedBy {
+						<a href={ "/apps/" + a } class="box-row">
+							<span class="row-main">
+								@ic("box", "icon-muted")
+								<span class="row-title">{ a }</span>
+							</span>
+							@ic("chevron-right", "icon-muted")
+						</a>
+					}
+					if len(v.UsedBy) == 0 {
+						<div class="box-row muted">No apps: link it in an app's settings, under Resources.</div>
+					}
+				</div>
+			}
+			@section("keys", "Keys", "", nil) {
+				<form hx-post={ "/storages/" + v.Storage.Name + "/keys" } class="box" id="storage-keys" data-saved>
+					<div class="box-body">
+						if v.Storage.AccessKeyID == "" {
+							@flash("warn") {
+								Apps can't use this storage until it has keys.
+							}
+						}
+						if v.Storage.Provider == "r2" {
+							<ol class="prose-list field-hint">
+								<li>In Cloudflare open <a href={ templ.SafeURL("https://dash.cloudflare.com/" + v.Storage.AccountID + "/r2/api-tokens") } target="_blank" rel="noopener">R2 → API tokens</a> and create an <span class="strong">Account API token</span>.</li>
+								<li>Permissions: <span class="strong">Object Read &amp; Write</span>; buckets: <span class="strong">Apply to specific buckets only</span> → <span class="mono">{ v.Storage.Bucket }</span>.</li>
+								<li>Paste the token's Access Key ID and Secret Access Key here. hakobu checks they reach this bucket and not the backups.</li>
+							</ol>
+						}
+						<div class="fields">
+							@field("Access key ID", "") {
+								<input name="access_key_id" required class="input mono" placeholder={ keyPlaceholder(v.Storage) }/>
+							}
+							@field("Secret access key", "") {
+								<input name="secret_access_key" required type="password" autocomplete="new-password" class="input mono"/>
+							}
+						</div>
+					</div>
+					@boxFooter("Apps get them on their next deploy.") {
+						@submit(keysLabel(v.Storage), v.Storage.AccessKeyID == "")
+					}
+				</form>
+			}
+			<div class="box box-danger">
+				<div class="box-header">Danger zone</div>
+				<div class="box-row">
+					<div>
+						<p class="strong">Remove this storage</p>
+						if len(v.UsedBy) > 0 {
+							<p class="field-hint">Unlink it from { strings.Join(v.UsedBy, ", ") } first.</p>
+						} else {
+							<p class="field-hint">hakobu forgets it. The bucket and its files are not deleted.</p>
+						}
+					</div>
+					<button
+						class="btn btn-danger"
+						hx-delete={ "/storages/" + v.Storage.Name }
+						hx-confirm={ "hakobu forgets storage " + v.Storage.Name + ". The bucket and its files are not deleted." }
+						data-confirm-title={ "Remove " + v.Storage.Name + "?" }
+						data-confirm-action="Remove storage"
+						disabled?={ len(v.UsedBy) > 0 }
+					>
+						@ic("trash-2")
+						Remove storage
+					</button>
+				</div>
+			</div>
+		</div>
+	}
+}
+
+templ storageStatus(st store.Storage) {
+	if st.AccessKeyID != "" {
+		<span class="badge badge-success">
+			@ic("key-round", "icon-sm")
+			Keys set
+		</span>
+	} else {
+		<span class="badge badge-attention">
+			@ic("triangle-alert", "icon-sm")
+			Needs keys
+		</span>
+	}
+}
+
+templ storageMeta(st store.Storage) {
+	<span class="meta-item">
+		@ic("cloud")
+		if st.Provider == "r2" {
+			Cloudflare R2
+		} else {
+			S3-compatible
+		}
+	</span>
+	<span class="meta-item">
+		@ic("archive")
+		<span class="mono">{ st.Bucket }</span>
+	</span>
+	if st.Endpoint != "" {
+		<span class="meta-item">
+			@ic("globe")
+			<span class="mono">{ shortHost(st.Endpoint) }</span>
+		</span>
+	}
+}

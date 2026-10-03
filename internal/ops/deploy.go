@@ -13,6 +13,7 @@ import (
 
 	"github.com/x0ryz/hakobu/internal/build"
 	"github.com/x0ryz/hakobu/internal/deploy"
+	"github.com/x0ryz/hakobu/internal/detect"
 	"github.com/x0ryz/hakobu/internal/github"
 	"github.com/x0ryz/hakobu/internal/proxy"
 	"github.com/x0ryz/hakobu/internal/secret"
@@ -188,6 +189,7 @@ func StartDeploy(s *store.Store, appName, trigger string) error {
 		if err != nil {
 			return err
 		}
+		stack := detect.StackOf(dir)
 
 		next := nextImageTag(app)
 		// Drops the :next tag in every case: a failed build or health check
@@ -204,6 +206,13 @@ func StartDeploy(s *store.Store, appName, trigger string) error {
 		}
 		if err := withSnapshot(s, app, snapshot, out, func() error { return promote(app, out) }); err != nil {
 			return err
+		}
+		// For the panel's logo of the app, once this build is the live one;
+		// a stale one is no reason to fail the deploy.
+		if stack != app.Stack {
+			if err := s.SetAppStack(ctx(), store.SetAppStackParams{Name: app.Name, Stack: stack}); err != nil {
+				fmt.Fprintln(out, "warning: failed to note the app's stack:", err)
+			}
 		}
 		if w, err := s.GetWorker(ctx(), app.Name); err == nil {
 			if err := runWorker(s, app, w, out); err != nil {

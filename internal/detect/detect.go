@@ -3,11 +3,15 @@
 package detect
 
 import (
+	"io"
+	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 type Preset struct {
@@ -38,7 +42,7 @@ var languages = []struct{ file, name string }{
 
 // frameworks are recognized by a dependency name appearing in the marker file.
 var frameworks = map[string][]struct{ dep, name string }{
-	"Node.js": {{`"next"`, "Next.js"}, {`"nuxt"`, "Nuxt"}, {`"@sveltejs/kit"`, "SvelteKit"}, {`"@remix-run/`, "Remix"}, {`"astro"`, "Astro"}, {`"@nestjs/core"`, "NestJS"}, {`"vite"`, "Vite"}, {`"express"`, "Express"}, {`"fastify"`, "Fastify"}, {`"hono"`, "Hono"}},
+	"Node.js": {{`"next"`, "Next.js"}, {`"nuxt"`, "Nuxt"}, {`"@sveltejs/kit"`, "SvelteKit"}, {`"@remix-run/`, "Remix"}, {`"astro"`, "Astro"}, {`"@nestjs/core"`, "NestJS"}, {`"react"`, "React"}, {`"vue"`, "Vue"}, {`"svelte"`, "Svelte"}, {`"vite"`, "Vite"}, {`"express"`, "Express"}, {`"fastify"`, "Fastify"}, {`"hono"`, "Hono"}},
 	"Python":  {{"django", "Django"}, {"fastapi", "FastAPI"}, {"flask", "Flask"}, {"litestar", "Litestar"}, {"streamlit", "Streamlit"}},
 	"PHP":     {{"laravel/framework", "Laravel"}, {"symfony/", "Symfony"}},
 	"Ruby":    {{"rails", "Rails"}},
@@ -109,3 +113,47 @@ func Scan(files []string, read func(path string) string) []Preset {
 	}
 	return presets
 }
+
+// StackOf names the stack of the directory a build runs in, "" if none of
+// the markers is there.
+func StackOf(dir string) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	// Only regular files: the repo is untrusted, and a marker that is a
+	// symlink (to /dev/zero, say) or a huge file mustn't be read whole.
+	var files []string
+	for _, e := range entries {
+		if e.Type().IsRegular() {
+			files = append(files, e.Name())
+		}
+	}
+	for _, p := range Scan(files, func(name string) string {
+		return readMarker(filepath.Join(dir, name))
+	}) {
+		if p.Stack != "" {
+			return p.Stack
+		}
+	}
+	return ""
+}
+
+// readMarker reads a regular file of at most 1 MB, "" otherwise.
+func readMarker(path string) string {
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	if fi, err := f.Stat(); err != nil || !fi.Mode().IsRegular() || fi.Size() > maxMarker {
+		return ""
+	}
+	b, err := io.ReadAll(io.LimitReader(f, maxMarker+1))
+	if err != nil || len(b) > maxMarker {
+		return ""
+	}
+	return string(b)
+}
+
+const maxMarker = 1 << 20

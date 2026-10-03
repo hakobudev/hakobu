@@ -142,11 +142,11 @@ func registerOAuthRoutes(mux *http.ServeMux, s *store.Store) {
 		redirect, _ := url.Parse(ar.RedirectURI)
 		// Browsers hold the redirect after the form is sent to form-action too.
 		w.Header().Set("Content-Security-Policy", panelCSP(redirect.Scheme+"://"+redirect.Host))
-		render(w, "oauth-consent", map[string]any{
-			"Client": ar.Client, "Request": ar, "RedirectHost": redirect.Host,
-			"Loopback": isLoopback(redirect.Hostname()), "Document": strings.HasPrefix(ar.Client.ID, "https://"),
-			"Deploy": slices.Contains(ar.Scopes, scopeDeploy), "PublicHost": config.PublicHost(),
-		})
+		renderPage(w, r, oauthConsentPage(consentView{
+			Client: ar.Client, Query: ar.Query, RedirectHost: redirect.Host,
+			Loopback: isLoopback(redirect.Hostname()), Document: strings.HasPrefix(ar.Client.ID, "https://"),
+			Deploy: slices.Contains(ar.Scopes, scopeDeploy), PublicHost: config.PublicHost(),
+		}))
 	})
 
 	mux.HandleFunc("POST /oauth/authorize", func(w http.ResponseWriter, r *http.Request) {
@@ -285,13 +285,13 @@ func parseAuthorizeRequest(w http.ResponseWriter, r *http.Request, s *store.Stor
 	client, err := resolveOAuthClient(r.Context(), s, q.Get("client_id"))
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		render(w, "oauth-error", "This app can't connect to hakobu: "+err.Error())
+		renderPage(w, r, oauthErrorPage("This app can't connect to hakobu: "+err.Error()))
 		return ar, false
 	}
 	ar.Client = client
 	if !redirectAllowed(client.RedirectURIs, ar.RedirectURI) {
 		w.WriteHeader(http.StatusBadRequest)
-		render(w, "oauth-error", "This app can't connect to hakobu: "+ar.RedirectURI+" isn't one of its redirect URIs.")
+		renderPage(w, r, oauthErrorPage("This app can't connect to hakobu: "+ar.RedirectURI+" isn't one of its redirect URIs."))
 		return ar, false
 	}
 	switch {

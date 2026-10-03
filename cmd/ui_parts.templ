@@ -1,0 +1,160 @@
+package cmd
+
+import "github.com/x0ryz/hakobu/internal/store"
+
+// Parts more than one page uses.
+
+// envEditor edits "KEY=value" lines as rows, or as raw .env text; app.js
+// builds it and keeps the hidden input named name in sync. suggestURL, if
+// set, offers the keys of the repo's .env.example.
+templ envEditor(name, value, suggestURL string) {
+	<div data-env-editor data-name={ name } data-seed={ value } data-suggest={ suggestURL }>
+		<input type="hidden" name={ name } value={ value }/>
+	</div>
+}
+
+// sealedVars lists the sealed variables of a project, app or worker. Their
+// values never reach the browser.
+templ sealedVars(scope, owner string, keys []string) {
+	<div class="box">
+		<div class="box-header">
+			<span class="meta-item">
+				@ic("lock", "icon-muted")
+				Sealed variables
+			</span>
+		</div>
+		<div class="box-body">
+			<p class="field-hint">Passed to the containers but never shown again, not even to you: someone who gets into this panel can't copy them. Seal the same name again to replace a value.</p>
+		</div>
+		for _, k := range keys {
+			<div class="box-row">
+				<div class="kv-row">
+					<span class="kv-row-key strong">{ k }</span>
+					<span class="kv-row-value muted">•••••••• sealed</span>
+				</div>
+				<button
+					class="btn btn-sm btn-invisible btn-danger"
+					hx-delete={ "/sealed/" + scope + "/" + owner + "/" + k }
+					hx-confirm={ "Remove sealed variable " + k + "? It's gone from the next deploy on." }
+					data-confirm-title="Remove sealed variable?"
+					data-confirm-action="Remove"
+				>Remove</button>
+			</div>
+		}
+		<form hx-post={ "/sealed/" + scope + "/" + owner } class="box-footer">
+			<input name="key" placeholder="KEY" required pattern="[A-Za-z_][A-Za-z0-9_]*" class="input input-sm mono w-40"/>
+			<input name="value" type="password" placeholder="value" required autocomplete="new-password" class="input input-sm mono flex-1 min-w-40"/>
+			<button class="btn btn-sm">
+				@ic("loader-circle", "btn-spinner")
+				@ic("lock", "icon-sm btn-label-icon")
+				Seal
+			</button>
+		</form>
+	</div>
+}
+
+// domainField is an app's address: a subdomain and one of the Cloudflare
+// account's domains. A domain outside them (or no domains at all) gets a
+// plain text field, so saving never drops it. With autofill, the subdomain
+// follows the app's name until edited (see app.js).
+templ domainField(zones []string, sub, zone, domain string, autofill bool) {
+	if len(zones) > 0 && (zone != "" || domain == "") {
+		<div class="field-row">
+			<input
+				name="sub"
+				value={ sub }
+				placeholder="(root)"
+				class="input mono w-2/5"
+				if autofill {
+					data-follow="name"
+				}
+			/>
+			<span class="muted">.</span>
+			<select name="zone" class="input mono">
+				<option value="">private, no domain</option>
+				for _, z := range zones {
+					<option value={ z } selected?={ z == zone }>{ z }</option>
+				}
+			</select>
+		</div>
+	} else {
+		<input name="domain" value={ domain } placeholder="app.example.com" class="input mono"/>
+	}
+}
+
+// deployIcon is a deploy's status as an icon.
+templ deployIcon(status string, small bool) {
+	switch status {
+		case "success":
+			@ic("circle-check", sizeClass(small), "text-success")
+		case "running":
+			@ic("loader-circle", sizeClass(small), "icon-spin text-attention")
+		default:
+			@ic("circle-x", sizeClass(small), "text-danger")
+	}
+}
+
+// switchProjects is the top bar's menu of projects.
+templ switchProjects(projects []store.Project, current string) {
+	<div class="menu-heading">Projects</div>
+	for _, p := range projects {
+		<a href={ "/projects/" + p.Name } class="menu-item menu-row">
+			<span>{ p.Name }</span>
+			if p.Name == current {
+				@ic("check", "icon-sm")
+			}
+		</a>
+	}
+	<div class="menu-sep"></div>
+	<a href="/" class="menu-item menu-row">
+		<span class="meta-item">
+			@ic("layers", "icon-sm icon-muted")
+			All projects
+		</span>
+	</a>
+}
+
+// switchResources is the top bar's menu of a project's apps and data.
+templ switchResources(project string, apps []store.App, dbs []store.Database, storages []store.Storage, current string) {
+	if len(apps) > 0 {
+		<div class="menu-heading">Apps</div>
+		for _, a := range apps {
+			@switchItem("/apps/"+a.Name, a.Name, appLogo(a), "box", a.Name == current)
+		}
+	}
+	if len(dbs) > 0 {
+		<div class="menu-heading">Databases</div>
+		for _, d := range dbs {
+			@switchItem("/databases/"+d.Name, d.Name, "postgresql", "database", d.Name == current)
+		}
+	}
+	if len(storages) > 0 {
+		<div class="menu-heading">Storages</div>
+		for _, st := range storages {
+			@switchItem("/storages/"+st.Name, st.Name, storageLogo(st), "archive", st.Name == current)
+		}
+	}
+	<div class="menu-sep"></div>
+	<a href={ "/projects/" + project } class="menu-item menu-row">
+		<span class="meta-item">
+			@ic("layers", "icon-sm icon-muted")
+			{ project } overview
+		</span>
+	</a>
+}
+
+templ switchItem(href, name, logoSlug, iconName string, current bool) {
+	<a href={ href } class="menu-item menu-row">
+		<span class="meta-item">
+			if logoSlug != "" {
+				@logo(logoSlug)
+			} else {
+				@ic(iconName, "icon-sm icon-muted")
+			}
+			{ name }
+		</span>
+		if current {
+			@ic("check", "icon-sm")
+		}
+	</a>
+}

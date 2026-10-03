@@ -189,9 +189,12 @@ State lives in `data/` (SQLite, clones) and its master key in `key/`; `run/` hol
 
 Tests that need Docker (they start their own containers) run with `HAKOBU_DOCKER_TEST=1 go test ./...`.
 
-The panel's scripts, styles and fonts are embedded in the binary (`cmd/static/`), so it loads nothing
-from other sites. After changing classes in `cmd/web.html`, rebuild the stylesheet with
-`go generate ./cmd` (needs [bun](https://bun.sh); runs Tailwind 3 with `cmd/tailwind.config.js`).
+The panel's scripts, styles, fonts and icons are embedded in the binary (`cmd/static/`, `cmd/icons.svg`),
+so it loads nothing from other sites. Its pages are [templ](https://templ.guide) components
+(`cmd/ui_*.templ`) built from the design system in `cmd/ui_kit.templ` and `cmd/styles.css`; a test fails
+on colors or sizes written into a page instead. After changing a `.templ` file or classes, run
+`go generate ./cmd`: it generates the components (`go tool templ`) and rebuilds the stylesheet (needs
+[bun](https://bun.sh); runs Tailwind 3 with `cmd/tailwind.config.js`).
 
 ### Releases
 
@@ -213,7 +216,7 @@ sqlc generate
 
 ## Layout
 
-- `cmd/` — CLI, web panel (`web.go` + `web.html`, assets in `static/`), GitHub webhook, Sentry ingest
+- `cmd/` — CLI, web panel (`web.go` + `ui_*.templ`, assets in `static/`), GitHub webhook, Sentry ingest
 - `internal/ops/` — projects, apps, deploys, databases, storages, backups
 - `internal/deploy/` — Docker Engine API client
 - `internal/proxy/` — per-app reverse proxy on `127.0.0.1:<port>` (private apps, fallback route)

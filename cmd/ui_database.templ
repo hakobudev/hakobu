@@ -1,0 +1,183 @@
+package cmd
+
+import (
+	"fmt"
+
+	"github.com/x0ryz/hakobu/internal/ops"
+	"github.com/x0ryz/hakobu/internal/store"
+)
+
+type databasePage struct {
+	DB           store.Database
+	Project      store.Project
+	Ready        bool
+	Env          []envVar
+	Backups      []store.Backup
+	UsedBy       []string
+	BackupBucket string
+	Job          ops.DBJob
+	Keep         int
+}
+
+templ databaseView(v databasePage) {
+	@shell(v.DB.Name, projectCrumb(v.Project.Name), resourceCrumb(v.Project.Name, v.DB.Name, "/databases/"+v.DB.Name, "postgresql", "database")) {
+		@pageHeader(pageHead{Icon: "database", Logo: "postgresql", Title: v.DB.Name, Mono: true, Status: dbStatus(v.Ready), Meta: dbMeta(v)})
+		<div class="space-y-10">
+			@section("", "Connection", "Reachable from this project's apps only, at host hakobu-postgres on its Docker network.", nil) {
+				<div class="box">
+					<div class="box-row">
+						<span class="row-main">
+							@ic("box", "icon-muted")
+							<span>Used by</span>
+						</span>
+						<span class="flex flex-wrap gap-2 justify-end">
+							for _, a := range v.UsedBy {
+								<a href={ "/apps/" + a } class="badge">{ a }</a>
+							}
+							if len(v.UsedBy) == 0 {
+								<span class="muted">no apps: link it in an app's settings</span>
+							}
+						</span>
+					</div>
+					<details>
+						<summary class="box-row cursor-pointer">
+							<span class="row-main">
+								@ic("key-round", "icon-muted")
+								<span>Variables apps get</span>
+							</span>
+							<span class="row-meta">show</span>
+						</summary>
+						for _, e := range v.Env {
+							<div class="box-row">
+								<div class="kv-row">
+									<span class="kv-row-key">{ e.Key }</span>
+									<span class="kv-row-value">{ e.Value }</span>
+								</div>
+								@copyButton(e.Value)
+							</div>
+						}
+					</details>
+				</div>
+			}
+			@section("", "Usage", "The shared PostgreSQL server, all databases together.", nil) {
+				<div class="box">
+					<div class="box-body">
+						<div hx-get="/usage?target=service:postgres&range=24h" hx-trigger="load" hx-swap="outerHTML">
+							@skeleton(1, true)
+						</div>
+					</div>
+				</div>
+			}
+			@section("backups", "Backups", "", backupNow(v)) {
+				<div
+					id="db-backups"
+					class="box"
+					if v.Job.Running != "" {
+						hx-get={ "/databases/" + v.DB.Name }
+						hx-trigger="every 3s"
+						hx-select="#db-backups"
+						hx-swap="outerHTML"
+					}
+				>
+					<div class="box-body">
+						if v.BackupBucket != "" {
+							<p class="field-hint">Backed up daily to R2 (<span class="mono">{ v.BackupBucket }</span>). Each backup is restored into a temporary database right after upload to prove it works (it needs as much free disk as the database). Hakobu keeps the last { fmt.Sprint(v.Keep) }, one a week for four weeks, and always the newest one that restored; none can be deleted in its first 7 days.</p>
+						} else {
+							@flash("info") {
+								Backups aren't set up yet: <a href="/settings#backups">turn them on in Settings</a>, one click for all databases.
+							}
+						}
+						if v.Job.Running != "" {
+							<p class="meta-item muted">
+								@ic("loader-circle", "icon-sm icon-spin text-attention")
+								{ v.DB.Name } is { v.Job.Running }…
+							</p>
+						} else if v.Job.Last != "" {
+							<p class={ "small", templ.KV("text-danger", v.Job.Failed), templ.KV("muted", !v.Job.Failed) }>Last: { v.Job.Last }</p>
+						}
+					</div>
+					for _, b := range v.Backups {
+						<div class="box-row small">
+							<span class="row-main">
+								<span class="mono muted" title={ b.ObjectKey }>
+									@timeAgo(b.CreatedAt)
+									{ " · " + mb(b.SizeBytes) }
+								</span>
+								if b.VerifiedAt == "" {
+									<span class="badge">not checked</span>
+								} else if b.VerifyError != "" {
+									<span class="badge badge-danger" title={ b.VerifyError }>doesn't restore</span>
+								} else {
+									<span class="badge badge-success" title={ "checked " + b.VerifiedAt }>
+										@ic("circle-check", "icon-sm")
+										restores · { itoa(b.Tables) } tables
+									</span>
+								}
+							</span>
+							<span class="row-actions">
+								<button class="btn btn-sm btn-invisible" hx-post={ "/databases/" + v.DB.Name + "/backups/" + itoa(b.ID) + "/verify" } disabled?={ v.Job.Running != "" }>Check</button>
+								<button
+									class="btn btn-sm btn-invisible"
+									hx-post={ "/databases/" + v.DB.Name + "/backups/" + itoa(b.ID) + "/restore" }
+									hx-confirm="If rows in the database conflict with the backup's, the restore fails and nothing changes."
+									data-confirm-title={ "Restore into " + v.DB.Name + "?" }
+									data-confirm-action="Restore backup"
+									disabled?={ v.Job.Running != "" }
+								>Restore</button>
+							</span>
+						</div>
+					}
+				</div>
+			}
+			<div class="box box-danger">
+				<div class="box-header">Danger zone</div>
+				<div class="box-row">
+					<div>
+						<p class="strong">Delete this database</p>
+						<p class="field-hint">All its data is lost. Its backups stay in the bucket.</p>
+					</div>
+					<button
+						class="btn btn-danger"
+						hx-delete={ "/databases/" + v.DB.Name }
+						hx-confirm={ "All data in " + v.DB.Name + " is permanently lost, and apps linked to it lose DATABASE_URL on their next deploy." }
+						data-confirm-title={ "Delete " + v.DB.Name + "?" }
+						data-confirm-action="Delete this database"
+						data-confirm-name={ v.DB.Name }
+					>
+						@ic("trash-2")
+						Delete database
+					</button>
+				</div>
+			</div>
+		</div>
+	}
+}
+
+templ dbStatus(ready bool) {
+	if ready {
+		<span class="badge badge-success"><span class="dot dot-success"></span>Ready</span>
+	} else {
+		<span class="badge badge-danger"><span class="dot dot-danger"></span>Not responding</span>
+	}
+}
+
+templ dbMeta(v databasePage) {
+	<span class="meta-item">
+		@ic("database")
+		PostgreSQL
+	</span>
+	<span class="meta-item">
+		@ic("key-round")
+		user <span class="mono">{ v.DB.User }</span>
+	</span>
+}
+
+templ backupNow(v databasePage) {
+	if v.BackupBucket != "" {
+		<button class="btn btn-sm" hx-post={ "/databases/" + v.DB.Name + "/backups" } disabled?={ v.Job.Running != "" }>
+			@ic("loader-circle", "btn-spinner")
+			@ic("archive", "icon-sm btn-label-icon")
+			Back up now
+		</button>
+	}
+}

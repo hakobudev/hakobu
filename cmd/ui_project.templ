@@ -1,0 +1,607 @@
+package cmd
+
+import "github.com/x0ryz/hakobu/internal/store"
+
+// projectView is a project's pages: its canvas, shared variables
+// and settings.
+type projectView struct {
+	Project      store.Project
+	Tab          string // "", "variables" or "settings"
+	Apps         []appView
+	Workers      map[string]workerCard
+	LastDeploy   map[string]store.DeployLog
+	Databases    []store.Database
+	LastBackup   map[string]store.Backup
+	Storages     []store.Storage
+	Sealed       []string
+	SuggestedDB  string
+	BackupBucket string
+	Volumes      map[string][]volumeCard // by app
+	Calls        map[string][]string     // app → apps whose address its variables name
+	Watchdog     bool
+}
+
+// volumeCard is an app's volume on the canvas, with its latest backup.
+type volumeCard struct {
+	store.Volume
+	Last    store.VolumeBackup
+	HasLast bool
+}
+
+// backedUp reports whether the project has anything backups cover.
+func (v projectView) backedUp() bool {
+	n := len(v.Databases)
+	for _, vols := range v.Volumes {
+		n += len(vols)
+	}
+	return n > 0
+}
+
+// empty reports whether the project has no data at all.
+func (v projectView) empty() bool {
+	n := len(v.Databases) + len(v.Storages)
+	for _, vols := range v.Volumes {
+		n += len(vols)
+	}
+	return n == 0
+}
+
+func (v projectView) hasPublic() bool {
+	for _, a := range v.Apps {
+		if a.Domain != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// appLinksOf is what an app's card draws lines to: its database, storage
+// and volumes.
+func (v projectView) appLinksOf(a appView) string {
+	links := appLinks(a)
+	for _, vol := range v.Volumes[a.Name] {
+		links += " vol-" + a.Name + "-" + vol.Name
+	}
+	return links
+}
+
+func (v projectView) callsOf(app string) string {
+	ids := ""
+	for _, b := range v.Calls[app] {
+		ids += " app-" + b
+	}
+	return ids
+}
+
+func (v projectView) path(tab string) string {
+	if tab == "" {
+		return "/projects/" + v.Project.Name
+	}
+	return "/projects/" + v.Project.Name + "/" + tab
+}
+
+// appLinks is what an app's card draws lines to.
+// workerCard is an app's worker on the project canvas.
+type workerCard struct {
+	Name, Command, Status string
+}
+
+func appLinks(a appView) string {
+	links := ""
+	if a.LinkedDB != "" {
+		links += "db-" + a.LinkedDB
+	}
+	if a.LinkedStorage != "" {
+		links += " st-" + a.LinkedStorage
+	}
+	return links
+}
+
+// builder names what builds the app's image.
+func builder(a appView) string {
+	if a.BuildStrategy == "dockerfile" {
+		return "Dockerfile"
+	}
+	return "Railpack"
+}
+
+func appKind(a appView) string {
+	kind := builder(a)
+	if a.Domain != "" {
+		return kind + " · " + a.Domain
+	}
+	return kind + " · private"
+}
+
+func storageKind(st store.Storage) string {
+	if st.Provider == "r2" {
+		return "Cloudflare R2 · " + st.Bucket
+	}
+	return "S3 · " + st.Bucket
+}
+
+templ projectPage(v projectView) {
+	@shell(v.Project.Name, projectCrumb(v.Project.Name)) {
+		@pageHeader(pageHead{Title: v.Project.Name, Meta: projectMeta(v), Actions: projectNew(v)})
+		@tabBar([]tab{
+			{Label: "Overview", Icon: "layers", Href: v.path(""), Current: v.Tab == ""},
+			{Label: "Shared variables", Icon: "key-round", Href: v.path("variables"), Current: v.Tab == "variables"},
+			{Label: "Settings", Icon: "settings", Href: v.path("settings"), Current: v.Tab == "settings"},
+		})
+		switch v.Tab {
+			case "variables":
+				@projectVariables(v)
+			case "settings":
+				@projectSettings(v)
+			default:
+				@projectCanvas(v)
+		}
+		@projectDialogs(v)
+	}
+}
+
+templ projectMeta(v projectView) {
+	<span class="meta-item">
+		@ic("box")
+		{ plural(len(v.Apps), "app", "apps") }
+		if n := len(v.Workers); n > 0 {
+			· { plural(n, "worker", "workers") }
+		}
+	</span>
+	<span class="meta-item">
+		@ic("database")
+		{ plural(len(v.Databases), "database", "databases") }
+	</span>
+	<span class="meta-item">
+		@ic("archive")
+		{ plural(len(v.Storages), "storage", "storages") }
+	</span>
+}
+
+templ projectNew(v projectView) {
+	@menu("new-menu", "New", "plus", true) {
+		<button type="button" class="menu-item" data-dialog="new-app" hx-get={ "/projects/" + v.Project.Name + "/new-app" } hx-target="#new-app-form" hx-swap="innerHTML">
+			<span class="meta-item strong">
+				@ic("box")
+				App
+			</span>
+			<br/>
+			<span class="muted small">From a GitHub repository</span>
+		</button>
+		<button type="button" class="menu-item" data-dialog="new-database">
+			<span class="meta-item strong">
+				@ic("database")
+				Database
+			</span>
+			<br/>
+			<span class="muted small">PostgreSQL, backed up daily</span>
+		</button>
+		<button type="button" class="menu-item" data-dialog="new-storage">
+			<span class="meta-item strong">
+				@ic("archive")
+				Storage
+			</span>
+			<br/>
+			<span class="muted small">An R2 or S3 bucket for files</span>
+		</button>
+	}
+}
+
+// projectCanvas reads left to right like a request: the internet, through
+// the tunnel, to the apps, to their data, to the backups off the server.
+// The outer columns show on wide screens only; the cards repeat what they
+// say (domains, backups) for narrower ones.
+templ projectCanvas(v projectView) {
+	<div class="canvas">
+		<svg class="canvas-lines" aria-hidden="true"></svg>
+		<div class="canvas-cols canvas-cols-wide">
+			<div class="canvas-col canvas-col-edge">
+				<div class="canvas-col-title"><span>Internet</span></div>
+				@tunnelNode(v)
+			</div>
+			<div class="canvas-col">
+				<div class="canvas-col-title"><span>Apps</span></div>
+				for _, a := range v.Apps {
+					@appNode(v, a)
+				}
+				if len(v.Apps) == 0 {
+					<p class="field-hint">No apps yet: add one from a GitHub repo with New.</p>
+				}
+			</div>
+			<div class="canvas-col">
+				<div class="canvas-col-title"><span>Data</span></div>
+				for _, d := range v.Databases {
+					@databaseNode(d, v.LastBackup, v.BackupBucket != "")
+				}
+				for _, a := range v.Apps {
+					for _, vol := range v.Volumes[a.Name] {
+						@volumeNode(a.Name, vol, v.BackupBucket != "")
+					}
+				}
+				for _, st := range v.Storages {
+					@storageNode(v, st)
+				}
+				if v.empty() {
+					<p class="field-hint">No databases, volumes or storages yet: add a database or storage with New.</p>
+				}
+			</div>
+			<div class="canvas-col canvas-col-edge">
+				<div class="canvas-col-title"><span>Off the server</span></div>
+				@backupsNode(v)
+			</div>
+		</div>
+	</div>
+}
+
+// tunnelNode is the one way in: Cloudflare's tunnel, with a row per domain
+// it routes to an app.
+templ tunnelNode(v projectView) {
+	<div class="node" id="tunnel">
+		<div class="node-head">
+			@tile("cloudflare", "cloud")
+			<div class="min-w-0">
+				<div class="node-title">Cloudflare Tunnel</div>
+				<div class="node-kind">HTTPS in, no open ports</div>
+			</div>
+		</div>
+		for _, a := range v.Apps {
+			if a.Domain != "" {
+				<a href={ templ.SafeURL("https://" + a.Domain) } target="_blank" rel="noopener" id={ "dom-" + a.Name } class="node-item" data-links={ "app-" + a.Name }>
+					<span class="row-title" title={ a.Domain }>{ a.Domain }</span>
+					<span class="node-item-meta" hx-get={ "/uptime?target=app:" + a.Name + "&compact=1" } hx-trigger="load" hx-swap="innerHTML"></span>
+				</a>
+			}
+		}
+		if !v.hasPublic() {
+			<div class="node-row">No app has a domain yet</div>
+		}
+		<div class="node-row">
+			if v.Watchdog {
+				<span class="meta-item">
+					@ic("activity", "icon-sm text-success")
+					Checked from outside every minute
+				</span>
+			} else {
+				<span>No watchdog checking from outside</span>
+			}
+		</div>
+	</div>
+}
+
+templ volumeNode(app string, vol volumeCard, backupsOn bool) {
+	<a href={ "/apps/" + app + "/settings#volumes" } id={ "vol-" + app + "-" + vol.Name } class="node" data-links={ backupLink(backupsOn, "bk-vol-"+app+"-"+vol.Name) }>
+		<div class="node-head">
+			<span class="icon-tile">
+				@ic("hard-drive")
+			</span>
+			<div class="min-w-0 flex-1">
+				<div class="node-title">{ vol.Name }</div>
+				<div class="node-kind">Volume of { app } · <span class="mono">{ vol.MountPath }</span></div>
+			</div>
+		</div>
+		<div class="node-row">
+			if vol.HasLast {
+				if vol.Last.VerifyError != "" {
+					<span class="meta-item text-danger">
+						@ic("circle-x", "icon-sm")
+						Last backup unreadable
+					</span>
+				} else if vol.Last.VerifiedAt != "" {
+					<span class="meta-item">
+						@ic("circle-check", "icon-sm text-success")
+						Backup whole
+					</span>
+				} else {
+					<span>Backed up, not checked yet</span>
+				}
+				<span class="tabular shrink-0">
+					@timeAgo(vol.Last.CreatedAt)
+				</span>
+			} else if backupsOn {
+				<span>No backup yet</span>
+			} else {
+				<span class="meta-item">
+					@ic("triangle-alert", "icon-sm text-attention")
+					Backups are off
+				</span>
+			}
+		</div>
+	</a>
+}
+
+// backupsNode is where the data goes off the server: a row per database
+// and volume, each the end of its line, with how its latest backup went.
+templ backupsNode(v projectView) {
+	if v.BackupBucket == "" {
+		<a href="/settings#backups" id="backups" class="node node-warn">
+			<div class="node-head">
+				<span class="icon-tile">
+					@ic("archive")
+				</span>
+				<div class="min-w-0">
+					<div class="node-title">Backups are off</div>
+					<div class="node-kind">The data lives only on this server</div>
+				</div>
+			</div>
+			<div class="node-row">
+				<span class="meta-item">
+					@ic("triangle-alert", "icon-sm text-attention")
+					Turn on in Settings
+				</span>
+			</div>
+		</a>
+	} else {
+		<div class="node" id="backups">
+			<div class="node-head">
+				@tile("cloudflare", "archive")
+				<div class="min-w-0">
+					<div class="node-title">Backups</div>
+					<div class="node-kind">R2 · { v.BackupBucket }</div>
+				</div>
+			</div>
+			for _, d := range v.Databases {
+				<a href={ "/databases/" + d.Name + "#backups" } id={ "bk-db-" + d.Name } class="node-item">
+					<span class="meta-item min-w-0">
+						@ic("database", "icon-sm icon-muted")
+						<span class="truncate">{ d.Name }</span>
+					</span>
+					if b, ok := v.LastBackup[d.Name]; ok {
+						@backupState(b.VerifiedAt, b.VerifyError, b.CreatedAt)
+					} else {
+						<span class="node-item-meta muted">none yet</span>
+					}
+				</a>
+			}
+			for _, a := range v.Apps {
+				for _, vol := range v.Volumes[a.Name] {
+					<a href={ "/apps/" + a.Name + "/settings#volumes" } id={ "bk-vol-" + a.Name + "-" + vol.Name } class="node-item">
+						<span class="meta-item min-w-0">
+							@ic("hard-drive", "icon-sm icon-muted")
+							<span class="truncate">{ a.Name + "/" + vol.Name }</span>
+						</span>
+						if vol.HasLast {
+							@backupState(vol.Last.VerifiedAt, vol.Last.VerifyError, vol.Last.CreatedAt)
+						} else {
+							<span class="node-item-meta muted">none yet</span>
+						}
+					</a>
+				}
+			}
+			<div class="node-row">
+				if v.backedUp() {
+					<span>Daily · sealed · checked after upload · locked 7 days</span>
+				} else {
+					<span>Nothing to back up yet: backups cover databases and volumes</span>
+				}
+			</div>
+		</div>
+	}
+}
+
+// backupState is a backup's check and age, in a row of the backups card.
+templ backupState(verifiedAt, verifyError, createdAt string) {
+	<span class="node-item-meta meta-item">
+		if verifyError != "" {
+			@ic("circle-x", "icon-sm text-danger")
+		} else if verifiedAt != "" {
+			@ic("circle-check", "icon-sm text-success")
+		} else {
+			@ic("clock", "icon-sm icon-muted")
+		}
+		@timeAgo(createdAt)
+	</span>
+}
+
+templ appNode(v projectView, a appView) {
+	<div id={ "app-" + a.Name } class="node" data-links={ v.appLinksOf(a) } data-calls={ v.callsOf(a.Name) }>
+		<a href={ "/apps/" + a.Name } class="node-link">
+			<div class="node-head">
+				@tile(appLogo(a.App), appIcon(a))
+				<div class="min-w-0 flex-1">
+					<div class="node-title">
+						{ a.Name }
+						if a.Deploying {
+							<span class={ dotClass("deploying") } title="deploying"></span>
+						} else {
+							<span class={ dotClass(a.Status) } title={ a.Status }></span>
+						}
+					</div>
+					<div class="node-kind">{ appKind(a) }</div>
+				</div>
+			</div>
+			if a.LinkedDB != "" || a.LinkedStorage != "" {
+				<div class="node-chips">
+					if a.LinkedDB != "" {
+						<span class="badge">
+							@ic("database", "icon-sm")
+							{ a.LinkedDB }
+						</span>
+					}
+					if a.LinkedStorage != "" {
+						<span class="badge">
+							@ic("archive", "icon-sm")
+							{ a.LinkedStorage }
+						</span>
+					}
+				</div>
+			}
+			<div class="node-row">
+				if d, ok := v.LastDeploy[a.Name]; ok {
+					<span class="meta-item truncate">
+						@deployIcon(d.Status, true)
+						<span class="truncate">{ deployLabel(d) }</span>
+					</span>
+					<span class="tabular shrink-0">
+						@timeAgo(d.CreatedAt)
+					</span>
+				} else {
+					<span>Not deployed yet</span>
+				}
+			</div>
+		</a>
+		if w, ok := v.Workers[a.Name]; ok {
+			<a href={ "/apps/" + a.Name + "/logs?worker=1" } id={ "wk-" + a.Name } class="node-item" title="The app's worker: same image and links, its own process">
+				<span class="meta-item min-w-0">
+					if l := workerLogo(a.App, w.Command); l != "" {
+						@logo(l)
+					} else {
+						@ic("workflow", "icon-sm icon-muted")
+					}
+					<span class="strong">{ w.Name }</span>
+					<span class="mono muted truncate">{ w.Command }</span>
+				</span>
+				<span class={ dotClass(w.Status) } title={ w.Status }></span>
+			</a>
+		}
+	</div>
+}
+
+templ databaseNode(d store.Database, last map[string]store.Backup, backupsOn bool) {
+	<a href={ "/databases/" + d.Name } id={ "db-" + d.Name } class="node" data-links={ backupLink(backupsOn, "bk-db-"+d.Name) }>
+		<div class="node-head">
+			@tile("postgresql", "database")
+			<div class="min-w-0 flex-1">
+				<div class="node-title">{ d.Name }</div>
+				<div class="node-kind">PostgreSQL</div>
+			</div>
+		</div>
+		<div class="node-row">
+			if b, ok := last[d.Name]; ok {
+				if b.VerifyError != "" {
+					<span class="meta-item text-danger">
+						@ic("circle-x", "icon-sm")
+						Last backup doesn't restore
+					</span>
+				} else if b.VerifiedAt != "" {
+					<span class="meta-item">
+						@ic("circle-check", "icon-sm text-success")
+						Backup restores
+					</span>
+				} else {
+					<span>Backed up, not checked yet</span>
+				}
+				<span class="tabular shrink-0">
+					@timeAgo(b.CreatedAt)
+				</span>
+			} else if backupsOn {
+				<span>No backup yet</span>
+			} else {
+				<span class="meta-item">
+					@ic("triangle-alert", "icon-sm text-attention")
+					Backups are off
+				</span>
+			}
+		</div>
+	</a>
+}
+
+templ storageNode(v projectView, st store.Storage) {
+	<a href={ "/storages/" + st.Name } id={ "st-" + st.Name } class="node">
+		<div class="node-head">
+			@tile(storageLogo(st), "archive")
+			<div class="min-w-0 flex-1">
+				<div class="node-title">{ st.Name }</div>
+				<div class="node-kind">{ storageKind(st) }</div>
+			</div>
+		</div>
+		<div class="node-row">
+			if st.AccessKeyID == "" {
+				<span class="meta-item">
+					@ic("triangle-alert", "icon-sm text-attention")
+					Needs keys before apps can use it
+				</span>
+			} else {
+				<span class="meta-item">
+					@ic("key-round", "icon-sm")
+					Keys set
+				</span>
+			}
+		</div>
+	</a>
+}
+
+templ projectVariables(v projectView) {
+	<div class="space-y-6">
+		<form hx-post={ "/projects/" + v.Project.Name + "/env" } class="box" id="shared-env" data-saved>
+			<div class="box-header">
+				<span>Shared variables</span>
+			</div>
+			<div class="box-body">
+				<p class="field-hint">Passed to every app and worker in this project. An app's own variables override them.</p>
+				@envEditor("env", string(v.Project.SharedEnv), "")
+			</div>
+			@boxFooter("Applies on each app's next deploy.") {
+				@submit("Save", true)
+			}
+		</form>
+		@sealedVars("project", v.Project.Name, v.Sealed)
+	</div>
+}
+
+templ projectSettings(v projectView) {
+	<div class="box box-danger">
+		<div class="box-header">Danger zone</div>
+		<div class="box-row">
+			<div>
+				<p class="strong">Delete this project</p>
+				<p class="field-hint">Removes its { plural(len(v.Apps), "app", "apps") } with their volumes, its { plural(len(v.Databases), "database", "databases") } with their data, and forgets its storages (their buckets stay).</p>
+			</div>
+			<button
+				class="btn btn-danger"
+				hx-delete={ "/projects/" + v.Project.Name }
+				hx-confirm={ "Every app, database and volume in " + v.Project.Name + " is deleted with its data. This can't be undone." }
+				data-confirm-title={ "Delete " + v.Project.Name + "?" }
+				data-confirm-action="Delete this project"
+				data-confirm-name={ v.Project.Name }
+			>
+				@ic("trash-2")
+				Delete project
+			</button>
+		</div>
+	</div>
+}
+
+templ projectDialogs(v projectView) {
+	@dialog("new-app", "New app") {
+		<div id="new-app-form">
+			@skeleton(3, false)
+		</div>
+	}
+	@dialog("new-database", "New database") {
+		<form hx-post={ "/projects/" + v.Project.Name + "/databases" } class="space-y-4">
+			@field("Name", "Lowercase letters, digits, dashes and underscores, starting with a letter.") {
+				<input name="name" class="input mono" placeholder={ dbPlaceholder(v.SuggestedDB) } required?={ v.SuggestedDB == "" } pattern="[a-z][a-z0-9_\-]{0,39}"/>
+			}
+			<p class="field-hint">PostgreSQL with its own user. Link it from an app's settings to give the app DATABASE_URL.</p>
+			<button class="btn btn-primary btn-block">
+				@ic("loader-circle", "btn-spinner")
+				Create database
+			</button>
+		</form>
+	}
+	@dialog("new-storage", "New storage") {
+		<form hx-post={ "/projects/" + v.Project.Name + "/storages" } class="space-y-4">
+			@field("Name", "") {
+				<input name="name" placeholder="e.g. files" required class="input mono"/>
+			}
+			@field("Where", "") {
+				<select name="provider" class="input">
+					<option value="r2">Cloudflare R2 in your account</option>
+					<option value="s3">S3-compatible (AWS, Backblaze, MinIO, …)</option>
+				</select>
+			}
+			<p class="field-hint" data-show-if="provider=r2">hakobu creates the bucket in your Cloudflare account; then you give it the keys of a token for that bucket alone. R2's free plan includes 10 GB, and downloads are free.</p>
+			<div class="space-y-3" data-show-if="provider=s3" hidden>
+				<input name="endpoint" placeholder="Endpoint URL" class="input mono"/>
+				<input name="bucket" placeholder="Bucket" class="input mono"/>
+				<input name="access_key_id" placeholder="Access key ID" class="input mono"/>
+				<input name="secret_access_key" type="password" placeholder="Secret access key" autocomplete="new-password" class="input mono"/>
+				<input name="region" placeholder="Region (default: auto)" class="input mono"/>
+			</div>
+			<button class="btn btn-primary btn-block">
+				@ic("loader-circle", "btn-spinner")
+				Add storage
+			</button>
+		</form>
+	}
+}

@@ -1,0 +1,134 @@
+package cmd
+
+// Pages before or around signing in: one box in the middle of the page.
+
+templ centered(title string) {
+	@document(title) {
+		<main class="center-page">
+			<div class="signin">
+				{ children... }
+			</div>
+		</main>
+	}
+}
+
+templ signinMark(title, subtitle string) {
+	<div class="signin-mark">
+		@wordmark(true)
+		<div>
+			<h1 class="signin-title">{ title }</h1>
+			if subtitle != "" {
+				<p class="muted mt-1">{ subtitle }</p>
+			}
+		</div>
+	</div>
+}
+
+templ loginPage(connected bool, errMsg string) {
+	@centered("Sign in") {
+		@signinMark("Sign in", "")
+		if errMsg != "" {
+			@flash("danger") {
+				{ errMsg }
+			}
+		}
+		<div class="box">
+			<div class="box-body">
+				if connected {
+					<a href="/auth/login" class="btn btn-github">
+						@ic("github")
+						Continue with GitHub
+					</a>
+					<p class="field-hint text-center">Only this panel's owner can sign in.</p>
+				} else {
+					<p>Setup isn't finished. Open the setup link the installer printed:</p>
+					<pre class="console">journalctl -u hakobu | grep setup</pre>
+				}
+			</div>
+		</div>
+		<div class="signin-foot">
+			<span class="meta-item">
+				@ic("lock", "icon-sm")
+				Self-hosted with Hakobu
+			</span>
+		</div>
+	}
+}
+
+templ setupPage(publicHost, manifest, state string) {
+	@centered("Setup") {
+		@signinMark("Connect GitHub", publicHost)
+		<div class="box">
+			if manifest != "" {
+				<div class="box-body">
+					<p>This creates a private GitHub App for <span class="mono">{ publicHost }</span>. It's used to sign in to this panel, clone your repos and deploy on push. You then sign in and become the owner.</p>
+					<form method="post" action="https://github.com/settings/apps/new">
+						<input type="hidden" name="manifest" value={ manifest }/>
+						<input type="hidden" name="state" value={ state }/>
+						<button class="btn btn-github">
+							@ic("github")
+							Create the GitHub App
+						</button>
+					</form>
+				</div>
+			} else {
+				<div class="box-body">
+					@flash("danger") {
+						No public host is configured. Re-run the installer, or start the agent with <span class="mono">--public-host</span>.
+					}
+				</div>
+			}
+		</div>
+	}
+}
+
+type consentView struct {
+	Client                     oauthClient
+	Query                      string
+	RedirectHost, PublicHost   string
+	Loopback, Document, Deploy bool
+}
+
+templ oauthConsentPage(v consentView) {
+	@centered("Connect an app") {
+		@signinMark("Allow "+v.Client.Name+"?", v.PublicHost)
+		<form method="post" action="/oauth/authorize" class="box">
+			<div class="box-body">
+				<p>It gets a token for <span class="mono">{ v.PublicHost }</span> and returns to <span class="mono">{ v.RedirectHost }</span>.</p>
+				if v.Document {
+					<p class="field-hint">It describes itself at <span class="mono break-all">{ v.Client.ID }</span>.</p>
+				}
+				if v.Loopback {
+					@flash("warn") {
+						It returns to a program on your own computer, like Claude Code. Allow it only if you just started connecting it there: any program on that computer could ask.
+					}
+				}
+				<label class="check">
+					<input type="checkbox" checked disabled/>
+					<span><span class="check-label">Read</span><br/><span class="field-hint">Projects, apps, deploys and their logs, the apps' output and errors. Not the values of variables or any other secret.</span></span>
+				</label>
+				if v.Deploy {
+					<label class="check">
+						<input type="checkbox" name="deploy" value="1" checked/>
+						<span><span class="check-label">Deploy</span><br/><span class="field-hint">Deploy apps, roll them back (with their database, if asked) and restart workers.</span></span>
+					</label>
+				}
+				<input type="hidden" name="request" value={ v.Query }/>
+			</div>
+			@boxFooter("It can't delete anything or change settings.") {
+				<button name="deny" value="1" class="btn">Deny</button>
+				<button name="approve" value="1" class="btn btn-primary">Allow</button>
+			}
+		</form>
+		<p class="signin-foot">Disconnect it any time in Settings → AI apps.</p>
+	}
+}
+
+templ oauthErrorPage(msg string) {
+	@centered("Can't connect") {
+		@signinMark("Can't connect", "")
+		@flash("danger") {
+			<span class="break-words">{ msg }</span>
+		}
+	}
+}

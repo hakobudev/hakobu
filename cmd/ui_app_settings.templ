@@ -1,0 +1,334 @@
+package cmd
+
+import "fmt"
+
+templ appSettings(p appPage) {
+	@appShell(p) {
+		<div class="with-subnav">
+			<nav class="subnav" data-spy>
+				<a href="#general" class="subnav-item">
+					@ic("globe", "icon-muted")
+					General
+				</a>
+				<a href="#build" class="subnav-item">
+					@ic("box", "icon-muted")
+					Build
+				</a>
+				<a href="#resources" class="subnav-item">
+					@ic("database", "icon-muted")
+					Resources
+				</a>
+				<a href="#volumes" class="subnav-item">
+					@ic("hard-drive", "icon-muted")
+					Volumes
+					if len(p.Volumes) > 0 {
+						<span class="subnav-count">{ fmt.Sprint(len(p.Volumes)) }</span>
+					}
+				</a>
+				<a href="#limits" class="subnav-item">
+					@ic("cpu", "icon-muted")
+					Limits
+				</a>
+				<a href="#worker" class="subnav-item">
+					@ic("server", "icon-muted")
+					Worker
+				</a>
+				<a href="#danger" class="subnav-item">
+					@ic("triangle-alert", "icon-muted")
+					Danger zone
+				</a>
+			</nav>
+			<div class="min-w-0">
+				@section("general", "General", "", nil) {
+					<form hx-post={ "/apps/" + p.App.Name + "/settings" } class="box" id="form-general" data-saved>
+						<div class="box-body">
+							@field("Address", "Hakobu manages the DNS record in Cloudflare; HTTPS works right away. Leave the subdomain empty for the root domain.") {
+								@domainField(p.Zones, p.Sub, p.Zone, p.App.Domain, false)
+							}
+							<div class="fields">
+								@field("Port", "Empty: whatever port the app listens on.") {
+									<input name="container_port" type="number" min="1" max="65535" value={ portValue(p.App.ContainerPort) } placeholder={ portPlaceholder(p.App.LivePort) } class="input mono"/>
+								}
+								@field("Health check path", "A deploy goes live once it answers: any response for /, a 2xx for anything else.") {
+									<input name="health_check_path" value={ p.App.HealthCheckPath } placeholder="/" class="input mono"/>
+								}
+							</div>
+							if p.App.Domain == "" {
+								<p class="field-hint">Private: only reachable on the server at <span class="mono">127.0.0.1:{ itoa(p.App.Port) }</span>.</p>
+							}
+						</div>
+						@boxFooter("Applies on the next deploy.") {
+							@submit("Save", true)
+						}
+					</form>
+				}
+				@section("build", "Build", "", nil) {
+					<form hx-post={ "/apps/" + p.App.Name + "/build" } class="box" id="form-build" data-saved>
+						<div class="box-body">
+							<div class="fields">
+								@field("Method", "") {
+									<select name="build_strategy" class="input">
+										<option value="railpack" selected?={ p.App.BuildStrategy == "railpack" }>Railpack (auto-detected)</option>
+										<option value="dockerfile" selected?={ p.App.BuildStrategy == "dockerfile" }>Dockerfile</option>
+									</select>
+								}
+								@field("Path in the repo", "Empty: the repo's root.") {
+									<input name="build_path" value={ p.App.BuildPath } placeholder="e.g. services/api" class="input mono"/>
+								}
+							</div>
+						</div>
+						@boxFooter("Applies on the next deploy.") {
+							@submit("Save", false)
+						}
+					</form>
+				}
+				@section("resources", "Resources", "", nil) {
+					<form hx-post={ "/apps/" + p.App.Name + "/links" } class="box" id="form-links" data-saved>
+						<div class="box-body">
+							<div class="fields">
+								@field("Database", "Gives DATABASE_URL and POSTGRES_*.") {
+									<select name="database" class="input">
+										<option value="">none</option>
+										for _, d := range p.Databases {
+											<option value={ d.Name } selected?={ d.Name == p.App.LinkedDB }>{ d.Name }</option>
+										}
+									</select>
+								}
+								@field("Storage", "Gives S3_*.") {
+									<select name="storage" class="input">
+										<option value="">none</option>
+										for _, st := range p.Storages {
+											<option value={ st.Name } selected?={ st.Name == p.App.LinkedStorage } disabled?={ st.AccessKeyID == "" }>
+												{ storageOption(st) }
+											</option>
+										}
+									</select>
+								}
+							</div>
+							<p class="field-hint">Create databases and storages on the <a href={ "/projects/" + p.App.ProjectName }>project</a>.</p>
+						</div>
+						@boxFooter("Applies on the next deploy.") {
+							@submit("Save", false)
+						}
+					</form>
+				}
+				@section("volumes", "Volumes", "Directories that survive redeploys, shared by the app and its worker. Everything else in the container is reset on every deploy.", nil) {
+					@appVolumes(p)
+				}
+				@section("limits", "Limits", "", nil) {
+					<form hx-post={ "/apps/" + p.App.Name + "/limits" } class="box" id="form-limits" data-saved>
+						<div class="box-body">
+							if p.LastOOM != "" {
+								@flash("danger") {
+									Last killed for running out of memory <time datetime={ p.LastOOM }>{ p.LastOOM }</time>.
+								}
+							}
+							<div class="fields">
+								@field("Memory", "") {
+									<div class="field-row">
+										<input name="memory_mb" type="number" min="16" value={ limitValue(p.App.MemoryMB) } placeholder="no limit" class="input mono"/>
+										<span class="muted">MB</span>
+									</div>
+								}
+								@field("CPUs", "") {
+									<input name="cpus" type="number" min="0.01" step="0.01" value={ cpuValue(p.App.Cpus) } placeholder="no limit" class="input mono"/>
+								}
+							</div>
+						</div>
+						@boxFooter("For the app and its worker, each. Applies on the next deploy.") {
+							@submit("Save", false)
+						}
+					</form>
+				}
+				@section("worker", "Worker", "A background process from the app's image with its own start command and no port. It restarts after every deploy.", workerActions(p)) {
+					<div class="space-y-6">
+						<form hx-post={ "/apps/" + p.App.Name + "/worker" } class="box" id="form-worker" data-saved>
+							<div class="box-body">
+								<div class="grid gap-4 sm:grid-cols-3">
+									@field("Name", "") {
+										<input name="name" value={ workerName(p) } required class="input"/>
+									}
+									<div class="sm:col-span-2">
+										@field("Start command", "") {
+											<input name="command" value={ workerCommand(p) } placeholder="e.g. taskiq worker app.tasks:broker" required class="input mono"/>
+										}
+									</div>
+								</div>
+								@field("Worker variables", "On top of the shared and linked variables.") {
+									@envEditor("env", workerEnv(p), "")
+								}
+							</div>
+							@boxFooter("") {
+								if p.Worker != nil {
+									@submit("Save and restart", true)
+								} else {
+									@submit("Create worker", true)
+								}
+							}
+						</form>
+						if p.Worker != nil {
+							@sealedVars("worker", p.App.Name, p.SealedWorker)
+						}
+					</div>
+				}
+				<section class="section" id="danger">
+					<div class="box box-danger">
+						<div class="box-header">Danger zone</div>
+						<div class="box-row">
+							<div>
+								<p class="strong">Delete this app</p>
+								<p class="field-hint">
+									{ deleteAppHint(len(p.Volumes)) }
+								</p>
+							</div>
+							<button
+								class="btn btn-danger"
+								hx-delete={ "/apps/" + p.App.Name }
+								hx-confirm={ deleteAppText(p) }
+								data-confirm-title={ "Delete " + p.App.Name + "?" }
+								data-confirm-action="Delete this app"
+								data-confirm-name={ p.App.Name }
+							>
+								@ic("trash-2")
+								Delete app
+							</button>
+						</div>
+					</div>
+				</section>
+			</div>
+		</div>
+	}
+}
+
+templ workerActions(p appPage) {
+	if p.Worker != nil {
+		<div class="btn-group">
+			@statusText(p.WorkerStatus)
+			<button class="btn btn-sm" hx-post={ "/apps/" + p.App.Name + "/worker/restart" }>
+				@ic("loader-circle", "btn-spinner")
+				Restart
+			</button>
+			<button
+				class="btn btn-sm btn-danger"
+				hx-delete={ "/apps/" + p.App.Name + "/worker" }
+				hx-confirm="The worker stops and isn't started on the next deploy."
+				data-confirm-title="Delete the worker?"
+				data-confirm-action="Delete worker"
+			>Delete</button>
+		</div>
+	}
+}
+
+templ appVolumes(p appPage) {
+	<div
+		id="volume-list"
+		class="box"
+		if p.VolumeJobRunning {
+			hx-get={ p.path("settings") }
+			hx-trigger="every 3s"
+			hx-select="#volume-list"
+			hx-swap="outerHTML"
+		}
+	>
+		for _, vb := range p.VolumeBackups {
+			<div class="box-row">
+				<div class="row-main">
+					@ic("hard-drive", "icon-muted")
+					<span class="row-title mono">{ vb.Volume }</span>
+					<span class="row-meta mono">{ mountOf(p, vb.Volume) }</span>
+				</div>
+				<div class="row-actions">
+					if p.BackupBucket != "" {
+						<button class="btn btn-sm btn-invisible" hx-post={ "/apps/" + p.App.Name + "/volumes/" + vb.Volume + "/backups" } disabled?={ vb.Job.Running != "" }>Back up now</button>
+					}
+					<button
+						class="btn btn-sm btn-invisible btn-danger"
+						hx-delete={ "/apps/" + p.App.Name + "/volumes/" + vb.Volume }
+						hx-confirm={ "Volume " + vb.Volume + " is deleted with its data. Its backups' files stay in the bucket, but the panel forgets them." }
+						data-confirm-title={ "Remove volume " + vb.Volume + "?" }
+						data-confirm-action="Remove volume"
+						data-confirm-name={ vb.Volume }
+					>Remove</button>
+				</div>
+			</div>
+			if vb.Job.Running != "" {
+				<div class="box-body small">
+					<span class="meta-item muted">
+						@ic("loader-circle", "icon-sm icon-spin text-attention")
+						{ vb.Job.Running }…
+					</span>
+				</div>
+			} else if vb.Job.Last != "" {
+				<div class="box-body small">
+					<span class={ templ.KV("text-danger", vb.Job.Failed), templ.KV("muted", !vb.Job.Failed) }>Last: { vb.Job.Last }</span>
+				</div>
+			}
+			for _, b := range vb.Backups {
+				<div class="box-row small">
+					<span class="row-main">
+						<span class="mono muted" title={ b.ObjectKey }>
+							@timeAgo(b.CreatedAt)
+							{ " · " + mb(b.SizeBytes) }
+						</span>
+						if b.VerifiedAt == "" {
+							<span class="badge">not checked</span>
+						} else if b.VerifyError != "" {
+							<span class="badge badge-danger" title={ b.VerifyError }>unreadable</span>
+						} else {
+							<span class="badge badge-success" title={ "checked " + b.VerifiedAt }>
+								@ic("circle-check", "icon-sm")
+								whole · { itoa(b.Files) } files
+							</span>
+						}
+					</span>
+					<span class="row-actions">
+						<button class="btn btn-sm btn-invisible" hx-post={ "/apps/" + p.App.Name + "/volumes/" + vb.Volume + "/backups/" + itoa(b.ID) + "/verify" } disabled?={ vb.Job.Running != "" }>Check</button>
+						<button
+							class="btn btn-sm btn-invisible"
+							hx-post={ "/apps/" + p.App.Name + "/volumes/" + vb.Volume + "/backups/" + itoa(b.ID) + "/restore" }
+							hx-confirm={ "Everything in volume " + vb.Volume + " is replaced with this backup. " + p.App.Name + " stops while it's written; what's in the volume now is lost." }
+							data-confirm-title={ "Restore " + vb.Volume + "?" }
+							data-confirm-action="Restore backup"
+							data-confirm-danger
+							disabled?={ vb.Job.Running != "" }
+						>Restore</button>
+					</span>
+				</div>
+			}
+		}
+		if len(p.Volumes) > 0 {
+			<form hx-post={ "/apps/" + p.App.Name + "/share-volumes" } hx-trigger="change" class="box-body">
+				<label class="check">
+					<input type="checkbox" name="share" value="1" checked?={ p.App.ShareVolumes != 0 }/>
+					<span>
+						<span class="check-label">Deploy without downtime</span>
+						<br/>
+						<span class="field-hint">
+							if p.App.ShareVolumes != 0 {
+								The new and old version share the volumes for a few seconds during the switch.
+							} else {
+								Off: the old version stops before the new one starts (a few seconds of downtime), so two versions never write the same data, e.g. an SQLite database. Turn on if the volumes only hold uploads or cache.
+							}
+						</span>
+					</span>
+				</label>
+			</form>
+			<div class="box-body">
+				if p.BackupBucket != "" {
+					<p class="field-hint">Backed up daily to R2 (<span class="mono">{ p.BackupBucket }</span>), sealed with the master key and read back right after upload. While a volume is copied, the app and its worker are paused for the seconds it takes. None can be deleted in its first 7 days.</p>
+				} else {
+					<p class="field-hint">Volumes aren't backed up yet: <a href="/settings#backups">turn backups on in Settings</a>.</p>
+				}
+			</div>
+		}
+		<form hx-post={ "/apps/" + p.App.Name + "/volumes" } class="box-footer">
+			<input name="name" placeholder="name, e.g. data" required class="input input-sm mono w-36"/>
+			<input name="mount_path" placeholder="path in the container, e.g. /app/data" required class="input input-sm mono flex-1 min-w-40"/>
+			<button class="btn btn-sm">
+				@ic("loader-circle", "btn-spinner")
+				@ic("plus", "icon-sm btn-label-icon")
+				Add volume
+			</button>
+		</form>
+	</div>
+}

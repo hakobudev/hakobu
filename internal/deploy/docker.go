@@ -830,6 +830,31 @@ func ContainerState(ctx context.Context, containerName string) State {
 	return State{Status: info.State.Status, Restarts: info.RestartCount, OOMKilled: info.State.OOMKilled, ExitCode: info.State.ExitCode}
 }
 
+// ContainerStatuses is every container's status by name, from one call.
+func ContainerStatuses(ctx context.Context) (map[string]string, error) {
+	respBody, status, err := dockerRequest(ctx, "GET", "/containers/json?all=true", nil)
+	if err != nil {
+		return nil, err
+	}
+	if status != http.StatusOK {
+		return nil, fmt.Errorf("container list failed (%d): %s", status, respBody)
+	}
+	var list []struct {
+		Names []string `json:"Names"`
+		State string   `json:"State"`
+	}
+	if err := json.Unmarshal(respBody, &list); err != nil {
+		return nil, err
+	}
+	statuses := map[string]string{}
+	for _, c := range list {
+		for _, n := range c.Names {
+			statuses[strings.TrimPrefix(n, "/")] = c.State
+		}
+	}
+	return statuses, nil
+}
+
 // ContainerStatus is ContainerState's status and restart count.
 func ContainerStatus(ctx context.Context, containerName string) (status string, restarts int) {
 	st := ContainerState(ctx, containerName)

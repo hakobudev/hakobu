@@ -1,0 +1,317 @@
+package cmd
+
+import "fmt"
+
+// The design system. A page is built from these components and the classes
+// in styles.css, with layout utilities (flex, grid, gap, spacing, widths) in
+// between; web_test.go fails on colors, sizes, radii or weights written into
+// a page. A new look goes here or in styles.css, once.
+
+// document is the HTML around every page: the stylesheet, the scripts, the
+// icon sprite, the toast and the confirmation dialog.
+templ document(title string) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<title>{ pageTitle(title) }</title>
+			<meta name="htmx-config" content='{"allowEval":false,"allowScriptTags":false,"includeIndicatorStyles":false}'/>
+			<link rel="stylesheet" href={ staticURL("app.css") }/>
+			<script src={ staticURL("htmx.min.js") }></script>
+			<script src={ staticURL("app.js") }></script>
+		</head>
+		<body hx-swap="none">
+			@templ.Raw(iconSprite)
+			<div id="toast" hidden class="toast" role="alert"></div>
+			@confirmDialog()
+			{ children... }
+		</body>
+	</html>
+}
+
+// shell is a signed-in page: the top bar with where you are, then the page.
+// Every page is as wide, so moving between them nothing shifts.
+templ shell(title string, crumbs ...crumb) {
+	@document(title) {
+		@topbar(crumbs)
+		<main class="page">
+			{ children... }
+		</main>
+	}
+}
+
+// wordmark is hakobu's name set in type; it stands in for a logo.
+templ wordmark(large bool) {
+	<span class={ "wordmark", templ.KV("wordmark-lg", large) }>hakobu</span>
+}
+
+templ topbar(crumbs []crumb) {
+	<header class="topbar">
+		<div class="topbar-inner">
+			<nav class="context" aria-label="Where you are">
+				<a href="/" class="brand" aria-label="Projects">
+					@wordmark(false)
+				</a>
+				for i, c := range crumbs {
+					<span class="context-sep">/</span>
+					<a href={ c.Href } class={ "context-item", templ.KV("context-item-muted", i < len(crumbs)-1) }>
+						if c.Logo != "" {
+							@logo(c.Logo)
+						} else if c.Icon != "" {
+							@ic(c.Icon)
+						}
+						{ c.Label }
+					</a>
+					if c.Switch != "" {
+						<button type="button" class="context-switch" popovertarget={ fmt.Sprint("switch-", i) } title="Switch">
+							@ic("chevron-down", "icon-sm")
+						</button>
+						<div id={ fmt.Sprint("switch-", i) } popover class="menu" data-align="start" hx-get={ c.Switch } hx-trigger="toggle once" hx-swap="innerHTML">
+							@skeleton(3, false)
+						</div>
+					}
+				}
+			</nav>
+			<div class="topbar-nav">
+				<a href="/settings" class="btn btn-invisible btn-icon" title="Settings">
+					@ic("settings")
+				</a>
+				<form method="post" action="/logout">
+					<button class="btn btn-invisible btn-icon" title="Sign out">
+						@ic("log-out")
+					</button>
+				</form>
+			</div>
+		</div>
+	</header>
+}
+
+templ pageHeader(h pageHead) {
+	<div class="page-header">
+		<div class="flex items-start gap-3 min-w-0">
+			if h.Logo != "" || h.Icon != "" {
+				@tile(h.Logo, h.Icon)
+			}
+			<div class="min-w-0">
+				<h1 class={ "page-title", templ.KV("mono", h.Mono) }>
+					{ h.Title }
+					if h.Status != nil {
+						@h.Status
+					}
+				</h1>
+				if h.Meta != nil {
+					<div class="meta mt-1">
+						@h.Meta
+					</div>
+				}
+			</div>
+		</div>
+		if h.Actions != nil {
+			<div class="page-actions">
+				@h.Actions
+			</div>
+		}
+	</div>
+}
+
+templ tabBar(tabs []tab) {
+	<nav class="tabs">
+		for _, t := range tabs {
+			<a
+				href={ t.Href }
+				class="tab"
+				if t.Current {
+					aria-current="page"
+				}
+			>
+				@ic(t.Icon)
+				{ t.Label }
+				if t.Count > 0 {
+					<span class={ "counter", templ.KV("counter-danger", t.Danger) }>{ fmt.Sprint(t.Count) }</span>
+				}
+			</a>
+		}
+	</nav>
+}
+
+// section is a titled part of a page; action sits right of the title.
+templ section(id, title, desc string, action templ.Component) {
+	<section
+		class="section"
+		if id != "" {
+			id={ id }
+		}
+	>
+		<div class="section-header">
+			<div>
+				<h2 class="section-title">{ title }</h2>
+				if desc != "" {
+					<p class="section-desc">{ desc }</p>
+				}
+			</div>
+			if action != nil {
+				@action
+			}
+		</div>
+		{ children... }
+	</section>
+}
+
+templ field(label, hint string) {
+	<div class="field">
+		<label class="field-label">{ label }</label>
+		{ children... }
+		if hint != "" {
+			<p class="field-hint">{ hint }</p>
+		}
+	</div>
+}
+
+// boxFooter holds a form's buttons; note says when the change applies.
+templ boxFooter(note string) {
+	<div class="box-footer">
+		if note != "" {
+			<span class="box-footer-note">{ note }</span>
+		}
+		{ children... }
+	</div>
+}
+
+// submit is a form's button; it spins while the request runs.
+templ submit(label string, primary bool) {
+	<button class={ "btn", templ.KV("btn-primary", primary) }>
+		@ic("loader-circle", "btn-spinner")
+		{ label }
+	</button>
+}
+
+templ flash(kind string) {
+	<div class={ flashClass(kind) }>
+		{ children... }
+	</div>
+}
+
+templ blankslate(text string) {
+	<div class="blankslate">{ text }</div>
+}
+
+// timeAgo shows an ISO time as "5 min ago" (app.js), with the exact time on
+// hover.
+templ timeAgo(iso string) {
+	if iso == "" {
+		<span class="muted">—</span>
+	} else {
+		<time datetime={ iso }>{ iso }</time>
+	}
+}
+
+templ copyButton(text string) {
+	<button type="button" class="copy" data-copy={ text } title="Copy">
+		@ic("copy", "icon-sm")
+	</button>
+}
+
+templ statusText(status string) {
+	<span class="status"><span class={ dotClass(status) }></span>{ status }</span>
+}
+
+templ segmented(items []segment) {
+	<div class="segmented">
+		for _, s := range items {
+			if s.HX {
+				<button type="button" class="segmented-item" hx-get={ s.Href } hx-target={ s.Target } hx-swap="outerHTML" aria-pressed={ fmt.Sprint(s.Current) }>{ s.Label }</button>
+			} else {
+				<a href={ s.Href } class="segmented-item" aria-pressed={ fmt.Sprint(s.Current) }>{ s.Label }</a>
+			}
+		}
+	</div>
+}
+
+// menu is a dropdown under its button: a native popover, placed by app.js.
+templ menu(id, label, iconName string, primary bool) {
+	<button type="button" class={ "btn", templ.KV("btn-primary", primary) } popovertarget={ id }>
+		if iconName != "" {
+			@ic(iconName)
+		}
+		{ label }
+		@ic("chevron-down")
+	</button>
+	<div id={ id } popover class="menu">
+		{ children... }
+	</div>
+}
+
+// dialog is a modal opened by any element with data-dialog={id}.
+templ dialog(id, title string) {
+	<dialog id={ id } class="dialog">
+		<div class="dialog-header">
+			<span>{ title }</span>
+			<button type="button" class="btn btn-sm btn-invisible btn-icon" data-close aria-label="Close">
+				@ic("x")
+			</button>
+		</div>
+		<div class="dialog-body">
+			{ children... }
+		</div>
+	</dialog>
+}
+
+// confirmDialog answers every hx-confirm (see app.js).
+templ confirmDialog() {
+	<dialog id="confirm" class="dialog">
+		<form method="dialog">
+			<div class="dialog-header">
+				<span data-confirm-title></span>
+				<button type="button" class="btn btn-sm btn-invisible btn-icon" data-close aria-label="Close">
+					@ic("x")
+				</button>
+			</div>
+			<div class="dialog-body">
+				<p data-confirm-body></p>
+				<div class="field" data-confirm-typed hidden>
+					<label class="field-label" for="confirm-typed">Type <span class="confirm-target" data-confirm-name></span> to confirm</label>
+					<input id="confirm-typed" class="input mono" autocomplete="off" spellcheck="false"/>
+				</div>
+			</div>
+			<div class="dialog-footer">
+				<button type="button" class="btn" data-close>Cancel</button>
+				<button class="btn btn-primary" value="ok" data-confirm-ok>Confirm</button>
+			</div>
+		</form>
+	</dialog>
+}
+
+// tile is the square in front of a card or title: a logo if there is
+// one, else an icon.
+templ tile(logoSlug, iconName string) {
+	<span class="icon-tile">
+		if logoSlug != "" {
+			@logo(logoSlug)
+		} else {
+			@ic(iconName)
+		}
+	</span>
+}
+
+// skeleton stands in for a part loaded after the page.
+templ skeleton(lines int, chart bool) {
+	<div class="space-y-3" aria-busy="true">
+		for i := 0; i < lines; i++ {
+			<span class="skeleton skeleton-line"></span>
+		}
+		if chart {
+			<span class="skeleton skeleton-chart"></span>
+		}
+	</div>
+}
+
+templ console(text, empty string) {
+	<pre class="console max-h-[32rem] overflow-y-auto">
+		if text != "" {
+			{ text }
+		} else {
+			<span class="console-muted">{ empty }</span>
+		}
+	</pre>
+}

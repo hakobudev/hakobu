@@ -467,7 +467,7 @@ func noteDeploy(s *store.Store, app, trigger string, err error) {
 		return
 	}
 	problem(s, key, notifyAgain, app+": deploy failed",
-		fmt.Sprintf("Deploying %s after a push to GitHub failed:\n\n  %v\n\nThe deploy log: %s", app, err, panelURL("/apps/"+app+"#deployments")))
+		fmt.Sprintf("Deploying %s after a push to GitHub failed:\n\n  %v\n\nThe deploy log: %s", app, err, panelURL("/apps/"+app+"/deployments")))
 }
 
 // NoteBackup mails a failed backup of a database, or of the panel with
@@ -491,14 +491,14 @@ func NoteBackup(s *store.Store, name string, err error) {
 // noteOOM mails an app or worker killed for running out of memory.
 func noteOOM(s *store.Store, app, message string) {
 	problem(s, "oom:"+app, notifyAgain, app+": out of memory",
-		message+"\n\nGive it more memory or find what grows: "+panelURL("/apps/"+app+"#errors"))
+		message+"\n\nGive it more memory or find what grows: "+panelURL("/apps/"+app+"/errors"))
 }
 
 // noteCrash mails a live app or worker container that exited with an
 // error; Docker restarting it again and again stays one email.
 func noteCrash(s *store.Store, app, message string) {
 	problem(s, "crash:"+app, notifyAgain, app+": crashed",
-		message+"\n\nIts output: "+panelURL("/apps/"+app+"#output"))
+		message+"\n\nIts output: "+panelURL("/apps/"+app+"/logs"))
 }
 
 // CheckForOwner mails the disk filling up and a master key the owner

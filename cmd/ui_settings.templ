@@ -1,0 +1,709 @@
+package cmd
+
+import (
+	"github.com/x0ryz/hakobu/internal/cloudflare"
+	"github.com/x0ryz/hakobu/internal/ops"
+	"github.com/x0ryz/hakobu/internal/store"
+)
+
+type settingsPage struct {
+	PublicHost, Owner, GitHubSlug string
+	Disk, LastCleanup             string
+	DiskLow                       bool
+	BackupBucket, PanelBackup     string
+	CloudflareConnected           bool
+	Rotation                      ops.Rotation
+	KeyDownloaded                 bool
+	Notify                        ops.NotifyInfo
+	Watchdog                      ops.WatchdogInfo
+	Update                        ops.UpdateInfo
+	TokenURL                      string
+	Token                         []cloudflare.Permission
+	Usage                         []usageRow
+	OAuthGrants                   []store.OAuthGrant
+}
+
+func (u settingsPageUpdate) busy() bool {
+	return u.Requested || (u.HasLast && u.Last.State == "running")
+}
+
+type settingsPageUpdate struct{ ops.UpdateInfo }
+
+templ settingsView(v settingsPage) {
+	@shell("Settings", crumb{Label: "Settings", Href: "/settings", Icon: "settings"}) {
+		@pageHeader(pageHead{Title: "Settings", Meta: settingsMeta(v)})
+		<div class="with-subnav">
+			<nav class="subnav" data-spy>
+				<a href="#panel" class="subnav-item">
+					@ic("globe", "icon-muted")
+					Panel
+				</a>
+				<a href="#update" class="subnav-item">
+					@ic("refresh-cw", "icon-muted")
+					Updates
+					if v.Update.Available {
+						<span class="subnav-count"><span class="dot dot-accent"></span></span>
+					}
+				</a>
+				<a href="#backups" class="subnav-item">
+					@ic("archive", "icon-muted")
+					Backups
+				</a>
+				<a href="#notifications" class="subnav-item">
+					@ic("bell", "icon-muted")
+					Notifications
+				</a>
+				if v.Token != nil {
+					<a href="#cloudflare" class="subnav-item">
+						@ic("cloud", "icon-muted")
+						Cloudflare
+						if len(cloudflare.Lacking(v.Token)) > 0 {
+							<span class="subnav-count"><span class="dot dot-attention"></span></span>
+						}
+					</a>
+				}
+				<a href="#ai-apps" class="subnav-item">
+					@ic("bot", "icon-muted")
+					AI apps
+				</a>
+				<a href="#security" class="subnav-item">
+					@ic("shield", "icon-muted")
+					Security
+					if !v.KeyDownloaded {
+						<span class="subnav-count"><span class="dot dot-danger"></span></span>
+					}
+				</a>
+				<a href="#server" class="subnav-item">
+					@ic("server", "icon-muted")
+					Server
+				</a>
+			</nav>
+			<div class="min-w-0">
+				@section("panel", "Panel", "", nil) {
+					<div class="box">
+						<div class="box-body">
+							<div class="kv">
+								<span class="kv-key">Address</span>
+								<span class="flex items-center gap-1"><span class="mono">{ "https://" + v.PublicHost }</span>
+									@copyButton("https://" + v.PublicHost)
+								</span>
+								<span class="kv-key">Owner</span>
+								<span><span class="mono">{ v.Owner }</span> <span class="muted">· the only one who can sign in</span></span>
+								<span class="kv-key">Theme</span>
+								<span class="flex flex-wrap items-center gap-3">
+									<span class="segmented" data-theme-choices>
+										<button type="button" class="segmented-item" data-theme-choice="system" aria-pressed="false">System</button>
+										<button type="button" class="segmented-item" data-theme-choice="light" aria-pressed="false">Light</button>
+										<button type="button" class="segmented-item" data-theme-choice="dark" aria-pressed="false">Dark</button>
+									</span>
+									<span class="field-hint">Kept in this browser.</span>
+								</span>
+								if v.GitHubSlug != "" {
+									<span class="kv-key">GitHub App</span>
+									<span class="flex flex-wrap gap-x-3">
+										<a href={ templ.SafeURL("https://github.com/apps/" + v.GitHubSlug) } target="_blank" rel="noopener" class="mono">{ v.GitHubSlug }</a>
+										<a href={ templ.SafeURL("https://github.com/apps/" + v.GitHubSlug + "/installations/new") } target="_blank" rel="noopener">Manage repository access</a>
+									</span>
+								}
+							</div>
+						</div>
+					</div>
+				}
+				@settingsUpdate(v.Update)
+				@settingsBackups(v)
+				@section("notifications", "Notifications", "An email when something needs you: a deploy after a push failed, a backup failed, an app crashed or ran out of memory, the disk is almost full, the master key isn't downloaded. Each problem is mailed once, again only if it's still there hours later, and once more when it's gone.", notifyActions(v.Notify)) {
+					<div class="space-y-6">
+						<div class="box">
+							if v.Notify.On {
+								<div class="box-body">
+									<p>Emails go to <span class="mono">{ v.Notify.Email }</span> from <span class="mono">{ v.Notify.From }</span>.</p>
+									if v.Notify.Err != "" {
+										@flash("danger") {
+											{ v.Notify.Err }
+										}
+									} else if !v.Notify.Verified {
+										@flash("warn") {
+											Waiting for you to confirm the address: open the email from Cloudflare and click <span class="mono">Verify email address</span>, then reload this page.
+										}
+									}
+								</div>
+							}
+							if v.CloudflareConnected {
+								<div hx-get="/settings/notify/form" hx-trigger="load" hx-swap="outerHTML" class="box-body">
+									@skeleton(2, false)
+								</div>
+							} else {
+								<div class="box-body muted">Needs Cloudflare connected first.</div>
+							}
+						</div>
+						if v.Notify.On {
+							@settingsWatchdog(v.Watchdog)
+						}
+					</div>
+				}
+				if v.Token != nil {
+					@settingsToken(v)
+				}
+				@settingsAIApps(v)
+				@settingsSecurity(v)
+				@section("server", "Server", "", cleanupButton()) {
+					<div class="space-y-6">
+						<div class="box">
+							<div class="box-body">
+								<div hx-get="/usage?target=host&range=24h" hx-trigger="load" hx-swap="outerHTML">
+									@skeleton(1, true)
+								</div>
+							</div>
+						</div>
+						if len(v.Usage) > 0 {
+							<div class="box overflow-x-auto">
+								<table class="table">
+									<thead>
+										<tr><th>Using it now</th><th class="num">CPU</th><th class="num">Memory</th></tr>
+									</thead>
+									<tbody>
+										for _, u := range v.Usage {
+											<tr>
+												<td>
+													if u.Link != "" {
+														<a href={ templ.SafeURL(u.Link) } class="mono">{ u.Name }</a>
+													} else {
+														<span class="mono">{ u.Name }</span>
+													}
+												</td>
+												<td class="num muted">{ u.CPU }</td>
+												<td class={ "num", templ.KV("text-danger", u.MemPct >= 90), templ.KV("muted", u.MemPct < 90) }>{ u.Memory }</td>
+											</tr>
+										}
+									</tbody>
+								</table>
+							</div>
+						}
+						<div class="box">
+							<div class="box-row">
+								<span class="row-main">
+									@ic("hard-drive", "icon-muted")
+									<span class={ templ.KV("text-danger", v.DiskLow) }>
+										{ diskText(v.Disk, v.DiskLow) }
+									</span>
+								</span>
+							</div>
+							<div class="box-body">
+								<p class="field-hint">
+									Every day hakobu deletes build cache unused for a week and images of deleted apps; each app keeps only its live image and one for rollback.
+									if v.LastCleanup != "" {
+										Last run { v.LastCleanup }.
+									}
+								</p>
+							</div>
+						</div>
+					</div>
+				}
+			</div>
+		</div>
+	}
+}
+
+templ settingsMeta(v settingsPage) {
+	<span class="meta-item">
+		@ic("globe")
+		<span class="mono">{ v.PublicHost }</span>
+	</span>
+	<span class="meta-item">
+		@ic("box")
+		hakobu <span class="mono">{ v.Update.Current }</span>
+	</span>
+}
+
+templ cleanupButton() {
+	<button class="btn btn-sm" hx-post="/settings/cleanup">
+		@ic("loader-circle", "btn-spinner")
+		@ic("trash-2", "icon-sm btn-label-icon")
+		Clean up now
+	</button>
+}
+
+templ settingsUpdate(u ops.UpdateInfo) {
+	{{ busy := settingsPageUpdate{u}.busy() }}
+	<section
+		class="section"
+		id="update"
+		if busy {
+			hx-get="/settings"
+			hx-trigger="every 3s"
+			hx-select="#update"
+			hx-swap="outerHTML"
+		}
+	>
+		<div class="section-header">
+			<h2 class="section-title">Updates</h2>
+			<button class="btn btn-sm" hx-post="/settings/update/check">
+				@ic("loader-circle", "btn-spinner")
+				Check for updates
+			</button>
+		</div>
+		<div class="box">
+			<div class="box-row">
+				<div>
+					if u.Available {
+						<p>This is hakobu <span class="mono">{ u.Current }</span>; <a href={ templ.SafeURL("https://github.com/x0ryz/hakobu/releases/tag/" + u.Latest) } target="_blank" rel="noopener" class="mono">{ u.Latest }</a> is out.</p>
+					} else if u.Latest != "" {
+						<p>This is hakobu <span class="mono">{ u.Current }</span>, the latest release.</p>
+					} else {
+						<p>This is hakobu <span class="mono">{ u.Current }</span>.</p>
+					}
+					if u.CheckedAt != "" {
+						<p class="field-hint">Checked { u.CheckedAt }.</p>
+					}
+				</div>
+				if u.Available && u.Updater {
+					<button
+						class="btn btn-primary"
+						hx-post="/settings/update"
+						hx-confirm="The panel is down for a minute while it restarts; apps keep running. If the new version doesn't come up, this one is put back."
+						data-confirm-title={ "Update to " + u.Latest + "?" }
+						data-confirm-action={ "Update to " + u.Latest }
+						disabled?={ busy }
+					>
+						@ic("loader-circle", "btn-spinner")
+						Update to { u.Latest }
+					</button>
+				}
+			</div>
+			if u.Requested {
+				<div class="box-body">
+					<span class="meta-item muted">
+						@ic("loader-circle", "icon-sm icon-spin text-attention")
+						Asked for, starting…
+					</span>
+				</div>
+			} else if u.HasLast {
+				<div class="box-body">
+					switch u.Last.State {
+						case "running":
+							<span class="meta-item muted">
+								@ic("loader-circle", "icon-sm icon-spin text-attention")
+								{ u.Last.Message }…
+							</span>
+						case "updated":
+							<p class="meta-item">
+								@ic("circle-check", "icon-sm text-success")
+								Updated from <span class="mono">{ u.Last.From }</span> to <span class="mono">{ u.Last.To }</span> · <time datetime={ u.Last.At.UTC().Format("2006-01-02T15:04:05Z") }></time>
+							</p>
+						case "up to date":
+							<p class="muted">Checked <time datetime={ u.Last.At.UTC().Format("2006-01-02T15:04:05Z") }></time>: already the latest.</p>
+						case "rolled back":
+							@flash("danger") {
+								if u.Last.Message != "" {
+									{ u.Last.Message }
+								} else {
+									Rolled back from <span class="mono">{ u.Last.From }</span> to <span class="mono">{ u.Last.To }</span>
+								}
+								(<time datetime={ u.Last.At.UTC().Format("2006-01-02T15:04:05Z") }></time>).
+							}
+						default:
+							@flash("danger") {
+								Failed <time datetime={ u.Last.At.UTC().Format("2006-01-02T15:04:05Z") }></time>: { u.Last.Message }
+							}
+					}
+				</div>
+			}
+			if u.CanRollBack {
+				<div class="box-row">
+					<p>
+						if u.RollbackBlocked != "" {
+							Can't go back to <span class="mono">{ u.Previous }</span>: { u.RollbackBlocked }.
+						} else {
+							Updated from <span class="mono">{ u.Previous }</span> { u.UpdatedAt }; you can go back to it.
+							if u.RollbackLosesData {
+								<span class="text-danger">That update changed the panel's database, so it goes back to its copy from then: what changed in the panel since (apps, settings, deploy history) is lost; the newer database is kept on the server.</span>
+							}
+						}
+					</p>
+					if u.RollbackBlocked == "" {
+						<button
+							class={ "btn shrink-0", templ.KV("btn-danger", u.RollbackLosesData) }
+							hx-post="/settings/rollback"
+							hx-confirm={ rollbackText(u) }
+							data-confirm-title={ "Go back to hakobu " + u.Previous + "?" }
+							data-confirm-action={ "Roll back to " + u.Previous }
+							disabled?={ busy }
+						>Roll back to { u.Previous }</button>
+					}
+				</div>
+			}
+			<div class="box-body">
+				<p class="field-hint">
+					if u.Updater {
+						A release is installed only if it's signed with hakobu's release key and matches its checksum. The panel can only ask for the latest release, or to go back one update: a root service does the work, so the panel can't replace its own program. If a new version doesn't come up, the previous one is put back by itself.
+					} else {
+						This server has no updater yet: update once over SSH with the install command, which sets it up.
+					}
+				</p>
+			</div>
+		</div>
+	</section>
+}
+
+func rollbackText(u ops.UpdateInfo) string {
+	text := "The panel is down for a minute; apps keep running."
+	if u.RollbackLosesData {
+		text += " The panel's database goes back to how it was at " + u.UpdatedAt + "."
+	}
+	return text
+}
+
+templ settingsBackups(v settingsPage) {
+	{{ var action templ.Component }}
+	if v.BackupBucket == "" && v.CloudflareConnected {
+		{{ action = turnOnBackups() }}
+	}
+	@section("backups", "Backups", "", action) {
+		<div class="box">
+			<div class="box-body">
+				if v.BackupBucket != "" {
+					<p>Every database, every app's volumes and the panel itself are backed up daily to the R2 bucket <span class="mono">{ v.BackupBucket }</span> in your Cloudflare account, sealed with the master key.</p>
+					<p class="field-hint">Its files can't be deleted or overwritten for 7 days, so a bug in hakobu can't wipe recent backups (someone in control of this server could still change the lock).</p>
+				} else {
+					<p>Creates a private R2 bucket in your Cloudflare account and backs up every database and volume to it daily. Backups live off this server, so they survive losing it. R2's free plan includes 10 GB.</p>
+					if !v.CloudflareConnected {
+						<p class="field-hint">Needs Cloudflare connected first: <span class="mono">cd /opt/hakobu &amp;&amp; sudo -u hakobu ./hakobu setup</span>.</p>
+					}
+				}
+			</div>
+			if v.BackupBucket != "" {
+				<div class="box-row">
+					<span class="row-main">
+						@ic("server", "icon-muted")
+						<span>The panel</span>
+					</span>
+					<span class="row-meta">
+						if v.PanelBackup != "" {
+							<span class="mono">{ v.PanelBackup }</span>
+						} else {
+							first backup within the hour
+						}
+					</span>
+				</div>
+				<div class="box-body">
+					<p class="field-hint">With the master key file (Security, below) and a Cloudflare token, <span class="mono">hakobu restore</span> brings the panel back on a new server.</p>
+				</div>
+			}
+		</div>
+	}
+}
+
+templ turnOnBackups() {
+	<button class="btn btn-primary btn-sm" hx-post="/settings/backups">
+		@ic("loader-circle", "btn-spinner")
+		Turn on backups
+	</button>
+}
+
+templ notifyActions(n ops.NotifyInfo) {
+	if n.On {
+		<div class="btn-group">
+			<button class="btn btn-sm" hx-post="/settings/notify/test" disabled?={ !n.Verified }>
+				@ic("loader-circle", "btn-spinner")
+				Send test email
+			</button>
+			<button
+				class="btn btn-sm"
+				hx-delete="/settings/notify"
+				hx-confirm="hakobu also removes from Cloudflare what it set up for them: the address, if it added it, and Email Routing for its mail subdomain."
+				data-confirm-title="Turn the emails off?"
+				data-confirm-action="Turn off"
+			>Turn off</button>
+		</div>
+	}
+}
+
+templ settingsWatchdog(w ops.WatchdogInfo) {
+	<div class="box">
+		<div class="box-header">
+			<span class="meta-item">
+				Watchdog
+				if w.On {
+					<span class="badge badge-success">on</span>
+				} else {
+					<span class="badge">off</span>
+				}
+			</span>
+			if w.On {
+				<button
+					class="btn btn-sm"
+					hx-delete="/settings/watchdog"
+					hx-confirm="hakobu removes its Worker from Cloudflare and doesn't set it up again until you turn it on."
+					data-confirm-title="Turn the watchdog off?"
+					data-confirm-action="Turn off"
+				>Turn off</button>
+			} else if w.TurnedOff {
+				<button class="btn btn-sm" hx-post="/settings/watchdog">
+					@ic("loader-circle", "btn-spinner")
+					Turn on
+				</button>
+			}
+		</div>
+		<div class="box-body">
+			<p class="field-hint">
+				When the server, hakobu or the tunnel is down, hakobu can't email you about it. The watchdog is a Worker in your Cloudflare account
+				if w.On {
+					(<span class="mono">{ w.Script }</span>)
+				}
+				that checks the panel and the apps every minute from outside and emails you when one stops answering, and when it's back; with D1 Edit on the token it keeps 30 days of history. It runs on Cloudflare's free plan.
+			</p>
+			if w.On {
+				<div hx-get="/uptime?target=panel" hx-trigger="load" hx-swap="innerHTML">
+					@skeleton(2, false)
+				</div>
+			}
+			if w.Err != "" {
+				@flash("danger") {
+					{ w.Err }
+				}
+			} else if !w.On && !w.TurnedOff {
+				<p class="field-hint">Waiting for hakobu's token to get Workers Scripts Edit and Workers KV Storage Edit: see <a href="#cloudflare">Cloudflare token</a>.</p>
+			}
+		</div>
+	</div>
+}
+
+templ settingsToken(v settingsPage) {
+	@section("cloudflare", "Cloudflare token", "What hakobu's API token can do, checked every hour; a newer hakobu may need more than an older token has.", nil) {
+		<div class="box">
+			for _, p := range v.Token {
+				<div class="box-row">
+					<span class="row-main">
+						if p.Missing {
+							@ic("circle-x", "text-danger")
+						} else if p.Unknown {
+							@ic("info", "icon-muted")
+						} else {
+							@ic("circle-check", "text-success")
+						}
+						<span class={ templ.KV("text-danger", p.Missing) }>{ p.Name }</span>
+					</span>
+					<span class="row-meta">
+						{ p.For }
+						if p.Unknown {
+							· couldn't check
+						}
+					</span>
+				</div>
+			}
+			<form hx-post="/settings/cloudflare/token">
+				<div class="box-body">
+					<p class="field-hint">To replace it, open <a href={ templ.SafeURL(v.TokenURL) } target="_blank" rel="noopener">this link</a> (the permissions are filled in), select <span class="strong">Continue to summary</span> → <span class="strong">Create Token</span>, and paste it here. It must be for the same Cloudflare account. Then delete the old token in Cloudflare.</p>
+					<input name="token" type="password" required autocomplete="off" placeholder="New API token" class="input mono"/>
+				</div>
+				@boxFooter("") {
+					@submit("Replace token", false)
+				}
+			</form>
+		</div>
+	}
+}
+
+templ settingsAIApps(v settingsPage) {
+	@section("ai-apps", "AI apps", "Claude can look at your apps, their deploys, logs and errors, and deploy or roll back if you allow it, through hakobu's MCP server. You approve each app with a GitHub sign-in.", nil) {
+		<div class="box">
+			<div class="box-body space-y-3">
+				<div class="kv">
+					<span class="kv-key">MCP server</span>
+					<span class="flex items-center gap-1 min-w-0"><span class="mono truncate">{ "https://" + v.PublicHost + "/mcp" }</span>
+						@copyButton("https://" + v.PublicHost + "/mcp")
+					</span>
+					<span class="kv-key">claude.ai</span>
+					<span>Settings → Connectors → Add custom connector, with the address above. Also the desktop and mobile apps.</span>
+					<span class="kv-key">Claude Code</span>
+					<span class="flex items-center gap-1 min-w-0"><span class="mono truncate">{ "claude mcp add --transport http hakobu https://" + v.PublicHost + "/mcp" }</span>
+						@copyButton("claude mcp add --transport http hakobu https://" + v.PublicHost + "/mcp")
+					</span>
+				</div>
+			</div>
+			for _, g := range v.OAuthGrants {
+				<div class="box-row">
+					<span class="row-main">
+						@ic("bot", "icon-muted")
+						<span class="min-w-0">
+							<span class="row-title block">{ g.ClientName }</span>
+							<span class="row-meta block">
+								{ g.Scope + " · connected " }
+								@timeAgo(g.CreatedAt)
+								if g.LastUsedAt != "" {
+									{ " · last used " }
+									@timeAgo(g.LastUsedAt)
+								}
+							</span>
+						</span>
+					</span>
+					<button
+						class="btn btn-sm btn-danger"
+						hx-delete={ "/settings/ai-apps/" + itoa(g.ID) }
+						hx-confirm="Its tokens stop working at once."
+						data-confirm-title={ "Disconnect " + g.ClientName + "?" }
+						data-confirm-action="Disconnect"
+					>Disconnect</button>
+				</div>
+			}
+			if len(v.OAuthGrants) == 0 {
+				<div class="box-row muted small">No app connected.</div>
+			}
+		</div>
+	}
+}
+
+templ settingsSecurity(v settingsPage) {
+	<section
+		class="section"
+		id="security"
+		if v.Rotation.Running {
+			hx-get="/settings"
+			hx-trigger="every 2s"
+			hx-select="#security"
+			hx-swap="outerHTML"
+		}
+	>
+		<div class="section-header">
+			<h2 class="section-title">Security</h2>
+		</div>
+		<div class="space-y-6">
+			<div class="box">
+				<div class="box-row">
+					<div>
+						if v.KeyDownloaded {
+							<p class="meta-item">
+								@ic("circle-check", "icon-sm text-success")
+								You have a copy of the current master key.
+							</p>
+						} else {
+							<p class="meta-item text-danger">
+								@ic("triangle-alert", "icon-sm")
+								You have no copy of the current master key: without it the panel's backups can't be restored.
+							</p>
+						}
+					</div>
+					<a href="/settings/master-key" class={ "btn shrink-0", templ.KV("btn-primary", !v.KeyDownloaded) }>
+						@ic("key-round")
+						Download master key
+					</a>
+				</div>
+				<div class="box-body">
+					<p class="field-hint">Secrets, logs and the apps' errors are encrypted with the master key (<span class="mono">key/master.key</span> on this server), and so are all backups and the database snapshots for Rollback. Downloading it asks you to sign in with GitHub again. Keep the file away from this server, and download it again after replacing all secrets: the old one doesn't open newer backups.</p>
+				</div>
+			</div>
+			if v.Rotation.Started != "" {
+				<div class="box">
+					<div class="box-header">
+						if v.Rotation.Running {
+							<span class="meta-item">
+								@ic("loader-circle", "icon-spin text-attention")
+								Replacing secrets (started { v.Rotation.Started })…
+							</span>
+						} else if v.Rotation.Failures > 0 {
+							<span class="meta-item text-danger">
+								@ic("circle-x")
+								Finished with { plural(v.Rotation.Failures, "failure", "failures") }, started { v.Rotation.Started }
+							</span>
+						} else {
+							<span class="meta-item">
+								@ic("circle-check", "text-success")
+								All replaced, started { v.Rotation.Started }
+							</span>
+						}
+					</div>
+					<pre class="console max-h-64 overflow-y-auto">{ v.Rotation.Log }</pre>
+					if len(v.Rotation.Manual) > 0 {
+						<div class="box-body">
+							<p class="strong">Left for you to replace:</p>
+							<ul class="prose-list">
+								for _, m := range v.Rotation.Manual {
+									<li>{ m }</li>
+								}
+							</ul>
+						</div>
+					}
+				</div>
+			}
+			<div class="box box-danger">
+				<div class="box-header">Danger zone</div>
+				<div class="box-row">
+					<div>
+						<p class="strong">Replace all secrets</p>
+						<p class="field-hint">If you suspect someone got at this server or its data: new database passwords, storage keys, Sentry keys, GitHub webhook secret and Cloudflare tunnel token; apps restart with them, everyone is signed out, AI apps are disconnected and the master key is rotated. It then lists what only you can replace.</p>
+					</div>
+					<button
+						class="btn btn-danger shrink-0"
+						hx-post="/settings/rotate-secrets"
+						hx-confirm="Apps restart with the new values, the panel and apps are unreachable for a few seconds while the tunnel reconnects, and everyone (you too) has to sign in again."
+						data-confirm-title="Replace every secret?"
+						data-confirm-action="Replace all secrets"
+						data-confirm-name="replace"
+						disabled?={ v.Rotation.Running }
+					>Replace all secrets</button>
+				</div>
+			</div>
+		</div>
+	</section>
+}
+
+type notifyFormView struct {
+	To, From          []ops.NotifyChoice
+	Why               []string
+	PublicHost, Name  string
+	OtherValue, Error string
+	Notify            ops.NotifyInfo
+}
+
+func (v notifyFormView) otherOpen() bool { return v.OtherValue != "" || len(v.To) == 0 }
+
+templ notifyForm(v notifyFormView) {
+	<form hx-post="/settings/notify" class="box-body space-y-4">
+		if v.Error != "" {
+			@flash("danger") {
+				{ v.Error }
+			}
+		}
+		<div class="fields">
+			@field("Send to", "") {
+				<select name="email" class="input">
+					for _, c := range v.To {
+						<option value={ c.Value } selected?={ c.Selected }>{ c.Value } · { c.Note }</option>
+					}
+					<option value="" selected?={ v.otherOpen() }>Another address…</option>
+				</select>
+			}
+			@field("Send from", "") {
+				<div class="field-row">
+					<input name="name" value={ v.Name } required class="input mono w-36"/>
+					<select name="from" class="input min-w-0">
+						for _, c := range v.From {
+							<option value={ c.Value } selected?={ c.Selected }>{ "@" + c.Value } · { c.Note }</option>
+						}
+					</select>
+				</div>
+			}
+		</div>
+		<div data-show-if="email=" hidden?={ !v.otherOpen() }>
+			<input name="other" type="email" placeholder="you@example.com" value={ v.OtherValue } class="input"/>
+		</div>
+		if len(v.Why) > 0 {
+			<ul class="field-hint space-y-1">
+				for _, w := range v.Why {
+					<li>Not offered: { w }.</li>
+				}
+			</ul>
+		}
+		<p class="field-hint">Sent through Cloudflare Email Service, free for an address confirmed in your Cloudflare account; a new one gets a link to confirm. Cloudflare sends from any address of a domain with Email Routing on; where it's off, hakobu turns it on through <span class="mono">{ "mail." + v.PublicHost }</span>, which leaves the domain's own mail alone, and for a domain itself only if it gets no mail. Turn off removes what hakobu set up, except Email Routing for a domain itself: that can only be turned off with all its subdomains, in Cloudflare.</p>
+		<div>
+			<button class="btn btn-primary">
+				@ic("loader-circle", "btn-spinner")
+				if v.Notify.On {
+					Change
+				} else {
+					Turn on
+				}
+			</button>
+		</div>
+	</form>
+}
