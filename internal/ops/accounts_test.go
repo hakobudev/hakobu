@@ -284,7 +284,7 @@ func TestDockerClientTunnelNetworks(t *testing.T) {
 		for _, p := range []string{"own", "shop"} {
 			_ = removeProjectNetworks(s, p)
 		}
-		_ = deploy.RemoveNetwork(ctx(), acme.network())
+		_ = local.RemoveTunnel(ctx(), acme.Name)
 	})
 	// The tokens are made up: cloudflared restarts again and again, which
 	// leaves its networks and mounts as they are.
@@ -315,5 +315,5 @@ func TestDockerClientTunnelNetworks(t *testing.T) {
 		t.Fatal(err)
 	}
 	expect(panel, projectEdge("shop"), "-", true)
-	expect(acme, acme.network(), projectEdge("shop"), false)
+	expect(acme, deploy.EdgeNetwork+"-acme", projectEdge("shop"), false)
 }

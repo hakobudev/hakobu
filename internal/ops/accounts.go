@@ -9,7 +9,7 @@ import (
 
 	"github.com/x0ryz/hakobu/internal/cloudflare"
 	"github.com/x0ryz/hakobu/internal/config"
-	"github.com/x0ryz/hakobu/internal/deploy"
+	"github.com/x0ryz/hakobu/internal/node"
 	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store"
 )
@@ -44,21 +44,7 @@ func (a cfAccount) label() string {
 }
 
 // container runs the account's cloudflared.
-func (a cfAccount) container() string {
-	if a.isPanel() {
-		return tunnelContainer
-	}
-	return tunnelContainer + "-" + a.Name
-}
-
-// network is the one cloudflared starts on, before joining the edge
-// networks of the account's projects.
-func (a cfAccount) network() string {
-	if a.isPanel() {
-		return deploy.EdgeNetwork
-	}
-	return deploy.EdgeNetwork + "-" + a.Name
-}
+func (a cfAccount) container() string { return node.TunnelName(a.Name) }
 
 // fallback is where the tunnel sends what no app's route matches.
 func (a cfAccount) fallback() string {
@@ -269,7 +255,7 @@ func RemoveClientAccount(s *store.Store, name string) error {
 		return fmt.Errorf("client %s still has %s: move or delete them first", name, strings.Join(projects, ", "))
 	}
 	a := clientAccount(row)
-	if err := deploy.RemoveContainer(ctx(), a.container()); err != nil {
+	if err := local.RemoveTunnel(ctx(), a.Name); err != nil {
 		return err
 	}
 	if a.TunnelID != "" {
@@ -278,9 +264,6 @@ func RemoveClientAccount(s *store.Store, name string) error {
 		if err := a.Client.DeleteTunnel(a.AccountID, a.TunnelID); err != nil {
 			fmt.Printf("failed to delete the tunnel of client %s (delete it in their dashboard): %v\n", name, err)
 		}
-	}
-	if err := deploy.RemoveNetwork(ctx(), a.network()); err != nil {
-		return err
 	}
 	return s.DeleteCloudflareAccount(ctx(), row.ID)
 }

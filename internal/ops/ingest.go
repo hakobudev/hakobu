@@ -2,11 +2,10 @@ package ops
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/deploy"
+	"github.com/x0ryz/hakobu/internal/node"
 	"github.com/x0ryz/hakobu/internal/store"
 )
 
@@ -20,15 +19,9 @@ const IngestSocketDir = "run/ingest"
 // IngestSocket serves the ingest endpoint and nothing else.
 func IngestSocket() string { return filepath.Join(IngestSocketDir, "ingest.sock") }
 
-// ingestContainer is the relay; apps reach it by this name.
-var ingestContainer = "hakobu-ingest"
-
-// ingestNetwork is the relay's own network; it joins the projects' too.
-var ingestNetwork = "hakobu-ingest"
-
 // ingestDSN is the SENTRY_DSN of an app on this server.
 func ingestDSN(key string, appID int64) string {
-	return fmt.Sprintf("http://%s@%s:%d/%d", key, ingestContainer, deploy.IngestRelayPort, appID)
+	return fmt.Sprintf("http://%s@%s:%d/%d", key, node.IngestContainer, node.IngestPort, appID)
 }
 
 // KeepIngestRelay starts the relay with this hakobu's binary, trying again
@@ -44,24 +37,10 @@ func KeepIngestRelay(s *store.Store) {
 	}
 }
 
-// startIngestRelay runs the relay afresh, so it runs the binary of this
-// hakobu, and connects it to the projects' networks.
+// startIngestRelay runs the relay afresh on the panel's node, so it runs
+// the binary of this hakobu, and connects it to the projects' networks.
 func startIngestRelay(s *store.Store) error {
-	bin, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	if bin, err = filepath.EvalSymlinks(bin); err != nil {
-		return err
-	}
-	sock, err := filepath.Abs(IngestSocket())
-	if err != nil {
-		return err
-	}
-	if err := deploy.EnsureNetwork(ctx(), ingestNetwork); err != nil {
-		return err
-	}
-	if err := deploy.RunIngestRelay(ctx(), ingestContainer, ingestNetwork, bin, sock); err != nil {
+	if err := local.StartIngestRelay(ctx(), IngestSocket()); err != nil {
 		return err
 	}
 	return ensureAllProjectNetworks(s)

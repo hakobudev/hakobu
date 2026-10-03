@@ -119,7 +119,7 @@ type containerTarget struct {
 func containerTargets(s *store.Store) map[string]containerTarget {
 	targets := map[string]containerTarget{
 		node.PostgresContainer: {name: "service:postgres"},
-		tunnelContainer:        {name: "service:cloudflared"},
+		node.TunnelContainer:   {name: "service:cloudflared"},
 		"buildkit":             {name: "service:buildkit"},
 	}
 	for _, a := range tunnelAccounts(s) {

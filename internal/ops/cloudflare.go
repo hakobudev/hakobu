@@ -10,7 +10,6 @@ import (
 
 	"github.com/x0ryz/hakobu/internal/cloudflare"
 	"github.com/x0ryz/hakobu/internal/config"
-	"github.com/x0ryz/hakobu/internal/deploy"
 	"github.com/x0ryz/hakobu/internal/node"
 	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store"
@@ -25,9 +24,6 @@ const (
 	PanelSocketDir = "run"
 	panelService   = "unix:/run/hakobu/panel.sock"
 )
-
-// tunnelContainer runs cloudflared; tests use another name.
-var tunnelContainer = "hakobu-cloudflared"
 
 // EdgeAlias is the app's name on its project's edge network.
 func EdgeAlias(app string) string { return node.EdgeAlias(app) }
@@ -45,45 +41,50 @@ func StartTunnel(s *store.Store) error {
 	return errors.Join(append(errs, ensureAllProjectNetworks(s))...)
 }
 
-// startTunnel runs the account's cloudflared on the edge networks of its
-// projects, or starts it again if it already has the tunnel's current
-// token. Only the panel's gets the panel's socket.
+// startTunnel runs the account's cloudflared on its node (see
+// node.Local.RunTunnel).
 func startTunnel(s *store.Store, a cfAccount) error {
-	if a.TunnelToken == "" {
-		return nil
-	}
-	env, err := deploy.ContainerEnv(ctx(), a.container())
+	t, err := tunnelSpec(s, a, "")
 	if err != nil {
 		return err
 	}
-	if env != nil && env["TUNNEL_TOKEN"] == string(a.TunnelToken) {
-		return deploy.StartContainer(ctx(), a.container())
-	}
-	return runTunnel(s, a, "")
+	return local.RunTunnel(ctx(), t)
 }
 
-// runTunnel (re)creates the account's cloudflared on the edge networks of
-// its projects, except the project skip (one being deleted).
-func runTunnel(s *store.Store, a cfAccount, skip string) error {
-	socketDir := ""
+// tunnelSpec is the account's cloudflared as it should be: on the edge
+// networks of its projects, except skip (one being deleted), and with the
+// panel's socket only for the panel's tunnel.
+func tunnelSpec(s *store.Store, a cfAccount, skip string) (node.TunnelSpec, error) {
+	t := node.TunnelSpec{Client: a.Name, Token: string(a.TunnelToken)}
 	if a.isPanel() {
 		var err error
-		if socketDir, err = filepath.Abs(PanelSocketDir); err != nil {
-			return err
+		if t.PanelSocket, err = filepath.Abs(PanelSocketDir); err != nil {
+			return t, err
 		}
 	}
 	projects, err := s.ListProjects(ctx())
 	if err != nil {
-		return err
+		return t, err
 	}
-	var edges []string
 	for _, p := range projects {
 		if p.CloudflareAccountID.Int64 == a.ID && p.Name != skip {
-			edges = append(edges, projectEdge(p.Name))
+			t.Projects = append(t.Projects, p.Name)
 		}
 	}
-	_, err = deploy.RunTunnelContainer(ctx(), a.container(), config.CloudflaredImage, string(a.TunnelToken), a.network(), socketDir, edges)
-	return err
+	return t, nil
+}
+
+// tunnelSpecs is tunnelSpec for every account with a tunnel.
+func tunnelSpecs(s *store.Store, skip string) ([]node.TunnelSpec, error) {
+	var out []node.TunnelSpec
+	for _, a := range tunnelAccounts(s) {
+		t, err := tunnelSpec(s, a, skip)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, nil
 }
 
 var (
