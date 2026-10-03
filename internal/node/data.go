@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -100,33 +99,6 @@ func (Local) DropDatabase(ctx context.Context, d DBSpec) error {
 
 func (Local) SetPassword(ctx context.Context, d DBSpec) error {
 	return deploy.PostgresExec(ctx, PostgresContainer, fmt.Sprintf(`ALTER USER "%s" WITH PASSWORD '%s'`, d.User, d.Password))
-}
-
-// DumpDatabase writes a pg_dump of the database to w.
-func (Local) DumpDatabase(ctx context.Context, d DBSpec, w io.Writer) error {
-	return backup.DumpDatabase(ctx, PostgresContainer, d.User, d.Name, w)
-}
-
-// RestoreDatabase replays a dump into the database. Objects and rows that
-// already exist cause errors rather than being overwritten.
-func (Local) RestoreDatabase(ctx context.Context, d DBSpec, r io.Reader) error {
-	return backup.RestoreDatabase(ctx, PostgresContainer, d.User, d.Name, r)
-}
-
-// VerifyDump restores a dump into a scratch database next to the real one,
-// counts its tables and drops it.
-func (Local) VerifyDump(ctx context.Context, d DBSpec, r io.Reader) (tables int, err error) {
-	// Database names can't contain dots, so this never clashes with one.
-	scratch := "hakobu.verify." + d.Name
-	drop, err := scratchDatabase(ctx, d, scratch)
-	if err != nil {
-		return 0, err
-	}
-	defer drop()
-	if err := backup.RestoreDatabase(ctx, PostgresContainer, d.User, scratch, r); err != nil {
-		return 0, err
-	}
-	return backup.CountTables(ctx, PostgresContainer, d.User, scratch)
 }
 
 // scratchDatabase (re)creates an empty database owned by d's role and
@@ -293,35 +265,6 @@ func Volume(app, name string) string { return volumePrefix + app + "_" + name }
 
 func (Local) HasVolume(ctx context.Context, app, name string) (bool, error) {
 	return deploy.VolumeExists(ctx, Volume(app, name))
-}
-
-// ArchiveVolume writes a tar of the volume to w, with the running
-// containers that mount it paused meanwhile. One that can't be paused is
-// copied running: a backup that may need the app's own recovery beats none.
-func (Local) ArchiveVolume(ctx context.Context, app, name string, w io.Writer) error {
-	volume := Volume(app, name)
-	users, err := deploy.RunningWithVolume(ctx, volume)
-	if err != nil {
-		fmt.Println("backup of", volume+": copying without pausing its containers:", err)
-	}
-	for _, c := range users {
-		if err := deploy.PauseContainer(ctx, c); err != nil {
-			fmt.Println("backup of", volume+": copying while", c, "runs:", err)
-			continue
-		}
-		defer func() {
-			if err := deploy.UnpauseContainer(ctx, c); err != nil {
-				fmt.Println("failed to unpause", c+":", err)
-			}
-		}()
-	}
-	return backup.ArchiveVolume(ctx, config.PostgresImage, volume, w)
-}
-
-// RestoreVolume replaces the volume's contents with a tar from r; the app
-// must be stopped.
-func (Local) RestoreVolume(ctx context.Context, app, name string, r io.Reader) error {
-	return backup.RestoreVolume(ctx, config.PostgresImage, Volume(app, name), r)
 }
 
 func (Local) RemoveVolume(ctx context.Context, app, name string) error {

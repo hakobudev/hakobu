@@ -1,7 +1,10 @@
 package cloudflare
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -9,9 +12,10 @@ import (
 	"strings"
 )
 
-// R2 through the REST API with hakobu's API token, so no S3 keys exist that
-// could leak. A single upload is capped at 300 MB; callers split larger
-// files.
+// R2 through the REST API with hakobu's API token. A single upload is
+// capped at 300 MB; callers split larger files. A node uploads backups and
+// downloads them through presigned URLs the panel makes with the token's
+// S3 keys (R2Credentials), which never leave the panel.
 const MaxObjectSize = 300 << 20
 
 func r2Path(accountID, bucket string) string {
@@ -110,4 +114,37 @@ func (c Client) ListObjects(accountID, bucket, prefix string) ([]string, error) 
 		}
 		cursor = page.ResultInfo.Cursor
 	}
+}
+
+// R2Credentials are the S3 keys of the token for R2's S3 API: the token's
+// ID and the SHA-256 of its value. They reach what the token does, so they
+// stay with whoever holds the token; others get presigned URLs.
+func (c Client) R2Credentials() (accessKeyID, secretAccessKey string, err error) {
+	id, err := c.TokenID()
+	if err != nil {
+		return "", "", err
+	}
+	sum := sha256.Sum256([]byte(c.Token))
+	return id, hex.EncodeToString(sum[:]), nil
+}
+
+// TokenID is the ID of the client's token: an account's token is known to
+// its account, a user's to the user.
+func (c Client) TokenID() (string, error) {
+	paths := []string{"/user/tokens/verify"}
+	if c.AccountID != "" {
+		paths = append([]string{"/accounts/" + c.AccountID + "/tokens/verify"}, paths...)
+	}
+	var errs []error
+	for _, path := range paths {
+		var t struct {
+			ID string `json:"id"`
+		}
+		err := c.call("GET", path, nil, &t)
+		if err == nil && t.ID != "" {
+			return t.ID, nil
+		}
+		errs = append(errs, err)
+	}
+	return "", fmt.Errorf("finding the token's ID: %w", errors.Join(errs...))
 }

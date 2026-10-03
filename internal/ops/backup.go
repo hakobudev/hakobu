@@ -1,17 +1,17 @@
 package ops
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
-	"os"
+	"net/http"
 	"sync"
 	"time"
 
 	"github.com/x0ryz/hakobu/internal/cloudflare"
 	"github.com/x0ryz/hakobu/internal/config"
+	"github.com/x0ryz/hakobu/internal/node"
+	"github.com/x0ryz/hakobu/internal/s3"
 	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store"
 )
@@ -312,8 +312,8 @@ func backupAndCheck(s *store.Store, dbName string) error {
 	return nil
 }
 
-// BackupDatabase streams a pg_dump, sealed, through a temporary file (an
-// upload needs its size up front) to R2.
+// BackupDatabase has the database's node upload a sealed pg_dump straight
+// to the project's backup bucket.
 func BackupDatabase(s *store.Store, dbName string) (id int64, err error) {
 	d, err := s.GetDatabase(ctx(), dbName)
 	if err != nil {
@@ -328,123 +328,95 @@ func BackupDatabase(s *store.Store, dbName string) (id int64, err error) {
 		return 0, err
 	}
 	key := fmt.Sprintf("%s/%s.dump.enc", d.Name, time.Now().UTC().Format("20060102-150405"))
-	obj, err := uploadSealed(s, target, key, func(w io.Writer) error {
-		return n.DumpDatabase(ctx(), dbSpec(d), w)
-	})
+	up, err := newUpload(s, target, key)
+	if err != nil {
+		return 0, err
+	}
+	obj, err := n.BackupDatabase(ctx(), dbSpec(d), up)
 	if err != nil {
 		return 0, err
 	}
 	return s.CreateBackup(ctx(), store.CreateBackupParams{
-		Database: d.Name, ObjectKey: key, Parts: int64(obj.parts), SizeBytes: obj.size, SHA256: obj.sha256, FileKey: secret.String(obj.fileKey),
+		Database: d.Name, ObjectKey: key, Parts: int64(obj.Parts), SizeBytes: obj.Size, SHA256: obj.SHA256, FileKey: secret.String(up.FileKey),
 		AccountID: target.AccountID, Bucket: target.Bucket,
 	})
 }
 
-// sealedObject is a backup as uploaded: sealed with a key of its own,
-// which is kept in the database encrypted with the master key, and the
-// SHA-256 of the sealed file.
-type sealedObject struct {
-	parts   int
-	size    int64
-	sha256  string
-	fileKey string
+// Presigned URLs: a node uploads and downloads backups with URLs for one
+// part each, valid for urlTTL, which the panel signs with the S3 keys of
+// the bucket's account's token. The keys reach every bucket of the
+// account, so they never leave the panel.
+const urlTTL = time.Hour
+
+// newUpload is a new backup at key in t's bucket: its own key, and URLs
+// to put its parts.
+func newUpload(s *store.Store, t backupTarget, key string) (node.Upload, error) {
+	fileKey, err := secret.NewFileKey()
+	if err != nil {
+		return node.Upload{}, err
+	}
+	sign, err := presigner(s, t, http.MethodPut)
+	if err != nil {
+		return node.Upload{}, err
+	}
+	return node.Upload{FileKey: fileKey, PartSize: backupPartSize, URL: func(part int) (string, error) {
+		return sign(partKey(key, part))
+	}}, nil
 }
 
-// uploadSealed seals what write produces into a temporary file on the data
-// disk and uploads it as key's parts. A backup in the bucket is no use to
-// whoever gets at the bucket without the master key.
-func uploadSealed(s *store.Store, t backupTarget, key string, write func(io.Writer) error) (sealedObject, error) {
-	if _, _, _, err := r2At(s, t); err != nil {
-		return sealedObject{}, err
-	}
-	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
-		return sealedObject{}, err
-	}
-	f, err := os.CreateTemp(tmpDir, "backup-*.enc")
+// backupDownload is a backup's parts in t's bucket, for its node to
+// download, check and open.
+func backupDownload(s *store.Store, t backupTarget, key string, parts int64, sha, fileKey string) (node.Download, error) {
+	sign, err := presigner(s, t, http.MethodGet)
 	if err != nil {
-		return sealedObject{}, err
+		return node.Download{}, err
 	}
-	defer os.Remove(f.Name())
-	defer f.Close()
-	sum := sha256.New()
-	w, fileKey, err := secret.NewFileWriterKey(io.MultiWriter(f, sum))
-	if err != nil {
-		return sealedObject{}, err
-	}
-	if err := write(w); err != nil {
-		return sealedObject{}, err
-	}
-	if err := w.Close(); err != nil {
-		return sealedObject{}, err
-	}
-	info, err := f.Stat()
-	if err != nil {
-		return sealedObject{}, err
-	}
-	parts, err := uploadParts(s, t, key, f, info.Size())
-	if err != nil {
-		return sealedObject{}, err
-	}
-	return sealedObject{parts: parts, size: info.Size(), sha256: hex.EncodeToString(sum.Sum(nil)), fileKey: fileKey}, nil
+	return node.Download{FileKey: fileKey, SHA256: sha, Parts: int(parts), URL: func(part int) (string, error) {
+		return sign(partKey(key, part))
+	}}, nil
 }
 
-// tempReader is a temporary file read through r (the backup opened),
-// removed on Close.
-type tempReader struct {
-	io.Reader
-	f *os.File
-}
-
-func (t tempReader) Close() error {
-	err := t.f.Close()
-	os.Remove(t.f.Name())
-	return err
-}
-
-// fetchSealed downloads a backup into a temporary file and checks it
-// against the SHA-256 taken when it was made, so a backup changed in the
-// bucket is never restored; it's read through its own key, or as it is
-// for a dump from before backups were sealed (fileKey ""). The caller
-// closes it, which removes the file.
-func fetchSealed(s *store.Store, t backupTarget, objectKey string, parts int64, sha, fileKey string) (io.ReadCloser, error) {
-	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
-		return nil, err
-	}
-	f, err := os.CreateTemp(tmpDir, "restore-*")
+// presigner signs URLs for method on objects of t's bucket.
+func presigner(s *store.Store, t backupTarget, method string) (func(object string) (string, error), error) {
+	c, account, bucket, err := r2At(s, t)
 	if err != nil {
 		return nil, err
 	}
-	body := &partsReader{parts: int(parts), open: func(i int) (io.ReadCloser, error) {
-		c, acc, bucket, err := r2At(s, t) // per part: a long download can outlive a token
-		if err != nil {
-			return nil, err
-		}
-		return c.GetObject(acc, bucket, partKey(objectKey, i))
-	}}
-	defer body.Close()
-	sum := sha256.New()
-	_, err = io.Copy(io.MultiWriter(f, sum), body)
-	if err == nil && hex.EncodeToString(sum.Sum(nil)) != sha {
-		err = fmt.Errorf("the backup in the bucket doesn't match the one hakobu made (SHA-256 differs), not restoring it")
-	}
-	if err == nil {
-		_, err = f.Seek(0, io.SeekStart)
-	}
-	var r io.Reader = f
-	if err == nil && fileKey != "" {
-		r, err = secret.NewFileReaderKey(f, fileKey)
-	}
+	keyID, secretKey, err := r2Credentials(c)
 	if err != nil {
-		f.Close()
-		os.Remove(f.Name())
 		return nil, err
 	}
-	return tempReader{r, f}, nil
+	endpoint := fmt.Sprintf(s3.R2Endpoint, account)
+	return func(object string) (string, error) {
+		return s3.Presign(endpoint, "auto", keyID, secretKey, method, "/"+bucket+"/"+object, urlTTL, time.Now()), nil
+	}, nil
 }
 
-// fetchBackup is fetchSealed for a database backup.
-func fetchBackup(s *store.Store, b store.Backup) (io.ReadCloser, error) {
-	return fetchSealed(s, backupTarget{b.AccountID, b.Bucket}, b.ObjectKey, b.Parts, b.SHA256, string(b.FileKey))
+var r2Keys struct {
+	sync.Mutex
+	byToken map[string][2]string
+}
+
+// r2Credentials are the S3 keys of c's token, looked up once per token.
+func r2Credentials(c cloudflare.Client) (keyID, secretKey string, err error) {
+	r2Keys.Lock()
+	defer r2Keys.Unlock()
+	if k, ok := r2Keys.byToken[c.Token]; ok {
+		return k[0], k[1], nil
+	}
+	if keyID, secretKey, err = c.R2Credentials(); err != nil {
+		return "", "", err
+	}
+	if r2Keys.byToken == nil {
+		r2Keys.byToken = map[string][2]string{}
+	}
+	r2Keys.byToken[c.Token] = [2]string{keyID, secretKey}
+	return keyID, secretKey, nil
+}
+
+// dbBackupDownload is backupDownload for a database backup.
+func dbBackupDownload(s *store.Store, b store.Backup) (node.Download, error) {
+	return backupDownload(s, backupTarget{b.AccountID, b.Bucket}, b.ObjectKey, b.Parts, b.SHA256, string(b.FileKey))
 }
 
 // uploadParts uploads size bytes of r as key/000, key/001, ...
@@ -492,16 +464,15 @@ func verify(s *store.Store, b store.Backup) (tables int, err error) {
 	if err != nil {
 		return 0, err
 	}
-	body, err := fetchBackup(s, b)
-	if err != nil {
-		return 0, err
-	}
-	defer body.Close()
 	n, err := databaseNode(s, d)
 	if err != nil {
 		return 0, err
 	}
-	return n.VerifyDump(ctx(), dbSpec(d), body)
+	dl, err := dbBackupDownload(s, b)
+	if err != nil {
+		return 0, err
+	}
+	return n.VerifyDatabaseBackup(ctx(), dbSpec(d), dl)
 }
 
 // restoreBackup replays a backup into its database. Objects and rows that
@@ -511,11 +482,6 @@ func restoreBackup(s *store.Store, b store.Backup) error {
 	if err != nil {
 		return err
 	}
-	body, err := fetchBackup(s, b)
-	if err != nil {
-		return err
-	}
-	defer body.Close()
 	if err := ensureInPostgres(s, d); err != nil {
 		return err
 	}
@@ -523,7 +489,11 @@ func restoreBackup(s *store.Store, b store.Backup) error {
 	if err != nil {
 		return err
 	}
-	return n.RestoreDatabase(ctx(), dbSpec(d), body)
+	dl, err := dbBackupDownload(s, b)
+	if err != nil {
+		return err
+	}
+	return n.RestoreDatabase(ctx(), dbSpec(d), dl)
 }
 
 // Rotation keeps the newest backups, one a week for a month, and always the

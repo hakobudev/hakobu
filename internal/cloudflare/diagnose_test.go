@@ -39,3 +39,31 @@ func TestRefusedTokenSaysWhy(t *testing.T) {
 		}
 	}
 }
+
+// R2's S3 keys of a token: its ID, from its account or else the user,
+// and the SHA-256 of its value.
+func TestR2Credentials(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/accounts/acc/tokens/verify":
+			fmt.Fprint(w, `{"success":true,"result":{"id":"account-token-id","status":"active"}}`)
+		case "/user/tokens/verify":
+			fmt.Fprint(w, `{"success":true,"result":{"id":"user-token-id","status":"active"}}`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+	old := APIURL
+	APIURL = srv.URL
+	defer func() { APIURL = old }()
+
+	id, secret, err := Client{Token: "tok", AccountID: "acc"}.R2Credentials()
+	// sha256("tok")
+	if err != nil || id != "account-token-id" || secret != "1a7674eb4ee78df7e1ac439a93c3fa8e3c945784d4dec9fd8e3011738b2f1d62" {
+		t.Errorf("credentials %q %q, %v", id, secret, err)
+	}
+	if id, _, _ := (Client{Token: "tok"}).R2Credentials(); id != "user-token-id" {
+		t.Errorf("a user's token: id %q", id)
+	}
+}

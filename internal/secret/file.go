@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 )
 
 // Sealed files: large data (database snapshots) encrypted for the disk.
@@ -105,6 +106,41 @@ func NewFileWriterKey(w io.Writer) (io.WriteCloser, string, error) {
 		return nil, "", err
 	}
 	return &sealWriter{w: w, aead: aead, prefix: prefix, buf: make([]byte, 0, fileChunk)}, encoded, nil
+}
+
+// NewFileKey is a new random key for one sealed file, base64-encoded.
+func NewFileKey() (string, error) {
+	fileKey := make([]byte, 32)
+	if _, err := rand.Read(fileKey); err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(fileKey), nil
+}
+
+// NewFileWriterWithKey seals into w with fileKey from NewFileKey, where
+// there's no master key: on a node, sealing a backup with the key the
+// panel keeps for it. Its header holds no wrapped key, so only that key
+// opens it (NewFileReaderKey).
+func NewFileWriterWithKey(w io.Writer, fileKey string) (io.WriteCloser, error) {
+	raw, err := base64.StdEncoding.DecodeString(fileKey)
+	if err != nil || len(raw) != 32 {
+		return nil, errors.New("secret: corrupt sealed file key")
+	}
+	prefix := make([]byte, noncePrefixSize)
+	if _, err := rand.Read(prefix); err != nil {
+		return nil, err
+	}
+	aead, err := fileAEAD(raw)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := io.WriteString(w, fileMagic+strings.Repeat("-", wrappedKeySize)); err != nil {
+		return nil, err
+	}
+	if _, err := w.Write(prefix); err != nil {
+		return nil, err
+	}
+	return &sealWriter{w: w, aead: aead, prefix: prefix, buf: make([]byte, 0, fileChunk)}, nil
 }
 
 func (s *sealWriter) Write(p []byte) (int, error) {

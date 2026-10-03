@@ -6,9 +6,12 @@ package nodetest
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -35,6 +38,7 @@ type Fake struct {
 	Passwords  map[string]string                // role → password
 	Dumps      map[node.Dump]string             // dump → content
 	Volumes    map[string]string                // node.Volume name → content
+	Bucket     map[string]string                // backups uploaded: the first part's URL path → content
 	Tunnels    map[string]node.TunnelSpec       // container → spec
 	Edges      map[string][]string              // container → projects whose edge network it's on
 	Networks   map[string]bool                  // projects with networks
@@ -47,7 +51,7 @@ func New() *Fake {
 		fail: map[string]error{}, Port: 8080,
 		Containers: map[string]string{}, Runs: map[string]string{}, Images: map[string]map[node.Image]string{},
 		Proxies: map[string]string{}, DBs: map[string]string{}, Passwords: map[string]string{},
-		Dumps: map[node.Dump]string{}, Volumes: map[string]string{}, Tunnels: map[string]node.TunnelSpec{},
+		Dumps: map[node.Dump]string{}, Volumes: map[string]string{}, Bucket: map[string]string{}, Tunnels: map[string]node.TunnelSpec{},
 		Edges: map[string][]string{}, Networks: map[string]bool{},
 	}
 }
@@ -380,33 +384,114 @@ func (f *Fake) SetPassword(ctx context.Context, d node.DBSpec) error {
 	return err
 }
 
-func (f *Fake) DumpDatabase(ctx context.Context, d node.DBSpec, w io.Writer) error {
-	unlock, err := f.call("DumpDatabase")
-	content := f.DBs[d.Name]
-	unlock()
+// Backups: the content goes to Bucket, unsealed, under the path of its
+// first part's URL; a download checks it against its SHA-256.
+
+func (f *Fake) upload(up node.Upload, content string) (node.Uploaded, error) {
+	if up.FileKey == "" {
+		return node.Uploaded{}, errors.New("no key to seal the backup with")
+	}
+	u, err := up.URL(0)
+	if err != nil {
+		return node.Uploaded{}, err
+	}
+	f.Bucket[objectPath(u)] = content
+	sum := sha256.Sum256([]byte(content))
+	return node.Uploaded{Parts: 1, Size: int64(len(content)), SHA256: hex.EncodeToString(sum[:])}, nil
+}
+
+func (f *Fake) download(dl node.Download) (string, error) {
+	u, err := dl.URL(0)
+	if err != nil {
+		return "", err
+	}
+	content, ok := f.Bucket[objectPath(u)]
+	if !ok {
+		return "", fmt.Errorf("no backup at %s", objectPath(u))
+	}
+	if sum := sha256.Sum256([]byte(content)); hex.EncodeToString(sum[:]) != dl.SHA256 {
+		return "", errors.New("the backup in the bucket doesn't match the one hakobu made (SHA-256 differs), not restoring it")
+	}
+	return content, nil
+}
+
+func objectPath(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	return u.Path
+}
+
+func (f *Fake) BackupDatabase(ctx context.Context, d node.DBSpec, up node.Upload) (node.Uploaded, error) {
+	unlock, err := f.call("BackupDatabase")
+	defer unlock()
+	if err != nil {
+		return node.Uploaded{}, err
+	}
+	return f.upload(up, f.DBs[d.Name])
+}
+
+func (f *Fake) RestoreDatabase(ctx context.Context, d node.DBSpec, dl node.Download) error {
+	unlock, err := f.call("RestoreDatabase")
+	defer unlock()
 	if err != nil {
 		return err
 	}
-	_, err = io.WriteString(w, content)
-	return err
-}
-
-func (f *Fake) RestoreDatabase(ctx context.Context, d node.DBSpec, r io.Reader) error {
-	b, rerr := io.ReadAll(r)
-	unlock, err := f.call("RestoreDatabase")
-	defer unlock()
-	if err = errors.Join(err, rerr); err == nil {
-		f.DBs[d.Name] = string(b)
+	content, err := f.download(dl)
+	if err == nil {
+		f.DBs[d.Name] = content
 	}
 	return err
 }
 
-// VerifyDump counts a non-empty dump as one table.
-func (f *Fake) VerifyDump(ctx context.Context, d node.DBSpec, r io.Reader) (int, error) {
-	b, rerr := io.ReadAll(r)
-	unlock, err := f.call("VerifyDump")
+// VerifyDatabaseBackup counts a non-empty dump as one table.
+func (f *Fake) VerifyDatabaseBackup(ctx context.Context, d node.DBSpec, dl node.Download) (int, error) {
+	unlock, err := f.call("VerifyDatabaseBackup")
 	defer unlock()
-	if err = errors.Join(err, rerr); err != nil || len(b) == 0 {
+	if err != nil {
+		return 0, err
+	}
+	content, err := f.download(dl)
+	if err != nil || content == "" {
+		return 0, err
+	}
+	return 1, nil
+}
+
+func (f *Fake) BackupVolume(ctx context.Context, app, name string, up node.Upload) (node.Uploaded, error) {
+	unlock, err := f.call("BackupVolume")
+	defer unlock()
+	if err != nil {
+		return node.Uploaded{}, err
+	}
+	return f.upload(up, f.Volumes[node.Volume(app, name)])
+}
+
+// RestoreVolume checks the backup before it stops anything, as Local.
+func (f *Fake) RestoreVolume(ctx context.Context, app node.AppSpec, name string, dl node.Download, out io.Writer) error {
+	unlock, err := f.call("RestoreVolume")
+	defer unlock()
+	if err != nil {
+		return err
+	}
+	content, err := f.download(dl)
+	if err != nil {
+		return err
+	}
+	f.Volumes[node.Volume(app.Name, name)] = content
+	return nil
+}
+
+// VerifyVolumeBackup counts a non-empty archive as one file.
+func (f *Fake) VerifyVolumeBackup(ctx context.Context, dl node.Download) (int, error) {
+	unlock, err := f.call("VerifyVolumeBackup")
+	defer unlock()
+	if err != nil {
+		return 0, err
+	}
+	content, err := f.download(dl)
+	if err != nil || content == "" {
 		return 0, err
 	}
 	return 1, nil
@@ -497,27 +582,6 @@ func (f *Fake) HasVolume(ctx context.Context, app, name string) (bool, error) {
 	defer unlock()
 	_, ok := f.Volumes[node.Volume(app, name)]
 	return ok, err
-}
-
-func (f *Fake) ArchiveVolume(ctx context.Context, app, name string, w io.Writer) error {
-	unlock, err := f.call("ArchiveVolume")
-	content := f.Volumes[node.Volume(app, name)]
-	unlock()
-	if err != nil {
-		return err
-	}
-	_, err = io.WriteString(w, content)
-	return err
-}
-
-func (f *Fake) RestoreVolume(ctx context.Context, app, name string, r io.Reader) error {
-	b, rerr := io.ReadAll(r)
-	unlock, err := f.call("RestoreVolume")
-	defer unlock()
-	if err = errors.Join(err, rerr); err == nil {
-		f.Volumes[node.Volume(app, name)] = string(b)
-	}
-	return err
 }
 
 func (f *Fake) RemoveVolume(ctx context.Context, app, name string) error {

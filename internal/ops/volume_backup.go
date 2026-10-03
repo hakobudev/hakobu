@@ -1,13 +1,13 @@
 package ops
 
 import (
-	"archive/tar"
 	"errors"
 	"fmt"
 	"io"
 	"time"
 
 	"github.com/x0ryz/hakobu/internal/config"
+	"github.com/x0ryz/hakobu/internal/node"
 	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store"
 )
@@ -45,33 +45,34 @@ func BackupVolume(s *store.Store, app, volume string) (int64, error) {
 		return 0, err
 	}
 	key := fmt.Sprintf("volumes/%s_%s/%s.tar.enc", app, volume, time.Now().UTC().Format("20060102-150405"))
-	obj, err := uploadSealed(s, target, key, func(w io.Writer) error {
-		// Held like a deploy while the app is paused, so no deploy starts
-		// or stops its containers meanwhile.
-		if ok, _ := reserve(app, false); !ok {
-			return errAppBusy
+	up, err := newUpload(s, target, key)
+	if err != nil {
+		return 0, err
+	}
+	// Held like a deploy while the app is paused and its archive goes up,
+	// so no deploy starts or stops its containers meanwhile; a push is
+	// deployed after it.
+	if ok, _ := reserve(app, false); !ok {
+		return 0, errAppBusy
+	}
+	obj, err := n.BackupVolume(ctx(), app, volume, up)
+	if release(app) {
+		if err := StartDeploy(s, app, "push"); err != nil {
+			fmt.Println("deploying", app, "after its backup failed:", err)
 		}
-		defer func() {
-			if release(app) {
-				if err := StartDeploy(s, app, "push"); err != nil {
-					fmt.Println("deploying", app, "after its backup failed:", err)
-				}
-			}
-		}()
-		return n.ArchiveVolume(ctx(), app, volume, w)
-	})
+	}
 	if err != nil {
 		return 0, err
 	}
 	return s.CreateVolumeBackup(ctx(), store.CreateVolumeBackupParams{
-		AppName: app, Volume: volume, ObjectKey: key, Parts: int64(obj.parts), SizeBytes: obj.size, SHA256: obj.sha256, FileKey: secret.String(obj.fileKey),
+		AppName: app, Volume: volume, ObjectKey: key, Parts: int64(obj.Parts), SizeBytes: obj.Size, SHA256: obj.SHA256, FileKey: secret.String(up.FileKey),
 		AccountID: target.AccountID, Bucket: target.Bucket,
 	})
 }
 
-// fetchVolumeBackup is fetchSealed for a volume backup.
-func fetchVolumeBackup(s *store.Store, b store.VolumeBackup) (io.ReadCloser, error) {
-	return fetchSealed(s, backupTarget{b.AccountID, b.Bucket}, b.ObjectKey, b.Parts, b.SHA256, string(b.FileKey))
+// volumeBackupDownload is backupDownload for a volume backup.
+func volumeBackupDownload(s *store.Store, b store.VolumeBackup) (node.Download, error) {
+	return backupDownload(s, backupTarget{b.AccountID, b.Bucket}, b.ObjectKey, b.Parts, b.SHA256, string(b.FileKey))
 }
 
 // VerifyVolumeBackup downloads a backup and reads the whole tar in it; the
@@ -95,28 +96,15 @@ func VerifyVolumeBackup(s *store.Store, id int64) error {
 }
 
 func countTarFiles(s *store.Store, b store.VolumeBackup) (int, error) {
-	body, err := fetchVolumeBackup(s, b)
+	app, err := s.GetApp(ctx(), b.AppName)
 	if err != nil {
 		return 0, err
 	}
-	defer body.Close()
-	tr := tar.NewReader(body)
-	files := 0
-	for {
-		h, err := tr.Next()
-		if err == io.EOF {
-			return files, nil
-		}
-		if err != nil {
-			return files, fmt.Errorf("the tar is broken: %w", err)
-		}
-		if _, err := io.Copy(io.Discard, tr); err != nil { // reads (and authenticates) every byte
-			return files, err
-		}
-		if h.Typeflag != tar.TypeDir {
-			files++
-		}
+	dl, err := volumeBackupDownload(s, b)
+	if err != nil {
+		return 0, err
 	}
+	return AppNode(s, app).VerifyVolumeBackup(ctx(), dl)
 }
 
 // volumeBackupAndCheck backs a volume up, reads the backup back and drops
@@ -184,24 +172,13 @@ func StartVolumeRestore(s *store.Store, app, volume string, id int64) error {
 }
 
 func restoreVolume(s *store.Store, app store.App, b store.VolumeBackup, out io.Writer) error {
-	fmt.Fprintln(out, "downloading the backup of", b.CreatedAt)
-	body, err := fetchVolumeBackup(s, b) // checked whole before anything is stopped
+	fmt.Fprintln(out, "restoring the backup of", b.CreatedAt)
+	dl, err := volumeBackupDownload(s, b)
 	if err != nil {
 		return err
 	}
-	defer body.Close()
-	fmt.Fprintln(out, "stopping", app.Name)
-	if err := stopApp(s, app); err != nil {
-		return err
-	}
 	defer restartWorker(s, app, out)
-	defer startApp(s, app, out)
-	fmt.Fprintln(out, "replacing the contents of volume", b.Volume)
-	if err := AppNode(s, app).RestoreVolume(ctx(), app.Name, b.Volume, body); err != nil {
-		return err
-	}
-	fmt.Fprintln(out, "restored; starting", app.Name, "again")
-	return nil
+	return AppNode(s, app).RestoreVolume(ctx(), liveSpec(app), b.Volume, dl, out)
 }
 
 func hasVolume(s *store.Store, app, volume string) error {

@@ -11,12 +11,14 @@ import (
 	"net/url"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/x0ryz/hakobu/internal/cloudflare"
+	"github.com/x0ryz/hakobu/internal/s3"
 	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store"
 )
@@ -75,13 +77,38 @@ func TestDBJobs(t *testing.T) {
 }
 
 // fakeR2 is the part of Cloudflare's API backups use, keeping objects in
-// memory.
+// memory: the REST API for token "tok" of account "acc", and R2's S3 API
+// for URLs presigned with that token's keys, whose signature it checks.
 func fakeR2(t *testing.T) (objects map[string][]byte, lock *string) {
 	objects, lock = map[string][]byte{}, new(string)
 	var mu sync.Mutex
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
+		if r.URL.Path == "/accounts/acc/tokens/verify" {
+			fmt.Fprint(w, `{"success":true,"result":{"id":"tok-id","status":"active"}}`)
+			return
+		}
+		if s3Path, ok := strings.CutPrefix(r.URL.Path, "/s3/acc/"); ok {
+			_, key, _ := strings.Cut(s3Path, "/") // the bucket, then the key
+			if !presignedRight(srv.URL+"/s3/acc", r) {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+			switch r.Method {
+			case http.MethodPut:
+				objects[key], _ = io.ReadAll(r.Body)
+			case http.MethodGet:
+				b, found := objects[key]
+				if !found {
+					w.WriteHeader(http.StatusNotFound)
+					return
+				}
+				_, _ = w.Write(b)
+			}
+			return
+		}
 		const prefix = "/accounts/acc/r2/buckets"
 		ok := `{"success":true,"errors":[],"messages":[],"result":{}}`
 		path := strings.TrimPrefix(r.URL.EscapedPath(), prefix)
@@ -130,10 +157,28 @@ func fakeR2(t *testing.T) (objects map[string][]byte, lock *string) {
 		}
 	}))
 	t.Cleanup(srv.Close)
-	old := cloudflare.APIURL
-	cloudflare.APIURL = srv.URL
-	t.Cleanup(func() { cloudflare.APIURL = old })
+	old, oldS3 := cloudflare.APIURL, s3.R2Endpoint
+	cloudflare.APIURL, s3.R2Endpoint = srv.URL, srv.URL+"/s3/%s"
+	t.Cleanup(func() { cloudflare.APIURL, s3.R2Endpoint = old, oldS3 })
 	return objects, lock
+}
+
+// presignedRight reports whether r's URL is signed with the S3 keys of
+// token "tok" (ID "tok-id") for its method and path, and not expired.
+func presignedRight(endpoint string, r *http.Request) bool {
+	q := r.URL.Query()
+	at, err := time.Parse("20060102T150405Z", q.Get("X-Amz-Date"))
+	if err != nil {
+		return false
+	}
+	secs, _ := strconv.Atoi(q.Get("X-Amz-Expires"))
+	if time.Now().After(at.Add(time.Duration(secs) * time.Second)) {
+		return false
+	}
+	sum := sha256.Sum256([]byte("tok"))
+	path := strings.TrimPrefix(r.URL.Path, "/s3/acc")
+	want := s3.Presign(endpoint, "auto", "tok-id", hex.EncodeToString(sum[:]), r.Method, path, time.Duration(secs)*time.Second, at)
+	return strings.HasSuffix(want, "X-Amz-Signature="+q.Get("X-Amz-Signature"))
 }
 
 func TestR2Backups(t *testing.T) {
@@ -169,56 +214,38 @@ func TestR2Backups(t *testing.T) {
 		t.Fatalf("parts = %d, %v, objects %v", parts, err, objects)
 	}
 	b := store.Backup{ObjectKey: "main/1.sql.gz", Parts: int64(parts)}
-	// A restore gets the dump only if it's the one hakobu uploaded; one from
-	// before backups were sealed is read as it is.
-	t.Chdir(t.TempDir()) // for tmpDir
-	sum := sha256.Sum256([]byte(dump))
-	b.SHA256 = hex.EncodeToString(sum[:])
-	if f, err := fetchBackup(s, b); err != nil {
-		t.Errorf("fetching an intact backup: %v", err)
-	} else {
-		got, _ := io.ReadAll(f)
-		f.Close()
-		if string(got) != dump {
-			t.Errorf("fetched %q", got)
-		}
+
+	// A node gets URLs for one part each, signed with the token's S3 keys
+	// (which the fake checks), to put a new backup and to get one back.
+	up, err := newUpload(s, backupTarget{}, "other/2.dump.enc")
+	if err != nil || up.FileKey == "" || up.PartSize != backupPartSize {
+		t.Fatalf("upload %+v, %v", up, err)
 	}
-	objects["main/1.sql.gz/001"] = []byte("TAMPERED!!")
-	if f, err := fetchBackup(s, b); err == nil || !strings.Contains(err.Error(), "SHA-256") {
-		t.Errorf("a tampered backup was fetched: %v", err)
-		if f != nil {
-			f.Close()
-		}
+	put, _ := up.URL(0)
+	req, _ := http.NewRequest(http.MethodPut, put, strings.NewReader("sealed bytes"))
+	if resp, err := http.DefaultClient.Do(req); err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT to the presigned URL: %v %v", resp, err)
+	}
+	if string(objects["other/2.dump.enc/000"]) != "sealed bytes" {
+		t.Errorf("objects %v", objects)
+	}
+	dl, err := dbBackupDownload(s, store.Backup{ObjectKey: "other/2.dump.enc", Parts: 1, SHA256: "sum", FileKey: secret.String(up.FileKey)})
+	if err != nil || dl.Parts != 1 || dl.SHA256 != "sum" || dl.FileKey != up.FileKey {
+		t.Fatalf("download %+v, %v", dl, err)
+	}
+	get, _ := dl.URL(0)
+	if resp, err := http.Get(get); err != nil || resp.StatusCode != http.StatusOK {
+		t.Errorf("GET of the presigned URL: %v %v", resp, err)
+	}
+	// A URL for one object or method reaches no other.
+	if resp, err := http.Get(strings.Replace(get, "other/2.dump.enc/000", "main/1.sql.gz/000", 1)); err != nil || resp.StatusCode != http.StatusForbidden {
+		t.Errorf("a URL reached another object: %v %v", resp, err)
+	}
+	req, _ = http.NewRequest(http.MethodPut, get, strings.NewReader("overwrite"))
+	if resp, err := http.DefaultClient.Do(req); err != nil || resp.StatusCode != http.StatusForbidden {
+		t.Errorf("a GET URL was taken for a PUT: %v %v", resp, err)
 	}
 
-	// A sealed backup shows nothing of the dump in the bucket and reads
-	// back with its own key.
-	secretDump := strings.Repeat("password=hunter2 ", 50)
-	obj, err := uploadSealed(s, backupTarget{}, "other/2.dump.enc", func(w io.Writer) error {
-		_, err := io.WriteString(w, secretDump)
-		return err
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for k, v := range objects {
-		if strings.HasPrefix(k, "other/2.dump.enc/") && strings.Contains(string(v), "hunter2") {
-			t.Errorf("%s holds the dump in the clear", k)
-		}
-	}
-	sealed := store.Backup{ObjectKey: "other/2.dump.enc", Parts: int64(obj.parts), SHA256: obj.sha256, FileKey: secret.String(obj.fileKey)}
-	if f, err := fetchBackup(s, sealed); err != nil {
-		t.Errorf("fetching a sealed backup: %v", err)
-	} else {
-		got, err := io.ReadAll(f)
-		f.Close()
-		if err != nil || string(got) != secretDump {
-			t.Errorf("sealed backup read back %d bytes, %v", len(got), err)
-		}
-	}
-	if left, _ := filepath.Glob(filepath.Join(tmpDir, "*")); len(left) != 0 {
-		t.Errorf("temporary files left: %v", left)
-	}
 	// An empty dump still makes one (empty) part, so it can be read.
 	if parts, _ := uploadParts(s, backupTarget{}, "empty", strings.NewReader(""), 0); parts != 1 {
 		t.Errorf("empty dump: %d parts", parts)

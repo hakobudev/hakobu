@@ -187,3 +187,42 @@ func TestSealedFileOwnKeyOutlivesRotation(t *testing.T) {
 		t.Error("opened with another file's key")
 	}
 }
+
+// A node seals a backup with a key the panel gives it, without a master
+// key; only that key opens it.
+func TestSealedFileWithGivenKey(t *testing.T) {
+	testKey(t)
+	key, err := NewFileKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain := make([]byte, 2*fileChunk+3)
+	rand.Read(plain)
+	var buf bytes.Buffer
+	w, err := NewFileWriterWithKey(&buf, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write(plain); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	r, err := NewFileReaderKey(bytes.NewReader(buf.Bytes()), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := io.ReadAll(r); err != nil || !bytes.Equal(got, plain) {
+		t.Fatalf("roundtrip failed (%v, %d bytes back)", err, len(got))
+	}
+	if _, err := open(buf.Bytes()); err == nil {
+		t.Error("the master key opened a file sealed with a given key")
+	}
+	other, _ := NewFileKey()
+	if r, err := NewFileReaderKey(bytes.NewReader(buf.Bytes()), other); err == nil {
+		if _, err := io.ReadAll(r); err == nil {
+			t.Error("another key opened it")
+		}
+	}
+}

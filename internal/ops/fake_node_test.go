@@ -175,3 +175,52 @@ func waitJob(t *testing.T, app string) {
 		}
 	}
 }
+
+// A database's and a volume's backup go from their node to R2 and back:
+// the panel only signs URLs and keeps each backup's key and SHA-256.
+func TestBackupsGoBetweenTheNodeAndR2(t *testing.T) {
+	s, f := fakeNode(t)
+	fakeR2(t)
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(s.SaveCloudflareToken(ctx(), "tok"))
+	must(s.SaveCloudflareTunnel(ctx(), store.SaveCloudflareTunnelParams{AccountID: "acc", TunnelID: "t"}))
+	must(s.SetBackupBucket(ctx(), "hakobu-backups-1"))
+
+	id, err := BackupDatabase(s, "main")
+	must(err)
+	b, err := s.GetBackup(ctx(), id)
+	must(err)
+	if b.FileKey == "" || b.SHA256 == "" || b.AccountID != "acc" || b.Bucket != "hakobu-backups-1" {
+		t.Errorf("backup %+v", b)
+	}
+	if tables, err := verify(s, b); err != nil || tables != 1 {
+		t.Errorf("verify: %d tables, %v", tables, err)
+	}
+	f.DBs["main"] = "lost"
+	must(restoreBackup(s, b))
+	if f.DBs["main"] != "rows of now" {
+		t.Errorf("restored %q", f.DBs["main"])
+	}
+
+	// A volume is held like a deploy while it's backed up.
+	must(s.AddVolume(ctx(), store.AddVolumeParams{AppName: "web", Name: "data", MountPath: "/data"}))
+	f.Volumes[node.Volume("web", "data")] = "files"
+	vid, err := BackupVolume(s, "web", "data")
+	must(err)
+	vb, err := s.GetVolumeBackup(ctx(), vid)
+	must(err)
+	must(VerifyVolumeBackup(s, vid))
+	f.Volumes[node.Volume("web", "data")] = "broken"
+	must(restoreVolume(s, webApp(t, s), vb, &strings.Builder{}))
+	if f.Volumes[node.Volume("web", "data")] != "files" {
+		t.Errorf("volume restored as %q", f.Volumes[node.Volume("web", "data")])
+	}
+	if IsDeploying("web") {
+		t.Error("the app is still held after its volume's backup")
+	}
+}

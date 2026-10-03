@@ -65,9 +65,14 @@ type Node interface {
 	EnsureDatabase(ctx context.Context, d DBSpec) error
 	DropDatabase(ctx context.Context, d DBSpec) error
 	SetPassword(ctx context.Context, d DBSpec) error
-	DumpDatabase(ctx context.Context, d DBSpec, w io.Writer) error
-	RestoreDatabase(ctx context.Context, d DBSpec, r io.Reader) error
-	VerifyDump(ctx context.Context, d DBSpec, r io.Reader) (tables int, err error)
+
+	// Backups, straight between the node and R2 (backups.go).
+	BackupDatabase(ctx context.Context, d DBSpec, up Upload) (Uploaded, error)
+	RestoreDatabase(ctx context.Context, d DBSpec, dl Download) error
+	VerifyDatabaseBackup(ctx context.Context, d DBSpec, dl Download) (tables int, err error)
+	BackupVolume(ctx context.Context, app, name string, up Upload) (Uploaded, error)
+	RestoreVolume(ctx context.Context, app AppSpec, name string, dl Download, out io.Writer) error
+	VerifyVolumeBackup(ctx context.Context, dl Download) (files int, err error)
 
 	// Snapshots for Rollback with data, kept on the node.
 	SaveDump(ctx context.Context, d DBSpec) (Dump, error)
@@ -80,8 +85,6 @@ type Node interface {
 
 	// Volumes.
 	HasVolume(ctx context.Context, app, name string) (bool, error)
-	ArchiveVolume(ctx context.Context, app, name string, w io.Writer) error
-	RestoreVolume(ctx context.Context, app, name string, r io.Reader) error
 	RemoveVolume(ctx context.Context, app, name string) error
 	RemoveVolumesExcept(ctx context.Context, keep map[string]bool) error
 
