@@ -180,6 +180,25 @@ A client's tunnel is theirs to edit, so its cloudflared has no way to the panel 
 only the networks of that client's projects. Removing a client deletes its tunnel; buckets
 and backups stay in their account.
 
+### Other servers
+
+One panel can run projects on several servers, a client's own say. Under
+**Settings → Servers**, add one and run the command it shows on the new server, as root:
+
+```bash
+curl -fsSL https://hakobu.dev/install.sh | sudo HAKOBU_PANEL=https://hakobu.example.com HAKOBU_JOIN_TOKEN=… bash
+```
+
+It installs Docker and hakobu there and joins the panel; the token works once, within an
+hour. The server needs no open port either: it connects to the panel through the panel's
+tunnel, and what goes between them is encrypted end to end, so Cloudflare doesn't see the
+variables and passwords it carries. A project is put on a server when it's made (it can
+move only while it has no apps or databases); its apps, databases and volumes run there,
+reached through a tunnel of their Cloudflare account on that server, and its backups go
+from that server straight to R2 through URLs the panel signs for each part. A server gets
+nothing of the panel's: not its master key or tokens, and for builds a GitHub token for
+the one repository.
+
 ## Using it
 
 1. Create a project.

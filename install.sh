@@ -19,7 +19,10 @@
 #           HAKOBU_RESTORE=<key file> (bring back a panel from its backup, with the
 #             key file from its Settings, instead of setting up a new one),
 #           HAKOBU_ALLOW_UNSIGNED=1 (install a release from before releases were
-#             signed, checked against its checksum only)
+#             signed, checked against its checksum only),
+#           HAKOBU_PANEL=https://<panel> HAKOBU_JOIN_TOKEN=<token> (make this server
+#             one of that panel's servers instead of a panel: the command comes from
+#             the panel's Settings → Servers; no Cloudflare or GitHub here)
 #
 # Later updates: Settings → Updates in the panel, or sudo /opt/hakobu/hakobu update.
 set -euo pipefail
@@ -53,6 +56,15 @@ UNIT=/etc/systemd/system/hakobu.service
 ROOTFUL=""
 if [ -f "$UNIT" ] && ! grep -q '^User=hakobu$' "$UNIT"; then
   ROOTFUL=1
+fi
+
+# A panel runs `hakobu agent`; a server that joins one runs `hakobu node`.
+ROLE=agent
+if [ -n "${HAKOBU_PANEL:-}" ] || [ -n "${HAKOBU_JOIN_TOKEN:-}" ]; then
+  [ -n "${HAKOBU_PANEL:-}" ] && [ -n "${HAKOBU_JOIN_TOKEN:-}" ] || { echo "joining a panel needs both HAKOBU_PANEL and HAKOBU_JOIN_TOKEN: copy the command from the panel's Settings → Servers"; exit 1; }
+  [ -z "$ROOTFUL" ] || { echo "this server runs an older hakobu as root: join a panel from a clean server"; exit 1; }
+  [ -z "${HAKOBU_RESTORE:-}" ] || { echo "HAKOBU_RESTORE brings back a panel; a server joining one has nothing to restore"; exit 1; }
+  ROLE=node
 fi
 
 echo "==> installing dependencies (docker, git, openssl, railpack)"
@@ -304,12 +316,19 @@ if [ -n "${HAKOBU_RESTORE:-}" ]; then
   fi
 fi
 
-echo "==> connecting Cloudflare"
-# stdin is the script itself under curl | bash, so setup talks to the terminal.
-if [ -n "$ROOTFUL" ]; then
+if [ "$ROLE" = node ]; then
+  echo "==> joining the panel at $HAKOBU_PANEL"
+  # The dialer runs the binary installed just now.
+  as_docker systemctl --user restart hakobu-dialer
+  (cd /opt/hakobu && runuser -u hakobu -- env HOME=/home/hakobu DOCKER_HOST="unix://$SOCK_DIR/docker.sock" HAKOBU_DIALER_SOCKET="$SOCK_DIR/dialer.sock" ./hakobu node join "$HAKOBU_PANEL" "$HAKOBU_JOIN_TOKEN")
+elif [ -n "$ROOTFUL" ]; then
+  echo "==> connecting Cloudflare"
+  # stdin is the script itself under curl | bash, so setup talks to the terminal.
   (cd /opt/hakobu && ./hakobu setup) < /dev/tty
 else
-  # The dialer runs the binary installed just now.
+  echo "==> connecting Cloudflare"
+  # The dialer runs the binary installed just now; stdin is the script
+  # itself under curl | bash, so setup talks to the terminal.
   as_docker systemctl --user restart hakobu-dialer
   (cd /opt/hakobu && runuser -u hakobu -- env HOME=/home/hakobu DOCKER_HOST="unix://$SOCK_DIR/docker.sock" HAKOBU_DIALER_SOCKET="$SOCK_DIR/dialer.sock" CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-}" ./hakobu setup) < /dev/tty
 fi
@@ -351,7 +370,7 @@ Environment=HAKOBU_DIALER_SOCKET=$SOCK_DIR/dialer.sock
 # Docker is a user service of hakobu-docker's that starts alongside; the
 # agent starts the tunnel once, so it waits for Docker to answer.
 ExecStartPre=/bin/sh -c 'for i in \$\$(seq 1 120); do docker info >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
-ExecStart=/opt/hakobu/hakobu agent
+ExecStart=/opt/hakobu/hakobu $ROLE
 Restart=always
 RestartSec=5
 # SIGTERM reaches only hakobu, which lets running builds finish; whatever
@@ -398,6 +417,14 @@ fi
 systemctl daemon-reload
 systemctl enable hakobu >/dev/null 2>&1
 systemctl restart hakobu
+
+if [ "$ROLE" = node ]; then
+  echo
+  echo "Done. This server joined the panel at $HAKOBU_PANEL and keeps connected to it:"
+  echo "it shows as connected in the panel's Settings → Servers, and new projects can run on it."
+  echo
+  exit 0
+fi
 
 for _ in $(seq 1 30); do
   curl -fs -o /dev/null http://127.0.0.1:9000/login && break
