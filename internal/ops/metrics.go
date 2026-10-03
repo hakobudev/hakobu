@@ -1,16 +1,12 @@
 package ops
 
 import (
-	"bufio"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/deploy"
 	"github.com/x0ryz/hakobu/internal/node"
 	"github.com/x0ryz/hakobu/internal/store"
 	"github.com/x0ryz/hakobu/internal/store/teldb"
@@ -40,14 +36,14 @@ const HostTarget = "host"
 
 // reading is a container's counters and when they were read.
 type reading struct {
-	c  deploy.Counters
+	c  node.Counters
 	at time.Time
 }
 
 // metricState is what the next minute's usage is worked out from.
 type metricState struct {
 	containers map[string]reading // by container ID
-	cpu        cpuTimes
+	host       node.HostCounters
 	rolled     int64 // the last five minutes summarized
 }
 
@@ -148,34 +144,34 @@ func containerTargets(s *store.Store) map[string]containerTarget {
 // collectUsage reads the usage of the last minute. A container shows up
 // from its second reading on, and not after it restarted, which resets
 // its counters.
+//
+// The server is the panel's node; other nodes' usage comes with them.
 func collectUsage(s *store.Store, st *metricState, now time.Time) []teldb.Sample {
-	var out []teldb.Sample
-	if u, ok := hostUsage(st); ok {
-		out = append(out, u)
+	targets := containerTargets(s)
+	names := make(map[string]bool, len(targets))
+	for name := range targets {
+		names[name] = true
 	}
-	running, err := deploy.RunningContainers(ctx())
+	r, err := local.Readings(ctx(), names)
+	var out []teldb.Sample
+	if r.HostErr == nil {
+		if u, ok := hostUsage(st, r.Host); ok {
+			out = append(out, u)
+		}
+	}
 	if err != nil {
 		fmt.Println("usage:", err)
 		return out
 	}
-	targets := containerTargets(s)
 	seen := map[string]bool{}
-	for _, c := range running {
-		t, ok := targets[c.Name]
-		if !ok {
-			continue
-		}
-		counters, err := deploy.ContainerStats(ctx(), c.ID)
-		if err != nil {
-			continue
-		}
+	for _, c := range r.Containers {
 		seen[c.ID] = true
 		prev, had := st.containers[c.ID]
-		st.containers[c.ID] = reading{counters, now}
+		st.containers[c.ID] = reading{c.Counters, now}
 		if !had {
 			continue
 		}
-		if u, ok := containerUsage(t, prev, reading{counters, now}); ok {
+		if u, ok := containerUsage(targets[c.Name], prev, reading{c.Counters, now}); ok {
 			out = append(out, u)
 		}
 	}
@@ -205,120 +201,24 @@ func containerUsage(t containerTarget, prev, cur reading) (teldb.Sample, bool) {
 	}, true
 }
 
-// procRoot is where the kernel's /proc is; tests point it at fixtures.
-var procRoot = "/proc"
-
-// cpuTimes are the server's CPU time so far, in clock ticks.
-type cpuTimes struct {
-	busy, total uint64
-	cpus        int
-}
-
-// hostUsage is the server's usage since the last call; its CPU shows from
-// the second call on.
-func hostUsage(st *metricState) (teldb.Sample, bool) {
-	cur, err := readCPUTimes()
-	if err != nil {
+// hostUsage is the server's usage since the last reading; its CPU shows
+// from the second reading on.
+func hostUsage(st *metricState, cur node.HostCounters) (teldb.Sample, bool) {
+	prev := st.host
+	st.host = cur
+	if prev.CPUTotal == 0 || cur.CPUTotal <= prev.CPUTotal || cur.CPUBusy < prev.CPUBusy {
 		return teldb.Sample{}, false
 	}
-	prev := st.cpu
-	st.cpu = cur
-	if prev.total == 0 || cur.total <= prev.total || cur.busy < prev.busy {
-		return teldb.Sample{}, false
-	}
-	u := teldb.Sample{Target: HostTarget, CpuLimit: float64(cur.cpus)}
-	u.Cpu = float64(cur.busy-prev.busy) / float64(cur.total-prev.total) * float64(cur.cpus)
+	u := teldb.Sample{Target: HostTarget, CpuLimit: float64(cur.CPUs)}
+	u.Cpu = float64(cur.CPUBusy-prev.CPUBusy) / float64(cur.CPUTotal-prev.CPUTotal) * float64(cur.CPUs)
 	u.CpuMax = u.Cpu
-	if total, available, err := readMemInfo(); err == nil {
-		u.Mem, u.MemLimit = total-available, total
+	if cur.MemTotal > 0 {
+		u.Mem, u.MemLimit = cur.MemTotal-cur.MemFree, cur.MemTotal
 		u.MemMax = u.Mem
 	}
-	u.Load, _ = readLoad()
-	if used, total, err := deploy.Disk(ctx()); err == nil {
-		u.DiskUsed, u.DiskTotal = int64(used), int64(total)
-	}
+	u.Load = cur.Load
+	u.DiskUsed, u.DiskTotal = int64(cur.DiskUsed), int64(cur.DiskTotal)
 	return u, true
-}
-
-// readCPUTimes reads the first line of /proc/stat; idle and iowait are
-// the time not busy.
-func readCPUTimes() (cpuTimes, error) {
-	f, err := os.Open(filepath.Join(procRoot, "stat"))
-	if err != nil {
-		return cpuTimes{}, err
-	}
-	defer f.Close()
-	var t cpuTimes
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		fields := strings.Fields(sc.Text())
-		if len(fields) == 0 || !strings.HasPrefix(fields[0], "cpu") {
-			continue
-		}
-		if fields[0] != "cpu" {
-			t.cpus++
-			continue
-		}
-		for i, v := range fields[1:] {
-			n, err := strconv.ParseUint(v, 10, 64)
-			if err != nil {
-				return cpuTimes{}, err
-			}
-			if i >= 8 { // guest time is already in user and nice
-				break
-			}
-			t.total += n
-			if i != 3 && i != 4 { // idle, iowait
-				t.busy += n
-			}
-		}
-	}
-	if t.total == 0 || t.cpus == 0 {
-		return cpuTimes{}, fmt.Errorf("no CPU times in %s/stat", procRoot)
-	}
-	return t, sc.Err()
-}
-
-// readMemInfo reads the server's memory and how much of it is available,
-// in bytes.
-func readMemInfo() (total, available int64, err error) {
-	b, err := os.ReadFile(filepath.Join(procRoot, "meminfo"))
-	if err != nil {
-		return 0, 0, err
-	}
-	for line := range strings.SplitSeq(string(b), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-		kb, err := strconv.ParseInt(fields[1], 10, 64)
-		if err != nil {
-			continue
-		}
-		switch fields[0] {
-		case "MemTotal:":
-			total = kb << 10
-		case "MemAvailable:":
-			available = kb << 10
-		}
-	}
-	if total == 0 {
-		return 0, 0, fmt.Errorf("no MemTotal in %s/meminfo", procRoot)
-	}
-	return total, available, nil
-}
-
-// readLoad reads the one-minute load average.
-func readLoad() (float64, error) {
-	b, err := os.ReadFile(filepath.Join(procRoot, "loadavg"))
-	if err != nil {
-		return 0, err
-	}
-	fields := strings.Fields(string(b))
-	if len(fields) == 0 {
-		return 0, fmt.Errorf("empty %s/loadavg", procRoot)
-	}
-	return strconv.ParseFloat(fields[0], 64)
 }
 
 // Usage alerts: the last minutes, all of them over the threshold.

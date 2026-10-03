@@ -70,17 +70,3 @@ func SetShareVolumes(s *store.Store, app string, share bool) error {
 	}
 	return s.SetAppShareVolumes(ctx(), store.SetAppShareVolumesParams{Name: app, ShareVolumes: v})
 }
-
-// removeOrphanVolumes deletes app volumes no app refers to any more;
-// volumes still attached to a container are skipped.
-func removeOrphanVolumes(s *store.Store) error {
-	vols, err := s.ListAllVolumes(ctx())
-	if err != nil {
-		return err
-	}
-	known := map[string]bool{}
-	for _, v := range vols {
-		known[node.Volume(v.AppName, v.Name)] = true
-	}
-	return local.RemoveVolumesExcept(ctx(), known)
-}

@@ -1,38 +1,23 @@
 package ops
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/deploy"
+	"github.com/x0ryz/hakobu/internal/node"
 	"github.com/x0ryz/hakobu/internal/store/teldb"
 )
 
-func TestHostUsageFromProc(t *testing.T) {
-	dir := t.TempDir()
-	old := procRoot
-	procRoot = dir
-	t.Cleanup(func() { procRoot = old })
-	write := func(name, body string) {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	// user nice system idle iowait irq softirq steal guest guest_nice
-	write("stat", "cpu  100 0 100 700 100 0 0 0 50 0\ncpu0 1 0 0 0 0 0 0 0 0 0\ncpu1 1 0 0 0 0 0 0 0 0 0\nintr 1\n")
-	write("meminfo", "MemTotal:       4000 kB\nMemFree:         500 kB\nMemAvailable:   1000 kB\n")
-	write("loadavg", "0.42 0.30 0.20 1/100 1234\n")
-
+func TestHostUsage(t *testing.T) {
 	st := &metricState{}
-	if _, ok := hostUsage(st); ok {
+	read := node.HostCounters{CPUBusy: 200, CPUTotal: 1000, CPUs: 2, MemTotal: 4000 << 10, MemFree: 1000 << 10, Load: 0.42}
+	if _, ok := hostUsage(st, read); ok {
 		t.Error("CPU usage from a single reading")
 	}
 	// 300 more ticks, 150 of them busy: half of 2 CPUs.
-	write("stat", "cpu  200 0 150 800 150 0 0 0 99 0\ncpu0 1 0 0 0 0 0 0 0 0 0\ncpu1 1 0 0 0 0 0 0 0 0 0\n")
-	u, ok := hostUsage(st)
+	read.CPUBusy, read.CPUTotal = 350, 1300
+	u, ok := hostUsage(st, read)
 	if !ok {
 		t.Fatal("no usage from two readings")
 	}
@@ -46,8 +31,8 @@ func TestHostUsageFromProc(t *testing.T) {
 
 func TestContainerUsage(t *testing.T) {
 	at := time.Unix(1_800_000_000, 0)
-	prev := reading{deploy.Counters{CPUNanos: 1e9, Memory: 100, NetRx: 1000, NetTx: 0}, at}
-	cur := reading{deploy.Counters{CPUNanos: 31e9, Memory: 200, NetRx: 7000, NetTx: 600}, at.Add(time.Minute)}
+	prev := reading{node.Counters{CPUNanos: 1e9, Memory: 100, NetRx: 1000, NetTx: 0}, at}
+	cur := reading{node.Counters{CPUNanos: 31e9, Memory: 200, NetRx: 7000, NetTx: 600}, at.Add(time.Minute)}
 	u, ok := containerUsage(containerTarget{name: "app:web", cpuLimit: 1, memLimit: 512 << 20}, prev, cur)
 	if !ok {
 		t.Fatal("no usage")

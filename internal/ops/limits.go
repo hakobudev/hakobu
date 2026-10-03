@@ -6,7 +6,6 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/deploy"
 	"github.com/x0ryz/hakobu/internal/node"
 	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store"
@@ -34,8 +33,15 @@ func oomText(app store.App) string { return node.OOMText(app.MemoryMB) }
 // container, and every crash of a live one, in the app's Errors tab and
 // emails the owner, reconnecting to Docker whenever the stream breaks.
 func WatchDeaths(s *store.Store) {
+	for _, n := range allNodes(s)[1:] {
+		go watchDeaths(s, n)
+	}
+	watchDeaths(s, allNodes(s)[0])
+}
+
+func watchDeaths(s *store.Store, n node.Node) {
 	for {
-		err := deploy.WatchDeaths(context.Background(), func(container, app string, d deploy.Death) { recordDeath(s, container, app, d) })
+		err := n.WatchDeaths(context.Background(), func(container, app string, d node.Death) { recordDeath(s, container, app, d) })
 		fmt.Println("docker events:", err)
 		time.Sleep(5 * time.Second)
 	}
@@ -43,7 +49,7 @@ func WatchDeaths(s *store.Store) {
 
 // recordDeath puts an out-of-memory kill of an app or worker container, or
 // a crash of a live one, in the app's Errors tab and emails the owner.
-func recordDeath(s *store.Store, container, appName string, d deploy.Death) {
+func recordDeath(s *store.Store, container, appName string, d node.Death) {
 	app, err := s.GetApp(ctx(), appName)
 	if err != nil {
 		if d.OOM {

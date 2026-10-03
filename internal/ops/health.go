@@ -2,12 +2,10 @@ package ops
 
 import (
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/x0ryz/hakobu/internal/config"
-	"github.com/x0ryz/hakobu/internal/deploy"
 	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store"
 	"github.com/x0ryz/hakobu/internal/store/teldb"
@@ -43,7 +41,7 @@ func WatchHealth(s *store.Store) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				if ok, why, checked := checkHealth(app); checked {
+				if ok, why, checked := checkHealth(s, app); checked {
 					noteHealth(s, app.Name, ok, why)
 				}
 			}()
@@ -53,26 +51,10 @@ func WatchHealth(s *store.Store) {
 	}
 }
 
-// checkHealth asks the live container of app for its health check path;
-// checked is false when there was nothing to ask.
-func checkHealth(app store.App) (ok bool, why string, checked bool) {
-	container := app.ContainerName()
-	if deploy.ContainerState(ctx(), container).Status != "running" {
-		return false, "", false
-	}
-	ip, err := deploy.ContainerIP(ctx(), container, ProjectNetwork(app.ProjectName))
-	if err != nil {
-		return false, "", false
-	}
-	path := "/" + strings.TrimPrefix(app.HealthCheckPath, "/")
-	requireOK := path != "/"
-	if deploy.HTTPCheck(fmt.Sprintf("http://%s:%d%s", ip, app.LivePort, path), requireOK) {
-		return true, "", true
-	}
-	if requireOK {
-		return false, fmt.Sprintf("didn't return 2xx on port %d%s", app.LivePort, path), true
-	}
-	return false, fmt.Sprintf("didn't answer on port %d", app.LivePort), true
+// checkHealth asks the live container of app for its health check path on
+// its node; checked is false when there was nothing to ask.
+func checkHealth(s *store.Store, app store.App) (ok bool, why string, checked bool) {
+	return AppNode(s, app).CheckHealth(ctx(), liveSpec(app), app.LivePort)
 }
 
 // noteHealth counts a check of app and records the change when the app

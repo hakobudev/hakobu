@@ -2,12 +2,9 @@ package ops
 
 import (
 	"fmt"
-	"os"
-	"strings"
 	"sync"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/deploy"
 	"github.com/x0ryz/hakobu/internal/node"
 	"github.com/x0ryz/hakobu/internal/store"
 )
@@ -46,39 +43,28 @@ func cleanup(s *store.Store) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	exists := map[string]bool{}
-	for _, a := range apps {
-		exists[a.Name] = true
-	}
-
-	tags, err := deploy.ImageTags(ctx(), "hakobu/*")
+	vols, err := s.ListAllVolumes(ctx())
 	if err != nil {
 		return "", err
 	}
-	removed := 0
-	for _, tag := range tags {
-		name := strings.TrimPrefix(tag[:strings.LastIndex(tag, ":")], "hakobu/")
-		if !exists[name] {
-			deploy.RemoveImage(ctx(), tag)
-			removed++
+	spec := node.CleanupSpec{Apps: map[string]bool{}, Busy: map[string]bool{}, Volumes: map[string]bool{}, CacheKeep: buildCacheKeep}
+	for _, a := range apps {
+		spec.Apps[a.Name] = true
+		spec.Busy[a.Name] = IsDeploying(a.Name)
+	}
+	for _, v := range vols {
+		spec.Volumes[node.Volume(v.AppName, v.Name)] = true
+	}
+	var freed int64
+	var images int
+	for _, n := range allNodes(s) {
+		f, i, err := n.Cleanup(ctx(), spec)
+		freed, images = freed+f, images+i
+		if err != nil {
+			return "", err
 		}
 	}
-	if clones, err := os.ReadDir("data/work"); err == nil {
-		for _, c := range clones {
-			if !IsDeploying(c.Name()) {
-				os.RemoveAll(node.WorkDir(c.Name()))
-			}
-		}
-	}
-
-	local.PruneSnapshots(exists)
-
-	if err := removeOrphanVolumes(s); err != nil {
-		return "", err
-	}
-
-	freed, err := deploy.PruneBuildCache(ctx(), buildCacheKeep)
-	return fmt.Sprintf("freed %s of build cache, removed %d image(s) of deleted apps", humanBytes(uint64(max(freed, 0))), removed), err
+	return fmt.Sprintf("freed %s of build cache, removed %d image(s) of deleted apps", humanBytes(uint64(freed)), images), nil
 }
 
 func humanBytes(b uint64) string {
@@ -97,7 +83,7 @@ func humanBytes(b uint64) string {
 // DiskUsage describes the disk Docker uses, e.g. "41.2 GB of 98.3 GB (42%)";
 // low is true below 10% free.
 func DiskUsage() (text string, low bool) {
-	used, total, err := deploy.Disk(ctx())
+	used, total, err := local.Disk(ctx())
 	if err != nil || total == 0 {
 		return "unknown", false
 	}

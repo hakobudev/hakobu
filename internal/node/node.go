@@ -84,6 +84,13 @@ type Node interface {
 	RestoreVolume(ctx context.Context, app, name string, r io.Reader) error
 	RemoveVolume(ctx context.Context, app, name string) error
 	RemoveVolumesExcept(ctx context.Context, keep map[string]bool) error
+
+	// The machine (host.go).
+	Readings(ctx context.Context, containers map[string]bool) (Readings, error)
+	Disk(ctx context.Context) (used, total uint64, err error)
+	Cleanup(ctx context.Context, c CleanupSpec) (freed int64, images int, err error)
+	WatchDeaths(ctx context.Context, fn func(container, app string, d Death)) error
+	CheckHealth(ctx context.Context, app AppSpec, port int64) (ok bool, why string, checked bool)
 }
 
 // Local is the machine hakobu runs on.

@@ -17,3 +17,9 @@ func ProjectNode(s *store.Store, project string) node.Node {
 func AppNode(s *store.Store, app store.App) node.Node {
 	return ProjectNode(s, app.ProjectName)
 }
+
+// allNodes are the nodes the panel watches: their usage, dying containers
+// and apps' health.
+func allNodes(s *store.Store) []node.Node {
+	return []node.Node{local}
+}

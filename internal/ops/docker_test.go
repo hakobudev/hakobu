@@ -67,7 +67,7 @@ func TestDockerDeploys(t *testing.T) {
 	if a := reload(); a.LivePort != 8080 {
 		t.Errorf("detected port %d, want 8080", a.LivePort)
 	}
-	if ok, why, checked := checkHealth(reload()); !ok || !checked {
+	if ok, why, checked := checkHealth(s, reload()); !ok || !checked {
 		t.Errorf("the live app fails its health check: %q (checked %v)", why, checked)
 	}
 	checkStats(t, s, reload())
