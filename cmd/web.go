@@ -752,7 +752,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 		backups, _ := s.ListBackups(r.Context(), store.ListBackupsParams{Database: d.Name, Limit: 30})
 		usedBy, _ := s.AppsUsingDatabase(r.Context(), d.Name)
 		renderPage(w, r, databaseView(databasePage{
-			DB: d, Project: project, Ready: ops.DatabaseReady(), Env: splitEnv(ops.DatabaseEnv(d)),
+			DB: d, Project: project, Ready: ops.DatabaseReady(s, d), Env: splitEnv(ops.DatabaseEnv(d)),
 			Backups: backups, UsedBy: usedBy, BackupBucket: ops.BackupBucket(s),
 			Job: ops.DatabaseJob(d.Name), Keep: config.BackupKeep,
 		}))

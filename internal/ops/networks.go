@@ -25,7 +25,7 @@ func ensureProjectNetworks(s *store.Store, project string) error {
 			return err
 		}
 	}
-	for container, network := range map[string]string{PostgresContainer: net, ingestContainer: net} {
+	for container, network := range map[string]string{node.PostgresContainer: net, ingestContainer: net} {
 		if st, _ := deploy.ContainerStatus(ctx(), container); st == "not found" || st == "unknown" {
 			continue
 		}
@@ -83,7 +83,7 @@ func ensureAllProjectNetworks(s *store.Store) error {
 // project's networks and removes them.
 func removeProjectNetworks(s *store.Store, project string) error {
 	for _, n := range []string{ProjectNetwork(project), projectEdge(project)} {
-		for _, c := range []string{PostgresContainer, ingestContainer} {
+		for _, c := range []string{node.PostgresContainer, ingestContainer} {
 			if err := deploy.DisconnectNetwork(ctx(), c, n); err != nil {
 				return err
 			}

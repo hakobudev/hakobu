@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/x0ryz/hakobu/internal/deploy"
+	"github.com/x0ryz/hakobu/internal/node"
 	"github.com/x0ryz/hakobu/internal/store"
 	"github.com/x0ryz/hakobu/internal/store/teldb"
 )
@@ -121,9 +122,9 @@ type containerTarget struct {
 // hakobu's services. Targets don't change when a deploy swaps slots.
 func containerTargets(s *store.Store) map[string]containerTarget {
 	targets := map[string]containerTarget{
-		PostgresContainer: {name: "service:postgres"},
-		tunnelContainer:   {name: "service:cloudflared"},
-		"buildkit":        {name: "service:buildkit"},
+		node.PostgresContainer: {name: "service:postgres"},
+		tunnelContainer:        {name: "service:cloudflared"},
+		"buildkit":             {name: "service:buildkit"},
 	}
 	for _, a := range tunnelAccounts(s) {
 		if !a.isPanel() {

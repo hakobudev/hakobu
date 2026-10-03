@@ -6,13 +6,11 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"os"
 	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/x0ryz/hakobu/internal/config"
-	"github.com/x0ryz/hakobu/internal/deploy"
 	"github.com/x0ryz/hakobu/internal/detect"
 	"github.com/x0ryz/hakobu/internal/github"
 	"github.com/x0ryz/hakobu/internal/secret"
@@ -188,18 +186,12 @@ func DeleteApp(s *store.Store, name string) error {
 	if err := s.DeleteAppCascade(ctx(), name); err != nil {
 		return err
 	}
-	RemoveProxy(s, app)
-	for _, c := range []string{app.Name + "-blue", app.Name + "-green", app.Name + "-worker"} {
-		if err := deploy.RemoveContainer(ctx(), c); err != nil {
-			return err
-		}
+	names := make([]string, len(vols))
+	for i, v := range vols {
+		names[i] = v.Name
 	}
-	removeAppImages(app.Name)
-	os.Remove(snapshotPath(app.Name))
-	for _, v := range vols {
-		if err := deploy.RemoveVolume(ctx(), dockerVolume(name, v.Name)); err != nil {
-			return err
-		}
+	if err := AppNode(s, app).RemoveApp(ctx(), app.Name, names); err != nil {
+		return err
 	}
 	if err := SyncTunnel(s); err != nil {
 		fmt.Println("tunnel routes not updated (retrying):", err)

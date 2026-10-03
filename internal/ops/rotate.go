@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/deploy"
 	"github.com/x0ryz/hakobu/internal/github"
 	"github.com/x0ryz/hakobu/internal/node"
 	"github.com/x0ryz/hakobu/internal/secret"
@@ -183,6 +182,7 @@ func rotateTunnel(s *store.Store, a cfAccount) error {
 // if hakobu stops in between, SyncDatabasePasswords sets it at the next
 // start, where the other order would lose it.
 func rotateDatabasePassword(s *store.Store, d store.Database) error {
+	old := d.Password
 	password, err := RandomHex(16)
 	if err != nil {
 		return err
@@ -190,8 +190,13 @@ func rotateDatabasePassword(s *store.Store, d store.Database) error {
 	if err := s.SetDatabasePassword(ctx(), store.SetDatabasePasswordParams{Name: d.Name, Password: secret.String(password)}); err != nil {
 		return err
 	}
-	if err := setPostgresPassword(d.User, password); err != nil {
-		if rerr := s.SetDatabasePassword(ctx(), store.SetDatabasePasswordParams{Name: d.Name, Password: d.Password}); rerr != nil {
+	n, err := databaseNode(s, d)
+	if err == nil {
+		d.Password = secret.String(password)
+		err = n.SetPassword(ctx(), dbSpec(d))
+	}
+	if err != nil {
+		if rerr := s.SetDatabasePassword(ctx(), store.SetDatabasePasswordParams{Name: d.Name, Password: old}); rerr != nil {
 			return errors.Join(err, rerr)
 		}
 		return err
@@ -199,24 +204,27 @@ func rotateDatabasePassword(s *store.Store, d store.Database) error {
 	return nil
 }
 
-// setPostgresPassword: passwords are hakobu's own hex, never quoted text.
-func setPostgresPassword(user, password string) error {
-	return deploy.PostgresExec(ctx(), PostgresContainer, fmt.Sprintf(`ALTER USER "%s" WITH PASSWORD '%s'`, user, password))
-}
-
 // SyncDatabasePasswords gives Postgres the passwords the panel holds, at
 // startup: a rotation hakobu didn't live to finish leaves them apart.
 func SyncDatabasePasswords(s *store.Store) {
-	if status, _ := deploy.ContainerStatus(ctx(), PostgresContainer); status != "running" {
-		return
-	}
 	dbs, err := s.ListDatabases(ctx())
 	if err != nil {
 		fmt.Println("failed to check the database passwords:", err)
 		return
 	}
+	ready := map[node.Node]bool{}
 	for _, d := range dbs {
-		if err := setPostgresPassword(d.User, string(d.Password)); err != nil {
+		n, err := databaseNode(s, d)
+		if err != nil {
+			continue
+		}
+		if _, checked := ready[n]; !checked {
+			ready[n] = n.PostgresReady(ctx())
+		}
+		if !ready[n] {
+			continue
+		}
+		if err := n.SetPassword(ctx(), dbSpec(d)); err != nil {
 			fmt.Println("failed to set the password of", d.User+":", err)
 		}
 	}

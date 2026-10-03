@@ -3,7 +3,6 @@ package ops
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -16,14 +15,6 @@ import (
 // buildCacheKeep is how long unused build cache is kept: long enough that
 // redeploys stay fast, short enough that the disk doesn't fill up.
 const buildCacheKeep = 7 * 24 * time.Hour
-
-// removeAppImages deletes every image and the clone of a deleted app.
-func removeAppImages(app string) {
-	for _, tag := range []string{"latest", "previous", "next"} {
-		deploy.RemoveImage(ctx(), "hakobu/"+app+":"+tag)
-	}
-	os.RemoveAll(node.WorkDir(app))
-}
 
 var (
 	lastCleanupMu sync.Mutex
@@ -80,18 +71,7 @@ func cleanup(s *store.Store) (string, error) {
 		}
 	}
 
-	// Snapshots of deleted apps, and dumps left by interrupted jobs; a data
-	// copy saved by a failed rollback stays until someone deals with it.
-	if snaps, err := os.ReadDir(snapshotDir); err == nil {
-		for _, f := range snaps {
-			name, isSnapshot := strings.CutSuffix(f.Name(), snapshotExt)
-			info, err := f.Info()
-			stale := err == nil && time.Since(info.ModTime()) > 24*time.Hour
-			if (isSnapshot && !exists[name] && !strings.HasSuffix(name, "-before-rollback")) || (strings.HasSuffix(f.Name(), ".tmp") && stale) {
-				os.Remove(filepath.Join(snapshotDir, f.Name()))
-			}
-		}
-	}
+	local.PruneSnapshots(exists)
 
 	if err := removeOrphanVolumes(s); err != nil {
 		return "", err

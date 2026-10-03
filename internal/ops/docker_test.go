@@ -93,7 +93,7 @@ func TestDockerDeploys(t *testing.T) {
 	if err := SaveWorker(s, store.Worker{AppName: app.Name, Name: "w", Command: "sleep 3600"}); err != nil {
 		t.Fatal(err)
 	}
-	if m := dockerOut(t, "inspect", "-f", "{{range .Mounts}}{{.Name}}{{end}}", app.Name+"-worker"); m != dockerVolume(app.Name, "data") {
+	if m := dockerOut(t, "inspect", "-f", "{{range .Mounts}}{{.Name}}{{end}}", app.Name+"-worker"); m != node.Volume(app.Name, "data") {
 		t.Errorf("worker mounts %q", m)
 	}
 
@@ -164,7 +164,7 @@ func TestDockerDeploys(t *testing.T) {
 	if ok, _ := deploy.ImageExists(ctx(), ImageTag(app)); ok {
 		t.Error("image left after delete")
 	}
-	if vols, _ := deploy.VolumeNames(ctx(), dockerVolume(app.Name, "")); len(vols) != 0 {
+	if vols, _ := deploy.VolumeNames(ctx(), node.Volume(app.Name, "")); len(vols) != 0 {
 		t.Errorf("volumes left after delete: %v", vols)
 	}
 }
@@ -307,12 +307,12 @@ func TestDockerDataRollback(t *testing.T) {
 		t.Skip("set HAKOBU_DOCKER_TEST=1 to run against the local Docker")
 	}
 	suffix, _ := RandomHex(3)
-	old := PostgresContainer
-	PostgresContainer = "zt-pg-" + suffix
+	old := node.PostgresContainer
+	node.PostgresContainer = "zt-pg-" + suffix
 	t.Cleanup(func() {
-		_ = deploy.RemoveContainer(ctx(), PostgresContainer)
-		_ = deploy.RemoveVolume(ctx(), PostgresContainer+"_data")
-		PostgresContainer = old
+		_ = deploy.RemoveContainer(ctx(), node.PostgresContainer)
+		_ = deploy.RemoveVolume(ctx(), node.PostgresContainer+"_data")
+		node.PostgresContainer = old
 	})
 	dir := t.TempDir()
 	t.Chdir(dir) // snapshots go to data/snapshots
@@ -336,7 +336,7 @@ func TestDockerDataRollback(t *testing.T) {
 	d, _ := s.GetDatabase(ctx(), "zt"+suffix)
 	sql := func(q string) string {
 		t.Helper()
-		return dockerOut(t, "exec", PostgresContainer, "psql", "-U", d.User, "-d", d.Name, "-Atc", q)
+		return dockerOut(t, "exec", node.PostgresContainer, "psql", "-U", d.User, "-d", d.Name, "-Atc", q)
 	}
 	reload := func() store.App { a, _ := s.GetApp(ctx(), app.Name); return a }
 	// StartDeploy's steps after the build.
@@ -352,7 +352,7 @@ func TestDockerDataRollback(t *testing.T) {
 		if err := promote(s, a); err != nil {
 			t.Fatal(err)
 		}
-		if err := keepSnapshot(s, a.Name, a.LinkedDB, snapshot); err != nil {
+		if err := keepSnapshot(s, a, a.LinkedDB, snapshot); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -450,12 +450,12 @@ func TestDockerRotateSecrets(t *testing.T) {
 		t.Skip("set HAKOBU_DOCKER_TEST=1 to run against the local Docker")
 	}
 	suffix, _ := RandomHex(3)
-	oldPG := PostgresContainer
-	PostgresContainer = "zt-pg-" + suffix
+	oldPG := node.PostgresContainer
+	node.PostgresContainer = "zt-pg-" + suffix
 	t.Cleanup(func() {
-		_ = deploy.RemoveContainer(ctx(), PostgresContainer)
-		_ = deploy.RemoveVolume(ctx(), PostgresContainer+"_data")
-		PostgresContainer = oldPG
+		_ = deploy.RemoveContainer(ctx(), node.PostgresContainer)
+		_ = deploy.RemoveVolume(ctx(), node.PostgresContainer+"_data")
+		node.PostgresContainer = oldPG
 	})
 	dir := t.TempDir()
 	t.Chdir(dir)
@@ -510,14 +510,14 @@ func TestDockerRotateSecrets(t *testing.T) {
 	// like an app does (inside its container Postgres trusts localhost).
 	login := func(pw string) error {
 		return exec.Command("docker", "run", "--rm", "--quiet", "--network", ProjectNetwork(app.ProjectName), "-e", "PGPASSWORD="+pw, "postgres:18",
-			"psql", "-h", PostgresContainer, "-U", dbAfter.User, "-d", dbAfter.Name, "-c", "SELECT 1").Run()
+			"psql", "-h", node.PostgresContainer, "-U", dbAfter.User, "-d", dbAfter.Name, "-c", "SELECT 1").Run()
 	}
 	if login(string(dbAfter.Password)) != nil || login(string(dbBefore.Password)) == nil {
 		t.Error("database password not rotated")
 	}
 	// A rotation cut short after the panel stored the password: the next
 	// start gives it to Postgres.
-	must(setPostgresPassword(dbAfter.User, "0123456789abcdef"))
+	must(local.SetPassword(ctx(), node.DBSpec{Name: dbAfter.Name, User: dbAfter.User, Password: "0123456789abcdef"}))
 	SyncDatabasePasswords(s)
 	if login(string(dbAfter.Password)) != nil {
 		t.Error("startup didn't give Postgres the stored password")
@@ -605,12 +605,12 @@ func TestDockerRestoreOnNewServer(t *testing.T) {
 	}
 	fakeR2(t)
 	suffix, _ := RandomHex(3)
-	old := PostgresContainer
-	PostgresContainer = "zt-pg-" + suffix
+	old := node.PostgresContainer
+	node.PostgresContainer = "zt-pg-" + suffix
 	t.Cleanup(func() {
-		_ = deploy.RemoveContainer(ctx(), PostgresContainer)
-		_ = deploy.RemoveVolume(ctx(), PostgresContainer+"_data")
-		PostgresContainer = old
+		_ = deploy.RemoveContainer(ctx(), node.PostgresContainer)
+		_ = deploy.RemoveVolume(ctx(), node.PostgresContainer+"_data")
+		node.PostgresContainer = old
 	})
 	dir := t.TempDir()
 	t.Chdir(dir) // data/tmp
@@ -632,21 +632,21 @@ func TestDockerRestoreOnNewServer(t *testing.T) {
 	t.Cleanup(func() { _ = removeProjectNetworks(s, project) })
 	must(CreateDatabase(s, project, "zt"+suffix))
 	d, _ := s.GetDatabase(ctx(), "zt"+suffix)
-	dockerOut(t, "exec", PostgresContainer, "psql", "-U", d.User, "-d", d.Name, "-c", "CREATE TABLE t (n int); INSERT INTO t VALUES (7)")
+	dockerOut(t, "exec", node.PostgresContainer, "psql", "-U", d.User, "-d", d.Name, "-c", "CREATE TABLE t (n int); INSERT INTO t VALUES (7)")
 	id, err := BackupDatabase(s, d.Name)
 	must(err)
 
 	// The new server's Postgres: nothing of this database or its role.
-	must(deploy.PostgresExec(ctx(), PostgresContainer, `DROP DATABASE "`+d.Name+`" WITH (FORCE)`))
-	must(deploy.PostgresExec(ctx(), PostgresContainer, `DROP USER "`+d.User+`"`))
+	must(deploy.PostgresExec(ctx(), node.PostgresContainer, `DROP DATABASE "`+d.Name+`" WITH (FORCE)`))
+	must(deploy.PostgresExec(ctx(), node.PostgresContainer, `DROP USER "`+d.User+`"`))
 	b, err := s.GetBackup(ctx(), id)
 	must(err)
 	must(restoreBackup(s, b))
-	if n := dockerOut(t, "exec", PostgresContainer, "psql", "-U", d.User, "-d", d.Name, "-Atc", "SELECT n FROM t"); n != "7" {
+	if n := dockerOut(t, "exec", node.PostgresContainer, "psql", "-U", d.User, "-d", d.Name, "-Atc", "SELECT n FROM t"); n != "7" {
 		t.Errorf("restored row = %q", n)
 	}
 	// The recreated role logs in with the password apps were given.
-	dockerOut(t, "exec", "-e", "PGPASSWORD="+string(d.Password), PostgresContainer, "psql", "-h", "127.0.0.1", "-U", d.User, "-d", d.Name, "-c", "SELECT 1")
+	dockerOut(t, "exec", "-e", "PGPASSWORD="+string(d.Password), node.PostgresContainer, "psql", "-h", "127.0.0.1", "-U", d.User, "-d", d.Name, "-c", "SELECT 1")
 	must(DeleteDatabase(s, d.Name))
 }
 

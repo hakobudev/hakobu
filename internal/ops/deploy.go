@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -214,7 +212,7 @@ func StartDeploy(s *store.Store, appName, trigger string) error {
 			return err
 		}
 		snapshot := takeSnapshot(s, app, out)
-		defer os.Remove(snapshot) // kept by keepSnapshot, which moves it
+		defer n.DropDump(snapshot) // kept by keepSnapshot, which moves it
 		if err := rollOut(s, app, node.Next, out); err != nil {
 			return err
 		}
@@ -241,7 +239,7 @@ func StartDeploy(s *store.Store, appName, trigger string) error {
 // makes dump ("" for none) the snapshot that goes with it. The old
 // snapshot is unpaired first: a failure or crash in between must leave no
 // snapshot rather than pair the new Previous with data it never ran with.
-func withSnapshot(s *store.Store, app store.App, dump string, out io.Writer, retag func() error) error {
+func withSnapshot(s *store.Store, app store.App, dump node.Dump, out io.Writer, retag func() error) error {
 	if err := s.SetAppSnapshot(ctx(), store.SetAppSnapshotParams{Name: app.Name}); err != nil {
 		return err
 	}
@@ -251,9 +249,9 @@ func withSnapshot(s *store.Store, app store.App, dump string, out io.Writer, ret
 	} else if err != nil {
 		return err
 	}
-	if err := keepSnapshot(s, app.Name, app.LinkedDB, dump); err != nil {
+	if err := keepSnapshot(s, app, app.LinkedDB, dump); err != nil {
 		fmt.Fprintln(out, "warning: failed to keep the database snapshot, Rollback will only restore the code:", err)
-		os.Remove(snapshotPath(app.Name))
+		_ = AppNode(s, app).KeepSnapshot(app.Name, "") // drops it
 	}
 	return nil
 }
@@ -288,18 +286,14 @@ func StartRollback(s *store.Store, appName string, withData bool) error {
 	}
 	return startJob(s, appName, trigger, func(app store.App, out io.Writer) error {
 		n := AppNode(s, app)
-		current := ""
+		var current node.Dump
 		if withData {
 			var err error
 			if current, err = rollBackData(s, app, out); err != nil {
 				return err
 			}
 			// Moved by keepSnapshot on success; kept if undoing fails.
-			defer func() {
-				if current != "" {
-					os.Remove(current)
-				}
-			}()
+			defer func() { n.DropDump(current) }()
 		}
 		if err := rollOut(s, app, node.Previous, out); err != nil {
 			if withData && !undoDataRollback(s, app, current, out) {
@@ -322,22 +316,23 @@ func StartRollback(s *store.Store, appName string, withData bool) error {
 // rollBackData saves the current data, stops the app and its worker so
 // nothing writes during the swap, and puts the snapshot in place. It
 // returns the dump of the current data.
-func rollBackData(s *store.Store, app store.App, out io.Writer) (current string, err error) {
+func rollBackData(s *store.Store, app store.App, out io.Writer) (current node.Dump, err error) {
 	d, err := s.GetDatabase(ctx(), app.LinkedDB)
 	if err != nil {
 		return "", err
 	}
+	n := AppNode(s, app)
 	fmt.Fprintln(out, "saving the current data of", d.Name)
-	if current, err = dumpTo(d); err != nil {
+	if current, err = n.SaveDump(ctx(), dbSpec(d)); err != nil {
 		return "", fmt.Errorf("couldn't save the current data, nothing changed: %w", err)
 	}
 	fmt.Fprintln(out, "stopping", app.Name, "and restoring", d.Name, "from", app.SnapshotAt)
 	err = stopApp(s, app)
 	if err == nil {
-		err = replaceDatabase(d, snapshotPath(app.Name))
+		err = n.ReplaceDatabase(ctx(), dbSpec(d), node.SnapshotOf(app.Name))
 	}
 	if err != nil {
-		os.Remove(current)
+		n.DropDump(current)
 		startApp(s, app, out)
 		restartWorker(s, app, out)
 		return "", fmt.Errorf("the data is unchanged: %w", err)
@@ -348,19 +343,17 @@ func rollBackData(s *store.Store, app store.App, out io.Writer) (current string,
 // undoDataRollback puts the saved current data back when the previous
 // version didn't start, then starts the current version again. If it
 // can't, the dump is kept on disk and it returns false.
-func undoDataRollback(s *store.Store, app store.App, current string, out io.Writer) bool {
+func undoDataRollback(s *store.Store, app store.App, current node.Dump, out io.Writer) bool {
+	n := AppNode(s, app)
 	err := stopApp(s, app) // a recreate deploy may have started it again already
 	if err == nil {
 		var d store.Database
 		if d, err = s.GetDatabase(ctx(), app.LinkedDB); err == nil {
-			err = replaceDatabase(d, current)
+			err = n.ReplaceDatabase(ctx(), dbSpec(d), current)
 		}
 	}
 	if err != nil {
-		keep := filepath.Join(snapshotDir, app.Name+"-before-rollback"+snapshotExt)
-		if rerr := os.Rename(current, keep); rerr != nil {
-			keep = current
-		}
+		keep := n.SetAside(app.Name, current)
 		fmt.Fprintf(out, "ERROR: couldn't put the current data back (%v); it's saved in %s\n", err, keep)
 		return false
 	}

@@ -37,15 +37,6 @@ func TestHumanBytes(t *testing.T) {
 	}
 }
 
-func TestDockerVolumeNamesAreUnambiguous(t *testing.T) {
-	if dockerVolume("a-b", "c") == dockerVolume("a", "b-c") {
-		t.Error("different app/volume pairs map to the same Docker volume")
-	}
-	if got := dockerVolume("web", "data"); got != "hakobu-vol-web_data" {
-		t.Errorf("dockerVolume = %q", got)
-	}
-}
-
 func TestAddVolumeValidation(t *testing.T) {
 	s, err := store.Open(filepath.Join(t.TempDir(), "hakobu.db"))
 	if err != nil {

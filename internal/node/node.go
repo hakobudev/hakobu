@@ -54,6 +54,36 @@ type Node interface {
 	// Workers.
 	RunWorker(ctx context.Context, w WorkerSpec, out io.Writer) error
 	RemoveWorker(ctx context.Context, app string) error
+	// RemoveApp deletes everything of the app's on the node, with the
+	// given volumes' data.
+	RemoveApp(ctx context.Context, app string, volumes []string) error
+
+	// Databases (data.go).
+	EnsurePostgres(ctx context.Context) error
+	PostgresReady(ctx context.Context) bool
+	CreateDatabase(ctx context.Context, d DBSpec) error
+	EnsureDatabase(ctx context.Context, d DBSpec) error
+	DropDatabase(ctx context.Context, d DBSpec) error
+	SetPassword(ctx context.Context, d DBSpec) error
+	DumpDatabase(ctx context.Context, d DBSpec, w io.Writer) error
+	RestoreDatabase(ctx context.Context, d DBSpec, r io.Reader) error
+	VerifyDump(ctx context.Context, d DBSpec, r io.Reader) (tables int, err error)
+
+	// Snapshots for Rollback with data, kept on the node.
+	SaveDump(ctx context.Context, d DBSpec) (Dump, error)
+	DropDump(dump Dump)
+	KeepSnapshot(app string, dump Dump) error
+	HasSnapshot(app string) bool
+	SetAside(app string, dump Dump) string
+	PruneSnapshots(apps map[string]bool)
+	ReplaceDatabase(ctx context.Context, d DBSpec, dump Dump) error
+
+	// Volumes.
+	HasVolume(ctx context.Context, app, name string) (bool, error)
+	ArchiveVolume(ctx context.Context, app, name string, w io.Writer) error
+	RestoreVolume(ctx context.Context, app, name string, r io.Reader) error
+	RemoveVolume(ctx context.Context, app, name string) error
+	RemoveVolumesExcept(ctx context.Context, keep map[string]bool) error
 }
 
 // Local is the machine hakobu runs on.

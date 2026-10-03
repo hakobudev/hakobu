@@ -7,9 +7,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/backup"
 	"github.com/x0ryz/hakobu/internal/config"
-	"github.com/x0ryz/hakobu/internal/deploy"
 	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store"
 )
@@ -38,8 +36,8 @@ func BackupVolume(s *store.Store, app, volume string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	name := dockerVolume(app, volume)
-	if ok, err := deploy.VolumeExists(ctx(), name); err != nil || !ok {
+	n := AppNode(s, a)
+	if ok, err := n.HasVolume(ctx(), app, volume); err != nil || !ok {
 		return 0, err
 	}
 	target, err := projectBackupTarget(s, a.ProjectID)
@@ -60,9 +58,7 @@ func BackupVolume(s *store.Store, app, volume string) (int64, error) {
 				}
 			}
 		}()
-		paused := pauseUsers(name)
-		defer unpause(paused)
-		return backup.ArchiveVolume(ctx(), config.PostgresImage, name, w)
+		return n.ArchiveVolume(ctx(), app, volume, w)
 	})
 	if err != nil {
 		return 0, err
@@ -71,34 +67,6 @@ func BackupVolume(s *store.Store, app, volume string) (int64, error) {
 		AppName: app, Volume: volume, ObjectKey: key, Parts: int64(obj.parts), SizeBytes: obj.size, SHA256: obj.sha256, FileKey: secret.String(obj.fileKey),
 		AccountID: target.AccountID, Bucket: target.Bucket,
 	})
-}
-
-// pauseUsers pauses the running containers that mount volume and returns
-// them. One that can't be paused is copied running: a backup that may
-// need the app's own recovery beats none.
-func pauseUsers(volume string) []string {
-	users, err := deploy.RunningWithVolume(ctx(), volume)
-	if err != nil {
-		fmt.Println("backup of", volume+": copying without pausing its containers:", err)
-		return nil
-	}
-	var paused []string
-	for _, c := range users {
-		if err := deploy.PauseContainer(ctx(), c); err != nil {
-			fmt.Println("backup of", volume+": copying while", c, "runs:", err)
-			continue
-		}
-		paused = append(paused, c)
-	}
-	return paused
-}
-
-func unpause(containers []string) {
-	for _, c := range containers {
-		if err := deploy.UnpauseContainer(ctx(), c); err != nil {
-			fmt.Println("failed to unpause", c+":", err)
-		}
-	}
 }
 
 // fetchVolumeBackup is fetchSealed for a volume backup.
@@ -229,7 +197,7 @@ func restoreVolume(s *store.Store, app store.App, b store.VolumeBackup, out io.W
 	defer restartWorker(s, app, out)
 	defer startApp(s, app, out)
 	fmt.Fprintln(out, "replacing the contents of volume", b.Volume)
-	if err := backup.RestoreVolume(ctx(), config.PostgresImage, dockerVolume(app.Name, b.Volume), body); err != nil {
+	if err := AppNode(s, app).RestoreVolume(ctx(), app.Name, b.Volume, body); err != nil {
 		return err
 	}
 	fmt.Fprintln(out, "restored; starting", app.Name, "again")

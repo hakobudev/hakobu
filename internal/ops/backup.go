@@ -10,10 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/backup"
 	"github.com/x0ryz/hakobu/internal/cloudflare"
 	"github.com/x0ryz/hakobu/internal/config"
-	"github.com/x0ryz/hakobu/internal/deploy"
 	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store"
 )
@@ -325,9 +323,13 @@ func BackupDatabase(s *store.Store, dbName string) (id int64, err error) {
 	if err != nil {
 		return 0, err
 	}
+	n, err := databaseNode(s, d)
+	if err != nil {
+		return 0, err
+	}
 	key := fmt.Sprintf("%s/%s.dump.enc", d.Name, time.Now().UTC().Format("20060102-150405"))
 	obj, err := uploadSealed(s, target, key, func(w io.Writer) error {
-		return backup.DumpDatabase(ctx(), PostgresContainer, d.User, d.Name, w)
+		return n.DumpDatabase(ctx(), dbSpec(d), w)
 	})
 	if err != nil {
 		return 0, err
@@ -495,28 +497,11 @@ func verify(s *store.Store, b store.Backup) (tables int, err error) {
 		return 0, err
 	}
 	defer body.Close()
-
-	// Database names can't contain dots, so this never clashes with one.
-	scratch := "hakobu.verify." + d.Name
-	drop := fmt.Sprintf(`DROP DATABASE IF EXISTS "%s" WITH (FORCE)`, scratch)
-	for _, sql := range []string{
-		drop, // left over from an interrupted check
-		fmt.Sprintf(`CREATE DATABASE "%s" OWNER "%s"`, scratch, d.User),
-		fmt.Sprintf(`REVOKE CONNECT ON DATABASE "%s" FROM PUBLIC`, scratch),
-	} {
-		if err := deploy.PostgresExec(ctx(), PostgresContainer, sql); err != nil {
-			return 0, err
-		}
-	}
-	defer func() {
-		if err := deploy.PostgresExec(ctx(), PostgresContainer, drop); err != nil {
-			fmt.Println("failed to drop", scratch+":", err)
-		}
-	}()
-	if err := backup.RestoreDatabase(ctx(), PostgresContainer, d.User, scratch, body); err != nil {
+	n, err := databaseNode(s, d)
+	if err != nil {
 		return 0, err
 	}
-	return backup.CountTables(ctx(), PostgresContainer, d.User, scratch)
+	return n.VerifyDump(ctx(), dbSpec(d), body)
 }
 
 // restoreBackup replays a backup into its database. Objects and rows that
@@ -534,7 +519,11 @@ func restoreBackup(s *store.Store, b store.Backup) error {
 	if err := ensureInPostgres(s, d); err != nil {
 		return err
 	}
-	return backup.RestoreDatabase(ctx(), PostgresContainer, d.User, d.Name, body)
+	n, err := databaseNode(s, d)
+	if err != nil {
+		return err
+	}
+	return n.RestoreDatabase(ctx(), dbSpec(d), body)
 }
 
 // Rotation keeps the newest backups, one a week for a month, and always the
