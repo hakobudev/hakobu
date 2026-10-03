@@ -236,8 +236,12 @@ if [ -z "${HAKOBU_BINARY:-}" ] && [ -z "${HAKOBU_FROM_SOURCE:-}" ] && [ -z "$VER
     abort_install "couldn't find the latest hakobu release (GitHub API unreachable or rate-limited); set HAKOBU_VERSION, e.g. HAKOBU_VERSION=v0.4.0"
   fi
 fi
+# A new binary is renamed over the old one: the Docker user's dialer may
+# be running it, and a running binary can't be written ("text file busy").
 if [ -n "${HAKOBU_BINARY:-}" ]; then
-  cp "$HAKOBU_BINARY" /opt/hakobu/hakobu
+  cp "$HAKOBU_BINARY" /opt/hakobu/hakobu.new
+  chmod +x /opt/hakobu/hakobu.new
+  mv /opt/hakobu/hakobu.new /opt/hakobu/hakobu
   echo "    local binary $HAKOBU_BINARY"
 elif [ -z "${HAKOBU_FROM_SOURCE:-}" ]; then
   RELEASE_URL="https://github.com/${HAKOBU_REPO}/releases/download/${VERSION}"
@@ -293,8 +297,9 @@ else
   fi
   SRC="$(mktemp -d)"
   git clone --depth 1 "https://github.com/${HAKOBU_REPO}.git" "$SRC"
-  (cd "$SRC" && go build -o /opt/hakobu/hakobu .)
+  (cd "$SRC" && go build -o /opt/hakobu/hakobu.new .)
   rm -rf "$SRC"
+  mv /opt/hakobu/hakobu.new /opt/hakobu/hakobu
 fi
 chmod +x /opt/hakobu/hakobu
 # What a rollback would put back belongs to an update this install
