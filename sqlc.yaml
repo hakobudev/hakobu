@@ -57,6 +57,8 @@ sql:
             go_type: {import: github.com/x0ryz/hakobu/internal/secret, type: String}
           - column: cloudflare.tunnel_token
             go_type: {import: github.com/x0ryz/hakobu/internal/secret, type: String}
+          - column: server_tunnels.tunnel_token
+            go_type: {import: github.com/x0ryz/hakobu/internal/secret, type: String}
           - column: link_key.private_key
             go_type: {import: github.com/x0ryz/hakobu/internal/secret, type: String}
           - column: cloudflare_accounts.api_token

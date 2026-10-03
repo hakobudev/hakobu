@@ -28,63 +28,198 @@ const (
 // EdgeAlias is the app's name on its project's edge network.
 func EdgeAlias(app string) string { return node.EdgeAlias(app) }
 
-// StartTunnel runs cloudflared for the panel's tunnel, once `hakobu setup`
-// has created it, and for each client's, leaving running ones alone.
+// A tunnel serves one Cloudflare account's projects on one server: one
+// tunnel can't reach two servers, as Cloudflare spreads requests over all
+// its connectors. The panel's server's tunnels are the panel's own and
+// each client's (tables cloudflare and cloudflare_accounts); a server that
+// joined gets one per account when a project there first gets a domain
+// (server_tunnels). Only the panel's tunnel on the panel's server reaches
+// the panel; every other answers 404 to what isn't an app's domain.
+type tunnel struct {
+	acct   cfAccount
+	server server
+	ID     string
+	Token  secret.String
+	row    int64 // in server_tunnels, 0 on the panel's server
+}
+
+func (t tunnel) label() string {
+	if t.server.Name == "" {
+		return "tunnel of " + t.acct.label()
+	}
+	return "tunnel of " + t.acct.label() + " on " + t.server.label()
+}
+
+// fallback is where the tunnel sends what no app's route matches.
+func (t tunnel) fallback() string {
+	if t.acct.isPanel() && t.server.Name == "" {
+		return panelService
+	}
+	return "http_status:404"
+}
+
+func localTunnel(a cfAccount) tunnel { return tunnel{acct: a, ID: a.TunnelID, Token: a.TunnelToken} }
+
+// allTunnels are the tunnels of every server, the panel's server's first.
+func allTunnels(s *store.Store) []tunnel {
+	var out []tunnel
+	for _, a := range tunnelAccounts(s) {
+		out = append(out, localTunnel(a))
+	}
+	rows, _ := s.ListServerTunnels(ctx())
+	for _, r := range rows {
+		a, err := accountByID(s, r.CloudflareAccountID)
+		if err != nil {
+			continue
+		}
+		out = append(out, tunnel{acct: a, server: server{ID: r.NodeID, Name: r.NodeName}, ID: r.TunnelID, Token: r.TunnelToken, row: r.ID})
+	}
+	return out
+}
+
+// tunnelsOn are the tunnels of the server.
+func tunnelsOn(s *store.Store, sv server) []tunnel {
+	var out []tunnel
+	for _, t := range allTunnels(s) {
+		if t.server.ID == sv.ID {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// accountByID is the account with hakobu's ID id (0: the panel's).
+func accountByID(s *store.Store, id int64) (cfAccount, error) {
+	if id == 0 {
+		return panelAccount(s)
+	}
+	a, err := s.GetCloudflareAccount(ctx(), id)
+	if err != nil {
+		return cfAccount{}, err
+	}
+	return clientAccount(a), nil
+}
+
+// place is where a project is: its account's and its server's IDs.
+type place struct{ account, server int64 }
+
+func projectPlaces(s *store.Store) (map[int64]place, error) {
+	projects, err := s.ListProjects(ctx())
+	if err != nil {
+		return nil, err
+	}
+	m := make(map[int64]place, len(projects))
+	for _, p := range projects {
+		m[p.ID] = place{p.CloudflareAccountID.Int64, p.NodeID.Int64}
+	}
+	return m, nil
+}
+
+// StartTunnel runs the cloudflared of the panel's server's tunnels: the
+// panel's, once `hakobu setup` has created it, and each client's, leaving
+// running ones alone. A server that joined starts its own as it connects.
 func StartTunnel(s *store.Store) error {
 	var errs []error
-	for _, a := range tunnelAccounts(s) {
-		if err := startTunnel(s, a); err != nil {
-			errs = append(errs, fmt.Errorf("tunnel of %s: %w", a.label(), err))
+	for _, t := range tunnelsOn(s, server{}) {
+		if err := startTunnel(s, t); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", t.label(), err))
 		}
 	}
 	// A container made before is on no newer project's edge network yet.
-	return errors.Join(append(errs, ensureAllProjectNetworks(s))...)
+	return errors.Join(append(errs, ensureServerNetworks(s, server{}))...)
 }
 
-// startTunnel runs the account's cloudflared on its node (see
-// node.Local.RunTunnel).
-func startTunnel(s *store.Store, a cfAccount) error {
-	t, err := tunnelSpec(s, a, "")
+// startTunnel runs the tunnel's cloudflared on its server.
+func startTunnel(s *store.Store, t tunnel) error {
+	spec, err := tunnelSpec(s, t, "")
 	if err != nil {
 		return err
 	}
-	return local.RunTunnel(ctx(), t)
+	return t.server.node().RunTunnel(ctx(), spec)
 }
 
-// tunnelSpec is the account's cloudflared as it should be: on the edge
-// networks of its projects, except skip (one being deleted), and with the
-// panel's socket only for the panel's tunnel.
-func tunnelSpec(s *store.Store, a cfAccount, skip string) (node.TunnelSpec, error) {
-	t := node.TunnelSpec{Client: a.Name, Token: string(a.TunnelToken)}
-	if a.isPanel() {
+// tunnelSpec is the tunnel's cloudflared as it should be: on the edge
+// networks of its account's projects on its server, except skip (one being
+// deleted), and with the panel's socket only for the panel's own tunnel.
+func tunnelSpec(s *store.Store, t tunnel, skip string) (node.TunnelSpec, error) {
+	spec := node.TunnelSpec{Client: t.acct.Name, Token: string(t.Token)}
+	if t.fallback() == panelService {
 		var err error
-		if t.PanelSocket, err = filepath.Abs(PanelSocketDir); err != nil {
-			return t, err
+		if spec.PanelSocket, err = filepath.Abs(PanelSocketDir); err != nil {
+			return spec, err
 		}
 	}
 	projects, err := s.ListProjects(ctx())
 	if err != nil {
-		return t, err
+		return spec, err
 	}
 	for _, p := range projects {
-		if p.CloudflareAccountID.Int64 == a.ID && p.Name != skip {
-			t.Projects = append(t.Projects, p.Name)
+		if p.CloudflareAccountID.Int64 == t.acct.ID && p.NodeID.Int64 == t.server.ID && p.Name != skip {
+			spec.Projects = append(spec.Projects, p.Name)
 		}
 	}
-	return t, nil
+	return spec, nil
 }
 
-// tunnelSpecs is tunnelSpec for every account with a tunnel.
-func tunnelSpecs(s *store.Store, skip string) ([]node.TunnelSpec, error) {
+// tunnelSpecs is tunnelSpec for every tunnel of the server.
+func tunnelSpecs(s *store.Store, sv server, skip string) ([]node.TunnelSpec, error) {
 	var out []node.TunnelSpec
-	for _, a := range tunnelAccounts(s) {
-		t, err := tunnelSpec(s, a, skip)
+	for _, t := range tunnelsOn(s, sv) {
+		spec, err := tunnelSpec(s, t, skip)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, t)
+		out = append(out, spec)
 	}
 	return out, nil
+}
+
+// tunnelFor is the tunnel of the project's account on its server, made
+// the first time on a server that joined.
+func tunnelFor(s *store.Store, p store.Project) (tunnel, error) {
+	a, err := projectAccount(s, p)
+	if err != nil {
+		return tunnel{}, err
+	}
+	sv, err := projectServer(s, p)
+	if err != nil {
+		return tunnel{}, err
+	}
+	if sv.ID == 0 {
+		if a.TunnelID == "" {
+			return tunnel{}, fmt.Errorf("%s has no tunnel yet", a.label())
+		}
+		return localTunnel(a), nil
+	}
+	row, err := s.GetServerTunnel(ctx(), store.GetServerTunnelParams{NodeID: sv.ID, CloudflareAccountID: a.ID})
+	if err == nil {
+		return tunnel{acct: a, server: sv, ID: row.TunnelID, Token: row.TunnelToken, row: row.ID}, nil
+	}
+	suffix, err := RandomHex(3)
+	if err != nil {
+		return tunnel{}, err
+	}
+	owner := "own"
+	if !a.isPanel() {
+		owner = a.Name
+	}
+	t := tunnel{acct: a, server: sv}
+	id, token, err := a.Client.CreateTunnel(a.AccountID, "hakobu-"+sv.Name+"-"+owner+"-"+suffix, t.fallback())
+	if err != nil {
+		return tunnel{}, fmt.Errorf("creating a tunnel for %s: %w", sv.label(), err)
+	}
+	t.ID, t.Token = id, secret.String(token)
+	if err := s.CreateServerTunnel(ctx(), store.CreateServerTunnelParams{NodeID: sv.ID, CloudflareAccountID: a.ID, TunnelID: id, TunnelToken: t.Token}); err != nil {
+		return tunnel{}, err
+	}
+	if row, err := s.GetServerTunnel(ctx(), store.GetServerTunnelParams{NodeID: sv.ID, CloudflareAccountID: a.ID}); err == nil {
+		t.row = row.ID
+	}
+	// Started now if the server is connected, else as it connects.
+	if err := startTunnel(s, t); err != nil {
+		fmt.Printf("%s not started yet: %v\n", t.label(), err)
+	}
+	return t, nil
 }
 
 var (
@@ -93,41 +228,41 @@ var (
 )
 
 // SyncTunnel points every public app's domain at its live container
-// through its project's account's tunnel, for each tunnel whose routes
-// changed since the last sync.
+// through the tunnel of its project's account on its server, for each
+// tunnel whose routes changed since the last sync.
 func SyncTunnel(s *store.Store) error {
 	ingressMu.Lock()
 	defer ingressMu.Unlock()
-	accounts := tunnelAccounts(s)
-	if len(accounts) == 0 {
+	tunnels := allTunnels(s)
+	if len(tunnels) == 0 {
 		return nil
 	}
 	apps, err := s.ListApps(ctx())
 	if err != nil {
 		return err
 	}
-	owners, err := projectAccounts(s)
+	places, err := projectPlaces(s)
 	if err != nil {
 		return err
 	}
 	var errs []error
-	for _, a := range accounts {
+	for _, t := range tunnels {
 		var rules []cloudflare.IngressRule
 		for _, app := range apps {
-			if owners[app.ProjectID] == a.ID && app.Domain != "" && app.LivePort > 0 {
+			if places[app.ProjectID] == (place{t.acct.ID, t.server.ID}) && app.Domain != "" && app.LivePort > 0 {
 				rules = append(rules, cloudflare.IngressRule{Hostname: app.Domain, Service: fmt.Sprintf("http://%s:%d", EdgeAlias(app.Name), app.LivePort)})
 			}
 		}
-		rules = append(rules, cloudflare.IngressRule{Service: a.fallback()})
+		rules = append(rules, cloudflare.IngressRule{Service: t.fallback()})
 		key := fmt.Sprint(rules)
-		if applied[a.TunnelID] == key {
+		if applied[t.ID] == key {
 			continue
 		}
-		if err := a.Client.SetIngress(a.AccountID, a.TunnelID, rules); err != nil {
-			errs = append(errs, fmt.Errorf("tunnel of %s: %w", a.label(), err))
+		if err := t.acct.Client.SetIngress(t.acct.AccountID, t.ID, rules); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", t.label(), err))
 			continue
 		}
-		applied[a.TunnelID] = key
+		applied[t.ID] = key
 	}
 	return errors.Join(errs...)
 }
@@ -256,8 +391,13 @@ func SetAppDomain(s *store.Store, app store.App, domain string) error {
 		}
 	}
 	if connected && domain != "" {
-		if a.TunnelID == "" {
-			return fmt.Errorf("%s has no tunnel yet", a.label())
+		p, err := s.GetProject(ctx(), app.ProjectName)
+		if err != nil {
+			return err
+		}
+		t, err := tunnelFor(s, p)
+		if err != nil {
+			return err
 		}
 		zones, err := a.Client.Zones()
 		if err != nil {
@@ -267,7 +407,7 @@ func SetAppDomain(s *store.Store, app store.App, domain string) error {
 		if !ok {
 			return fmt.Errorf("%s is not in a domain of %s", domain, a.label())
 		}
-		if params.DnsRecordID, err = a.Client.RouteHost(a.AccountID, zone.ID, domain, a.TunnelID); err != nil {
+		if params.DnsRecordID, err = a.Client.RouteHost(a.AccountID, zone.ID, domain, t.ID); err != nil {
 			return err
 		}
 		params.DnsZoneID = zone.ID

@@ -26,6 +26,8 @@ type fakeAccounts struct {
 	records map[string]string                   // host → CNAME target
 	buckets map[string][]string                 // by account
 	objects map[string]bool                     // account/bucket/key
+	created int                                 // tunnels
+	deleted []string                            // tunnels
 }
 
 var fakeTokens = map[string][]map[string]any{
@@ -66,6 +68,14 @@ func newFakeAccounts(t *testing.T) *fakeAccounts {
 			ok(zones)
 		case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/cfd_tunnel"):
 			ok([]any{})
+		case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/cfd_tunnel"):
+			f.created++
+			ok(map[string]string{"id": fmt.Sprintf("t-new-%d", f.created)})
+		case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/token"):
+			ok("token-of-" + parts[3])
+		case r.Method == "DELETE" && len(parts) == 4 && parts[2] == "cfd_tunnel":
+			f.deleted = append(f.deleted, parts[3])
+			ok(nil)
 		case r.Method == "PUT" && strings.HasSuffix(r.URL.Path, "/configurations"):
 			var cfg struct {
 				Config struct{ Ingress []cloudflare.IngressRule } `json:"config"`
@@ -75,6 +85,13 @@ func newFakeAccounts(t *testing.T) *fakeAccounts {
 			ok(nil)
 		case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/dns_records"):
 			ok([]any{})
+		case r.Method == "DELETE" && len(parts) == 4 && parts[2] == "dns_records":
+			for host := range f.records {
+				if "rec-"+host == parts[3] {
+					delete(f.records, host)
+				}
+			}
+			ok(nil)
 		case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/dns_records"):
 			var rec struct{ Name, Content string }
 			_ = json.Unmarshal(body, &rec)
@@ -289,7 +306,7 @@ func TestDockerClientTunnelNetworks(t *testing.T) {
 	// The tokens are made up: cloudflared restarts again and again, which
 	// leaves its networks and mounts as they are.
 	for _, a := range accounts {
-		if err := startTunnel(s, a); err != nil {
+		if err := startTunnel(s, localTunnel(a)); err != nil {
 			t.Fatal(err)
 		}
 	}

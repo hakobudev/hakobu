@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"database/sql"
@@ -9,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -83,14 +85,39 @@ func AddServer(s *store.Store, name string) (string, error) {
 	return tok.String(), err
 }
 
-// RemoveServer forgets a server and drops its link; its key no longer
-// admits it.
+// RemoveServer forgets a server that runs no project, deleting its
+// tunnels, and drops its link; its key no longer admits it.
 func RemoveServer(s *store.Store, name string) error {
+	n, err := s.GetNodeByName(ctx(), name)
+	if err != nil {
+		return fmt.Errorf("server %q not found", name)
+	}
+	if projects, _ := s.ProjectsOnNode(ctx(), sql.NullInt64{Int64: n.ID, Valid: true}); len(projects) > 0 {
+		return fmt.Errorf("server %s still runs %s: delete them first", name, strings.Join(projects, ", "))
+	}
+	for _, t := range tunnelsOn(s, server{ID: n.ID, Name: n.Name}) {
+		dropServerTunnel(s, t)
+	}
 	if err := s.DeleteNode(ctx(), name); err != nil {
 		return err
 	}
 	links.drop(name)
 	return nil
+}
+
+// dropServerTunnel deletes a tunnel on a server that joined: its
+// cloudflared if the server is connected, the tunnel in Cloudflare, and
+// the record. What can't be deleted is left behind, said so.
+func dropServerTunnel(s *store.Store, t tunnel) {
+	if err := t.server.node().RemoveTunnel(ctx(), t.acct.Name); err != nil {
+		fmt.Printf("%s: its cloudflared is left on the server: %v\n", t.label(), err)
+	}
+	if err := t.acct.Client.DeleteTunnel(t.acct.AccountID, t.ID); err != nil {
+		fmt.Printf("%s: delete it in Cloudflare: %v\n", t.label(), err)
+	}
+	if err := s.DeleteServerTunnel(ctx(), t.row); err != nil {
+		fmt.Printf("%s: %v\n", t.label(), err)
+	}
 }
 
 // admit takes a node by its key, or the first time by its token's secret.
@@ -144,7 +171,7 @@ func (l *linkSet) drop(name string) {
 	c := l.m[name]
 	delete(l.m, name)
 	l.mu.Unlock()
-	if c != nil {
+	if c != nil && c.session != nil {
 		c.session.Close()
 	}
 }
@@ -170,7 +197,10 @@ func LinkServer(s *store.Store, version string) (http.Handler, error) {
 			}
 			fmt.Println("server", name, "connected, hakobu", v)
 			go func() { _ = http.Serve(sess, r.Handler()) }()
+			watching, stopWatching := context.WithCancel(context.Background())
+			go serverConnected(s, name, r, watching)
 			<-sess.CloseChan()
+			stopWatching()
 			links.mu.Lock()
 			if links.m[name] == c {
 				delete(links.m, name)
@@ -215,4 +245,46 @@ func serverNode(name string) (node.Node, error) {
 		return c.remote, nil
 	}
 	return nil, fmt.Errorf("%w: server %s isn't connected", node.ErrUnreachable, name)
+}
+
+// serverConnected brings a server that just connected up to date (it may
+// have restarted, or missed changes while away) and watches it while it
+// stays: its tunnels and networks, slots and proxies left by unfinished
+// jobs, the routes to its apps, and its dying containers.
+func serverConnected(s *store.Store, name string, n node.Node, watching context.Context) {
+	row, err := s.GetNodeByName(ctx(), name)
+	if err != nil {
+		return
+	}
+	sv := server{ID: row.ID, Name: name}
+	for _, t := range tunnelsOn(s, sv) {
+		if err := startTunnel(s, t); err != nil {
+			fmt.Printf("%s: %v\n", t.label(), err)
+		}
+	}
+	if err := ensureServerNetworks(s, sv); err != nil {
+		fmt.Println("networks of", sv.label()+":", err)
+	}
+	var specs []node.AppSpec
+	apps, _ := s.ListApps(ctx())
+	places, _ := projectPlaces(s)
+	for _, app := range apps {
+		if places[app.ProjectID].server == sv.ID && !IsDeploying(app.Name) {
+			specs = append(specs, liveSpec(app))
+		}
+	}
+	n.Reconcile(ctx(), specs)
+	for _, spec := range specs {
+		n.EnsureProxy(ctx(), spec)
+	}
+	if err := SyncTunnel(s); err != nil {
+		fmt.Println("tunnel routes not updated (retrying):", err)
+	}
+	for watching.Err() == nil {
+		err := n.WatchDeaths(watching, func(container, app string, d node.Death) { recordDeath(s, container, app, d) })
+		if watching.Err() == nil {
+			fmt.Println("docker events of", sv.label()+":", err)
+			time.Sleep(5 * time.Second)
+		}
+	}
 }

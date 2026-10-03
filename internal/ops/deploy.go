@@ -459,32 +459,34 @@ func portHint(app store.App, exposed int64) int64 {
 	return 8080
 }
 
-// EnsureProxy restarts an app's proxy after an agent restart and points it
-// at the live container.
+// EnsureProxy restarts the proxy of an app on the panel's server after an
+// agent restart and points it at the live container; a server that joined
+// does its own as it connects.
 func EnsureProxy(s *store.Store, app store.App) {
-	AppNode(s, app).EnsureProxy(ctx(), liveSpec(app))
+	if onLocal(s, app) {
+		local.EnsureProxy(ctx(), liveSpec(app))
+	}
 }
 
 func RemoveProxy(s *store.Store, app store.App) { AppNode(s, app).RemoveProxy(app.Name) }
 
-// ReconcileSlots tidies up after jobs the agent didn't live to finish, run
-// at startup before any job (see node.Local.Reconcile).
+// ReconcileSlots tidies up after jobs the agent didn't live to finish on
+// the panel's server, run at startup before any job (see
+// node.Local.Reconcile).
 func ReconcileSlots(s *store.Store) {
 	apps, err := s.ListApps(ctx())
 	if err != nil {
 		fmt.Println("failed to check the apps' containers:", err)
 		return
 	}
-	byNode := map[node.Node][]node.AppSpec{}
+	// Servers that joined are reconciled as they connect (serverConnected).
+	var specs []node.AppSpec
 	for _, app := range apps {
-		if !IsDeploying(app.Name) {
-			n := AppNode(s, app)
-			byNode[n] = append(byNode[n], liveSpec(app))
+		if !IsDeploying(app.Name) && onLocal(s, app) {
+			specs = append(specs, liveSpec(app))
 		}
 	}
-	for n, specs := range byNode {
-		n.Reconcile(ctx(), specs)
-	}
+	local.Reconcile(ctx(), specs)
 }
 
 // Workers.

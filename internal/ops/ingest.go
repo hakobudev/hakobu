@@ -43,5 +43,5 @@ func startIngestRelay(s *store.Store) error {
 	if err := local.StartIngestRelay(ctx(), IngestSocket()); err != nil {
 		return err
 	}
-	return ensureAllProjectNetworks(s)
+	return ensureServerNetworks(s, server{})
 }

@@ -10,14 +10,14 @@ import (
 )
 
 func TestHostUsage(t *testing.T) {
-	st := &metricState{}
+	st := &serverUsage{}
 	read := node.HostCounters{CPUBusy: 200, CPUTotal: 1000, CPUs: 2, MemTotal: 4000 << 10, MemFree: 1000 << 10, Load: 0.42}
-	if _, ok := hostUsage(st, read); ok {
+	if _, ok := hostUsage(st, read, HostTarget); ok {
 		t.Error("CPU usage from a single reading")
 	}
 	// 300 more ticks, 150 of them busy: half of 2 CPUs.
 	read.CPUBusy, read.CPUTotal = 350, 1300
-	u, ok := hostUsage(st, read)
+	u, ok := hostUsage(st, read, HostTarget)
 	if !ok {
 		t.Fatal("no usage from two readings")
 	}

@@ -193,6 +193,7 @@ type Project struct {
 	Name                string
 	SharedEnv           secret.String
 	CloudflareAccountID sql.NullInt64
+	NodeID              sql.NullInt64
 }
 
 type SealedVar struct {
@@ -200,6 +201,14 @@ type SealedVar struct {
 	Owner string
 	Key   string
 	Value secret.String
+}
+
+type ServerTunnel struct {
+	ID                  int64
+	NodeID              int64
+	CloudflareAccountID int64
+	TunnelID            string
+	TunnelToken         secret.String
 }
 
 type Session struct {

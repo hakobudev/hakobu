@@ -46,14 +46,6 @@ func (a cfAccount) label() string {
 // container runs the account's cloudflared.
 func (a cfAccount) container() string { return node.TunnelName(a.Name) }
 
-// fallback is where the tunnel sends what no app's route matches.
-func (a cfAccount) fallback() string {
-	if a.isPanel() {
-		return panelService
-	}
-	return "http_status:404"
-}
-
 func panelAccount(s *store.Store) (cfAccount, error) {
 	c, cf, err := cfClient(s)
 	if err != nil {
@@ -213,11 +205,11 @@ func AddClientAccount(s *store.Store, name, token string) error {
 		_ = s.DeleteCloudflareAccount(ctx(), id)
 		return fmt.Errorf("creating the tunnel in the client's account: %w", err)
 	}
-	return startTunnel(s, a)
+	return startTunnel(s, localTunnel(a))
 }
 
 func createClientTunnel(s *store.Store, a *cfAccount, tunnelName string) (string, error) {
-	id, token, err := a.Client.CreateTunnel(a.AccountID, tunnelName, a.fallback())
+	id, token, err := a.Client.CreateTunnel(a.AccountID, tunnelName, localTunnel(*a).fallback())
 	if err != nil {
 		return "", err
 	}
@@ -257,6 +249,12 @@ func RemoveClientAccount(s *store.Store, name string) error {
 	a := clientAccount(row)
 	if err := local.RemoveTunnel(ctx(), a.Name); err != nil {
 		return err
+	}
+	// Its tunnels on other servers serve no project any more either.
+	for _, t := range allTunnels(s) {
+		if t.row != 0 && t.acct.ID == a.ID {
+			dropServerTunnel(s, t)
+		}
 	}
 	if a.TunnelID != "" {
 		// A revoked token mustn't keep the client connected here; the

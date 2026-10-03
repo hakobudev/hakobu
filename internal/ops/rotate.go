@@ -98,8 +98,8 @@ func rotateSecrets(s *store.Store, out io.Writer) (manual []string, failures int
 	// Cloudflare: a new tunnel secret, which disconnects any other
 	// connector. The API token is the owner's to roll.
 	if CloudflareConnected(s) {
-		for _, a := range tunnelAccounts(s) {
-			step("tunnel token of "+a.label()+" (other connectors were disconnected)", rotateTunnel(s, a))
+		for _, t := range allTunnels(s) {
+			step("token of the "+t.label()+" (other connectors were disconnected)", rotateTunnel(s, t))
 		}
 		manual = append(manual, "Cloudflare API token: roll it in the Cloudflare dashboard (Manage Account → API Tokens → Roll) and give hakobu the new one with `cd /opt/hakobu && sudo -u hakobu ./hakobu setup --reconnect`")
 		if clients, _ := s.ListCloudflareAccounts(ctx()); len(clients) > 0 {
@@ -159,23 +159,26 @@ func rotateSecrets(s *store.Store, out io.Writer) (manual []string, failures int
 	return manual, failures
 }
 
-// rotateTunnel gives the account's tunnel a new token and restarts its
-// cloudflared with it; its domains are unreachable for a few seconds.
-func rotateTunnel(s *store.Store, a cfAccount) error {
-	token, err := a.Client.RotateTunnelSecret(a.AccountID, a.TunnelID)
+// rotateTunnel gives the tunnel a new token and restarts its cloudflared
+// with it; its domains are unreachable for a few seconds.
+func rotateTunnel(s *store.Store, t tunnel) error {
+	token, err := t.acct.Client.RotateTunnelSecret(t.acct.AccountID, t.ID)
 	if err != nil {
 		return err
 	}
-	a.TunnelToken = secret.String(token)
-	if a.isPanel() {
-		err = s.SetTunnelToken(ctx(), a.TunnelToken)
-	} else {
-		err = s.SetCloudflareAccountTunnel(ctx(), store.SetCloudflareAccountTunnelParams{TunnelID: a.TunnelID, TunnelToken: a.TunnelToken, ID: a.ID})
+	t.Token = secret.String(token)
+	switch {
+	case t.row != 0:
+		err = s.SetServerTunnelToken(ctx(), store.SetServerTunnelTokenParams{TunnelToken: t.Token, ID: t.row})
+	case t.acct.isPanel():
+		err = s.SetTunnelToken(ctx(), t.Token)
+	default:
+		err = s.SetCloudflareAccountTunnel(ctx(), store.SetCloudflareAccountTunnelParams{TunnelID: t.ID, TunnelToken: t.Token, ID: t.acct.ID})
 	}
 	if err != nil {
 		return err
 	}
-	return startTunnel(s, a)
+	return startTunnel(s, t)
 }
 
 // rotateDatabasePassword stores the new password before Postgres gets it:

@@ -32,16 +32,12 @@ func oomText(app store.App) string { return node.OOMText(app.MemoryMB) }
 // WatchDeaths records every out-of-memory kill of an app or worker
 // container, and every crash of a live one, in the app's Errors tab and
 // emails the owner, reconnecting to Docker whenever the stream breaks.
+//
+// This watches the panel's server; a server that joined is watched while
+// it's connected (watchServer).
 func WatchDeaths(s *store.Store) {
-	for _, n := range allNodes(s)[1:] {
-		go watchDeaths(s, n)
-	}
-	watchDeaths(s, allNodes(s)[0])
-}
-
-func watchDeaths(s *store.Store, n node.Node) {
 	for {
-		err := n.WatchDeaths(context.Background(), func(container, app string, d node.Death) { recordDeath(s, container, app, d) })
+		err := local.WatchDeaths(context.Background(), func(container, app string, d node.Death) { recordDeath(s, container, app, d) })
 		fmt.Println("docker events:", err)
 		time.Sleep(5 * time.Second)
 	}

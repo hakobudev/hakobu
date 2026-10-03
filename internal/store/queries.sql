@@ -476,3 +476,29 @@ SELECT private_key FROM link_key WHERE id = 1;
 
 -- name: SaveLinkKey :exec
 INSERT INTO link_key (id, private_key) VALUES (1, ?);
+
+-- name: GetNode :one
+SELECT * FROM nodes WHERE id = ?;
+
+-- name: ProjectsOnNode :many
+SELECT name FROM projects WHERE node_id = ? ORDER BY name;
+
+-- name: SetProjectNode :exec
+UPDATE projects SET node_id = ? WHERE id = ?;
+
+-- Server tunnels
+
+-- name: ListServerTunnels :many
+SELECT t.*, n.name AS node_name FROM server_tunnels t JOIN nodes n ON n.id = t.node_id ORDER BY t.id;
+
+-- name: GetServerTunnel :one
+SELECT * FROM server_tunnels WHERE node_id = ? AND cloudflare_account_id = ?;
+
+-- name: CreateServerTunnel :exec
+INSERT INTO server_tunnels (node_id, cloudflare_account_id, tunnel_id, tunnel_token) VALUES (?, ?, ?, ?);
+
+-- name: SetServerTunnelToken :exec
+UPDATE server_tunnels SET tunnel_token = ? WHERE id = ?;
+
+-- name: DeleteServerTunnel :exec
+DELETE FROM server_tunnels WHERE id = ?;

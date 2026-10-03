@@ -42,14 +42,37 @@ type reading struct {
 
 // metricState is what the next minute's usage is worked out from.
 type metricState struct {
+	servers map[string]*serverUsage // by server name, "" for the panel's
+	rolled  int64                   // the last five minutes summarized
+}
+
+// serverUsage is a server's last readings.
+type serverUsage struct {
 	containers map[string]reading // by container ID
 	host       node.HostCounters
-	rolled     int64 // the last five minutes summarized
+}
+
+func (st *metricState) server(name string) *serverUsage {
+	if st.servers == nil {
+		st.servers = map[string]*serverUsage{}
+	}
+	if st.servers[name] == nil {
+		st.servers[name] = &serverUsage{containers: map[string]reading{}}
+	}
+	return st.servers[name]
+}
+
+// hostTarget is what a server's own usage is recorded as.
+func hostTarget(serverName string) string {
+	if serverName == "" {
+		return HostTarget
+	}
+	return HostTarget + ":" + serverName
 }
 
 // WatchMetrics records usage every minute, on the minute.
 func WatchMetrics(s *store.Store) {
-	st := &metricState{containers: map[string]reading{}}
+	st := &metricState{}
 	for {
 		next := time.Now().Truncate(time.Minute).Add(time.Minute)
 		time.Sleep(time.Until(next))
@@ -141,43 +164,44 @@ func containerTargets(s *store.Store) map[string]containerTarget {
 	return targets
 }
 
-// collectUsage reads the usage of the last minute. A container shows up
-// from its second reading on, and not after it restarted, which resets
-// its counters.
-//
-// The server is the panel's node; other nodes' usage comes with them.
+// collectUsage reads the usage of the last minute on every server
+// connected. A container shows up from its second reading on, and not
+// after it restarted, which resets its counters.
 func collectUsage(s *store.Store, st *metricState, now time.Time) []teldb.Sample {
 	targets := containerTargets(s)
 	names := make(map[string]bool, len(targets))
 	for name := range targets {
 		names[name] = true
 	}
-	r, err := local.Readings(ctx(), names)
 	var out []teldb.Sample
-	if r.HostErr == "" {
-		if u, ok := hostUsage(st, r.Host); ok {
-			out = append(out, u)
+	for _, pn := range allNodes(s) {
+		su := st.server(pn.Name)
+		r, err := pn.n.Readings(ctx(), names)
+		if r.HostErr == "" && r.Host.CPUTotal > 0 {
+			if u, ok := hostUsage(su, r.Host, hostTarget(pn.Name)); ok {
+				out = append(out, u)
+			}
 		}
-	}
-	if err != nil {
-		fmt.Println("usage:", err)
-		return out
-	}
-	seen := map[string]bool{}
-	for _, c := range r.Containers {
-		seen[c.ID] = true
-		prev, had := st.containers[c.ID]
-		st.containers[c.ID] = reading{c.Counters, now}
-		if !had {
+		if err != nil {
+			fmt.Println("usage of", pn.label()+":", err)
 			continue
 		}
-		if u, ok := containerUsage(targets[c.Name], prev, reading{c.Counters, now}); ok {
-			out = append(out, u)
+		seen := map[string]bool{}
+		for _, c := range r.Containers {
+			seen[c.ID] = true
+			prev, had := su.containers[c.ID]
+			su.containers[c.ID] = reading{c.Counters, now}
+			if !had {
+				continue
+			}
+			if u, ok := containerUsage(targets[c.Name], prev, reading{c.Counters, now}); ok {
+				out = append(out, u)
+			}
 		}
-	}
-	for id := range st.containers {
-		if !seen[id] {
-			delete(st.containers, id)
+		for id := range su.containers {
+			if !seen[id] {
+				delete(su.containers, id)
+			}
 		}
 	}
 	return out
@@ -201,15 +225,15 @@ func containerUsage(t containerTarget, prev, cur reading) (teldb.Sample, bool) {
 	}, true
 }
 
-// hostUsage is the server's usage since the last reading; its CPU shows
-// from the second reading on.
-func hostUsage(st *metricState, cur node.HostCounters) (teldb.Sample, bool) {
-	prev := st.host
-	st.host = cur
+// hostUsage is a server's usage since its last reading, recorded as
+// target; its CPU shows from the second reading on.
+func hostUsage(su *serverUsage, cur node.HostCounters, target string) (teldb.Sample, bool) {
+	prev := su.host
+	su.host = cur
 	if prev.CPUTotal == 0 || cur.CPUTotal <= prev.CPUTotal || cur.CPUBusy < prev.CPUBusy {
 		return teldb.Sample{}, false
 	}
-	u := teldb.Sample{Target: HostTarget, CpuLimit: float64(cur.CPUs)}
+	u := teldb.Sample{Target: target, CpuLimit: float64(cur.CPUs)}
 	u.Cpu = float64(cur.CPUBusy-prev.CPUBusy) / float64(cur.CPUTotal-prev.CPUTotal) * float64(cur.CPUs)
 	u.CpuMax = u.Cpu
 	if cur.MemTotal > 0 {

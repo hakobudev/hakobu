@@ -114,6 +114,7 @@ var secretColumns = map[string][]string{
 	"cloudflare":          {"api_token", "tunnel_token"},
 	"cloudflare_accounts": {"api_token", "tunnel_token"},
 	"link_key":            {"private_key"},
+	"server_tunnels":      {"tunnel_token"},
 	"sealed_vars":         {"value"},
 	// The keys of backups in the bucket (secret.NewFileWriterKey).
 	"backups":        {"file_key"},

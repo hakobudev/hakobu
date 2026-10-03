@@ -43,11 +43,26 @@ func checkName(kind, name string) error {
 // Projects.
 
 func CreateProject(s *store.Store, name string) error {
+	return CreateProjectOn(s, name, "")
+}
+
+// CreateProjectOn creates a project on a server ("" for the panel's).
+func CreateProjectOn(s *store.Store, name, serverName string) error {
 	if err := checkName("project", name); err != nil {
 		return err
 	}
 	// Its networks are created when it first needs them.
-	return s.CreateProject(ctx(), name)
+	if err := s.CreateProject(ctx(), name); err != nil {
+		return err
+	}
+	if serverName == "" {
+		return nil
+	}
+	if err := SetProjectServer(s, name, serverName); err != nil {
+		_ = s.DeleteProject(ctx(), name)
+		return err
+	}
+	return nil
 }
 
 // DeleteProject removes every app, database and storage in the project.

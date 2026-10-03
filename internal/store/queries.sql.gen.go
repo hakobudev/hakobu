@@ -315,6 +315,27 @@ func (q *Queries) CreateProject(ctx context.Context, name string) error {
 	return err
 }
 
+const createServerTunnel = `-- name: CreateServerTunnel :exec
+INSERT INTO server_tunnels (node_id, cloudflare_account_id, tunnel_id, tunnel_token) VALUES (?, ?, ?, ?)
+`
+
+type CreateServerTunnelParams struct {
+	NodeID              int64
+	CloudflareAccountID int64
+	TunnelID            string
+	TunnelToken         secret.String
+}
+
+func (q *Queries) CreateServerTunnel(ctx context.Context, arg CreateServerTunnelParams) error {
+	_, err := q.db.ExecContext(ctx, createServerTunnel,
+		arg.NodeID,
+		arg.CloudflareAccountID,
+		arg.TunnelID,
+		arg.TunnelToken,
+	)
+	return err
+}
+
 const createSession = `-- name: CreateSession :exec
 INSERT INTO sessions (id, github_id, signed_in_at, expires_at) VALUES (?, ?, ?, ?)
 `
@@ -546,6 +567,15 @@ type DeleteSealedVarsOfParams struct {
 
 func (q *Queries) DeleteSealedVarsOf(ctx context.Context, arg DeleteSealedVarsOfParams) error {
 	_, err := q.db.ExecContext(ctx, deleteSealedVarsOf, arg.Scope, arg.Owner)
+	return err
+}
+
+const deleteServerTunnel = `-- name: DeleteServerTunnel :exec
+DELETE FROM server_tunnels WHERE id = ?
+`
+
+func (q *Queries) DeleteServerTunnel(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteServerTunnel, id)
 	return err
 }
 
@@ -924,6 +954,26 @@ func (q *Queries) GetLinkKey(ctx context.Context) (secret.String, error) {
 	return private_key, err
 }
 
+const getNode = `-- name: GetNode :one
+SELECT id, name, public_key, join_secret_hash, join_expires, version, last_seen, created_at FROM nodes WHERE id = ?
+`
+
+func (q *Queries) GetNode(ctx context.Context, id int64) (Node, error) {
+	row := q.db.QueryRowContext(ctx, getNode, id)
+	var i Node
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.PublicKey,
+		&i.JoinSecretHash,
+		&i.JoinExpires,
+		&i.Version,
+		&i.LastSeen,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getNodeByJoinSecret = `-- name: GetNodeByJoinSecret :one
 SELECT id, name, public_key, join_secret_hash, join_expires, version, last_seen, created_at FROM nodes WHERE join_secret_hash = ? AND join_secret_hash != ''
 `
@@ -1077,7 +1127,7 @@ func (q *Queries) GetOwner(ctx context.Context) (GetOwnerRow, error) {
 }
 
 const getProject = `-- name: GetProject :one
-SELECT id, name, shared_env, cloudflare_account_id FROM projects WHERE name = ?
+SELECT id, name, shared_env, cloudflare_account_id, node_id FROM projects WHERE name = ?
 `
 
 func (q *Queries) GetProject(ctx context.Context, name string) (Project, error) {
@@ -1088,12 +1138,13 @@ func (q *Queries) GetProject(ctx context.Context, name string) (Project, error) 
 		&i.Name,
 		&i.SharedEnv,
 		&i.CloudflareAccountID,
+		&i.NodeID,
 	)
 	return i, err
 }
 
 const getProjectByID = `-- name: GetProjectByID :one
-SELECT id, name, shared_env, cloudflare_account_id FROM projects WHERE id = ?
+SELECT id, name, shared_env, cloudflare_account_id, node_id FROM projects WHERE id = ?
 `
 
 func (q *Queries) GetProjectByID(ctx context.Context, id int64) (Project, error) {
@@ -1104,6 +1155,29 @@ func (q *Queries) GetProjectByID(ctx context.Context, id int64) (Project, error)
 		&i.Name,
 		&i.SharedEnv,
 		&i.CloudflareAccountID,
+		&i.NodeID,
+	)
+	return i, err
+}
+
+const getServerTunnel = `-- name: GetServerTunnel :one
+SELECT id, node_id, cloudflare_account_id, tunnel_id, tunnel_token FROM server_tunnels WHERE node_id = ? AND cloudflare_account_id = ?
+`
+
+type GetServerTunnelParams struct {
+	NodeID              int64
+	CloudflareAccountID int64
+}
+
+func (q *Queries) GetServerTunnel(ctx context.Context, arg GetServerTunnelParams) (ServerTunnel, error) {
+	row := q.db.QueryRowContext(ctx, getServerTunnel, arg.NodeID, arg.CloudflareAccountID)
+	var i ServerTunnel
+	err := row.Scan(
+		&i.ID,
+		&i.NodeID,
+		&i.CloudflareAccountID,
+		&i.TunnelID,
+		&i.TunnelToken,
 	)
 	return i, err
 }
@@ -1839,7 +1913,7 @@ func (q *Queries) ListOAuthGrants(ctx context.Context, expiresAt string) ([]OAut
 }
 
 const listProjects = `-- name: ListProjects :many
-SELECT id, name, shared_env, cloudflare_account_id FROM projects ORDER BY name
+SELECT id, name, shared_env, cloudflare_account_id, node_id FROM projects ORDER BY name
 `
 
 func (q *Queries) ListProjects(ctx context.Context) ([]Project, error) {
@@ -1856,6 +1930,7 @@ func (q *Queries) ListProjects(ctx context.Context) ([]Project, error) {
 			&i.Name,
 			&i.SharedEnv,
 			&i.CloudflareAccountID,
+			&i.NodeID,
 		); err != nil {
 			return nil, err
 		}
@@ -1925,6 +2000,51 @@ func (q *Queries) ListSealedVars(ctx context.Context, arg ListSealedVarsParams) 
 			&i.Owner,
 			&i.Key,
 			&i.Value,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listServerTunnels = `-- name: ListServerTunnels :many
+
+SELECT t.id, t.node_id, t.cloudflare_account_id, t.tunnel_id, t.tunnel_token, n.name AS node_name FROM server_tunnels t JOIN nodes n ON n.id = t.node_id ORDER BY t.id
+`
+
+type ListServerTunnelsRow struct {
+	ID                  int64
+	NodeID              int64
+	CloudflareAccountID int64
+	TunnelID            string
+	TunnelToken         secret.String
+	NodeName            string
+}
+
+// Server tunnels
+func (q *Queries) ListServerTunnels(ctx context.Context) ([]ListServerTunnelsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listServerTunnels)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListServerTunnelsRow
+	for rows.Next() {
+		var i ListServerTunnelsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.NodeID,
+			&i.CloudflareAccountID,
+			&i.TunnelID,
+			&i.TunnelToken,
+			&i.NodeName,
 		); err != nil {
 			return nil, err
 		}
@@ -2109,6 +2229,33 @@ SELECT name FROM projects WHERE cloudflare_account_id = ? ORDER BY name
 
 func (q *Queries) ProjectsInCloudflareAccount(ctx context.Context, cloudflareAccountID sql.NullInt64) ([]string, error) {
 	rows, err := q.db.QueryContext(ctx, projectsInCloudflareAccount, cloudflareAccountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		items = append(items, name)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const projectsOnNode = `-- name: ProjectsOnNode :many
+SELECT name FROM projects WHERE node_id = ? ORDER BY name
+`
+
+func (q *Queries) ProjectsOnNode(ctx context.Context, nodeID sql.NullInt64) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, projectsOnNode, nodeID)
 	if err != nil {
 		return nil, err
 	}
@@ -2674,6 +2821,20 @@ func (q *Queries) SetProjectCloudflareAccount(ctx context.Context, arg SetProjec
 	return err
 }
 
+const setProjectNode = `-- name: SetProjectNode :exec
+UPDATE projects SET node_id = ? WHERE id = ?
+`
+
+type SetProjectNodeParams struct {
+	NodeID sql.NullInt64
+	ID     int64
+}
+
+func (q *Queries) SetProjectNode(ctx context.Context, arg SetProjectNodeParams) error {
+	_, err := q.db.ExecContext(ctx, setProjectNode, arg.NodeID, arg.ID)
+	return err
+}
+
 const setProjectSharedEnv = `-- name: SetProjectSharedEnv :exec
 UPDATE projects SET shared_env = ? WHERE name = ?
 `
@@ -2709,6 +2870,20 @@ func (q *Queries) SetSealedVar(ctx context.Context, arg SetSealedVarParams) erro
 		arg.Key,
 		arg.Value,
 	)
+	return err
+}
+
+const setServerTunnelToken = `-- name: SetServerTunnelToken :exec
+UPDATE server_tunnels SET tunnel_token = ? WHERE id = ?
+`
+
+type SetServerTunnelTokenParams struct {
+	TunnelToken secret.String
+	ID          int64
+}
+
+func (q *Queries) SetServerTunnelToken(ctx context.Context, arg SetServerTunnelTokenParams) error {
+	_, err := q.db.ExecContext(ctx, setServerTunnelToken, arg.TunnelToken, arg.ID)
 	return err
 }
 

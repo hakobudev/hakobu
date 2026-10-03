@@ -58,7 +58,7 @@ func cleanup(s *store.Store) (string, error) {
 	var freed int64
 	var images int
 	for _, n := range allNodes(s) {
-		f, i, err := n.Cleanup(ctx(), spec)
+		f, i, err := n.n.Cleanup(ctx(), spec)
 		freed, images = freed+f, images+i
 		if err != nil {
 			return "", err
