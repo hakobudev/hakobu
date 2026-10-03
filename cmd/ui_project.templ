@@ -21,6 +21,8 @@ type projectView struct {
 	Watchdog     bool
 	Client       string   // the client whose Cloudflare account the project is in, "" for yours
 	Clients      []string // every client, to move the project to
+	Server       string   // the server it runs on, "" for the panel's
+	Servers      []string // the servers that joined, to move it to while it's empty
 }
 
 // volumeCard is an app's volume on the canvas, with its latest backup.
@@ -158,6 +160,12 @@ templ projectMeta(v projectView) {
 		@ic("archive")
 		{ plural(len(v.Storages), "storage", "storages") }
 	</span>
+	if v.Server != "" {
+		<span class="meta-item">
+			@ic("server")
+			{ "on " + v.Server }
+		</span>
+	}
 	if v.Client != "" {
 		<span class="meta-item">
 			@ic("users")
@@ -547,6 +555,23 @@ templ projectVariables(v projectView) {
 }
 
 templ projectSettings(v projectView) {
+	if len(v.Servers) > 0 && len(v.Apps) == 0 && len(v.Databases) == 0 {
+		<form class="box mb-6" hx-post={ "/projects/" + v.Project.Name + "/server" }>
+			<div class="box-header">Server</div>
+			<div class="box-body space-y-3">
+				<p class="field-hint">Where its apps, databases and volumes run. It can move while it has none.</p>
+				<select name="server" class="input">
+					<option value="" selected?={ v.Server == "" }>This server, the panel's</option>
+					for _, sv := range v.Servers {
+						<option value={ sv } selected?={ v.Server == sv }>{ sv }</option>
+					}
+				</select>
+			</div>
+			@boxFooter("") {
+				@submit("Save", false)
+			}
+		</form>
+	}
 	if len(v.Clients) > 0 || v.Client != "" {
 		<form class="box mb-6" hx-post={ "/projects/" + v.Project.Name + "/account" }>
 			<div class="box-header">Cloudflare account</div>

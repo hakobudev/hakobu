@@ -23,6 +23,7 @@ type settingsPage struct {
 	Token                         []cloudflare.Permission
 	Clients                       []ops.ClientAccount
 	ClientTokenURL                string
+	Servers                       []ops.Server
 	Usage                         []usageRow
 	OAuthGrants                   []store.OAuthGrant
 }
@@ -66,6 +67,10 @@ templ settingsView(v settingsPage) {
 						}
 					</a>
 				}
+				<a href="#servers" class="subnav-item">
+					@ic("server", "icon-muted")
+					Servers
+				</a>
 				if v.CloudflareConnected {
 					<a href="#clients" class="subnav-item">
 						@ic("users", "icon-muted")
@@ -84,8 +89,8 @@ templ settingsView(v settingsPage) {
 					}
 				</a>
 				<a href="#server" class="subnav-item">
-					@ic("server", "icon-muted")
-					Server
+					@ic("hard-drive", "icon-muted")
+					This server
 				</a>
 			</nav>
 			<div class="min-w-0">
@@ -154,12 +159,13 @@ templ settingsView(v settingsPage) {
 				if v.Token != nil {
 					@settingsToken(v)
 				}
+				@settingsServers(v)
 				if v.CloudflareConnected {
 					@settingsClients(v)
 				}
 				@settingsAIApps(v)
 				@settingsSecurity(v)
-				@section("server", "Server", "", cleanupButton()) {
+				@section("server", "This server", "", cleanupButton()) {
 					<div class="space-y-6">
 						<div class="box">
 							<div class="box-body">
@@ -518,6 +524,95 @@ templ settingsToken(v settingsPage) {
 			</form>
 		</div>
 	}
+}
+
+templ settingsServers(v settingsPage) {
+	@section("servers", "Servers", "Other servers this panel runs projects on, a client's say. A server connects to the panel itself, through the panel's tunnel, so it needs no open port; what goes between them is encrypted end to end. A project runs on the server picked when it's made.", nil) {
+		<div class="space-y-6">
+			if len(v.Servers) > 0 {
+				<div class="box">
+					for _, sv := range v.Servers {
+						<div class="box-row">
+							<span class="row-main">
+								@serverDot(sv)
+								<span class="row-title mono">{ sv.Name }</span>
+								<span class="muted small">
+									{ serverState(sv) }
+									if !sv.Connected && sv.Joined && sv.LastSeen != "" {
+										@timeAgo(sv.LastSeen)
+									}
+								</span>
+							</span>
+							<span class="row-meta flex items-center gap-2">
+								if !sv.Joined {
+									<button class="btn btn-sm" hx-post="/settings/servers" hx-vals={ `{"name":"` + sv.Name + `"}` } hx-target="#join-command" hx-swap="innerHTML">New token</button>
+								}
+								<button
+									class="btn btn-sm btn-danger"
+									hx-delete={ "/settings/servers/" + sv.Name }
+									hx-confirm={ "hakobu forgets server " + sv.Name + " and deletes its tunnels; its key no longer connects. A server still running projects can't be removed." }
+									data-confirm-title={ "Remove server " + sv.Name + "?" }
+									data-confirm-action="Remove server"
+								>
+									@ic("trash-2")
+								</button>
+							</span>
+						</div>
+					}
+				</div>
+			}
+			<div id="join-command"></div>
+			<form class="box" hx-post="/settings/servers" hx-target="#join-command" hx-swap="innerHTML">
+				<div class="box-header">Add a server</div>
+				<div class="box-body space-y-4">
+					@field("Name", "Lowercase letters, digits and dashes, e.g. the client's name.") {
+						<input name="name" required pattern="[a-z][a-z0-9\-]{0,39}" placeholder="e.g. acme" class="input mono"/>
+					}
+					<p class="field-hint">You get a command to run on the new server, as root: it installs Docker and hakobu there and joins this panel. Its token works once, for an hour.</p>
+				</div>
+				@boxFooter("") {
+					@submit("Add server", true)
+				}
+			</form>
+		</div>
+	}
+}
+
+templ serverDot(sv ops.Server) {
+	if sv.Connected {
+		<span class="dot dot-success" title="Connected"></span>
+	} else if sv.Joined {
+		<span class="dot dot-danger" title="Away"></span>
+	} else {
+		<span class="dot dot-attention" title="Waiting to join"></span>
+	}
+}
+
+func serverState(sv ops.Server) string {
+	switch {
+	case sv.Connected:
+		return "connected · hakobu " + sv.Version
+	case sv.Joined && sv.LastSeen != "":
+		return "away, last seen"
+	case sv.Joined:
+		return "away"
+	}
+	return "waiting to join"
+}
+
+// joinCommand is what to run on a new server, shown once.
+templ joinCommand(name, command string) {
+	<div class="box">
+		<div class="box-header">Join { name }</div>
+		<div class="box-body space-y-3">
+			<p>Run this on the server, as root. The token in it works once, within an hour.</p>
+			<div class="flex items-start gap-2">
+				@console(command, "")
+				@copyButton(command)
+			</div>
+			<p class="field-hint">Then reload this page: the server shows as connected.</p>
+		</div>
+	</div>
 }
 
 templ settingsClients(v settingsPage) {

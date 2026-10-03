@@ -17,6 +17,7 @@ import (
 
 	"github.com/hashicorp/yamux"
 
+	"github.com/x0ryz/hakobu/internal/config"
 	"github.com/x0ryz/hakobu/internal/link"
 	"github.com/x0ryz/hakobu/internal/node"
 	"github.com/x0ryz/hakobu/internal/secret"
@@ -326,4 +327,10 @@ func appOnServer(s *store.Store, id int64, name string) bool {
 	}
 	sv, err := projectServer(s, p)
 	return err == nil && sv.Name == name && name != ""
+}
+
+// JoinCommand is what to run, as root, on a new server to install hakobu
+// there and join this panel with token.
+func JoinCommand(token string) string {
+	return "curl -fsSL https://hakobu.dev/install.sh | sudo HAKOBU_PANEL=https://" + config.PublicHost() + " HAKOBU_JOIN_TOKEN=" + token + " bash"
 }

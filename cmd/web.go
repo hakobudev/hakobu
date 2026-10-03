@@ -224,7 +224,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 		statuses := map[node.Node]map[string]string{}
 		cards := make([]homeProject, 0, len(projects))
 		for _, p := range projects {
-			card := homeProject{Name: p.Name}
+			card := homeProject{Name: p.Name, Server: ops.ProjectServerName(s, p)}
 			n := ops.ProjectNode(s, p.Name)
 			if _, ok := statuses[n]; !ok {
 				statuses[n], _ = n.Statuses(r.Context()) // nil if it doesn't answer: all down
@@ -252,12 +252,16 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			}
 			cards = append(cards, card)
 		}
-		renderPage(w, r, homePage(cards, cloudflare.Lacking(ops.CachedTokenPermissions())))
+		renderPage(w, r, homePage(cards, cloudflare.Lacking(ops.CachedTokenPermissions()), joinedServers(s)))
 	})
 
 	action("POST /projects", func(r *http.Request) (string, error) {
 		name := strings.TrimSpace(r.FormValue("name"))
-		return "/projects/" + name, ops.CreateProject(s, name)
+		return "/projects/" + name, ops.CreateProjectOn(s, name, r.FormValue("server"))
+	})
+
+	action("POST /projects/{p}/server", func(r *http.Request) (string, error) {
+		return "", ops.SetProjectServer(s, r.PathValue("p"), r.FormValue("server"))
 	})
 
 	projectPageHandler := func(tab string) http.HandlerFunc {
@@ -317,6 +321,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			}
 			v.Calls = appCalls(apps)
 			v.Watchdog = ops.Watchdog(s).On
+			v.Server, v.Servers = ops.ProjectServerName(s, p), joinedServers(s)
 			if clients, err := ops.ClientAccounts(s); err == nil {
 				for _, c := range clients {
 					v.Clients = append(v.Clients, c.Name)
@@ -807,6 +812,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 		if usage, err := ops.CurrentUsage(s); err == nil {
 			v.Usage = usageRows(usage)
 		}
+		v.Servers, _ = ops.Servers(s)
 		v.OAuthGrants, _ = s.LiveOAuthGrants(r.Context())
 		if app, err := s.GetGitHubApp(r.Context()); err == nil {
 			v.GitHubSlug = app.Slug
@@ -828,6 +834,21 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 
 	action("POST /settings/cleanup", func(r *http.Request) (string, error) {
 		return "", ops.Cleanup(s)
+	})
+
+	// The join command is shown once, in place of the form.
+	handle("POST /settings/servers", func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimSpace(r.FormValue("name"))
+		token, err := ops.AddServer(s, name)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		renderPage(w, r, joinCommand(name, ops.JoinCommand(token)))
+	})
+
+	action("DELETE /settings/servers/{name}", func(r *http.Request) (string, error) {
+		return "", ops.RemoveServer(s, r.PathValue("name"))
 	})
 
 	action("POST /settings/clients", func(r *http.Request) (string, error) {
@@ -1244,4 +1265,16 @@ func deploySummaries(ctx context.Context, s *store.Store, app string, n int64) [
 		logs[i] = store.DeployLog{ID: d.ID, AppName: d.AppName, Trigger: d.Trigger, Status: d.Status, CreatedAt: d.CreatedAt}
 	}
 	return logs
+}
+
+// joinedServers are the names of the servers that joined, to run projects on.
+func joinedServers(s *store.Store) []string {
+	servers, _ := ops.Servers(s)
+	var names []string
+	for _, sv := range servers {
+		if sv.Joined {
+			names = append(names, sv.Name)
+		}
+	}
+	return names
 }

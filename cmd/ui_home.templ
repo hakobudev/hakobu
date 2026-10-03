@@ -9,6 +9,7 @@ type homeProject struct {
 	Down                       int // apps not running
 	Deploying                  int
 	Logos                      []string // what it's made of, at most five
+	Server                     string   // "" for the panel's
 }
 
 templ lackingFlash(lacking []cloudflare.Permission) {
@@ -28,7 +29,7 @@ templ lackingFlash(lacking []cloudflare.Permission) {
 	}
 }
 
-templ homePage(projects []homeProject, lacking []cloudflare.Permission) {
+templ homePage(projects []homeProject, lacking []cloudflare.Permission, servers []string) {
 	@shell("") {
 		@pageHeader(pageHead{Title: "Projects", Actions: newProjectButton()})
 		@lackingFlash(lacking)
@@ -51,7 +52,12 @@ templ homePage(projects []homeProject, lacking []cloudflare.Permission) {
 						<div class="node-head">
 							<div class="min-w-0 flex-1">
 								<div class="node-title">{ p.Name }</div>
-								<div class="node-kind">{ plural(p.Apps, "app", "apps") } · { plural(p.Databases, "database", "databases") } · { plural(p.Storages, "storage", "storages") }</div>
+								<div class="node-kind">
+									{ plural(p.Apps, "app", "apps") } · { plural(p.Databases, "database", "databases") } · { plural(p.Storages, "storage", "storages") }
+									if p.Server != "" {
+										· on { p.Server }
+									}
+								</div>
 							</div>
 							if len(p.Logos) > 0 {
 								<div class="logo-stack">
@@ -91,6 +97,16 @@ templ homePage(projects []homeProject, lacking []cloudflare.Permission) {
 			<form hx-post="/projects" class="space-y-4">
 				@field("Name", "Lowercase letters, digits and dashes, starting with a letter.") {
 					<input name="name" required autofocus pattern="[a-z][a-z0-9\-]{0,39}" class="input mono" placeholder="e.g. shop"/>
+				}
+				if len(servers) > 0 {
+					@field("Server", "Where its apps, databases and volumes run. It moves only while it has none.") {
+						<select name="server" class="input">
+							<option value="">This server, the panel's</option>
+							for _, sv := range servers {
+								<option value={ sv }>{ sv }</option>
+							}
+						</select>
+					}
 				}
 				<button class="btn btn-primary btn-block">
 					@ic("loader-circle", "btn-spinner")

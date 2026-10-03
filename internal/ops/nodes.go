@@ -138,3 +138,10 @@ func SetProjectServer(s *store.Store, project, serverName string) error {
 	}
 	return s.SetProjectNode(ctx(), store.SetProjectNodeParams{NodeID: id, ID: p.ID})
 }
+
+// ProjectServerName is the name of the server the project runs on, "" for
+// the panel's.
+func ProjectServerName(s *store.Store, p store.Project) string {
+	sv, _ := projectServer(s, p)
+	return sv.Name
+}
