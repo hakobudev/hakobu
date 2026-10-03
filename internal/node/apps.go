@@ -197,8 +197,12 @@ func (Local) SwapForRollback(ctx context.Context, app string) error {
 	return nil
 }
 
-// StartCandidate starts img in the app's inactive slot and waits up to a
-// minute for it to answer its health check on the project's network. A
+// CandidateWait is how long a new version gets to answer its health check;
+// tests, whose apps answer at once, wait less.
+var CandidateWait = time.Minute
+
+// StartCandidate starts img in the app's inactive slot and waits up to
+// CandidateWait for it to answer its health check on the project's network. A
 // candidate that doesn't is removed, and the live version keeps serving
 // (or, for Recreate, is started again). A healthy one joins the edge
 // network under the app's alias next to the live version; Switch then
@@ -243,7 +247,7 @@ func (n Local) StartCandidate(ctx context.Context, app AppSpec, img Image, out i
 
 	var loopbackOnly []int
 	var crashed, oom, killed bool
-	healthy := deploy.WaitHealthy(60, time.Second, func() bool {
+	healthy := deploy.WaitHealthy(int(CandidateWait/time.Second), time.Second, func() bool {
 		// A container that exits or restarts will never answer; stop waiting.
 		if st := deploy.ContainerState(ctx, c.Container); st.Status == "exited" || st.Status == "dead" || st.Restarts > 0 || st.OOMKilled {
 			st = awaitOOMFlag(ctx, app, c.Container, st)
@@ -262,7 +266,8 @@ func (n Local) StartCandidate(ctx context.Context, app AppSpec, img Image, out i
 		logs, _ := deploy.ContainerLogs(ctx, c.Container, 50)
 		_ = deploy.RemoveContainer(ctx, c.Container)
 		restoreOld()
-		reason := fmt.Sprintf("didn't answer on port %d within 60s", c.Port)
+		within := fmt.Sprintf("%ds", int(CandidateWait.Seconds()))
+		reason := fmt.Sprintf("didn't answer on port %d within %s", c.Port, within)
 		switch {
 		case oom:
 			reason = "was killed: " + OOMText(app.MemoryMB)
@@ -273,9 +278,9 @@ func (n Local) StartCandidate(ctx context.Context, app AppSpec, img Image, out i
 		case c.Port == 0 && len(loopbackOnly) > 0:
 			reason = fmt.Sprintf("listens only on 127.0.0.1 (port %v); bind it to 0.0.0.0", loopbackOnly)
 		case c.Port == 0:
-			reason = "didn't listen on any port within 60s"
+			reason = "didn't listen on any port within " + within
 		case requireOK:
-			reason = fmt.Sprintf("didn't return 2xx on port %d%s within 60s", c.Port, path)
+			reason = fmt.Sprintf("didn't return 2xx on port %d%s within %s", c.Port, path, within)
 		}
 		kept := "previous version keeps running"
 		if app.Recreate {

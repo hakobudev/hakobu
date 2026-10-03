@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/x0ryz/hakobu/internal/deploy"
 	"github.com/x0ryz/hakobu/internal/node"
@@ -23,6 +24,9 @@ func TestMain(m *testing.M) {
 	deploy.EdgeNetwork = "zt-hakobu-edge-" + id
 	// HAKOBU_TEST_LINK=1: the panel reaches this machine as it would a node
 	// on another server, over the link's protocol.
+	// The tests' apps answer at once or never: no need to wait a minute
+	// for the ones that never do.
+	node.CandidateWait = 10 * time.Second
 	closeLink := func() {}
 	if os.Getenv("HAKOBU_TEST_LINK") != "" {
 		r, c, err := nodetest.Link(node.Local{})

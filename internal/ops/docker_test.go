@@ -233,10 +233,12 @@ func newDockerTestApp(t *testing.T, s *store.Store) store.App {
 
 func buildTestImage(t *testing.T, tag, version string) {
 	t.Helper()
-	cmd := `mkdir -p /data && date >> /data/log && exec httpd -f -p 8080 -h /www`
+	// The shell stays PID 1 and exits on SIGTERM: a PID 1 without a handler
+	// ignores it, and every stop would wait out Docker's 10 seconds.
+	cmd := `mkdir -p /data && date >> /data/log; trap 'exit 0' TERM; httpd -f -p 8080 -h /www & wait`
 	switch version {
 	case "broken":
-		cmd = "sleep 3600" // never listens
+		cmd = "trap 'exit 0' TERM; sleep 3600 & wait" // never listens
 	case "crashing":
 		cmd = "echo missing POSTGRES_PASSWORD >&2; exit 1"
 	case "hungry":
