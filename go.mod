@@ -4,7 +4,9 @@ go 1.27.1
 
 require (
 	github.com/a-h/templ v0.3.1020
+	github.com/coder/websocket v1.8.15
 	github.com/golang-jwt/jwt/v5 v5.3.1
+	github.com/hashicorp/yamux v0.1.2
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/term v0.46.0
