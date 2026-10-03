@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/x0ryz/hakobu/internal/deploy"
+	"github.com/x0ryz/hakobu/internal/node"
 	"github.com/x0ryz/hakobu/internal/store"
 )
 
@@ -16,14 +17,12 @@ import (
 // redeploys stay fast, short enough that the disk doesn't fill up.
 const buildCacheKeep = 7 * 24 * time.Hour
 
-func workDir(app string) string { return "data/work/" + app }
-
 // removeAppImages deletes every image and the clone of a deleted app.
 func removeAppImages(app string) {
 	for _, tag := range []string{"latest", "previous", "next"} {
 		deploy.RemoveImage(ctx(), "hakobu/"+app+":"+tag)
 	}
-	os.RemoveAll(workDir(app))
+	os.RemoveAll(node.WorkDir(app))
 }
 
 var (
@@ -76,7 +75,7 @@ func cleanup(s *store.Store) (string, error) {
 	if clones, err := os.ReadDir("data/work"); err == nil {
 		for _, c := range clones {
 			if !IsDeploying(c.Name()) {
-				os.RemoveAll(workDir(c.Name()))
+				os.RemoveAll(node.WorkDir(c.Name()))
 			}
 		}
 	}

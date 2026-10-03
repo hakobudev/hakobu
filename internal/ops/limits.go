@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/x0ryz/hakobu/internal/deploy"
+	"github.com/x0ryz/hakobu/internal/node"
 	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store"
 	"github.com/x0ryz/hakobu/internal/store/teldb"
@@ -27,12 +28,7 @@ func SetLimits(s *store.Store, app string, memoryMB int64, cpus float64) error {
 	return s.SetAppLimits(ctx(), store.SetAppLimitsParams{Name: app, MemoryMB: memoryMB, Cpus: cpus})
 }
 
-func oomText(app store.App) string {
-	if app.MemoryMB > 0 {
-		return fmt.Sprintf("it used more than its %d MB memory limit", app.MemoryMB)
-	}
-	return "the server ran out of memory"
-}
+func oomText(app store.App) string { return node.OOMText(app.MemoryMB) }
 
 // WatchDeaths records every out-of-memory kill of an app or worker
 // container, and every crash of a live one, in the app's Errors tab and

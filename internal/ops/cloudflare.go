@@ -11,6 +11,7 @@ import (
 	"github.com/x0ryz/hakobu/internal/cloudflare"
 	"github.com/x0ryz/hakobu/internal/config"
 	"github.com/x0ryz/hakobu/internal/deploy"
+	"github.com/x0ryz/hakobu/internal/node"
 	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store"
 )
@@ -28,9 +29,8 @@ const (
 // tunnelContainer runs cloudflared; tests use another name.
 var tunnelContainer = "hakobu-cloudflared"
 
-// EdgeAlias is the app's name on the edge network. App and container names
-// have no dots, so it can't clash with a container name.
-func EdgeAlias(app string) string { return app + ".hakobu" }
+// EdgeAlias is the app's name on its project's edge network.
+func EdgeAlias(app string) string { return node.EdgeAlias(app) }
 
 // StartTunnel runs cloudflared for the panel's tunnel, once `hakobu setup`
 // has created it, and for each client's, leaving running ones alone.

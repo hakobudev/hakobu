@@ -212,7 +212,7 @@ func runProxyPoller(s *store.Store) {
 		if apps, err := s.ListApps(context.Background()); err == nil {
 			for _, a := range apps {
 				if !ops.IsDeploying(a.Name) { // a running job (or deletion) owns the proxy
-					ops.EnsureProxy(a)
+					ops.EnsureProxy(s, a)
 				}
 			}
 		}

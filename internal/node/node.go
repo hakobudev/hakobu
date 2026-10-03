@@ -11,6 +11,7 @@ package node
 
 import (
 	"context"
+	"io"
 
 	"github.com/x0ryz/hakobu/internal/deploy"
 )
@@ -26,6 +27,33 @@ type Node interface {
 	Statuses(ctx context.Context) (map[string]string, error)
 	// Logs is the last lines of the container's output.
 	Logs(ctx context.Context, container string, lines int) (string, error)
+
+	// Builds (apps.go).
+	Build(ctx context.Context, b BuildSpec, out io.Writer) (stack string, err error)
+	ExposedPort(ctx context.Context, app string, img Image) int64
+	HasImage(ctx context.Context, app string, img Image) (bool, error)
+	DropImage(ctx context.Context, app string, img Image)
+	Promote(ctx context.Context, app string) error
+	SwapForRollback(ctx context.Context, app string) error
+
+	// Rolling out a version: StartCandidate, then the panel records the
+	// candidate's slot as live, then Switch and Retire; Discard if the
+	// panel can't record it or Switch fails.
+	StartCandidate(ctx context.Context, app AppSpec, img Image, out io.Writer) (Candidate, error)
+	Switch(ctx context.Context, app AppSpec, c Candidate) error
+	Retire(ctx context.Context, app AppSpec, c Candidate, out io.Writer)
+	Discard(ctx context.Context, app AppSpec, c Candidate, out io.Writer, err error) error
+
+	// The live version.
+	StopApp(ctx context.Context, app AppSpec) error
+	StartApp(ctx context.Context, app AppSpec, out io.Writer)
+	EnsureProxy(ctx context.Context, app AppSpec)
+	RemoveProxy(app string)
+	Reconcile(ctx context.Context, apps []AppSpec)
+
+	// Workers.
+	RunWorker(ctx context.Context, w WorkerSpec, out io.Writer) error
+	RemoveWorker(ctx context.Context, app string) error
 }
 
 // Local is the machine hakobu runs on.

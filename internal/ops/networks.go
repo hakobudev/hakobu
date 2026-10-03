@@ -5,21 +5,14 @@ import (
 	"fmt"
 
 	"github.com/x0ryz/hakobu/internal/deploy"
+	"github.com/x0ryz/hakobu/internal/node"
 	"github.com/x0ryz/hakobu/internal/store"
 )
 
-// Each project has its own networks, so an app can't reach the apps of
-// other projects, private ones included:
-//   - hakobu_<project>: its apps and workers, plus the shared Postgres
-//     (whose databases have their own credentials);
-//   - hakobu_<project>_edge: its live app containers under their aliases,
-//     plus cloudflared, which reaches them there.
-//
-// A container on several networks doesn't route between them. Project
-// names have no "_", so no two projects' network names can clash.
+// Each project has its own networks on its node (see node.ProjectNetwork).
 
-func ProjectNetwork(project string) string { return "hakobu_" + project }
-func projectEdge(project string) string    { return "hakobu_" + project + "_edge" }
+func ProjectNetwork(project string) string { return node.ProjectNetwork(project) }
+func projectEdge(project string) string    { return node.ProjectEdge(project) }
 
 // ensureProjectNetworks creates the project's networks and connects the
 // shared services and the ingest relay to them, whichever of those run,

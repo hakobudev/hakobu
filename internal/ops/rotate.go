@@ -11,6 +11,7 @@ import (
 
 	"github.com/x0ryz/hakobu/internal/deploy"
 	"github.com/x0ryz/hakobu/internal/github"
+	"github.com/x0ryz/hakobu/internal/node"
 	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store"
 )
@@ -232,11 +233,11 @@ func restartApp(s *store.Store, name string) error {
 	if err != nil {
 		return err
 	}
-	if ok, _ := deploy.ImageExists(ctx(), ImageTag(app)); !ok {
+	if ok, _ := AppNode(s, app).HasImage(ctx(), app.Name, node.Latest); !ok {
 		return nil // never deployed: the first deploy gets the new values
 	}
 	var out strings.Builder
-	if err := rollOut(s, app, ImageTag(app), &out); err != nil {
+	if err := rollOut(s, app, node.Latest, &out); err != nil {
 		return fmt.Errorf("%w\n%s", err, out.String())
 	}
 	if w, err := s.GetWorker(ctx(), name); err == nil {

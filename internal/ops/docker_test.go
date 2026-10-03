@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/x0ryz/hakobu/internal/deploy"
+	"github.com/x0ryz/hakobu/internal/node"
 	"github.com/x0ryz/hakobu/internal/store"
 )
 
@@ -40,7 +41,7 @@ func TestDockerDeploys(t *testing.T) {
 		t.Helper()
 		buildTestImage(t, nextImageTag(app), v)
 		var out strings.Builder
-		err := rollOut(s, reload(), nextImageTag(app), &out)
+		err := rollOut(s, reload(), node.Next, &out)
 		if wantErr {
 			if err == nil {
 				t.Fatalf("deploy %s should fail:\n%s", v, out.String())
@@ -50,7 +51,7 @@ func TestDockerDeploys(t *testing.T) {
 		if err != nil {
 			t.Fatalf("deploy %s: %v\n%s", v, err, out.String())
 		}
-		if err := promote(reload(), &out); err != nil {
+		if err := promote(s, reload()); err != nil {
 			t.Fatal(err)
 		}
 		return out.String()
@@ -182,7 +183,7 @@ func TestDockerReconcileSlots(t *testing.T) {
 	t.Cleanup(func() { DeleteApp(s, app.Name) })
 	buildTestImage(t, nextImageTag(app), "v1")
 	var out strings.Builder
-	if err := rollOut(s, app, nextImageTag(app), &out); err != nil {
+	if err := rollOut(s, app, node.Next, &out); err != nil {
 		t.Fatalf("deploy: %v\n%s", err, out.String())
 	}
 	app, _ = s.GetApp(ctx(), app.Name)
@@ -345,10 +346,10 @@ func TestDockerDataRollback(t *testing.T) {
 		buildTestImage(t, nextImageTag(a), v)
 		var out strings.Builder
 		snapshot := takeSnapshot(s, a, &out)
-		if err := rollOut(s, a, nextImageTag(a), &out); err != nil {
+		if err := rollOut(s, a, node.Next, &out); err != nil {
 			t.Fatalf("%v\n%s", err, out.String())
 		}
-		if err := promote(a, &out); err != nil {
+		if err := promote(s, a); err != nil {
 			t.Fatal(err)
 		}
 		if err := keepSnapshot(s, a.Name, a.LinkedDB, snapshot); err != nil {
@@ -488,8 +489,8 @@ func TestDockerRotateSecrets(t *testing.T) {
 	a, _ := s.GetApp(ctx(), app.Name)
 	buildTestImage(t, nextImageTag(a), "v1")
 	var out strings.Builder
-	must(rollOut(s, a, nextImageTag(a), &out))
-	must(promote(a, &out))
+	must(rollOut(s, a, node.Next, &out))
+	must(promote(s, a))
 
 	dbBefore, _ := s.GetDatabase(ctx(), "zt"+suffix)
 	keyBefore, _ := os.ReadFile("master.key")
@@ -554,7 +555,7 @@ func TestDockerProjectIsolation(t *testing.T) {
 	for _, app := range []store.App{a, b} {
 		buildTestImage(t, nextImageTag(app), app.Name)
 		var out strings.Builder
-		if err := rollOut(s, app, nextImageTag(app), &out); err != nil {
+		if err := rollOut(s, app, node.Next, &out); err != nil {
 			t.Fatalf("%v\n%s", err, out.String())
 		}
 	}
@@ -676,8 +677,8 @@ func TestDockerVolumeBackup(t *testing.T) {
 	must(AddVolume(s, app.Name, "data", "/data"))
 	buildTestImage(t, nextImageTag(app), "v1")
 	var out strings.Builder
-	must(rollOut(s, app, nextImageTag(app), &out))
-	must(promote(app, &out))
+	must(rollOut(s, app, node.Next, &out))
+	must(promote(s, app))
 	app, _ = s.GetApp(ctx(), app.Name)
 	live := app.ContainerName()
 	dockerOut(t, "exec", live, "sh", "-c", "echo secret-contents > /data/file && mkdir -p /data/sub && echo x > /data/sub/y && chown 1234:5678 /data/file && chmod 600 /data/file")

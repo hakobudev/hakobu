@@ -188,7 +188,7 @@ func DeleteApp(s *store.Store, name string) error {
 	if err := s.DeleteAppCascade(ctx(), name); err != nil {
 		return err
 	}
-	RemoveProxy(app.Name)
+	RemoveProxy(s, app)
 	for _, c := range []string{app.Name + "-blue", app.Name + "-green", app.Name + "-worker"} {
 		if err := deploy.RemoveContainer(ctx(), c); err != nil {
 			return err

@@ -223,11 +223,11 @@ func restoreVolume(s *store.Store, app store.App, b store.VolumeBackup, out io.W
 	}
 	defer body.Close()
 	fmt.Fprintln(out, "stopping", app.Name)
-	if err := stopApp(app); err != nil {
+	if err := stopApp(s, app); err != nil {
 		return err
 	}
 	defer restartWorker(s, app, out)
-	defer restartContainer(app, app.ContainerName(), out)
+	defer startApp(s, app, out)
 	fmt.Fprintln(out, "replacing the contents of volume", b.Volume)
 	if err := backup.RestoreVolume(ctx(), config.PostgresImage, dockerVolume(app.Name, b.Volume), body); err != nil {
 		return err
