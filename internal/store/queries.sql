@@ -441,3 +441,38 @@ INSERT OR IGNORE INTO watchdog_off (id) VALUES (1);
 
 -- name: AllowWatchdog :exec
 DELETE FROM watchdog_off;
+
+-- Nodes
+
+-- name: ListNodes :many
+SELECT * FROM nodes ORDER BY name;
+
+-- name: GetNodeByName :one
+SELECT * FROM nodes WHERE name = ?;
+
+-- name: GetNodeByKey :one
+SELECT * FROM nodes WHERE public_key = ? AND public_key != '';
+
+-- name: GetNodeByJoinSecret :one
+SELECT * FROM nodes WHERE join_secret_hash = ? AND join_secret_hash != '';
+
+-- name: CreateNode :exec
+INSERT INTO nodes (name, join_secret_hash, join_expires) VALUES (?, ?, ?);
+
+-- name: SetNodeJoin :exec
+UPDATE nodes SET join_secret_hash = ?, join_expires = ? WHERE name = ?;
+
+-- name: JoinNode :exec
+UPDATE nodes SET public_key = ?, join_secret_hash = '', join_expires = '' WHERE id = ?;
+
+-- name: SeeNode :exec
+UPDATE nodes SET version = ?, last_seen = ? WHERE id = ?;
+
+-- name: DeleteNode :exec
+DELETE FROM nodes WHERE name = ?;
+
+-- name: GetLinkKey :one
+SELECT private_key FROM link_key WHERE id = 1;
+
+-- name: SaveLinkKey :exec
+INSERT INTO link_key (id, private_key) VALUES (1, ?);

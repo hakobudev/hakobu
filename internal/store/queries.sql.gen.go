@@ -224,6 +224,21 @@ func (q *Queries) CreateDeployLog(ctx context.Context, arg CreateDeployLogParams
 	return id, err
 }
 
+const createNode = `-- name: CreateNode :exec
+INSERT INTO nodes (name, join_secret_hash, join_expires) VALUES (?, ?, ?)
+`
+
+type CreateNodeParams struct {
+	Name           string
+	JoinSecretHash string
+	JoinExpires    string
+}
+
+func (q *Queries) CreateNode(ctx context.Context, arg CreateNodeParams) error {
+	_, err := q.db.ExecContext(ctx, createNode, arg.Name, arg.JoinSecretHash, arg.JoinExpires)
+	return err
+}
+
 const createOAuthClient = `-- name: CreateOAuthClient :exec
 
 INSERT INTO oauth_clients (id, name, redirect_uris) VALUES (?, ?, ?)
@@ -466,6 +481,15 @@ DELETE FROM sessions WHERE expires_at < ?
 
 func (q *Queries) DeleteExpiredSessions(ctx context.Context, expiresAt string) error {
 	_, err := q.db.ExecContext(ctx, deleteExpiredSessions, expiresAt)
+	return err
+}
+
+const deleteNode = `-- name: DeleteNode :exec
+DELETE FROM nodes WHERE name = ?
+`
+
+func (q *Queries) DeleteNode(ctx context.Context, name string) error {
+	_, err := q.db.ExecContext(ctx, deleteNode, name)
 	return err
 }
 
@@ -889,6 +913,77 @@ func (q *Queries) GetGitHubApp(ctx context.Context) (GitHubApp, error) {
 	return i, err
 }
 
+const getLinkKey = `-- name: GetLinkKey :one
+SELECT private_key FROM link_key WHERE id = 1
+`
+
+func (q *Queries) GetLinkKey(ctx context.Context) (secret.String, error) {
+	row := q.db.QueryRowContext(ctx, getLinkKey)
+	var private_key secret.String
+	err := row.Scan(&private_key)
+	return private_key, err
+}
+
+const getNodeByJoinSecret = `-- name: GetNodeByJoinSecret :one
+SELECT id, name, public_key, join_secret_hash, join_expires, version, last_seen, created_at FROM nodes WHERE join_secret_hash = ? AND join_secret_hash != ''
+`
+
+func (q *Queries) GetNodeByJoinSecret(ctx context.Context, joinSecretHash string) (Node, error) {
+	row := q.db.QueryRowContext(ctx, getNodeByJoinSecret, joinSecretHash)
+	var i Node
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.PublicKey,
+		&i.JoinSecretHash,
+		&i.JoinExpires,
+		&i.Version,
+		&i.LastSeen,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getNodeByKey = `-- name: GetNodeByKey :one
+SELECT id, name, public_key, join_secret_hash, join_expires, version, last_seen, created_at FROM nodes WHERE public_key = ? AND public_key != ''
+`
+
+func (q *Queries) GetNodeByKey(ctx context.Context, publicKey string) (Node, error) {
+	row := q.db.QueryRowContext(ctx, getNodeByKey, publicKey)
+	var i Node
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.PublicKey,
+		&i.JoinSecretHash,
+		&i.JoinExpires,
+		&i.Version,
+		&i.LastSeen,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getNodeByName = `-- name: GetNodeByName :one
+SELECT id, name, public_key, join_secret_hash, join_expires, version, last_seen, created_at FROM nodes WHERE name = ?
+`
+
+func (q *Queries) GetNodeByName(ctx context.Context, name string) (Node, error) {
+	row := q.db.QueryRowContext(ctx, getNodeByName, name)
+	var i Node
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.PublicKey,
+		&i.JoinSecretHash,
+		&i.JoinExpires,
+		&i.Version,
+		&i.LastSeen,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getNotify = `-- name: GetNotify :one
 
 SELECT id, email, sender_domain, zone_id, added_address, routed_domain, sender_name FROM notify WHERE id = 1
@@ -1110,6 +1205,20 @@ func (q *Queries) GetWorker(ctx context.Context, appName string) (Worker, error)
 		&i.Env,
 	)
 	return i, err
+}
+
+const joinNode = `-- name: JoinNode :exec
+UPDATE nodes SET public_key = ?, join_secret_hash = '', join_expires = '' WHERE id = ?
+`
+
+type JoinNodeParams struct {
+	PublicKey string
+	ID        int64
+}
+
+func (q *Queries) JoinNode(ctx context.Context, arg JoinNodeParams) error {
+	_, err := q.db.ExecContext(ctx, joinNode, arg.PublicKey, arg.ID)
+	return err
 }
 
 const listAllBackups = `-- name: ListAllBackups :many
@@ -1652,6 +1761,44 @@ func (q *Queries) ListDeploySummaries(ctx context.Context, arg ListDeploySummari
 	return items, nil
 }
 
+const listNodes = `-- name: ListNodes :many
+
+SELECT id, name, public_key, join_secret_hash, join_expires, version, last_seen, created_at FROM nodes ORDER BY name
+`
+
+// Nodes
+func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
+	rows, err := q.db.QueryContext(ctx, listNodes)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Node
+	for rows.Next() {
+		var i Node
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.PublicKey,
+			&i.JoinSecretHash,
+			&i.JoinExpires,
+			&i.Version,
+			&i.LastSeen,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOAuthGrants = `-- name: ListOAuthGrants :many
 SELECT id, client_id, client_name, redirect_uri, scope, github_id, created_at, last_used_at FROM oauth_grants g
 WHERE EXISTS (SELECT 1 FROM oauth_tokens t WHERE t.grant_id = g.id AND t.kind != 'code' AND t.used_at = '' AND t.expires_at >= ?)
@@ -2092,6 +2239,15 @@ func (q *Queries) SaveGitHubApp(ctx context.Context, arg SaveGitHubAppParams) er
 	return err
 }
 
+const saveLinkKey = `-- name: SaveLinkKey :exec
+INSERT INTO link_key (id, private_key) VALUES (1, ?)
+`
+
+func (q *Queries) SaveLinkKey(ctx context.Context, privateKey secret.String) error {
+	_, err := q.db.ExecContext(ctx, saveLinkKey, privateKey)
+	return err
+}
+
 const saveNotify = `-- name: SaveNotify :exec
 INSERT INTO notify (id, email, sender_name, sender_domain, zone_id, added_address, routed_domain) VALUES (1, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET email = excluded.email, sender_name = excluded.sender_name, sender_domain = excluded.sender_domain,
@@ -2163,6 +2319,21 @@ func (q *Queries) SaveWorker(ctx context.Context, arg SaveWorkerParams) error {
 		arg.Command,
 		arg.Env,
 	)
+	return err
+}
+
+const seeNode = `-- name: SeeNode :exec
+UPDATE nodes SET version = ?, last_seen = ? WHERE id = ?
+`
+
+type SeeNodeParams struct {
+	Version  string
+	LastSeen string
+	ID       int64
+}
+
+func (q *Queries) SeeNode(ctx context.Context, arg SeeNodeParams) error {
+	_, err := q.db.ExecContext(ctx, seeNode, arg.Version, arg.LastSeen, arg.ID)
 	return err
 }
 
@@ -2439,6 +2610,21 @@ UPDATE github_app SET webhook_secret = ? WHERE id = 1
 
 func (q *Queries) SetGitHubWebhookSecret(ctx context.Context, webhookSecret secret.String) error {
 	_, err := q.db.ExecContext(ctx, setGitHubWebhookSecret, webhookSecret)
+	return err
+}
+
+const setNodeJoin = `-- name: SetNodeJoin :exec
+UPDATE nodes SET join_secret_hash = ?, join_expires = ? WHERE name = ?
+`
+
+type SetNodeJoinParams struct {
+	JoinSecretHash string
+	JoinExpires    string
+	Name           string
+}
+
+func (q *Queries) SetNodeJoin(ctx context.Context, arg SetNodeJoinParams) error {
+	_, err := q.db.ExecContext(ctx, setNodeJoin, arg.JoinSecretHash, arg.JoinExpires, arg.Name)
 	return err
 }
 

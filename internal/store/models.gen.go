@@ -128,6 +128,22 @@ type GitHubApp struct {
 	ClientSecret  secret.String
 }
 
+type LinkKey struct {
+	ID         int64
+	PrivateKey secret.String
+}
+
+type Node struct {
+	ID             int64
+	Name           string
+	PublicKey      string
+	JoinSecretHash string
+	JoinExpires    string
+	Version        string
+	LastSeen       string
+	CreatedAt      string
+}
+
 type Notify struct {
 	ID           int64
 	Email        string

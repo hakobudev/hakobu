@@ -113,6 +113,7 @@ var secretColumns = map[string][]string{
 	"github_app":          {"private_key", "webhook_secret", "client_secret"},
 	"cloudflare":          {"api_token", "tunnel_token"},
 	"cloudflare_accounts": {"api_token", "tunnel_token"},
+	"link_key":            {"private_key"},
 	"sealed_vars":         {"value"},
 	// The keys of backups in the bucket (secret.NewFileWriterKey).
 	"backups":        {"file_key"},
