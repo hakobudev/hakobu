@@ -53,6 +53,9 @@ type Install struct {
 	Version  string    // of the binary installed now: the one running this
 	Rootless bool      // runs as user hakobu, Docker as hakobu-docker
 	Out      io.Writer // progress
+	// Node: this server runs `hakobu node`, one of a panel's servers. It
+	// has no database, and it's up once it's linked to its panel again.
+	Node bool
 
 	run     func(dir string, name string, args ...string) (string, error)
 	healthy func() bool
@@ -88,6 +91,7 @@ func Detect(dir, version, addr string, out io.Writer) (*Install, error) {
 	return &Install{
 		Dir: dir, Version: Tag(version), Out: out, addr: addr,
 		Rootless: regexp.MustCompile(`(?m)^User=hakobu$`).Match(unit),
+		Node:     regexp.MustCompile(`(?m)^ExecStart=\S*hakobu node$`).Match(unit),
 	}, nil
 }
 
@@ -147,13 +151,15 @@ func (in *Install) Update(tag string) error {
 		return err
 	}
 	// The copy is made by the binary installed now, as the user it runs
-	// as: root never writes into hakobu's data.
-	if _, err := in.asHakobu(in.path(binaryFile), "snapshot-db", PrevDatabase); err != nil {
-		os.Remove(in.path(downloadFile))
-		in.startAgain()
-		err = fmt.Errorf("copying the panel's database before the update failed, nothing changed: %w", err)
-		in.setStatus("failed", tag, err.Error())
-		return err
+	// as: root never writes into hakobu's data. A node has no database.
+	if !in.Node {
+		if _, err := in.asHakobu(in.path(binaryFile), "snapshot-db", PrevDatabase); err != nil {
+			os.Remove(in.path(downloadFile))
+			in.startAgain()
+			err = fmt.Errorf("copying the panel's database before the update failed, nothing changed: %w", err)
+			in.setStatus("failed", tag, err.Error())
+			return err
+		}
 	}
 	if err := in.saveState(State{Previous: in.Version, PreviousSchema: store.SchemaVersion(), UpdatedAt: time.Now().UTC()}); err != nil {
 		in.startAgain()
@@ -251,7 +257,7 @@ func (in *Install) rollback() error {
 	// it can't say, the copy goes back too.
 	version, err := in.asHakobu(in.path(binaryFile), "schema-version", databaseFile)
 	v, convErr := strconv.Atoi(strings.TrimSpace(version))
-	if err != nil || convErr != nil || v > st.PreviousSchema {
+	if !in.Node && (err != nil || convErr != nil || v > st.PreviousSchema) {
 		if _, err := os.Stat(in.path(PrevDatabase)); err != nil {
 			in.startAgain()
 			return fmt.Errorf("the update changed the panel's database and its copy from before the update is gone (a master key rotation drops it): %s can't run with it", st.Previous)
@@ -415,6 +421,9 @@ func (in *Install) waitHealthy() bool {
 	if in.healthy != nil {
 		return in.healthy()
 	}
+	if in.Node {
+		return in.waitLinked(time.Now())
+	}
 	c := &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	for deadline := time.Now().Add(3 * time.Minute); time.Now().Before(deadline); time.Sleep(2 * time.Second) {
 		resp, err := c.Get("http://" + in.addr + "/login")
@@ -423,6 +432,22 @@ func (in *Install) waitHealthy() bool {
 			if resp.StatusCode == http.StatusOK {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+// LinkedFile, under the install's directory, is touched by a node each
+// time it links to its panel.
+const LinkedFile = "data/node-linked"
+
+// waitLinked reports whether the node links to its panel again, after
+// since, within three minutes: then the new version is up and talks with
+// its panel.
+func (in *Install) waitLinked(since time.Time) bool {
+	for deadline := time.Now().Add(3 * time.Minute); time.Now().Before(deadline); time.Sleep(2 * time.Second) {
+		if fi, err := os.Stat(in.path(LinkedFile)); err == nil && fi.ModTime().After(since) {
+			return true
 		}
 	}
 	return false

@@ -537,7 +537,7 @@ templ settingsServers(v settingsPage) {
 								@serverDot(sv)
 								<span class="row-title mono">{ sv.Name }</span>
 								<span class="muted small">
-									{ serverState(sv) }
+									{ serverState(sv, v.Update.Current) }
 									if !sv.Connected && sv.Joined && sv.LastSeen != "" {
 										@timeAgo(sv.LastSeen)
 									}
@@ -588,8 +588,11 @@ templ serverDot(sv ops.Server) {
 	}
 }
 
-func serverState(sv ops.Server) string {
+func serverState(sv ops.Server, panel string) string {
 	switch {
+	case sv.Connected && sv.Version != panel && panel != "":
+		// It updates itself to a newer panel's version as it connects.
+		return "connected · hakobu " + sv.Version + ", the panel runs " + panel
 	case sv.Connected:
 		return "connected · hakobu " + sv.Version
 	case sv.Joined && sv.LastSeen != "":

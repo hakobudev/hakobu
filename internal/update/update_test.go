@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNewer(t *testing.T) {
@@ -372,5 +373,49 @@ func TestInstallUnits(t *testing.T) {
 	}
 	if got := strings.Join(f.commands, "\n"); got != "systemctl daemon-reload\nsystemctl enable --now hakobu-update.path hakobu-rollback.path" {
 		t.Errorf("commands:\n%s", got)
+	}
+}
+
+// A node has no database to copy or put back, and it's up once it links
+// to its panel again: the new version touches LinkedFile.
+func TestUpdateANode(t *testing.T) {
+	r := newFakeRelease(t)
+	r.publish("v0.7.0", "v0.7.0")
+	f := newFakeInstall(t, "v0.6.0")
+	f.Node = true
+	f.Install.healthy = nil // the real check: LinkedFile touched after the start
+	f.schema = "99"         // a rollback mustn't touch any database
+	linked := filepath.Join(f.Dir, LinkedFile)
+	old := time.Now().Add(-time.Hour)
+	mustWrite(t, linked, nil)
+	if err := os.Chtimes(linked, old, old); err != nil {
+		t.Fatal(err)
+	}
+	run := f.run
+	f.run = func(dir string, name string, args ...string) (string, error) {
+		if strings.Join(args, " ") == "start hakobu" {
+			go func() { // the new version links a moment after it starts
+				time.Sleep(100 * time.Millisecond)
+				now := time.Now()
+				_ = os.Chtimes(linked, now, now)
+			}()
+		}
+		return run(dir, name, args...)
+	}
+	if err := f.Update(""); err != nil {
+		t.Fatal(err)
+	}
+	if f.read(binaryFile) != "v0.7.0" {
+		t.Errorf("binary %q", f.read(binaryFile))
+	}
+	if strings.Contains(strings.Join(f.commands, "\n"), "snapshot-db") {
+		t.Error("a node's update copied a database")
+	}
+	f.Version = "v0.7.0"
+	if err := f.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if f.read(binaryFile) != "v0.6.0" || f.read(databaseFile) != "db of v0.6.0" {
+		t.Errorf("after rollback: binary %q, db %q", f.read(binaryFile), f.read(databaseFile))
 	}
 }

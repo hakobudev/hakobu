@@ -25,6 +25,7 @@ import (
 	"github.com/x0ryz/hakobu/internal/node"
 	"github.com/x0ryz/hakobu/internal/ops"
 	"github.com/x0ryz/hakobu/internal/secret"
+	"github.com/x0ryz/hakobu/internal/update"
 )
 
 // A server other than the panel's runs `hakobu node`: it keeps a link to
@@ -183,6 +184,7 @@ func runNode(ctx context.Context, cfg nodeConfig, key ed25519.PrivateKey) error 
 		}
 		wait = time.Second
 		fmt.Println("connected to the panel at", cfg.Panel+", hakobu", panelVersion)
+		noteLinked(panelVersion)
 		toPanel.Store(&http.Client{Transport: &http.Transport{
 			DialContext: func(context.Context, string, string) (net.Conn, error) { return sess.Open() },
 		}})
@@ -232,4 +234,31 @@ func forwardIngest(toPanel *atomic.Pointer[http.Client]) http.Handler {
 		w.WriteHeader(resp.StatusCode)
 		_, _ = io.Copy(w, io.LimitReader(resp.Body, 64<<10))
 	})
+}
+
+// noteLinked marks the link up (an update waits for it, see
+// update.LinkedFile) and keeps the node at its panel's version: a panel
+// newer than this node gets it updated, through the same request a
+// panel's Update button makes, which installs the latest signed release.
+// A node never goes back to an older panel's version by itself.
+func noteLinked(panelVersion string) {
+	now := time.Now()
+	if err := os.WriteFile(update.LinkedFile, nil, 0o600); err == nil {
+		_ = os.Chtimes(update.LinkedFile, now, now)
+	}
+	switch {
+	case version == "dev" || panelVersion == "dev":
+		// A build of the source: its versions say nothing.
+	case update.Newer(update.Tag(panelVersion), update.Tag(version)):
+		if !update.UnitsInstalled("hakobu-update.path") {
+			fmt.Println("the panel runs hakobu", panelVersion, "and this server", version+": update it with sudo /opt/hakobu/hakobu update")
+			return
+		}
+		fmt.Println("the panel runs hakobu", panelVersion+": updating this server from", version)
+		if err := os.WriteFile(update.RequestFile, nil, 0o600); err != nil {
+			fmt.Println("asking for the update failed:", err)
+		}
+	case update.Newer(update.Tag(version), update.Tag(panelVersion)):
+		fmt.Println("this server runs hakobu", version, "and the panel", panelVersion+": update the panel")
+	}
 }
