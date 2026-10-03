@@ -13,7 +13,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/x0ryz/hakobu/internal/deploy"
 	"github.com/x0ryz/hakobu/internal/ops"
 	"github.com/x0ryz/hakobu/internal/store"
 	"github.com/x0ryz/hakobu/internal/store/teldb"
@@ -156,7 +155,7 @@ func newMCPServer(s *store.Store) *mcp.Server {
 				}
 			}
 			if wk, err := s.GetWorker(ctx, app.Name); err == nil {
-				d.Worker, _ = deploy.ContainerStatus(ctx, wk.ContainerName())
+				d.Worker = ops.AppNode(s, app).State(ctx, wk.ContainerName()).Status
 			}
 			if logs, err := s.ListDeployLogs(ctx, store.ListDeployLogsParams{AppName: app.Name, Limit: 5}); err == nil {
 				for _, l := range logs {
@@ -209,7 +208,7 @@ func newMCPServer(s *store.Store) *mcp.Server {
 			if lines <= 0 {
 				lines = 200
 			}
-			out.Logs, err = deploy.ContainerLogs(ctx, container, min(lines, 1000))
+			out.Logs, err = ops.AppNode(s, app).Logs(ctx, container, min(lines, 1000))
 			return nil, out, err
 		})
 
@@ -407,7 +406,7 @@ type deployArgs struct {
 }
 
 func appSummary(ctx context.Context, s *store.Store, a store.App) mcpApp {
-	st := deploy.ContainerState(ctx, a.ContainerName())
+	st := ops.AppNode(s, a).State(ctx, a.ContainerName())
 	out := mcpApp{Name: a.Name, Project: a.ProjectName, Repo: a.Repo, Status: st.Status, Restarts: st.Restarts, OOM: st.OOMKilled, Deploying: ops.IsDeploying(a.Name)}
 	if a.Domain != "" {
 		out.URL = ops.PublicURL(a)

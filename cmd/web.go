@@ -19,8 +19,8 @@ import (
 
 	"github.com/x0ryz/hakobu/internal/cloudflare"
 	"github.com/x0ryz/hakobu/internal/config"
-	"github.com/x0ryz/hakobu/internal/deploy"
 	"github.com/x0ryz/hakobu/internal/github"
+	"github.com/x0ryz/hakobu/internal/node"
 	"github.com/x0ryz/hakobu/internal/ops"
 	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store"
@@ -220,10 +220,15 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			fail(w, err)
 			return
 		}
-		statuses, dockerErr := deploy.ContainerStatuses(r.Context())
+		// One container list per node, not one inspect per app.
+		statuses := map[node.Node]map[string]string{}
 		cards := make([]homeProject, 0, len(projects))
 		for _, p := range projects {
 			card := homeProject{Name: p.Name}
+			n := ops.ProjectNode(s, p.Name)
+			if _, ok := statuses[n]; !ok {
+				statuses[n], _ = n.Statuses(r.Context()) // nil if it doesn't answer: all down
+			}
 			apps, _ := s.ListAppsByProject(r.Context(), p.ID)
 			addLogo := func(l string) {
 				if l != "" && len(card.Logos) < 5 && !slices.Contains(card.Logos, l) {
@@ -235,7 +240,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 				card.Apps++
 				if ops.IsDeploying(a.Name) {
 					card.Deploying++
-				} else if dockerErr != nil || statuses[a.ContainerName()] != "running" {
+				} else if statuses[n][a.ContainerName()] != "running" {
 					card.Down++
 				}
 			}
@@ -270,13 +275,13 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			for _, a := range apps {
 				av := appView{App: a}
 				if canvas {
-					av = newAppView(r.Context(), a)
+					av = newAppView(r.Context(), s, a)
 				}
 				v.Apps = append(v.Apps, av)
 				if wk, err := s.GetWorker(r.Context(), a.Name); err == nil {
 					card := workerCard{Name: wk.Name, Command: string(wk.Command)}
 					if canvas {
-						card.Status, _ = deploy.ContainerStatus(r.Context(), wk.ContainerName())
+						card.Status = ops.ProjectNode(s, p.Name).State(r.Context(), wk.ContainerName()).Status
 					}
 					v.Workers[a.Name] = card
 				}
@@ -474,11 +479,11 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			if !ok {
 				return
 			}
-			p := appPage{App: newAppView(r.Context(), app), Tab: tab, DataRollbackBlocker: ops.DataRollbackBlocker(s, app), LastOOM: ops.LastOOM(s, app.Name)}
+			p := appPage{App: newAppView(r.Context(), s, app), Tab: tab, DataRollbackBlocker: ops.DataRollbackBlocker(s, app), LastOOM: ops.LastOOM(s, app.Name)}
 			p.Project, _ = s.GetProject(r.Context(), app.ProjectName)
 			if wk, err := s.GetWorker(r.Context(), app.Name); err == nil {
 				p.Worker = &wk
-				p.WorkerStatus, _ = deploy.ContainerStatus(r.Context(), wk.ContainerName())
+				p.WorkerStatus = ops.AppNode(s, app).State(r.Context(), wk.ContainerName()).Status
 			}
 			switch tab {
 			case "overview":
@@ -497,7 +502,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 				if p.OfWorker = r.URL.Query().Get("worker") != "" && p.Worker != nil; p.OfWorker {
 					container = app.Name + "-worker"
 				}
-				out, err := deploy.ContainerLogs(r.Context(), container, 300)
+				out, err := ops.AppNode(s, app).Logs(r.Context(), container, 300)
 				if err != nil {
 					p.OutputErr = err.Error()
 				}
@@ -569,7 +574,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 
 	handle("GET /apps/{a}/status", func(w http.ResponseWriter, r *http.Request) {
 		if app, ok := getApp(w, r); ok {
-			renderPage(w, r, appStatus(newAppView(r.Context(), app)))
+			renderPage(w, r, appStatus(newAppView(r.Context(), s, app)))
 		}
 	})
 
@@ -1104,7 +1109,7 @@ func registerAuthRoutes(mux *http.ServeMux, s *store.Store) {
 
 type appView struct {
 	store.App
-	deploy.State
+	node.State
 	Deploying bool
 }
 
@@ -1115,8 +1120,8 @@ type volumeBackups struct {
 	Job     ops.DBJob
 }
 
-func newAppView(ctx context.Context, a store.App) appView {
-	return appView{App: a, State: deploy.ContainerState(ctx, a.ContainerName()), Deploying: ops.IsDeploying(a.Name)}
+func newAppView(ctx context.Context, s *store.Store, a store.App) appView {
+	return appView{App: a, State: ops.AppNode(s, a).State(ctx, a.ContainerName()), Deploying: ops.IsDeploying(a.Name)}
 }
 
 type envVar struct{ Key, Value string }
