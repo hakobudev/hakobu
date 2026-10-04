@@ -2363,7 +2363,7 @@ func joinCommand(name, command string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 208, "</div><p class=\"field-hint\">Then reload this page: the server shows as connected.</p></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 208, "</div><p class=\"field-hint\">Then reload this page: the server shows as connected. If Cloudflare's Bot Fight Mode is on for the panel's domain, it takes servers in data centres for bots: allow the server's addresses first (Security → WAF → Tools → IP Access Rules, action Allow; IPv6 as its /64), or turn it off.</p></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

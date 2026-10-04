@@ -613,7 +613,7 @@ templ joinCommand(name, command string) {
 				@console(command, "")
 				@copyButton(command)
 			</div>
-			<p class="field-hint">Then reload this page: the server shows as connected.</p>
+			<p class="field-hint">Then reload this page: the server shows as connected. If Cloudflare's Bot Fight Mode is on for the panel's domain, it takes servers in data centres for bots: allow the server's addresses first (Security → WAF → Tools → IP Access Rules, action Allow; IPv6 as its /64), or turn it off.</p>
 		</div>
 	</div>
 }

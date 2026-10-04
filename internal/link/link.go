@@ -114,6 +114,9 @@ func peerKey(raw [][]byte) (ed25519.PublicKey, error) {
 type hello struct {
 	Join    string `json:"join,omitempty"` // the token's secret, the first time
 	Version string `json:"version"`
+	// Only: the node only joins (`hakobu node join`); the panel admits it
+	// and serves nothing over this connection.
+	Only bool `json:"only,omitempty"`
 }
 
 type welcome struct {
@@ -145,18 +148,20 @@ func (sv *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ws.SetReadLimit(-1)
 	conn := websocket.NetConn(context.Background(), ws, websocket.MessageBinary)
 	defer conn.Close()
-	name, version, sess, err := sv.accept(conn)
+	name, version, only, sess, err := sv.accept(conn)
 	if err != nil {
 		return
 	}
 	defer sess.Close()
-	sv.Serve(name, version, sess)
+	if !only {
+		sv.Serve(name, version, sess)
+	}
 }
 
-func (sv *Server) accept(conn net.Conn) (name, version string, sess *yamux.Session, err error) {
+func (sv *Server) accept(conn net.Conn) (name, version string, only bool, sess *yamux.Session, err error) {
 	cert, err := certificate(sv.Key)
 	if err != nil {
-		return "", "", nil, err
+		return "", "", false, nil, err
 	}
 	tc := tls.Server(conn, &tls.Config{
 		Certificates: []tls.Certificate{cert},
@@ -165,20 +170,20 @@ func (sv *Server) accept(conn net.Conn) (name, version string, sess *yamux.Sessi
 	})
 	_ = tc.SetDeadline(time.Now().Add(30 * time.Second))
 	if err := tc.Handshake(); err != nil {
-		return "", "", nil, err
+		return "", "", false, nil, err
 	}
 	certs := tc.ConnectionState().PeerCertificates
 	if len(certs) == 0 {
-		return "", "", nil, errors.New("the node showed no certificate")
+		return "", "", false, nil, errors.New("the node showed no certificate")
 	}
 	node, err := peerKey([][]byte{certs[0].Raw})
 	if err != nil {
-		return "", "", nil, err
+		return "", "", false, nil, err
 	}
 	rd := bufio.NewReader(tc)
 	var h hello
 	if err := readLine(rd, &h); err != nil {
-		return "", "", nil, err
+		return "", "", false, nil, err
 	}
 	name, admitErr := sv.Admit(node, h.Join, h.Version)
 	wel := welcome{Node: name, Version: sv.Version}
@@ -186,24 +191,49 @@ func (sv *Server) accept(conn net.Conn) (name, version string, sess *yamux.Sessi
 		wel = welcome{Error: admitErr.Error()}
 	}
 	if err := json.NewEncoder(tc).Encode(wel); err != nil {
-		return "", "", nil, err
+		return "", "", false, nil, err
 	}
 	if admitErr != nil {
-		return "", "", nil, admitErr
+		return "", "", false, nil, admitErr
 	}
 	_ = tc.SetDeadline(time.Time{})
 	sess, err = yamux.Server(bufferedConn{tc, rd}, yamuxConfig())
-	return name, h.Version, sess, err
+	return name, h.Version, h.Only, sess, err
 }
 
 // Dial connects a node to the panel at panelURL ("https://host"), checking
 // it's the panel by its key. joinSecret is the token's, the first time.
 // It returns the panel's version.
 func Dial(ctx context.Context, panelURL string, key ed25519.PrivateKey, panelKey ed25519.PublicKey, joinSecret, version string) (*yamux.Session, string, error) {
+	return dial(ctx, panelURL, key, panelKey, hello{Join: joinSecret, Version: version})
+}
+
+// Join joins a node to the panel with its token's secret, and leaves: the
+// node then connects with Dial. It returns the panel's version.
+func Join(ctx context.Context, panelURL string, key ed25519.PrivateKey, panelKey ed25519.PublicKey, joinSecret, version string) (string, error) {
+	sess, panelVersion, err := dial(ctx, panelURL, key, panelKey, hello{Join: joinSecret, Version: version, Only: true})
+	if err != nil {
+		return "", err
+	}
+	sess.Close()
+	return panelVersion, nil
+}
+
+// ErrChallenged: Cloudflare answered the node with a challenge instead of
+// passing it on to the panel.
+var ErrChallenged = errors.New("Cloudflare challenged this server instead of letting it reach the panel: " +
+	"a security setting of the panel's domain, Bot Fight Mode most likely, takes servers in data centres for bots. " +
+	"In the Cloudflare dashboard of the panel's domain, allow this server's IPv4 and IPv6 addresses " +
+	"(Security → WAF → Tools → IP Access Rules, action Allow; the IPv6 one as its /64), or turn Bot Fight Mode off")
+
+func dial(ctx context.Context, panelURL string, key ed25519.PrivateKey, panelKey ed25519.PublicKey, h hello) (*yamux.Session, string, error) {
 	u := strings.TrimSuffix(panelURL, "/") + Path
 	u = "ws" + strings.TrimPrefix(u, "http")
-	ws, _, err := websocket.Dial(ctx, u, nil)
+	ws, resp, err := websocket.Dial(ctx, u, nil)
 	if err != nil {
+		if resp != nil && resp.StatusCode == http.StatusForbidden && resp.Header.Get("Cf-Mitigated") == "challenge" {
+			return nil, "", ErrChallenged
+		}
 		return nil, "", err
 	}
 	ws.SetReadLimit(-1)
@@ -237,7 +267,7 @@ func Dial(ctx context.Context, panelURL string, key ed25519.PrivateKey, panelKey
 	if err := tc.HandshakeContext(ctx); err != nil {
 		return fail(err)
 	}
-	if err := json.NewEncoder(tc).Encode(hello{Join: joinSecret, Version: version}); err != nil {
+	if err := json.NewEncoder(tc).Encode(h); err != nil {
 		return fail(err)
 	}
 	rd := bufio.NewReader(tc)

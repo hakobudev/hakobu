@@ -82,11 +82,10 @@ var nodeJoinCmd = &cobra.Command{
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
-		sess, panelVersion, err := link.Dial(ctx, panel, key, tok.PanelKey, tok.Secret, version)
+		panelVersion, err := link.Join(ctx, panel, key, tok.PanelKey, tok.Secret, version)
 		if err != nil {
 			return err
 		}
-		sess.Close()
 		b, _ := json.MarshalIndent(nodeConfig{Panel: panel, PanelKey: base64.StdEncoding.EncodeToString(tok.PanelKey)}, "", "  ")
 		if err := os.WriteFile(nodeConfigFile, b, 0o600); err != nil {
 			return err

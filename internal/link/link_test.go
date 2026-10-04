@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
@@ -195,4 +196,41 @@ func mustKey(t *testing.T) ed25519.PrivateKey {
 		t.Fatal(err)
 	}
 	return k
+}
+
+// Joining admits the node and serves nothing: the node connects for real
+// with Dial afterwards.
+func TestJoinOnlyJoins(t *testing.T) {
+	url, _, token, sessions, _ := panel(t)
+	key := mustKey(t)
+	version, err := Join(context.Background(), url, key, token.PanelKey, token.Secret, "v1")
+	if err != nil || version != "v1" {
+		t.Fatalf("join: %q, %v", version, err)
+	}
+	select {
+	case <-sessions:
+		t.Error("the panel served a connection that only joined")
+	case <-time.After(200 * time.Millisecond):
+	}
+	sess, _, err := Dial(context.Background(), url, key, token.PanelKey, "", "v1")
+	if err != nil {
+		t.Fatalf("the joined node can't connect: %v", err)
+	}
+	sess.Close()
+	<-sessions
+}
+
+// A challenge from Cloudflare (Bot Fight Mode) says what it is and what to
+// do, not just "403".
+func TestCloudflareChallengeIsExplained(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cf-Mitigated", "challenge")
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+	key := mustKey(t)
+	_, _, err := Dial(context.Background(), srv.URL, key, Public(key), "", "v1")
+	if !errors.Is(err, ErrChallenged) || !strings.Contains(err.Error(), "IP Access Rules") {
+		t.Errorf("err = %v", err)
+	}
 }
