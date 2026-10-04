@@ -277,7 +277,8 @@ func StartVerify(s *store.Store, dbName string, backupID int64) error {
 	return startDBJob(dbName, "checking a backup", func() error { return VerifyBackup(s, b.ID) })
 }
 
-// StartRestore replays a backup into the database in the background.
+// StartRestore replaces the database's content with a backup in the
+// background.
 func StartRestore(s *store.Store, dbName string, backupID int64) error {
 	b, err := dbBackup(s, dbName, backupID)
 	if err != nil {
@@ -475,8 +476,8 @@ func verify(s *store.Store, b store.Backup) (tables int, err error) {
 	return n.VerifyDatabaseBackup(ctx(), dbSpec(d), dl)
 }
 
-// restoreBackup replays a backup into its database. Objects and rows that
-// already exist cause errors rather than being overwritten.
+// restoreBackup replaces its database's content with a backup; a backup
+// that doesn't restore changes nothing.
 func restoreBackup(s *store.Store, b store.Backup) error {
 	d, err := s.GetDatabase(ctx(), b.Database)
 	if err != nil {

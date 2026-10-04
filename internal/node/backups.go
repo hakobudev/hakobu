@@ -70,16 +70,15 @@ func (n Local) BackupVolume(ctx context.Context, app, name string, up Upload) (U
 	})
 }
 
-// RestoreDatabase replays a backup into the database, once all of it is
-// downloaded and matches its SHA-256. Objects and rows that already exist
-// cause errors rather than being overwritten.
+// RestoreDatabase replaces the database's content with a backup, once all
+// of it is downloaded and matches its SHA-256 (replaceWith).
 func (Local) RestoreDatabase(ctx context.Context, d DBSpec, dl Download) error {
 	body, err := download(ctx, dl)
 	if err != nil {
 		return err
 	}
 	defer body.Close()
-	return backup.RestoreDatabase(ctx, PostgresContainer, d.User, d.Name, body)
+	return replaceWith(ctx, d, body)
 }
 
 // VerifyDatabaseBackup restores a backup into a scratch database next to

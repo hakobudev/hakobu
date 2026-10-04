@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -221,9 +222,7 @@ func (Local) SetAside(app string, dump Dump) string {
 	return keep
 }
 
-// ReplaceDatabase swaps the database's content for a dump: the dump is
-// restored into a scratch database first, so a broken one changes
-// nothing, then renamed over it. Nothing may be connected to it.
+// ReplaceDatabase swaps the database's content for a dump (replaceWith).
 func (Local) ReplaceDatabase(ctx context.Context, d DBSpec, dump Dump) error {
 	f, err := os.Open(dump.path())
 	if err != nil {
@@ -234,18 +233,26 @@ func (Local) ReplaceDatabase(ctx context.Context, d DBSpec, dump Dump) error {
 	if err != nil {
 		return fmt.Errorf("snapshot %s: %w", dump, err)
 	}
+	return replaceWith(ctx, d, r)
+}
+
+// replaceWith swaps the database's content for a dump: the dump is
+// restored into a scratch database first, so a broken one changes
+// nothing, then renamed over it. Whatever is connected to the database is
+// cut off.
+func replaceWith(ctx context.Context, d DBSpec, dump io.Reader) error {
 	// Database names can't contain dots, so this never clashes with one.
 	scratch := "hakobu.restore." + d.Name
 	drop, err := scratchDatabase(ctx, d, scratch)
 	if err != nil {
 		return err
 	}
-	if err := backup.RestoreDatabase(ctx, PostgresContainer, d.User, scratch, r); err != nil {
+	if err := backup.RestoreDatabase(ctx, PostgresContainer, d.User, scratch, dump); err != nil {
 		drop()
 		return err
 	}
 	for _, sql := range []string{
-		fmt.Sprintf(`DROP DATABASE "%s" WITH (FORCE)`, d.Name),
+		fmt.Sprintf(`DROP DATABASE IF EXISTS "%s" WITH (FORCE)`, d.Name),
 		fmt.Sprintf(`ALTER DATABASE "%s" RENAME TO "%s"`, scratch, d.Name),
 	} {
 		if err := deploy.PostgresExec(ctx, PostgresContainer, sql); err != nil {

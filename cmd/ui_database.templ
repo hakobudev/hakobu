@@ -119,7 +119,7 @@ templ databaseView(v databasePage) {
 								<button
 									class="btn btn-sm btn-invisible"
 									hx-post={ "/databases/" + v.DB.Name + "/backups/" + itoa(b.ID) + "/restore" }
-									hx-confirm="If rows in the database conflict with the backup's, the restore fails and nothing changes."
+									hx-confirm="The database's current data is replaced with the backup's, and apps connected to it reconnect. A backup that doesn't restore changes nothing."
 									data-confirm-title={ "Restore into " + v.DB.Name + "?" }
 									data-confirm-action="Restore backup"
 									disabled?={ v.Job.Running != "" }
