@@ -700,7 +700,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 		}
 		file, keys := ops.FindEnvExampleKeys(s, app)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"file": file, "keys": keys})
+		_ = json.NewEncoder(w).Encode(map[string]any{"file": file, "keys": keys})
 	})
 
 	handle("GET /apps/{a}/traces/{id}", func(w http.ResponseWriter, r *http.Request) {

@@ -113,19 +113,6 @@ func tunnelAccounts(s *store.Store) []cfAccount {
 	return out
 }
 
-// projectAccounts maps each project's ID to its account's (0: the panel's).
-func projectAccounts(s *store.Store) (map[int64]int64, error) {
-	projects, err := s.ListProjects(ctx())
-	if err != nil {
-		return nil, err
-	}
-	m := make(map[int64]int64, len(projects))
-	for _, p := range projects {
-		m[p.ID] = p.CloudflareAccountID.Int64
-	}
-	return m, nil
-}
-
 // Clients' accounts, as the panel manages them.
 
 // ClientAccount is a client's Cloudflare account and its projects.

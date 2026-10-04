@@ -180,7 +180,7 @@ func TestDockerReconcileSlots(t *testing.T) {
 		t.Fatal(err)
 	}
 	app := newDockerTestApp(t, s)
-	t.Cleanup(func() { DeleteApp(s, app.Name) })
+	t.Cleanup(func() { _ = DeleteApp(s, app.Name) })
 	buildTestImage(t, nextImageTag(app), "v1")
 	var out strings.Builder
 	if err := rollOut(s, app, node.Next, &out); err != nil {
