@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/x0ryz/hakobu/internal/cloudflare"
+
 	"github.com/x0ryz/hakobu/internal/s3"
 	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store"
@@ -82,6 +84,9 @@ func createR2Bucket(s *store.Store, p store.Project, st *store.Storage) error {
 	st.AccountID, st.Bucket = a.AccountID, bucketName(p.Name, st.Name, suffix)
 	st.AccessKeyID, st.SecretAccessKey = "", ""
 	if err := a.Client.CreateBucket(a.AccountID, st.Bucket); err != nil {
+		if cloudflare.R2Off(err) {
+			return r2Explained(a.AccountID, a.label(), err)
+		}
 		return fmt.Errorf("creating the R2 bucket: %w", err)
 	}
 	return nil

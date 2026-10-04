@@ -23,6 +23,8 @@ type settingsPage struct {
 	Token                         []cloudflare.Permission
 	Clients                       []ops.ClientAccount
 	ClientTokenURL                string
+	R2Off                         bool   // R2 isn't on in the panel's account
+	R2URL                         string // where it's turned on
 	Servers                       []ops.Server
 	Usage                         []usageRow
 	OAuthGrants                   []store.OAuthGrant
@@ -378,6 +380,11 @@ templ settingsBackups(v settingsPage) {
 		{{ action = turnOnBackups() }}
 	}
 	@section("backups", "Backups", "", action) {
+		if v.R2Off {
+			<div class="mb-4">
+				@r2OffFlash("your Cloudflare account", v.R2URL, "you")
+			</div>
+		}
 		<div class="box">
 			<div class="box-body">
 				if v.BackupBucket != "" {
@@ -630,9 +637,17 @@ templ settingsClients(v settingsPage) {
 									@ic("users", "icon-muted")
 									<span class="row-title">{ c.Name }</span>
 								</span>
-								<span class="row-meta">{ clientProjects(c) }</span>
+								<span class="row-meta">
+									if c.R2Off {
+										<span class="badge badge-attention">R2 off</span>
+									}
+									{ clientProjects(c) }
+								</span>
 							</summary>
 							<div class="box-body space-y-4">
+								if c.R2Off {
+									@r2OffFlash(c.Name+"'s Cloudflare account", c.R2URL, "the client")
+								}
 								<div class="kv">
 									<span class="kv-key">Account ID</span>
 									<span class="mono">{ c.AccountID }</span>
@@ -897,4 +912,12 @@ templ notifyForm(v notifyFormView) {
 			</button>
 		</div>
 	</form>
+}
+
+// r2OffFlash says R2 isn't on in an account yet, and where whoever owns it
+// turns it on.
+templ r2OffFlash(account, url, who string) {
+	@flash("warn") {
+		R2 isn't turned on in { account } yet, so storages and backups can't be made there. <a href={ templ.SafeURL(url) } target="_blank" rel="noopener">Turn it on</a> ({ who }: Cloudflare asks for a payment method; 10 GB are free).
+	}
 }

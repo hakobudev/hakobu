@@ -16,6 +16,8 @@ type projectView struct {
 	Sealed           []string
 	SuggestedDB      string
 	SuggestedStorage string
+	R2Off            bool   // R2 isn't on in the project's account
+	R2URL            string // where it's turned on
 	BackupBucket     string
 	Volumes          map[string][]volumeCard // by app
 	Calls            map[string][]string     // app → apps whose address its variables name
@@ -642,6 +644,11 @@ templ projectDialogs(v projectView) {
 				</select>
 			}
 			<p class="field-hint" data-show-if="provider=r2">hakobu creates the bucket in { accountName(v.Client) }; then you give it the keys of a token for that bucket alone. R2's free plan includes 10 GB, and downloads are free.</p>
+			if v.R2Off {
+				<div data-show-if="provider=r2">
+					@r2OffFlash(accountName(v.Client), v.R2URL, r2Owner(v.Client))
+				</div>
+			}
 			<div class="space-y-3" data-show-if="provider=s3" hidden>
 				<input name="endpoint" placeholder="Endpoint URL" class="input mono"/>
 				<input name="bucket" placeholder="Bucket" class="input mono"/>
@@ -662,6 +669,14 @@ func accountName(client string) string {
 		return "your Cloudflare account"
 	}
 	return client + "'s Cloudflare account"
+}
+
+// r2Owner is who turns R2 on in the project's account.
+func r2Owner(client string) string {
+	if client == "" {
+		return "you"
+	}
+	return "the client"
 }
 
 func r2Option(client string) string {

@@ -30,6 +30,28 @@ func objectPath(accountID, bucket, key string) string {
 	return r2Path(accountID, bucket) + "/objects/" + strings.Join(segments, "/")
 }
 
+// r2Off is how Cloudflare refuses R2 calls in an account where R2 was
+// never turned on, which only its owner can do, in the dashboard.
+const r2Off = "enable R2 through the Cloudflare Dashboard"
+
+// R2Off reports whether err is Cloudflare refusing because R2 isn't on in
+// the account.
+func R2Off(err error) bool { return err != nil && strings.Contains(err.Error(), r2Off) }
+
+// R2URL is the account's R2 page in the dashboard, where R2 is turned on.
+func R2URL(accountID string) string {
+	return "https://dash.cloudflare.com/" + accountID + "/r2/overview"
+}
+
+// R2On asks whether R2 is on in the account, by listing a bucket.
+func (c Client) R2On(accountID string) (bool, error) {
+	err := c.call("GET", "/accounts/"+accountID+"/r2/buckets?per_page=1", nil, nil)
+	if R2Off(err) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
 func (c Client) CreateBucket(accountID, name string) error {
 	return c.call("POST", "/accounts/"+accountID+"/r2/buckets", map[string]string{"name": name}, nil)
 }

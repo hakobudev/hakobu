@@ -60,7 +60,10 @@ func createBackupBucket(c cloudflare.Client, account string) (string, error) {
 	}
 	bucket := "hakobu-backups-" + suffix
 	if err := c.CreateBucket(account, bucket); err != nil {
-		return "", fmt.Errorf("creating the R2 bucket failed (is R2 enabled in the Cloudflare dashboard?): %w", err)
+		if cloudflare.R2Off(err) {
+			return "", r2Explained(account, "this Cloudflare account", err)
+		}
+		return "", fmt.Errorf("creating the R2 bucket failed: %w", err)
 	}
 	if err := c.LockBucket(account, bucket, backupLockDays); err != nil {
 		return "", err

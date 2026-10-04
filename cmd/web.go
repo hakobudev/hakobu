@@ -333,6 +333,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			v.Sealed = ops.SealedKeys(s, "project", p.Name)
 			v.SuggestedDB = ops.SuggestDatabaseName(s, p)
 			v.SuggestedStorage = ops.SuggestStorageName(s, p)
+			v.R2Off, v.R2URL = ops.ProjectR2Off(s, p)
 			v.BackupBucket = ops.BackupBucket(s)
 			renderPage(w, r, projectPage(v))
 		}
@@ -808,6 +809,8 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 		if v.CloudflareConnected {
 			v.Token = ops.TokenPermissions(s, false)
 			v.Clients, _ = ops.ClientAccounts(s)
+			ops.CheckClientsR2(s, v.Clients)
+			v.R2Off, v.R2URL = ops.PanelR2Off(s)
 			v.ClientTokenURL = ops.ClientTokenURL("client")
 		}
 		if usage, err := ops.CurrentUsage(s); err == nil {

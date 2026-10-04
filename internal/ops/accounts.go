@@ -121,6 +121,19 @@ type ClientAccount struct {
 	Name      string
 	AccountID string
 	Projects  []string
+	R2Off     bool   // known only after CheckClientsR2
+	R2URL     string // where the client turns R2 on
+}
+
+// CheckClientsR2 tells which clients haven't turned R2 on (R2Off).
+func CheckClientsR2(s *store.Store, clients []ClientAccount) {
+	for i, c := range clients {
+		a, err := s.GetCloudflareAccount(ctx(), c.ID)
+		if err != nil {
+			continue
+		}
+		clients[i].R2Off, clients[i].R2URL = R2Off(clientAccount(a).Client, a.AccountID), cloudflare.R2URL(a.AccountID)
+	}
 }
 
 func ClientAccounts(s *store.Store) ([]ClientAccount, error) {
