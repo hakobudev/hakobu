@@ -203,8 +203,14 @@ func StartDeploy(s *store.Store, appName, trigger string) error {
 		}
 		n := AppNode(s, app)
 		// Drops the Next build in every case: a failed build or health
-		// check leaves nothing behind, a successful one is Latest by then.
-		defer n.DropImage(ctx(), app.Name, node.Next)
+		// check leaves nothing behind, a successful one is Latest by then;
+		// unless it's live and still to become Latest (pending below).
+		pending := false
+		defer func() {
+			if !pending {
+				n.DropImage(ctx(), app.Name, node.Next)
+			}
+		}()
 		stack, err := n.Build(ctx(), node.BuildSpec{
 			App: app.Name, Repo: app.Repo, CloneURL: github.CloneURL(app.Repo), Token: token, Path: app.BuildPath, Strategy: app.BuildStrategy,
 		}, out)
@@ -216,7 +222,16 @@ func StartDeploy(s *store.Store, appName, trigger string) error {
 		if err := rollOut(s, app, node.Next, out); err != nil {
 			return err
 		}
-		if err := withSnapshot(s, app, snapshot, out, func() error { return promote(s, app) }); err != nil {
+		if err := withSnapshot(s, app, snapshot, out, func() error { return promote(s, app) }); errors.Is(err, node.ErrUnreachable) {
+			// The new version serves, but its server dropped off before
+			// it became Latest there; that's finished as it connects
+			// again (finishPromotions), so Latest is what serves.
+			if perr := s.AddPendingPromotion(ctx(), app.Name); perr != nil {
+				return errors.Join(err, perr)
+			}
+			pending = true
+			fmt.Fprintln(out, "the new version is live; its server dropped off before keeping it as the latest build, which is done when it's back:", err)
+		} else if err != nil {
 			return err
 		}
 		// For the panel's logo of the app, once this build is the live one;
@@ -226,13 +241,55 @@ func StartDeploy(s *store.Store, appName, trigger string) error {
 				fmt.Fprintln(out, "warning: failed to note the app's stack:", err)
 			}
 		}
-		if w, err := s.GetWorker(ctx(), app.Name); err == nil {
+		if w, err := s.GetWorker(ctx(), app.Name); err == nil && !pending {
 			if err := runWorker(s, app, w, out); err != nil {
 				return fmt.Errorf("app deployed, but worker failed: %w", err)
 			}
 		}
 		return nil
 	})
+}
+
+// finishPromotions makes the live build Latest on a server that dropped
+// off mid-deploy (see StartDeploy), then drops its Next tag and starts the
+// app's worker on it.
+func finishPromotions(s *store.Store, sv server, n node.Node) {
+	apps, err := s.ListPendingPromotions(ctx())
+	if err != nil {
+		return
+	}
+	for _, name := range apps {
+		app, err := s.GetApp(ctx(), name)
+		if err != nil {
+			continue
+		}
+		p, err := s.GetProject(ctx(), app.ProjectName)
+		if err != nil {
+			continue
+		}
+		if on, err := projectServer(s, p); err != nil || on.ID != sv.ID {
+			continue
+		}
+		// No Next: the server promoted it before its answer was lost.
+		if next, err := n.HasImage(ctx(), app.Name, node.Next); err != nil {
+			continue
+		} else if next {
+			if err := n.Promote(ctx(), app.Name); err != nil && !errors.Is(err, node.ErrPreviousNotKept) {
+				fmt.Println("keeping the live build of", app.Name, "as the latest:", err)
+				continue
+			}
+			n.DropImage(ctx(), app.Name, node.Next)
+		}
+		if err := s.DeletePendingPromotion(ctx(), app.Name); err != nil {
+			fmt.Println(app.Name+":", err)
+		}
+		if w, err := s.GetWorker(ctx(), app.Name); err == nil {
+			if err := runWorker(s, app, w, io.Discard); err != nil {
+				fmt.Println("starting the worker of", app.Name+":", err)
+			}
+		}
+		fmt.Println("kept the live build of", app.Name, "as the latest on", sv.label())
+	}
 }
 
 // withSnapshot runs retag, which gives the Previous build a new image, and

@@ -12,6 +12,15 @@ import (
 	"github.com/x0ryz/hakobu/internal/secret"
 )
 
+const addPendingPromotion = `-- name: AddPendingPromotion :exec
+INSERT OR IGNORE INTO pending_promotions (app_name) VALUES (?)
+`
+
+func (q *Queries) AddPendingPromotion(ctx context.Context, appName string) error {
+	_, err := q.db.ExecContext(ctx, addPendingPromotion, appName)
+	return err
+}
+
 const addVolume = `-- name: AddVolume :exec
 
 INSERT INTO volumes (app_name, name, mount_path) VALUES (?, ?, ?)
@@ -529,6 +538,15 @@ DELETE FROM oauth_grants WHERE id = ?
 
 func (q *Queries) DeleteOAuthGrant(ctx context.Context, id int64) error {
 	_, err := q.db.ExecContext(ctx, deleteOAuthGrant, id)
+	return err
+}
+
+const deletePendingPromotion = `-- name: DeletePendingPromotion :exec
+DELETE FROM pending_promotions WHERE app_name = ?
+`
+
+func (q *Queries) DeletePendingPromotion(ctx context.Context, appName string) error {
+	_, err := q.db.ExecContext(ctx, deletePendingPromotion, appName)
 	return err
 }
 
@@ -1902,6 +1920,33 @@ func (q *Queries) ListOAuthGrants(ctx context.Context, expiresAt string) ([]OAut
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPendingPromotions = `-- name: ListPendingPromotions :many
+SELECT app_name FROM pending_promotions ORDER BY app_name
+`
+
+func (q *Queries) ListPendingPromotions(ctx context.Context) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listPendingPromotions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var app_name string
+		if err := rows.Scan(&app_name); err != nil {
+			return nil, err
+		}
+		items = append(items, app_name)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

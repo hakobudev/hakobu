@@ -502,3 +502,12 @@ UPDATE server_tunnels SET tunnel_token = ? WHERE id = ?;
 
 -- name: DeleteServerTunnel :exec
 DELETE FROM server_tunnels WHERE id = ?;
+
+-- name: AddPendingPromotion :exec
+INSERT OR IGNORE INTO pending_promotions (app_name) VALUES (?);
+
+-- name: ListPendingPromotions :many
+SELECT app_name FROM pending_promotions ORDER BY app_name;
+
+-- name: DeletePendingPromotion :exec
+DELETE FROM pending_promotions WHERE app_name = ?;

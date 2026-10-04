@@ -178,6 +178,9 @@ func (f *Fake) Promote(ctx context.Context, app string) error {
 	if err != nil && !errors.Is(err, node.ErrPreviousNotKept) {
 		return err
 	}
+	if img[node.Next] == "" {
+		return fmt.Errorf("no build of %s to promote", app)
+	}
 	if err == nil && img[node.Latest] != "" {
 		img[node.Previous] = img[node.Latest]
 	}

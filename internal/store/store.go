@@ -257,7 +257,7 @@ func (s *Store) DeleteAppCascade(ctx context.Context, name string) error {
 	q := s.WithTx(tx)
 	// Backups of its volumes stay in the bucket, but a new app of the same
 	// name mustn't list (and rotate away) them.
-	for _, del := range []func(context.Context, string) error{q.DeleteWorker, q.DeleteVolumesOfApp, q.DeleteVolumeBackupsOfApp, q.DeleteDeployLogsOfApp, q.DeleteApp} {
+	for _, del := range []func(context.Context, string) error{q.DeleteWorker, q.DeleteVolumesOfApp, q.DeleteVolumeBackupsOfApp, q.DeleteDeployLogsOfApp, q.DeletePendingPromotion, q.DeleteApp} {
 		if err := del(ctx, name); err != nil {
 			return err
 		}

@@ -188,6 +188,10 @@ type Owner struct {
 	GitHubEmail string
 }
 
+type PendingPromotion struct {
+	AppName string
+}
+
 type Project struct {
 	ID                  int64
 	Name                string

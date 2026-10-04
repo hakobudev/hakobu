@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -252,5 +253,64 @@ func TestLinkDropsMidRollOut(t *testing.T) {
 	ReconcileSlots(s)
 	if _, left := f.Containers["web-green"]; left || f.Containers["web-blue"] != "running" {
 		t.Errorf("after Reconcile: %v", f.Containers)
+	}
+}
+
+// The server drops off once the new version serves but before it's the
+// Latest build there: the deploy counts, and the build becomes Latest as
+// the server connects again, whether or not it had promoted it already.
+func TestServerDropsAfterTheSwitch(t *testing.T) {
+	for _, promotedFirst := range []bool{false, true} {
+		s, f := fakeNode(t)
+		if err := s.CreateNode(ctx(), store.CreateNodeParams{Name: "far"}); err != nil {
+			t.Fatal(err)
+		}
+		r, closeLink, err := nodetest.Link(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		links.mu.Lock()
+		links.m["far"] = &linked{remote: r.(*node.Remote)}
+		links.mu.Unlock()
+		far, _ := s.GetNodeByName(ctx(), "far")
+		shop, _ := s.GetProject(ctx(), "shop")
+		if err := s.SetProjectNode(ctx(), store.SetProjectNodeParams{NodeID: sql.NullInt64{Int64: far.ID, Valid: true}, ID: shop.ID}); err != nil {
+			t.Fatal(err)
+		}
+		f.Images["web"][node.Next] = "build-new"
+		if promotedFirst {
+			f.OnCall("Promote", func() { go closeLink() }) // the answer is lost, the work done
+		} else {
+			f.OnCall("Retire", closeLink)
+		}
+		app := webApp(t, s)
+		var out strings.Builder
+		if err := rollOut(s, app, node.Next, &out); err != nil {
+			t.Fatal(err)
+		}
+		err = withSnapshot(s, app, "", &out, func() error { return promote(s, app) })
+		if !promotedFirst && !errors.Is(err, node.ErrUnreachable) {
+			t.Fatalf("promote on a server gone: %v", err)
+		}
+		if err := s.AddPendingPromotion(ctx(), "web"); err != nil {
+			t.Fatal(err)
+		}
+		f.OnCall("Retire", nil)
+		f.OnCall("Promote", nil)
+		back, closeBack, err := nodetest.Link(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		finishPromotions(s, server{ID: far.ID, Name: "far"}, back)
+		closeBack()
+		if f.Images["web"][node.Latest] != "build-new" || f.Images["web"][node.Next] != "" {
+			t.Errorf("promoted first %v: images %v", promotedFirst, f.Images["web"])
+		}
+		if left, _ := s.ListPendingPromotions(ctx()); len(left) != 0 {
+			t.Errorf("promoted first %v: still pending %v", promotedFirst, left)
+		}
+		links.mu.Lock()
+		delete(links.m, "far")
+		links.mu.Unlock()
 	}
 }

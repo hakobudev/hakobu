@@ -283,6 +283,7 @@ func serverConnected(s *store.Store, name string, n node.Node, watching context.
 		}
 	}
 	n.Reconcile(ctx(), specs)
+	finishPromotions(s, sv, n)
 	for _, spec := range specs {
 		n.EnsureProxy(ctx(), spec)
 	}
