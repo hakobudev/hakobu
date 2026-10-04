@@ -209,6 +209,20 @@ the one repository.
 
 The app gets `PORT` to listen on; hakobu detects the port it actually listens on either way.
 
+### Moving a database in
+
+A database from another host comes in as a backup of a hakobu database. With backups on, on
+the panel's server:
+
+```bash
+ssh old-host 'pg_dump -Fc -U postgres mydb' | sudo -u hakobu /opt/hakobu/hakobu database import mydb -
+```
+
+Only pg_dump's custom format (`-Fc`) is taken. On the database's page, **Check** restores the
+dump into a scratch database and counts its tables; **Restore** replaces the database's data with
+it (objects become the database role's, grants are dropped). A restore that fails changes nothing,
+so a trial move and the real one later are the same two steps.
+
 ## Local development
 
 ```bash

@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"net"
@@ -649,6 +650,86 @@ func TestDockerRestoreOnNewServer(t *testing.T) {
 	}
 	// The recreated role logs in with the password apps were given.
 	dockerOut(t, "exec", "-e", "PGPASSWORD="+string(d.Password), node.PostgresContainer, "psql", "-h", "127.0.0.1", "-U", d.User, "-d", d.Name, "-c", "SELECT 1")
+	must(DeleteDatabase(s, d.Name))
+}
+
+// TestDockerImportDump moves a database in from elsewhere: a dump owned by
+// the superuser, with an extension, replaces a database that already has
+// tables, and the app's role owns what it restored.
+func TestDockerImportDump(t *testing.T) {
+	if os.Getenv("HAKOBU_DOCKER_TEST") == "" {
+		t.Skip("set HAKOBU_DOCKER_TEST=1 to run against the local Docker")
+	}
+	fakeR2(t)
+	suffix, _ := RandomHex(3)
+	old := node.PostgresContainer
+	node.PostgresContainer = "zt-pg-" + suffix
+	t.Cleanup(func() {
+		_ = deploy.RemoveContainer(ctx(), node.PostgresContainer)
+		_ = deploy.RemoveVolume(ctx(), node.PostgresContainer+"_data")
+		node.PostgresContainer = old
+	})
+	dir := t.TempDir()
+	t.Chdir(dir) // data/tmp
+	s, err := store.Open(filepath.Join(dir, "hakobu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(s.SaveCloudflareToken(ctx(), "tok"))
+	must(s.SaveCloudflareTunnel(ctx(), store.SaveCloudflareTunnelParams{AccountID: "acc", TunnelID: "t"}))
+	must(SetupBackups(s))
+	project := "zt" + suffix
+	must(CreateProject(s, project))
+	t.Cleanup(func() { _ = removeProjectNetworks(s, project) })
+	must(CreateDatabase(s, project, "zt"+suffix))
+	d, _ := s.GetDatabase(ctx(), "zt"+suffix)
+	// The app already migrated an empty schema, as after a first deploy.
+	dockerOut(t, "exec", node.PostgresContainer, "psql", "-U", d.User, "-d", d.Name, "-c", "CREATE TABLE contacts (name text)")
+
+	// The other host's database, made by its superuser.
+	dockerOut(t, "exec", "-u", "postgres", node.PostgresContainer, "createdb", "-U", "postgres", "elsewhere")
+	dockerOut(t, "exec", "-u", "postgres", node.PostgresContainer, "psql", "-U", "postgres", "-d", "elsewhere", "-c",
+		"CREATE EXTENSION pg_trgm; CREATE TABLE contacts (name text); INSERT INTO contacts VALUES ('Kasl'); CREATE INDEX ON contacts USING gin (name gin_trgm_ops); GRANT SELECT ON contacts TO PUBLIC")
+	dump, err := exec.Command("docker", "exec", "-u", "postgres", node.PostgresContainer, "pg_dump", "-Fc", "-U", "postgres", "-d", "elsewhere").Output()
+	must(err)
+
+	if _, err := ImportDump(s, d.Name, strings.NewReader("CREATE TABLE x;")); err == nil {
+		t.Error("imported a plain SQL dump")
+	}
+	id, err := ImportDump(s, d.Name, bytes.NewReader(dump))
+	must(err)
+	must(VerifyBackup(s, id))
+	b, err := s.GetBackup(ctx(), id)
+	must(err)
+	if b.Tables != 1 {
+		t.Errorf("checked backup has %d tables", b.Tables)
+	}
+	must(restoreBackup(s, b))
+	if n := dockerOut(t, "exec", node.PostgresContainer, "psql", "-U", d.User, "-d", d.Name, "-Atc",
+		"SELECT name FROM contacts WHERE name % 'Kas'"); n != "Kasl" {
+		t.Errorf("restored rows = %q", n)
+	}
+	if owner := dockerOut(t, "exec", node.PostgresContainer, "psql", "-U", d.User, "-d", d.Name, "-Atc",
+		"SELECT tableowner FROM pg_tables WHERE tablename = 'contacts'"); owner != d.User {
+		t.Errorf("contacts is owned by %q", owner)
+	}
+	// Restoring again replaces the data rather than clashing with it.
+	dockerOut(t, "exec", node.PostgresContainer, "psql", "-U", d.User, "-d", d.Name, "-c", "INSERT INTO contacts VALUES ('later')")
+	must(restoreBackup(s, b))
+	if n := dockerOut(t, "exec", node.PostgresContainer, "psql", "-U", d.User, "-d", d.Name, "-Atc", "SELECT count(*) FROM contacts"); n != "1" {
+		t.Errorf("after the second restore, %s rows", n)
+	}
+	// The renamed database still keeps other roles out.
+	if out, err := exec.Command("docker", "exec", node.PostgresContainer, "psql", "-U", "postgres", "-d", d.Name, "-Atc",
+		"SELECT has_database_privilege('public', current_database(), 'CONNECT')").CombinedOutput(); err != nil || strings.TrimSpace(string(out)) != "f" {
+		t.Errorf("PUBLIC may connect: %s %v", out, err)
+	}
 	must(DeleteDatabase(s, d.Name))
 }
 

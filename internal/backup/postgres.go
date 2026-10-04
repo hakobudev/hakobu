@@ -34,9 +34,10 @@ func DumpDatabase(ctx context.Context, containerName, dbUser, dbName string, w i
 
 // RestoreDatabase replays a dump into dbName as dbUser, in one transaction
 // that stops at the first error: it either fully applies or changes
-// nothing.
+// nothing. Every object ends up dbUser's and grants are skipped, so a dump
+// made elsewhere (owned by "postgres", say) restores as well as hakobu's.
 func RestoreDatabase(ctx context.Context, containerName, dbUser, dbName string, dump io.Reader) error {
-	cmd := exec.CommandContext(ctx, "docker", "exec", "-i", "-u", "postgres", containerName, "pg_restore", "-U", dbUser, "-d", dbName, "--single-transaction", "--exit-on-error")
+	cmd := exec.CommandContext(ctx, "docker", "exec", "-i", "-u", "postgres", containerName, "pg_restore", "-U", dbUser, "-d", dbName, "--single-transaction", "--exit-on-error", "--no-owner", "--no-acl")
 	cmd.Stdin = dump
 	stderr := &tail{}
 	cmd.Stderr = stderr
