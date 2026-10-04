@@ -5,24 +5,25 @@ import "github.com/x0ryz/hakobu/internal/store"
 // projectView is a project's pages: its canvas, shared variables
 // and settings.
 type projectView struct {
-	Project      store.Project
-	Tab          string // "", "variables" or "settings"
-	Apps         []appView
-	Workers      map[string]workerCard
-	LastDeploy   map[string]store.DeployLog
-	Databases    []store.Database
-	LastBackup   map[string]store.Backup
-	Storages     []store.Storage
-	Sealed       []string
-	SuggestedDB  string
-	BackupBucket string
-	Volumes      map[string][]volumeCard // by app
-	Calls        map[string][]string     // app → apps whose address its variables name
-	Watchdog     bool
-	Client       string   // the client whose Cloudflare account the project is in, "" for yours
-	Clients      []string // every client, to move the project to
-	Server       string   // the server it runs on, "" for the panel's
-	Servers      []string // the servers that joined, to move it to while it's empty
+	Project          store.Project
+	Tab              string // "", "variables" or "settings"
+	Apps             []appView
+	Workers          map[string]workerCard
+	LastDeploy       map[string]store.DeployLog
+	Databases        []store.Database
+	LastBackup       map[string]store.Backup
+	Storages         []store.Storage
+	Sealed           []string
+	SuggestedDB      string
+	SuggestedStorage string
+	BackupBucket     string
+	Volumes          map[string][]volumeCard // by app
+	Calls            map[string][]string     // app → apps whose address its variables name
+	Watchdog         bool
+	Client           string   // the client whose Cloudflare account the project is in, "" for yours
+	Clients          []string // every client, to move the project to
+	Server           string   // the server it runs on, "" for the panel's
+	Servers          []string // the servers that joined, to move it to while it's empty
 }
 
 // volumeCard is an app's volume on the canvas, with its latest backup.
@@ -620,7 +621,7 @@ templ projectDialogs(v projectView) {
 	@dialog("new-database", "New database") {
 		<form hx-post={ "/projects/" + v.Project.Name + "/databases" } class="space-y-4">
 			@field("Name", "Lowercase letters, digits, dashes and underscores, starting with a letter.") {
-				<input name="name" class="input mono" placeholder={ dbPlaceholder(v.SuggestedDB) } required?={ v.SuggestedDB == "" } pattern="[a-z][a-z0-9_\-]{0,39}"/>
+				<input name="name" class="input mono" placeholder={ namePlaceholder(v.SuggestedDB, "e.g. main") } required?={ v.SuggestedDB == "" } pattern="[a-z][a-z0-9_\-]{0,39}"/>
 			}
 			<p class="field-hint">PostgreSQL with its own user. Link it from an app's settings to give the app DATABASE_URL.</p>
 			<button class="btn btn-primary btn-block">
@@ -631,8 +632,8 @@ templ projectDialogs(v projectView) {
 	}
 	@dialog("new-storage", "New storage") {
 		<form hx-post={ "/projects/" + v.Project.Name + "/storages" } class="space-y-4">
-			@field("Name", "") {
-				<input name="name" placeholder="e.g. files" required class="input mono"/>
+			@field("Name", "Lowercase letters, digits and dashes, starting with a letter.") {
+				<input name="name" class="input mono" placeholder={ namePlaceholder(v.SuggestedStorage, "e.g. files") } required?={ v.SuggestedStorage == "" } pattern="[a-z][a-z0-9\-]{0,39}"/>
 			}
 			@field("Where", "") {
 				<select name="provider" class="input">

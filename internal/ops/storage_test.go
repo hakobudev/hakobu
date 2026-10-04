@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -37,7 +38,7 @@ func TestR2Storages(t *testing.T) {
 		auth := r.Header.Get("Authorization")
 		switch {
 		case strings.Contains(auth, "Credential=wide/"),
-			strings.Contains(auth, "Credential=narrow/") && strings.Contains(r.URL.Path, "/hakobu-files-"):
+			strings.Contains(auth, "Credential=narrow/") && strings.Contains(r.URL.Path, "/shop-files-"):
 			w.WriteHeader(http.StatusOK)
 		default:
 			w.WriteHeader(http.StatusForbidden)
@@ -68,8 +69,13 @@ func TestR2Storages(t *testing.T) {
 	// The bucket is made in the account; keys come later.
 	must(CreateStorage(s, "shop", store.Storage{Name: "files", Provider: "r2"}))
 	st, _ := s.GetStorage(ctx(), "files")
-	if len(buckets) != 1 || buckets[0] != st.Bucket || !strings.HasPrefix(st.Bucket, "hakobu-files-") || st.AccountID != "acc" || st.AccessKeyID != "" {
+	if len(buckets) != 1 || buckets[0] != st.Bucket || !regexp.MustCompile(`^shop-files-[0-9a-f]{6}$`).MatchString(st.Bucket) || st.AccountID != "acc" || st.AccessKeyID != "" {
 		t.Fatalf("storage %+v, buckets made %v", st, buckets)
+	}
+	// Left unnamed, a storage is the project's, its bucket too.
+	must(CreateStorage(s, "shop", store.Storage{Provider: "r2"}))
+	if st, err := s.GetStorage(ctx(), "shop-storage"); err != nil || !strings.HasPrefix(st.Bucket, "shop-storage-") {
+		t.Errorf("unnamed storage: %+v, %v", st, err)
 	}
 	if err := LinkStorage(s, "web", "files"); err == nil {
 		t.Error("linked a storage without keys")

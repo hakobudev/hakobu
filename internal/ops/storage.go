@@ -18,12 +18,15 @@ import (
 // backups.
 
 func CreateStorage(s *store.Store, projectName string, st store.Storage) error {
-	if err := checkName("storage", st.Name); err != nil {
-		return err
-	}
 	p, err := s.GetProject(ctx(), projectName)
 	if err != nil {
 		return fmt.Errorf("project %q not found: %w", projectName, err)
+	}
+	if st.Name == "" {
+		st.Name = SuggestStorageName(s, p)
+	}
+	if err := checkName("storage", st.Name); err != nil {
+		return err
 	}
 	if _, err := s.GetStorage(ctx(), st.Name); err == nil {
 		return fmt.Errorf("a storage named %q already exists", st.Name)
@@ -50,6 +53,15 @@ func CreateStorage(s *store.Store, projectName string, st store.Storage) error {
 	return s.CreateStorage(ctx(), store.CreateStorageParams(st))
 }
 
+// SuggestStorageName is the name the "new storage" field offers, and
+// takes when left empty (suggestName).
+func SuggestStorageName(s *store.Store, p store.Project) string {
+	return suggestName(p.Name, "storage", validName, func(name string) bool {
+		_, err := s.GetStorage(ctx(), name)
+		return err == nil
+	})
+}
+
 // createR2Bucket creates the storage's bucket in the connected account. Its
 // keys come later (SetStorageKeys), for a token limited to this bucket.
 func createR2Bucket(s *store.Store, p store.Project, st *store.Storage) error {
@@ -63,11 +75,11 @@ func createR2Bucket(s *store.Store, p store.Project, st *store.Storage) error {
 	// Removing a storage keeps its bucket and files: the random part keeps
 	// a later storage of the same name, maybe in another project, from
 	// being handed them.
-	suffix, err := RandomHex(4)
+	suffix, err := RandomHex(3)
 	if err != nil {
 		return err
 	}
-	st.AccountID, st.Bucket = a.AccountID, "hakobu-"+st.Name+"-"+suffix
+	st.AccountID, st.Bucket = a.AccountID, bucketName(p.Name, st.Name, suffix)
 	st.AccessKeyID, st.SecretAccessKey = "", ""
 	if err := a.Client.CreateBucket(a.AccountID, st.Bucket); err != nil {
 		return fmt.Errorf("creating the R2 bucket: %w", err)

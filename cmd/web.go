@@ -332,6 +332,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			}
 			v.Sealed = ops.SealedKeys(s, "project", p.Name)
 			v.SuggestedDB = ops.SuggestDatabaseName(s, p)
+			v.SuggestedStorage = ops.SuggestStorageName(s, p)
 			v.BackupBucket = ops.BackupBucket(s)
 			renderPage(w, r, projectPage(v))
 		}

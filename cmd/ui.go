@@ -137,11 +137,13 @@ func keysLabel(st store.Storage) string {
 	return "Save keys"
 }
 
-func dbPlaceholder(suggested string) string {
+// namePlaceholder offers the name a field takes when left empty, or an
+// example when there's none to take.
+func namePlaceholder(suggested, example string) string {
 	if suggested != "" {
 		return suggested + " (or type another name)"
 	}
-	return "e.g. main"
+	return example
 }
 
 func portValue(port int64) string {
