@@ -105,6 +105,9 @@ func TestPagesRender(t *testing.T) {
 		pages["project "+tab] = projectPage(v)
 	}
 	pages["project, empty"] = projectPage(projectView{Project: project})
+	pages["project, R2 off"] = projectPage(projectView{Project: project, Client: "acme", R2Off: true, R2URL: "https://dash.cloudflare.com/a/r2/overview"})
+	pages["settings, R2 off"] = settingsView(settingsPage{CloudflareConnected: true, BackupBucket: "b", R2Off: true, R2URL: "https://dash.cloudflare.com/p/r2/overview",
+		Clients: []ops.ClientAccount{{Name: "acme", AccountID: "a", R2Off: true, R2URL: "https://dash.cloudflare.com/a/r2/overview"}}})
 	pages["switch projects"] = switchProjects([]store.Project{project, {Name: "b"}}, "demo")
 	pages["switch resources"] = switchResources("demo", []store.App{app.App, {Name: "x", BuildStrategy: "dockerfile"}}, []store.Database{db}, storages, "web")
 	pages["storage"] = storageView(storagePage{Storage: storages[0], Project: project, UsedBy: []string{"web"}})
