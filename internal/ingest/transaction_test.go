@@ -108,3 +108,22 @@ func TestNotFoundIsOneRouteAndNoFailure(t *testing.T) {
 		}
 	}
 }
+
+func TestErrorFromALogRecord(t *testing.T) {
+	// The Python SDK's logging and loguru integrations put the record's
+	// text in logentry; an old SDK sends message as that object.
+	for _, payload := range []string{
+		`{"level":"error","logentry":{"message":"%s failed","params":["sync"],"formatted":"sync failed\nTraceback (most recent call last):\n  File \"x.py\""}}`,
+		`{"level":"error","logentry":{"message":"sync failed"}}`,
+		`{"level":"error","message":{"message":"sync failed","params":[]}}`,
+	} {
+		if sum := ExtractEventSummary(Item{Type: "event", Payload: []byte(payload)}); sum.Message != "sync failed" || sum.Level != "error" {
+			t.Errorf("%s: summary %+v", payload, sum)
+		}
+	}
+	// An exception still names the error over the log line around it.
+	payload := `{"logentry":{"formatted":"could not sync"},"exception":{"values":[{"type":"ConnectionRefusedError","value":"refused"}]}}`
+	if sum := ExtractEventSummary(Item{Type: "event", Payload: []byte(payload)}); sum.Message != "ConnectionRefusedError: refused" {
+		t.Errorf("summary %+v", sum)
+	}
+}

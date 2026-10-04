@@ -5,9 +5,11 @@ package ingest
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 )
 
 type Item struct {
@@ -80,7 +82,11 @@ type Summary struct {
 // when the event has no message (uncaught exceptions).
 func ExtractEventSummary(item Item) Summary {
 	var e struct {
-		Message   string `json:"message"`
+		Message  json.RawMessage `json:"message"` // a string, or an object like logentry
+		LogEntry struct {
+			Message   string `json:"message"`
+			Formatted string `json:"formatted"`
+		} `json:"logentry"`
 		Level     string `json:"level"`
 		Exception struct {
 			Values []struct {
@@ -96,10 +102,19 @@ func ExtractEventSummary(item Item) Summary {
 	}
 	json.Unmarshal(item.Payload, &e)
 
-	msg := e.Message
+	// An error captured from a log record (logger.error, logging.error)
+	// has no exception and carries its text in logentry instead of message.
+	var msg string
+	if json.Unmarshal(e.Message, &msg) != nil {
+		_ = json.Unmarshal(e.Message, &e.LogEntry) // an object, or nothing
+	}
 	if msg == "" && len(e.Exception.Values) > 0 {
 		v := e.Exception.Values[0]
 		msg = v.Type + ": " + v.Value
+	}
+	if msg == "" {
+		msg = cmp.Or(e.LogEntry.Formatted, e.LogEntry.Message)
+		msg, _, _ = strings.Cut(strings.TrimSpace(msg), "\n") // a title, not the traceback after it
 	}
 	level := e.Level
 	if level == "" {
