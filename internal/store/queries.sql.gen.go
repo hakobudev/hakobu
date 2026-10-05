@@ -1141,6 +1141,22 @@ func (q *Queries) GetLinkKey(ctx context.Context) (secret.String, error) {
 	return private_key, err
 }
 
+const getLiveInvite = `-- name: GetLiveInvite :one
+SELECT secret_hash, created_by, expires_at FROM invites WHERE secret_hash = ? AND expires_at > ?
+`
+
+type GetLiveInviteParams struct {
+	SecretHash string
+	ExpiresAt  string
+}
+
+func (q *Queries) GetLiveInvite(ctx context.Context, arg GetLiveInviteParams) (Invite, error) {
+	row := q.db.QueryRowContext(ctx, getLiveInvite, arg.SecretHash, arg.ExpiresAt)
+	var i Invite
+	err := row.Scan(&i.SecretHash, &i.CreatedBy, &i.ExpiresAt)
+	return i, err
+}
+
 const getNode = `-- name: GetNode :one
 SELECT id, name, public_key, join_secret_hash, join_expires, version, last_seen, created_at, user_id FROM nodes WHERE id = ?
 `

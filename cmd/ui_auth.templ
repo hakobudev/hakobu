@@ -39,7 +39,7 @@ templ loginPage(connected bool, errMsg string) {
 						@ic("github")
 						Continue with GitHub
 					</a>
-					<p class="field-hint text-center">Only this panel's owner can sign in.</p>
+					<p class="field-hint text-center">Only this panel's users can sign in; anyone else needs an invite link from its admin.</p>
 				} else {
 					<p>Setup isn't finished. Open the setup link the installer printed:</p>
 					<pre class="console">journalctl -u hakobu | grep setup</pre>
@@ -130,5 +130,46 @@ templ oauthErrorPage(msg string) {
 		@flash("danger") {
 			<span class="break-words">{ msg }</span>
 		}
+	}
+}
+
+// invitePageData is what an invite link opens.
+type invitePageData struct {
+	Host, By string // By: who invited, if known
+	Valid    bool   // not used or expired yet
+}
+
+templ invitePage(v invitePageData) {
+	@centered("Invite") {
+		@signinMark("You're invited", v.Host)
+		if !v.Valid {
+			@flash("danger") {
+				This invite was used or has expired: ask for a new one.
+			}
+		} else {
+			<div class="box">
+				<div class="box-body space-y-4">
+					<p>
+						if v.By != "" {
+							<a href={ templ.SafeURL("https://github.com/" + v.By) } target="_blank" rel="noopener" class="strong mono">{ v.By }</a> invited you to deploy on this panel.
+						} else {
+							You're invited to deploy on this panel.
+						}
+						You get a space of your own: your projects, servers and Cloudflare accounts, seen only by you.
+					</p>
+					<a href="/auth/login" class="btn btn-github">
+						@ic("github")
+						Continue with GitHub
+					</a>
+					<p class="field-hint text-center">The link works once, for the GitHub account you sign in with.</p>
+				</div>
+			</div>
+		}
+		<div class="signin-foot">
+			<span class="meta-item">
+				@ic("lock", "icon-sm")
+				Self-hosted with Hakobu
+			</span>
+		</div>
 	}
 }

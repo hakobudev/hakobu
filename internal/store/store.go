@@ -297,6 +297,12 @@ func (s *Store) UseInvite(ctx context.Context, secret string) error {
 	return err
 }
 
+// PeekInvite is the invite with secret if it can still be used, without
+// spending it.
+func (s *Store) PeekInvite(ctx context.Context, secret string) (Invite, error) {
+	return s.GetLiveInvite(ctx, GetLiveInviteParams{SecretHash: sessionID(secret), ExpiresAt: timestamp(time.Now())})
+}
+
 // LiveInvites are the invites not used or expired yet.
 func (s *Store) LiveInvites(ctx context.Context) ([]Invite, error) {
 	return s.ListInvites(ctx, timestamp(time.Now()))

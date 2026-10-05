@@ -105,9 +105,14 @@ func TestUsersSignIn(t *testing.T) {
 	if err := s.NewInvite(ctx, "inv", 1, time.Hour); err != nil {
 		t.Fatal(err)
 	}
+	// The link opens a page of the panel's, saying who invited; GitHub
+	// comes only after Continue.
 	w := do("GET", "/invite/inv")
-	if w.Header().Get("Location") != "/auth/login" || !strings.Contains(w.Header().Get("Set-Cookie"), inviteCookie+"=inv") {
-		t.Errorf("invite link: %d %v", w.Code, w.Header())
+	if body := w.Body.String(); w.Code != http.StatusOK || !strings.Contains(body, "me</a> invited you") || !strings.Contains(body, `href="/auth/login"`) || !strings.Contains(w.Header().Get("Set-Cookie"), inviteCookie+"=inv") {
+		t.Errorf("invite link: %d %v %q", w.Code, w.Header(), body)
+	}
+	if w := do("GET", "/invite/nope"); !strings.Contains(w.Body.String(), "used or has expired") || w.Header().Get("Set-Cookie") != "" {
+		t.Errorf("a wrong invite link: %v %q", w.Header(), w.Body)
 	}
 	friend, _ := signIn("friend", cookie(inviteCookie, "inv"))
 	if u, err := s.GetUserByGitHubID(ctx, 7); friend == "" || err != nil || u.Admin != 0 {

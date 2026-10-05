@@ -291,6 +291,9 @@ INSERT INTO invites (secret_hash, created_by, expires_at) VALUES (?, ?, ?);
 -- name: TakeInvite :one
 DELETE FROM invites WHERE secret_hash = ? AND expires_at > ? RETURNING created_by;
 
+-- name: GetLiveInvite :one
+SELECT * FROM invites WHERE secret_hash = ? AND expires_at > ?;
+
 -- name: ListInvites :many
 SELECT * FROM invites WHERE expires_at > ? ORDER BY expires_at;
 

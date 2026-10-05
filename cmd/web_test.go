@@ -74,6 +74,8 @@ func TestPagesRender(t *testing.T) {
 	pages := map[string]templ.Component{
 		"login":            loginPage(true, "nope"),
 		"login, no app":    loginPage(false, ""),
+		"invite":           invitePage(invitePageData{Host: "hakobu.example.com", By: "x0ryz", Valid: true}),
+		"invite, used":     invitePage(invitePageData{Host: "hakobu.example.com"}),
 		"setup":            setupPage("p.example.com", `{"a":1}`, "s"),
 		"setup, no host":   setupPage("", "", ""),
 		"home":             homePage([]homeProject{{Name: "demo", Apps: 2, Down: 1, Logos: []string{"react", "fastapi", "postgresql"}}, {Name: "b", Deploying: 1, Server: "acme"}, {Name: "c"}}, []cloudflare.Permission{{Name: "Workers Scripts Edit", For: "the watchdog", Missing: true}}, []ops.DomainExpiry{{Domain: "example.com", Expires: time.Now().Add(170 * time.Hour), Uses: []string{"the panel", "app web"}}}, projectPlaces{Servers: []string{"acme"}, Clients: []string{"shop"}}),

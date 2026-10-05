@@ -1138,11 +1138,19 @@ func registerAuthRoutes(mux *http.ServeMux, s *store.Store) {
 		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
 	})
 
-	// An invite link keeps its secret in a cookie for the sign-in, which
-	// spends it when it makes the new user.
+	// An invite link says who invited whom where, and keeps its secret in a
+	// cookie for the sign-in, which spends it when it makes the new user.
 	mux.HandleFunc("GET /invite/{secret}", func(w http.ResponseWriter, r *http.Request) {
-		setCookie(w, inviteCookie, r.PathValue("secret"), 3600)
-		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
+		v := invitePageData{Host: config.PublicHost()}
+		inv, err := s.PeekInvite(r.Context(), r.PathValue("secret"))
+		if err == nil {
+			v.Valid = true
+			if by, err := s.GetUser(r.Context(), inv.CreatedBy); err == nil {
+				v.By = by.GitHubLogin
+			}
+			setCookie(w, inviteCookie, r.PathValue("secret"), 3600)
+		}
+		renderPage(w, r, invitePage(v))
 	})
 
 	mux.HandleFunc("GET /login", func(w http.ResponseWriter, r *http.Request) {
