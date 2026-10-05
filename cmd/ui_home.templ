@@ -1,6 +1,11 @@
 package cmd
 
-import "github.com/x0ryz/hakobu/internal/cloudflare"
+import (
+	"strings"
+
+	"github.com/x0ryz/hakobu/internal/cloudflare"
+	"github.com/x0ryz/hakobu/internal/ops"
+)
 
 // homeProject is a project's card on the home page.
 type homeProject struct {
@@ -29,10 +34,22 @@ templ lackingFlash(lacking []cloudflare.Permission) {
 	}
 }
 
-templ homePage(projects []homeProject, lacking []cloudflare.Permission, servers []string) {
+// expiringFlash warns of the domains in use that lapse soon.
+templ expiringFlash(expiring []ops.DomainExpiry) {
+	for _, d := range expiring {
+		<div class="mb-6">
+			@flash("warn") {
+				<span class="strong">{ d.Domain }</span>{ " " + d.When() + " (" + d.Expires.UTC().Format("2006-01-02") + "). Renew it at its registrar: if it lapses, these stop answering: " + strings.Join(d.Uses, ", ") + "." }
+			}
+		</div>
+	}
+}
+
+templ homePage(projects []homeProject, lacking []cloudflare.Permission, expiring []ops.DomainExpiry, servers []string) {
 	@shell("") {
 		@pageHeader(pageHead{Title: "Projects", Actions: newProjectButton()})
 		@lackingFlash(lacking)
+		@expiringFlash(expiring)
 		if len(projects) == 0 {
 			<div class="box">
 				<div class="blankslate">

@@ -252,7 +252,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			}
 			cards = append(cards, card)
 		}
-		renderPage(w, r, homePage(cards, cloudflare.Lacking(ops.CachedTokenPermissions()), joinedServers(s)))
+		renderPage(w, r, homePage(cards, cloudflare.Lacking(ops.CachedTokenPermissions()), ops.ExpiringDomains(), joinedServers(s)))
 	})
 
 	action("POST /projects", func(r *http.Request) (string, error) {

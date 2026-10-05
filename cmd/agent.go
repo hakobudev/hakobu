@@ -275,6 +275,7 @@ func runBackupScheduler(s *store.Store) {
 		}
 		ops.NoteBackup(s, "panel", err)
 		ops.CheckForOwner(s)
+		ops.CheckDomains(s)
 		if time.Since(lastCleanup) < 24*time.Hour {
 			continue
 		}
