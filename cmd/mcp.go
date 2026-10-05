@@ -78,6 +78,7 @@ type mcpAppDetail struct {
 	Domain       string      `json:"domain,omitempty"`
 	BuildPath    string      `json:"build_path"`
 	Strategy     string      `json:"build_strategy" jsonschema:"dockerfile or railpack"`
+	StartCommand string      `json:"start_command,omitempty" jsonschema:"run with sh instead of the image's own start"`
 	HealthCheck  string      `json:"health_check_path"`
 	MemoryMB     int64       `json:"memory_limit_mb,omitempty"`
 	CPUs         float64     `json:"cpu_limit,omitempty"`
@@ -180,7 +181,7 @@ func newMCPServer(s *store.Store) *mcp.Server {
 				return nil, mcpAppDetail{}, err
 			}
 			d := mcpAppDetail{
-				mcpApp: appSummary(ctx, s, app), Domain: app.Domain, BuildPath: app.BuildPath, Strategy: app.BuildStrategy,
+				mcpApp: appSummary(ctx, s, app), Domain: app.Domain, BuildPath: app.BuildPath, Strategy: app.BuildStrategy, StartCommand: app.StartCommand,
 				HealthCheck: app.HealthCheckPath, MemoryMB: app.MemoryMB, CPUs: app.Cpus, LastOOM: ops.LastOOM(s, app.Name),
 				Database: app.LinkedDB, Storage: app.LinkedStorage, EnvKeys: []string{},
 				CanRollBack: ops.DataRollbackBlocker(s, app) == "", RecentDeploy: []mcpDeploy{},
@@ -447,7 +448,48 @@ func newMCPServer(s *store.Store) *mcp.Server {
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: new(false), IdempotentHint: true, OpenWorldHint: new(false)}},
 		func(_ context.Context, app store.App, _ deployArgs) error { return ops.RestartWorker(s, app) })
 
+	mcp.AddTool(server, &mcp.Tool{Name: "set_build", Description: "Change how the app is built and started: its start command (a shell command run instead of what the image starts, \"\" for the image's own), build method or path in the repo. Fields left out stay as they are. Applies on the next deploy: follow with deploy. Railpack also reads the app's RAILPACK_* variables (set in the panel) and a railpack.json or Procfile in the repo.",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: new(false), IdempotentHint: true, OpenWorldHint: new(false)}},
+		func(ctx context.Context, req *mcp.CallToolRequest, in struct {
+			App          string  `json:"app" jsonschema:"the app's name"`
+			StartCommand *string `json:"start_command,omitempty" jsonschema:"e.g. npm run migrate && node server.js; \"\" for the image's own start"`
+			Strategy     *string `json:"build_strategy,omitempty" jsonschema:"railpack or dockerfile"`
+			BuildPath    *string `json:"build_path,omitempty" jsonschema:"the directory to build, inside the repo; \"\" for its root"`
+		}) (*mcp.CallToolResult, mcpBuild, error) {
+			if ti := req.Extra.TokenInfo; ti == nil || !slices.Contains(ti.Scopes, scopeDeploy) {
+				return nil, mcpBuild{}, fmt.Errorf("this connection may only read: reconnect it and allow deploys")
+			}
+			app, err := getApp(ctx, in.App)
+			if err != nil {
+				return nil, mcpBuild{}, err
+			}
+			start, strategy, path := app.StartCommand, app.BuildStrategy, app.BuildPath
+			if in.StartCommand != nil {
+				start = *in.StartCommand
+			}
+			if in.Strategy != nil {
+				strategy = *in.Strategy
+			}
+			if in.BuildPath != nil {
+				path = *in.BuildPath
+			}
+			if err := ops.SetAppBuild(s, app.Name, path, strategy, start); err != nil {
+				return nil, mcpBuild{}, err
+			}
+			if app, err = getApp(ctx, app.Name); err != nil {
+				return nil, mcpBuild{}, err
+			}
+			return nil, mcpBuild{StartCommand: app.StartCommand, Strategy: app.BuildStrategy, BuildPath: app.BuildPath}, nil
+		})
+
 	return server
+}
+
+// mcpBuild is how an app is built and started, as set_build left it.
+type mcpBuild struct {
+	StartCommand string `json:"start_command"`
+	Strategy     string `json:"build_strategy"`
+	BuildPath    string `json:"build_path"`
 }
 
 type deployArgs struct {

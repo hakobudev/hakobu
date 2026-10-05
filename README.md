@@ -102,11 +102,13 @@ access sends you to the panel, you sign in with GitHub (again, like for the mast
 
 - **claude.ai**, the desktop and mobile apps: Settings → Connectors → Add custom connector, with that address.
 - **Claude Code**: `claude mcp add --transport http hakobu https://<panel address>/mcp`, then `/mcp` to sign in.
+- **VS Code** (Copilot's agent mode): **MCP: Add Server** → HTTP, with that address.
 
 Its tools list apps and show one in detail (variable names, never values), read deploy logs, the apps'
 output and errors with stack traces, and wait for a deploy to finish, so Claude can push a fix and check it
-landed. Deploying, rolling back and restarting workers need the **Deploy** box ticked when you allow the
-app. Nothing deletes, changes settings or reveals a secret: the logs and errors Claude reads are written by
+landed. Deploying, rolling back, restarting workers and changing how an app is built and started (its
+start command, build method and path) need the **Deploy** box ticked when you allow the app. Nothing
+deletes, changes other settings or reveals a secret: the logs and errors Claude reads are written by
 your apps, and text in them could try to steer it. You're emailed when an app connects; **Settings → AI apps**
 lists them and disconnects one, and **Replace all secrets** disconnects all. Tokens last an hour and are
 renewed for up to 30 days of disuse; a renewal token used twice disconnects its app.

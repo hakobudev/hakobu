@@ -186,6 +186,12 @@ func TestOAuthAndMCP(t *testing.T) {
 	if out := call(access, "deploy", `{"app":"web"}`); !strings.Contains(jsonString(out), "may only read") {
 		t.Errorf("deploy with a read-only token: %v", out)
 	}
+	if out := call(access, "set_build", `{"app":"web","start_command":"node x.js"}`); !strings.Contains(jsonString(out), "may only read") {
+		t.Errorf("set_build with a read-only token: %v", out)
+	}
+	if app, _ := s.GetApp(ctx, "web"); app.StartCommand != "" {
+		t.Errorf("a read-only token set the start command to %q", app.StartCommand)
+	}
 
 	status, refreshed := exchange(url.Values{"grant_type": {"refresh_token"}, "refresh_token": {tokens["refresh_token"].(string)}, "client_id": {clientID}})
 	if status != http.StatusOK || refreshed["access_token"] == access {
