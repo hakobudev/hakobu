@@ -114,7 +114,7 @@ func SetProjectServer(s *store.Store, project, serverName string) error {
 	var id sql.NullInt64
 	if serverName != "" {
 		n, err := s.GetNodeByName(ctx(), serverName)
-		if err != nil {
+		if err != nil || n.UserID != p.UserID {
 			return fmt.Errorf("server %q not found", serverName)
 		}
 		if n.PublicKey == "" {

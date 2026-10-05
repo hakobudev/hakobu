@@ -42,17 +42,18 @@ func checkName(kind, name string) error {
 
 // Projects.
 
-func CreateProject(s *store.Store, name string) error {
-	return CreateProjectOn(s, name, "")
+func CreateProject(s *store.Store, userID int64, name string) error {
+	return CreateProjectOn(s, userID, name, "")
 }
 
-// CreateProjectOn creates a project on a server ("" for the panel's).
-func CreateProjectOn(s *store.Store, name, serverName string) error {
+// CreateProjectOn creates a project of user's on a server of theirs (""
+// for the panel's).
+func CreateProjectOn(s *store.Store, userID int64, name, serverName string) error {
 	if err := checkName("project", name); err != nil {
 		return err
 	}
 	// Its networks are created when it first needs them.
-	if err := s.CreateProject(ctx(), name); err != nil {
+	if err := s.CreateUserProject(ctx(), store.CreateUserProjectParams{Name: name, UserID: userID}); err != nil {
 		return err
 	}
 	if serverName == "" {

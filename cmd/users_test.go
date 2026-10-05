@@ -5,6 +5,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -143,4 +147,108 @@ func TestUsersSignIn(t *testing.T) {
 	if w := do("GET", "/settings", cookie(sessionCookie, friend)); w.Code != http.StatusSeeOther {
 		t.Errorf("a removed user's session still works: %d", w.Code)
 	}
+}
+
+// A user reaches nothing of someone else's: every route that names a
+// project, app, database, storage, server, Cloudflare account or sealed
+// variables answers 404 for another user's, and so do their charts. The
+// routes are read from web.go, so a new one is checked too.
+func TestUsersSeeOnlyTheirOwn(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := config.PrepareDataDir(); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.SetPublicHost("hakobu.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	s, err := store.Open(config.DatabaseFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	admin, err := s.CreateUser(ctx, store.CreateUserParams{GitHubID: 42, GitHubLogin: "me", Admin: 1})
+	must(err)
+	_, err = s.CreateUser(ctx, store.CreateUserParams{GitHubID: 7, GitHubLogin: "friend"})
+	must(err)
+	must(s.NewSession(ctx, "friend", 7, time.Hour))
+	must(s.CreateUserProject(ctx, store.CreateUserProjectParams{Name: "adminp", UserID: admin}))
+	p, _ := s.GetProject(ctx, "adminp")
+	must(s.CreateApp(ctx, store.CreateAppParams{ProjectID: p.ID, Name: "adminapp", BuildStrategy: "dockerfile"}))
+	must(s.CreateDatabase(ctx, store.CreateDatabaseParams{Name: "admindb", ProjectID: p.ID, User: "u", Password: "x"}))
+	must(s.CreateStorage(ctx, store.CreateStorageParams{Name: "adminst", ProjectID: p.ID, Provider: "r2", SecretAccessKey: "x"}))
+	must(s.CreateNode(ctx, store.CreateNodeParams{Name: "adminsrv", UserID: admin}))
+	_, err = s.CreateCloudflareAccount(ctx, store.CreateCloudflareAccountParams{Name: "adminclient", ApiToken: "x", AccountID: "acc", UserID: admin})
+	must(err)
+
+	mux := http.NewServeMux()
+	registerWebRoutes(mux, s)
+	src, err := os.ReadFile(filepath.Join(sourceDir(t), "web.go"))
+	must(err)
+	names := map[string]string{
+		"{p}": "adminp", "{a}": "adminapp", "{d}": "admindb", "{st}": "adminst", "{name}": "adminsrv", "{c}": "adminclient",
+		"{scope}": "app", "{owner}": "adminapp", "{key}": "K", "{v}": "data", "{id}": "1", "{trace}": "t",
+	}
+	checked := 0
+	for _, m := range regexp.MustCompile(`(?:handle|action)\("(GET|POST|DELETE) ([^"]+)"`).FindAllStringSubmatch(string(src), -1) {
+		method, path := m[1], m[2]
+		if !regexp.MustCompile(`\{(p|a|d|st|name|c|owner)\}`).MatchString(path) {
+			continue
+		}
+		for k, v := range names {
+			path = strings.ReplaceAll(path, k, v)
+		}
+		r := httptest.NewRequest(method, "https://hakobu.example.com"+path, nil)
+		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: "friend"})
+		w := httptest.NewRecorder()
+		panelHandler(mux).ServeHTTP(w, r)
+		if w.Code != http.StatusNotFound {
+			t.Errorf("%s %s by another user: %d %q", method, path, w.Code, w.Body)
+		}
+		checked++
+	}
+	if checked < 40 {
+		t.Errorf("only %d routes checked: is the pattern still right?", checked)
+	}
+	for target, want := range map[string]int{"app:adminapp": http.StatusNotFound, "worker:adminapp": http.StatusNotFound, "host:adminsrv": http.StatusNotFound, "panel": http.StatusNotFound, "host": http.StatusOK} {
+		for _, path := range []string{"/usage", "/uptime"} {
+			if path == "/uptime" && strings.HasPrefix(target, "host") {
+				continue
+			}
+			r := httptest.NewRequest("GET", "https://hakobu.example.com"+path+"?target="+target, nil)
+			r.AddCookie(&http.Cookie{Name: sessionCookie, Value: "friend"})
+			w := httptest.NewRecorder()
+			panelHandler(mux).ServeHTTP(w, r)
+			if w.Code != want {
+				t.Errorf("%s?target=%s: %d, want %d", path, target, w.Code, want)
+			}
+		}
+	}
+
+	// Lists show only the user's own.
+	for _, path := range []string{"/", "/switch/projects", "/settings"} {
+		r := httptest.NewRequest("GET", "https://hakobu.example.com"+path, nil)
+		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: "friend"})
+		w := httptest.NewRecorder()
+		panelHandler(mux).ServeHTTP(w, r)
+		for _, name := range []string{"adminp", "adminsrv", "adminclient"} {
+			if strings.Contains(w.Body.String(), name) {
+				t.Errorf("%s shows %s to another user", path, name)
+			}
+		}
+	}
+}
+
+// sourceDir is this package's directory, for tests that read its source.
+func sourceDir(t *testing.T) string {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("no caller")
+	}
+	return filepath.Dir(file)
 }

@@ -20,7 +20,7 @@ func TestSealedVars(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	must(CreateProject(s, "p"))
+	must(CreateProject(s, 0, "p"))
 	p, _ := s.GetProject(ctx(), "p")
 	must(s.CreateApp(ctx(), store.CreateAppParams{ProjectID: p.ID, Name: "web", BuildStrategy: "dockerfile"}))
 

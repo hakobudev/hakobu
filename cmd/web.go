@@ -193,7 +193,12 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 	authed := func(h http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			if sess, ok := userSession(r, s); ok {
-				h(w, r.WithContext(context.WithValue(r.Context(), sessionKey{}, sess)))
+				r = r.WithContext(context.WithValue(r.Context(), sessionKey{}, sess))
+				if err := checkAccess(r, s); err != nil {
+					http.Error(w, err.Error(), http.StatusNotFound)
+					return
+				}
+				h(w, r)
 				return
 			}
 			if r.Header.Get("HX-Request") == "true" {
@@ -270,7 +275,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 	// Projects.
 
 	handle("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		projects, err := s.ListProjects(r.Context())
+		projects, err := s.ListProjectsOf(r.Context(), requestUser(r).ID)
 		if err != nil {
 			fail(w, err)
 			return
@@ -307,12 +312,12 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			}
 			cards = append(cards, card)
 		}
-		renderPage(w, r, homePage(cards, cloudflare.Lacking(ops.CachedTokenPermissions()), ops.ExpiringDomains(), joinedServers(s)))
+		renderPage(w, r, homePage(cards, cloudflare.Lacking(ops.CachedTokenPermissions()), ops.ExpiringDomains(), joinedServers(s, requestUser(r))))
 	})
 
 	action("POST /projects", func(r *http.Request) (string, error) {
 		name := strings.TrimSpace(r.FormValue("name"))
-		return "/projects/" + name, ops.CreateProjectOn(s, name, r.FormValue("server"))
+		return "/projects/" + name, ops.CreateProjectOn(s, requestUser(r).ID, name, r.FormValue("server"))
 	})
 
 	action("POST /projects/{p}/server", func(r *http.Request) (string, error) {
@@ -376,9 +381,12 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			}
 			v.Calls = appCalls(apps)
 			v.Watchdog = ops.Watchdog(s).On
-			v.Server, v.Servers = ops.ProjectServerName(s, p), joinedServers(s)
+			v.Server, v.Servers = ops.ProjectServerName(s, p), joinedServers(s, requestUser(r))
 			if clients, err := ops.ClientAccounts(s); err == nil {
 				for _, c := range clients {
+					if c.UserID != p.UserID {
+						continue
+					}
 					v.Clients = append(v.Clients, c.Name)
 					if p.CloudflareAccountID.Valid && p.CloudflareAccountID.Int64 == c.ID {
 						v.Client = c.Name
@@ -396,7 +404,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 	// The top bar's menus: switch to another project, or to another app or
 	// database of this one.
 	handle("GET /switch/projects", func(w http.ResponseWriter, r *http.Request) {
-		projects, err := s.ListProjects(r.Context())
+		projects, err := s.ListProjectsOf(r.Context(), requestUser(r).ID)
 		if err != nil {
 			fail(w, err)
 			return
@@ -405,7 +413,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 	})
 	handle("GET /switch/resources", func(w http.ResponseWriter, r *http.Request) {
 		p, err := s.GetProject(r.Context(), r.URL.Query().Get("project"))
-		if err != nil {
+		if err != nil || p.UserID != requestUser(r).ID {
 			http.NotFound(w, r)
 			return
 		}
@@ -863,7 +871,12 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 		}
 		if v.CloudflareConnected {
 			v.Token = ops.TokenPermissions(s, false)
-			v.Clients, _ = ops.ClientAccounts(s)
+			clients, _ := ops.ClientAccounts(s)
+			for _, c := range clients {
+				if c.UserID == user.ID {
+					v.Clients = append(v.Clients, c)
+				}
+			}
 			ops.CheckClientsR2(s, v.Clients)
 			v.R2Off, v.R2URL = ops.PanelR2Off(s)
 			v.ClientTokenURL = ops.ClientTokenURL("client")
@@ -871,7 +884,12 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 		if usage, err := ops.CurrentUsage(s); err == nil {
 			v.Usage = usageRows(usage)
 		}
-		v.Servers, _ = ops.Servers(s)
+		servers, _ := ops.Servers(s)
+		for _, sv := range servers {
+			if sv.UserID == user.ID {
+				v.Servers = append(v.Servers, sv)
+			}
+		}
 		grants, _ := s.LiveOAuthGrants(r.Context())
 		for _, g := range grants {
 			if g.GitHubID == user.GitHubID {
@@ -907,7 +925,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 	// The join command is shown once, in place of the form.
 	handle("POST /settings/servers", func(w http.ResponseWriter, r *http.Request) {
 		name := strings.TrimSpace(r.FormValue("name"))
-		token, err := ops.AddServer(s, name)
+		token, err := ops.AddServer(s, requestUser(r).ID, name)
 		if err != nil {
 			fail(w, err)
 			return
@@ -920,7 +938,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 	})
 
 	action("POST /settings/clients", func(r *http.Request) (string, error) {
-		return "", ops.AddClientAccount(s, strings.TrimSpace(r.FormValue("name")), r.FormValue("token"))
+		return "", ops.AddClientAccount(s, requestUser(r).ID, strings.TrimSpace(r.FormValue("name")), r.FormValue("token"))
 	})
 
 	action("POST /settings/clients/{c}/token", func(r *http.Request) (string, error) {
@@ -1375,11 +1393,13 @@ func deploySummaries(ctx context.Context, s *store.Store, app string, n int64) [
 }
 
 // joinedServers are the names of the servers that joined, to run projects on.
-func joinedServers(s *store.Store) []string {
+// joinedServers are the user's servers that have joined, to put projects
+// on.
+func joinedServers(s *store.Store, u store.User) []string {
 	servers, _ := ops.Servers(s)
 	var names []string
 	for _, sv := range servers {
-		if sv.Joined {
+		if sv.Joined && sv.UserID == u.ID {
 			names = append(names, sv.Name)
 		}
 	}

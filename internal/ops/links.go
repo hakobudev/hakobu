@@ -60,9 +60,10 @@ func secretHash(secret string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// AddServer makes a server the panel will take as name and returns the
-// token it joins with; for a server that hasn't joined yet, a new token.
-func AddServer(s *store.Store, name string) (string, error) {
+// AddServer makes a server of user's the panel will take as name and
+// returns the token it joins with; for a server that hasn't joined yet, a
+// new token.
+func AddServer(s *store.Store, userID int64, name string) (string, error) {
 	if err := checkName("server", name); err != nil {
 		return "", err
 	}
@@ -78,8 +79,10 @@ func AddServer(s *store.Store, name string) (string, error) {
 	n, err := s.GetNodeByName(ctx(), name)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		err = s.CreateNode(ctx(), store.CreateNodeParams{Name: name, JoinSecretHash: secretHash(tok.Secret), JoinExpires: expires})
+		err = s.CreateNode(ctx(), store.CreateNodeParams{Name: name, JoinSecretHash: secretHash(tok.Secret), JoinExpires: expires, UserID: userID})
 	case err != nil:
+	case n.UserID != userID:
+		return "", fmt.Errorf("a server named %s already exists", name)
 	case n.PublicKey != "":
 		return "", fmt.Errorf("server %s has joined already", name)
 	default:
@@ -278,6 +281,7 @@ func tellServersPanelURL(url string) {
 
 // Server is a server as the panel shows it.
 type Server struct {
+	UserID    int64 // who added it
 	Name      string
 	Joined    bool
 	Connected bool
@@ -292,7 +296,7 @@ func Servers(s *store.Store) ([]Server, error) {
 	}
 	out := make([]Server, len(rows))
 	for i, n := range rows {
-		out[i] = Server{Name: n.Name, Joined: n.PublicKey != "", Version: n.Version, LastSeen: n.LastSeen}
+		out[i] = Server{UserID: n.UserID, Name: n.Name, Joined: n.PublicKey != "", Version: n.Version, LastSeen: n.LastSeen}
 		if c, ok := links.get(n.Name); ok {
 			out[i].Connected, out[i].Version = true, c.version
 		}

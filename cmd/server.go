@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -27,7 +28,12 @@ var serverAddCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		token, err := ops.AddServer(s, args[0])
+		// Over SSH it's the admin's, as whoever has root has the panel.
+		admin, err := s.Admin(context.Background())
+		if err != nil {
+			return err
+		}
+		token, err := ops.AddServer(s, admin.ID, args[0])
 		if err != nil {
 			return err
 		}

@@ -33,7 +33,7 @@ func TestServerJoinsAndServes(t *testing.T) {
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
-	token, err := AddServer(s, "client-a")
+	token, err := AddServer(s, 0, "client-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestServerJoinsAndServes(t *testing.T) {
 	if _, _, err := link.Dial(ctx, srv.URL, other, tok.PanelKey, tok.Secret, "v1"); err == nil {
 		t.Error("a spent token admitted another server")
 	}
-	if _, err := AddServer(s, "client-a"); err == nil {
+	if _, err := AddServer(s, 0, "client-a"); err == nil {
 		t.Error("a joined server got a new token")
 	}
 
@@ -94,7 +94,7 @@ func TestJoinTokenExpires(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	token, err := AddServer(s, "late")
+	token, err := AddServer(s, 0, "late")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestServerSendsItsAppsEnvelopes(t *testing.T) {
 	}
 	srv := httptest.NewServer(h)
 	defer srv.Close()
-	token, _ := AddServer(s, "far")
+	token, _ := AddServer(s, 0, "far")
 	tok, _ := link.ParseToken(token)
 	key, _ := link.NewKey()
 	sess, _, err := link.Dial(context.Background(), srv.URL, key, tok.PanelKey, tok.Secret, "v1")
@@ -154,7 +154,7 @@ func TestServerSendsItsAppsEnvelopes(t *testing.T) {
 		if p == "there" {
 			server = "far"
 		}
-		if err := CreateProjectOn(s, p, server); err != nil {
+		if err := CreateProjectOn(s, 0, p, server); err != nil {
 			t.Fatal(err)
 		}
 		pr, _ := s.GetProject(ctx(), p)
@@ -203,7 +203,7 @@ func TestServersFollowThePanel(t *testing.T) {
 	}
 	srv := httptest.NewServer(h)
 	defer srv.Close()
-	token, err := AddServer(s, "follower")
+	token, err := AddServer(s, 0, "follower")
 	if err != nil {
 		t.Fatal(err)
 	}

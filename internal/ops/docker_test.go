@@ -631,7 +631,7 @@ func TestDockerRestoreOnNewServer(t *testing.T) {
 	must(s.SaveCloudflareTunnel(ctx(), store.SaveCloudflareTunnelParams{AccountID: "acc", TunnelID: "t"}))
 	must(SetupBackups(s))
 	project := "zt" + suffix
-	must(CreateProject(s, project))
+	must(CreateProject(s, 0, project))
 	t.Cleanup(func() { _ = removeProjectNetworks(s, project) })
 	must(CreateDatabase(s, project, "zt"+suffix))
 	d, _ := s.GetDatabase(ctx(), "zt"+suffix)
@@ -685,7 +685,7 @@ func TestDockerImportDump(t *testing.T) {
 	must(s.SaveCloudflareTunnel(ctx(), store.SaveCloudflareTunnelParams{AccountID: "acc", TunnelID: "t"}))
 	must(SetupBackups(s))
 	project := "zt" + suffix
-	must(CreateProject(s, project))
+	must(CreateProject(s, 0, project))
 	t.Cleanup(func() { _ = removeProjectNetworks(s, project) })
 	must(CreateDatabase(s, project, "zt"+suffix))
 	d, _ := s.GetDatabase(ctx(), "zt"+suffix)

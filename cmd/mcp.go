@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -113,6 +115,36 @@ func newMCPServer(s *store.Store) *mcp.Server {
 		}
 		return app, nil
 	}
+	// The tools act for the user whose token calls them, on their own apps
+	// only: an app of someone else's is answered as if it didn't exist.
+	server.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			call, ok := req.(*mcp.CallToolRequest)
+			if method != "tools/call" || !ok {
+				return next(ctx, method, req)
+			}
+			u, err := mcpUser(ctx, s, call)
+			if err != nil {
+				return nil, err
+			}
+			var args struct {
+				App string `json:"app"`
+			}
+			_ = json.Unmarshal(call.Params.Arguments, &args)
+			if args.App != "" {
+				app, err := s.GetApp(ctx, args.App)
+				if err == nil {
+					if p, perr := s.GetProjectByID(ctx, app.ProjectID); perr != nil || p.UserID != u.ID {
+						err = errNotFound
+					}
+				}
+				if err != nil {
+					return nil, fmt.Errorf("no app named %q: list_apps lists them", args.App)
+				}
+			}
+			return next(context.WithValue(ctx, mcpUserKey{}, u), method, req)
+		}
+	})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "list_apps", Description: "List every app with its project, repo, address, container status and last deploy.", Annotations: readOnly},
 		func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, struct {
@@ -125,8 +157,17 @@ func newMCPServer(s *store.Store) *mcp.Server {
 			if err != nil {
 				return nil, out, err
 			}
+			mine := map[int64]bool{}
+			if projects, err := s.ListProjectsOf(ctx, mcpUserOf(ctx).ID); err == nil {
+				for _, p := range projects {
+					mine[p.ID] = true
+				}
+			}
 			out.Apps = []mcpApp{}
 			for _, a := range apps {
+				if !mine[a.ProjectID] {
+					continue
+				}
 				out.Apps = append(out.Apps, appSummary(ctx, s, a))
 			}
 			return nil, out, nil
@@ -550,4 +591,24 @@ func head(s string, n int) string {
 		return s
 	}
 	return strings.ToValidUTF8(s[:n], "") + "…"
+}
+
+type mcpUserKey struct{}
+
+// mcpUser is the user whose token makes a tool call.
+func mcpUser(ctx context.Context, s *store.Store, call *mcp.CallToolRequest) (store.User, error) {
+	if call.Extra != nil && call.Extra.TokenInfo != nil {
+		if id, ok := call.Extra.TokenInfo.Extra["github_id"].(int64); ok {
+			if u, err := s.GetUserByGitHubID(ctx, id); err == nil {
+				return u, nil
+			}
+		}
+	}
+	return store.User{}, errors.New("not signed in")
+}
+
+// mcpUserOf is the user a tool call is made for, set by the middleware.
+func mcpUserOf(ctx context.Context) store.User {
+	u, _ := ctx.Value(mcpUserKey{}).(store.User)
+	return u
 }

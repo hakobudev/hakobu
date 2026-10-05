@@ -243,7 +243,7 @@ func registerOAuthRoutes(mux *http.ServeMux, s *store.Store) {
 }
 
 // verifyMCPToken is the MCP endpoint's check of a bearer token: a live
-// access token of a grant the current owner made.
+// access token of a grant a user made, who the tools then act for.
 func verifyMCPToken(s *store.Store) auth.TokenVerifier {
 	return func(ctx context.Context, token string, _ *http.Request) (*auth.TokenInfo, error) {
 		g, expires, err := s.OAuthAccess(ctx, token)
@@ -253,7 +253,7 @@ func verifyMCPToken(s *store.Store) auth.TokenVerifier {
 		if err != nil {
 			return nil, err
 		}
-		return &auth.TokenInfo{Scopes: strings.Fields(g.Scope), Expiration: expires, UserID: fmt.Sprint(g.ID)}, nil
+		return &auth.TokenInfo{Scopes: strings.Fields(g.Scope), Expiration: expires, UserID: fmt.Sprint(g.ID), Extra: map[string]any{"github_id": g.GitHubID}}, nil
 	}
 }
 

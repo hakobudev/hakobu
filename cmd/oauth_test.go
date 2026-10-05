@@ -39,6 +39,19 @@ func TestOAuthAndMCP(t *testing.T) {
 	if err := s.NewSession(ctx, "tok", 42, time.Hour); err != nil {
 		t.Fatal(err)
 	}
+	// The user's app, and one of someone else's.
+	for _, a := range []struct {
+		project, app string
+		user         int64
+	}{{"mine", "web", 1}, {"other", "theirs", 2}} {
+		if err := s.CreateUserProject(ctx, store.CreateUserProjectParams{Name: a.project, UserID: a.user}); err != nil {
+			t.Fatal(err)
+		}
+		p, _ := s.GetProject(ctx, a.project)
+		if err := s.CreateApp(ctx, store.CreateAppParams{ProjectID: p.ID, Name: a.app, BuildStrategy: "dockerfile"}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	keyFreshFor = time.Hour
 	t.Cleanup(func() { keyFreshFor = 5 * time.Minute })
 
@@ -160,8 +173,15 @@ func TestOAuthAndMCP(t *testing.T) {
 		return out
 	}
 	access := tokens["access_token"].(string)
-	if out := call(access, "list_apps", `{}`); out["result"] == nil || out["result"].(map[string]any)["isError"] == true {
+	if out := call(access, "list_apps", `{}`); out["result"] == nil || out["result"].(map[string]any)["isError"] == true ||
+		!strings.Contains(jsonString(out), `"web"`) || strings.Contains(jsonString(out), "theirs") {
 		t.Errorf("list_apps: %v", out)
+	}
+	if out := call(access, "get_app", `{"app":"theirs"}`); !strings.Contains(jsonString(out), `no app named \"theirs\"`) {
+		t.Errorf("get_app of someone else's: %v", out)
+	}
+	if out := call(access, "list_errors", `{"app":"theirs"}`); !strings.Contains(jsonString(out), "no app named") {
+		t.Errorf("list_errors of someone else's: %v", out)
 	}
 	if out := call(access, "deploy", `{"app":"web"}`); !strings.Contains(jsonString(out), "may only read") {
 		t.Errorf("deploy with a read-only token: %v", out)

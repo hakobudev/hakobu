@@ -118,6 +118,7 @@ func tunnelAccounts(s *store.Store) []cfAccount {
 // ClientAccount is a client's Cloudflare account and its projects.
 type ClientAccount struct {
 	ID        int64
+	UserID    int64 // who connected it
 	Name      string
 	AccountID string
 	Projects  []string
@@ -143,7 +144,7 @@ func ClientAccounts(s *store.Store) ([]ClientAccount, error) {
 	}
 	out := make([]ClientAccount, len(rows))
 	for i, a := range rows {
-		out[i] = ClientAccount{ID: a.ID, Name: a.Name, AccountID: a.AccountID}
+		out[i] = ClientAccount{ID: a.ID, UserID: a.UserID, Name: a.Name, AccountID: a.AccountID}
 		out[i].Projects, _ = s.ProjectsInCloudflareAccount(ctx(), sql.NullInt64{Int64: a.ID, Valid: true})
 	}
 	return out, nil
@@ -173,7 +174,7 @@ func checkClientToken(token string) (string, error) {
 
 // AddClientAccount connects a client's Cloudflare account with the token
 // they made and creates its tunnel.
-func AddClientAccount(s *store.Store, name, token string) error {
+func AddClientAccount(s *store.Store, userID int64, name, token string) error {
 	if err := checkName("client", name); err != nil {
 		return err
 	}
@@ -186,12 +187,15 @@ func AddClientAccount(s *store.Store, name, token string) error {
 		return errors.New("that is the panel's own Cloudflare account: its projects need no client account")
 	}
 	if other, err := s.GetCloudflareAccountByAccountID(ctx(), account); err == nil {
+		if other.UserID != userID {
+			return errors.New("that Cloudflare account is already connected to this panel by someone else")
+		}
 		return fmt.Errorf("that Cloudflare account is already connected as %s", other.Name)
 	}
 	if _, err := s.GetCloudflareAccountByName(ctx(), name); err == nil {
 		return fmt.Errorf("a client named %q already exists", name)
 	}
-	id, err := s.CreateCloudflareAccount(ctx(), store.CreateCloudflareAccountParams{Name: name, ApiToken: secret.String(token), AccountID: account})
+	id, err := s.CreateCloudflareAccount(ctx(), store.CreateCloudflareAccountParams{Name: name, ApiToken: secret.String(token), AccountID: account, UserID: userID})
 	if err != nil {
 		return err
 	}
@@ -277,7 +281,7 @@ func SetProjectAccount(s *store.Store, project, client string) error {
 	var id sql.NullInt64
 	if client != "" {
 		a, err := s.GetCloudflareAccountByName(ctx(), client)
-		if err != nil {
+		if err != nil || a.UserID != p.UserID {
 			return fmt.Errorf("client %q not found", client)
 		}
 		id = sql.NullInt64{Int64: a.ID, Valid: true}

@@ -211,11 +211,11 @@ func TestAddClientAccountRefuses(t *testing.T) {
 		"panel-tok": "panel's own",
 		"acme-tok":  "already connected as acme",
 	} {
-		if err := AddClientAccount(s, "new", token); err == nil || !strings.Contains(err.Error(), want) {
+		if err := AddClientAccount(s, 0, "new", token); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("token %s: %v, want %q", token, err, want)
 		}
 	}
-	if err := AddClientAccount(s, "Bad Name", "acme-tok"); err == nil {
+	if err := AddClientAccount(s, 0, "Bad Name", "acme-tok"); err == nil {
 		t.Error("took an invalid name")
 	}
 	// The panel's token can't be swapped for one that sees a client.
