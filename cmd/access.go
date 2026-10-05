@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/x0ryz/hakobu/internal/config"
 	"github.com/x0ryz/hakobu/internal/ops"
 	"github.com/x0ryz/hakobu/internal/store"
 )
@@ -107,20 +108,25 @@ func checkAccess(r *http.Request, s *store.Store) error {
 	return nil
 }
 
-// checkTarget lets a user see the charts of their apps and servers, and of
-// what the panel's server shares with everyone who deploys on it; the
-// panel's own uptime is the admin's.
+// checkTarget lets a user see the charts of their apps and servers (and
+// hakobu's services on them), and of what the panel's server shares with
+// everyone who deploys on it; a panel-only panel's server is the admin's,
+// as is the panel's own uptime.
 func checkTarget(ctx context.Context, s *store.Store, u store.User, target string, app func(string) error) error {
 	kind, name, _ := strings.Cut(target, ":")
+	server := name
+	if kind == "service" {
+		_, server, _ = strings.Cut(name, ":")
+	}
 	switch {
 	case kind == "app" || kind == "worker":
 		return app(name)
-	case kind == ops.HostTarget && name != "":
-		if n, err := s.GetNodeByName(ctx, name); err != nil || n.UserID != u.ID {
+	case (kind == ops.HostTarget || kind == "service") && server != "":
+		if n, err := s.GetNodeByName(ctx, server); err != nil || n.UserID != u.ID {
 			return errNotFound
 		}
 		return nil
-	case kind == ops.HostTarget || kind == "service":
+	case (kind == ops.HostTarget || kind == "service") && (!config.PanelOnly || u.Admin == 1):
 		return nil
 	case target == "panel" && u.Admin == 1:
 		return nil

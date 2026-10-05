@@ -256,14 +256,23 @@ func newMCPServer(s *store.Store) *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{Name: "get_metrics", Description: "Show the CPU and memory use of an app, its worker, the PostgreSQL server or the whole server over a span, with its limits: now, average and peak, and a series of up to 60 points. Recorded every minute.", Annotations: readOnly},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
 			Target string `json:"target" jsonschema:"an app's name, \"server\" or \"postgres\""`
+			Server string `json:"server,omitempty" jsonschema:"for server or postgres: which server, by name; the panel's if left out"`
 			Worker bool   `json:"worker,omitempty" jsonschema:"the app's worker instead of the app"`
 			Range  string `json:"range,omitempty" jsonschema:"1h, 24h (default), 7d or 30d"`
 		}) (*mcp.CallToolResult, mcpUsage, error) {
-			target := ops.HostTarget
+			var target string
 			switch in.Target {
-			case "server", "host":
-			case "postgres":
-				target = "service:postgres"
+			case "server", "host", "postgres":
+				target = ops.HostTarget
+				if in.Server != "" {
+					target += ":" + in.Server
+				}
+				if in.Target == "postgres" {
+					target = ops.ServiceTarget("postgres", in.Server)
+				}
+				if checkTarget(ctx, s, mcpUserOf(ctx), target, nil) != nil {
+					return nil, mcpUsage{}, fmt.Errorf("server %q not found", in.Server)
+				}
 			default:
 				app, err := getApp(ctx, in.Target)
 				if err != nil {

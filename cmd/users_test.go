@@ -215,9 +215,9 @@ func TestUsersSeeOnlyTheirOwn(t *testing.T) {
 	if checked < 40 {
 		t.Errorf("only %d routes checked: is the pattern still right?", checked)
 	}
-	for target, want := range map[string]int{"app:adminapp": http.StatusNotFound, "worker:adminapp": http.StatusNotFound, "host:adminsrv": http.StatusNotFound, "panel": http.StatusNotFound, "host": http.StatusOK} {
+	for target, want := range map[string]int{"app:adminapp": http.StatusNotFound, "worker:adminapp": http.StatusNotFound, "host:adminsrv": http.StatusNotFound, "service:postgres:adminsrv": http.StatusNotFound, "panel": http.StatusNotFound, "host": http.StatusOK, "service:postgres": http.StatusOK} {
 		for _, path := range []string{"/usage", "/uptime"} {
-			if path == "/uptime" && strings.HasPrefix(target, "host") {
+			if path == "/uptime" && (strings.HasPrefix(target, "host") || strings.HasPrefix(target, "service")) {
 				continue
 			}
 			r := httptest.NewRequest("GET", "https://hakobu.example.com"+path+"?target="+target, nil)
@@ -229,6 +229,19 @@ func TestUsersSeeOnlyTheirOwn(t *testing.T) {
 			}
 		}
 	}
+
+	// A panel-only panel's server is the admin's alone.
+	config.PanelOnly = true
+	for _, target := range []string{"host", "service:postgres"} {
+		r := httptest.NewRequest("GET", "https://hakobu.example.com/usage?target="+target, nil)
+		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: "friend"})
+		w := httptest.NewRecorder()
+		panelHandler(mux).ServeHTTP(w, r)
+		if w.Code != http.StatusNotFound {
+			t.Errorf("panel-only, /usage?target=%s: %d, want 404", target, w.Code)
+		}
+	}
+	config.PanelOnly = false
 
 	// Lists show only the user's own.
 	for _, path := range []string{"/", "/switch/projects", "/settings"} {

@@ -70,6 +70,15 @@ func hostTarget(serverName string) string {
 	return HostTarget + ":" + serverName
 }
 
+// ServiceTarget is what hakobu's service name (postgres, cloudflared,
+// buildkit) on a server is recorded as.
+func ServiceTarget(name, serverName string) string {
+	if serverName == "" {
+		return "service:" + name
+	}
+	return "service:" + name + ":" + serverName
+}
+
 // WatchMetrics records usage every minute, on the minute.
 func WatchMetrics(s *store.Store) {
 	st := &metricState{}
@@ -143,13 +152,13 @@ type containerTarget struct {
 // they are taken from its answer: it could belong to someone else.
 func containerTargets(s *store.Store, sv server) map[string]containerTarget {
 	targets := map[string]containerTarget{
-		node.PostgresContainer: {name: "service:postgres"},
-		node.TunnelContainer:   {name: "service:cloudflared"},
-		"buildkit":             {name: "service:buildkit"},
+		node.PostgresContainer: {name: ServiceTarget("postgres", sv.Name)},
+		node.TunnelContainer:   {name: ServiceTarget("cloudflared", sv.Name)},
+		"buildkit":             {name: ServiceTarget("buildkit", sv.Name)},
 	}
 	for _, t := range tunnelsOn(s, sv) {
 		if !t.acct.isPanel() {
-			targets[t.acct.container()] = containerTarget{name: "service:cloudflared-" + t.acct.Name}
+			targets[t.acct.container()] = containerTarget{name: ServiceTarget("cloudflared-"+t.acct.Name, sv.Name)}
 		}
 	}
 	apps, err := s.ListApps(ctx())
@@ -333,20 +342,66 @@ func UsageOf(s *store.Store, target string, span time.Duration) ([]teldb.Sample,
 	return s.Tel.ListSamples(ctx(), teldb.ListSamplesParams{Target: target, Res: res, Ts: time.Now().Add(-span).Unix()})
 }
 
-// CurrentUsage is the latest usage of every target, the server first,
-// then by name.
-func CurrentUsage(s *store.Store) ([]teldb.Sample, error) {
+// CurrentUsage is the latest usage of what runs on the panel's server, as
+// user sees it: the server first, then by name, with other users' apps
+// summed up as Target "others".
+func CurrentUsage(s *store.Store, user int64) ([]teldb.Sample, error) {
 	rows, err := s.Tel.LatestSamples(ctx(), teldb.LatestSamplesParams{Res: minuteRes, Ts: time.Now().Add(-3 * time.Minute).Unix()})
 	if err != nil {
 		return nil, err
 	}
+	apps, err := s.ListApps(ctx())
+	if err != nil {
+		return nil, err
+	}
+	projects, err := s.ListProjects(ctx())
+	if err != nil {
+		return nil, err
+	}
+	type where struct {
+		local, mine bool
+	}
+	byProject := map[int64]where{}
+	for _, p := range projects {
+		byProject[p.ID] = where{local: !p.NodeID.Valid, mine: p.UserID == user}
+	}
+	appOf := map[string]where{}
+	for _, a := range apps {
+		appOf[a.Name] = byProject[a.ProjectID]
+	}
 	latest := map[string]teldb.Sample{}
 	for _, r := range rows { // oldest first
+		kind, name, _ := strings.Cut(r.Target, ":")
+		switch kind {
+		case HostTarget, "service":
+			if strings.Contains(name, ":") || (kind == HostTarget && name != "") {
+				continue // another server's
+			}
+		case "app", "worker":
+			w, ok := appOf[name]
+			if !ok || !w.local {
+				continue
+			}
+			if !w.mine {
+				r.Target = "others:" + r.Target
+			}
+		default:
+			continue
+		}
 		latest[r.Target] = r
 	}
 	out := make([]teldb.Sample, 0, len(latest))
+	others := teldb.Sample{Target: "others"}
 	for _, r := range latest {
+		if strings.HasPrefix(r.Target, "others:") {
+			others.Cpu += r.Cpu
+			others.Mem += r.Mem
+			continue
+		}
 		out = append(out, r)
+	}
+	if others.Cpu > 0 || others.Mem > 0 {
+		out = append(out, others)
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if (out[i].Target == HostTarget) != (out[j].Target == HostTarget) {

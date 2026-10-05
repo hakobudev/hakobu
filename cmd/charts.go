@@ -284,6 +284,8 @@ func usageRows(rows []teldb.Sample) []usageRow {
 			row.Name, row.Link = name, "/apps/"+name
 		case "worker":
 			row.Name, row.Link = name+" worker", "/apps/"+name+"/settings#worker"
+		case "others":
+			row.Name = "other users' apps"
 		default:
 			row.Name = name
 		}

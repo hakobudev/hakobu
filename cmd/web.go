@@ -844,6 +844,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			DB: d, Project: project, Ready: ops.DatabaseReady(s, d), Env: splitEnv(ops.DatabaseEnv(d)),
 			Backups: backups, UsedBy: usedBy, BackupBucket: ops.BackupBucket(s),
 			Job: ops.DatabaseJob(d.Name), Keep: config.BackupKeep,
+			UsageTarget: ops.ServiceTarget("postgres", ops.ProjectServerName(s, project)),
 		}))
 	})
 
@@ -900,7 +901,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			v.R2Off, v.R2URL = ops.PanelR2Off(s)
 			v.ClientTokenURL = ops.ClientTokenURL("client")
 		}
-		if usage, err := ops.CurrentUsage(s); err == nil {
+		if usage, err := ops.CurrentUsage(s, user.ID); err == nil {
 			v.Usage = usageRows(usage)
 		}
 		servers, _ := ops.Servers(s)

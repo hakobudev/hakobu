@@ -17,6 +17,7 @@ type databasePage struct {
 	BackupBucket string
 	Job          ops.DBJob
 	Keep         int
+	UsageTarget  string // its PostgreSQL server's
 }
 
 templ databaseView(v databasePage) {
@@ -62,7 +63,7 @@ templ databaseView(v databasePage) {
 			@section("", "Usage", "The shared PostgreSQL server, all databases together.", nil) {
 				<div class="box">
 					<div class="box-body">
-						<div hx-get="/usage?target=service:postgres&range=24h" hx-trigger="load" hx-swap="outerHTML">
+						<div hx-get={ "/usage?target=" + v.UsageTarget + "&range=24h" } hx-trigger="load" hx-swap="outerHTML">
 							@skeleton(1, true)
 						</div>
 					</div>

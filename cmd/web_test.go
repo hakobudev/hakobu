@@ -68,7 +68,7 @@ func TestPagesRender(t *testing.T) {
 		Users:       []store.User{{ID: 1, GitHubLogin: "me", Admin: 1, CreatedAt: "t"}, {ID: 2, GitHubLogin: "friend", CreatedAt: "t"}},
 		Invites:     []store.Invite{{SecretHash: "ab", ExpiresAt: "2026-10-12T00:00:00Z"}},
 		MyNotify:    ops.UserNotify{PanelOn: true, Email: "me@example.org", Verified: true},
-		Usage:       usageRows([]teldb.Sample{{Target: ops.HostTarget, Cpu: 1, CpuLimit: 4, Mem: 1 << 30, MemLimit: 8 << 30}, {Target: "app:web", Mem: 500 << 20, MemLimit: 512 << 20}, {Target: "service:postgres", Mem: 100 << 20}}),
+		Usage:       usageRows([]teldb.Sample{{Target: ops.HostTarget, Cpu: 1, CpuLimit: 4, Mem: 1 << 30, MemLimit: 8 << 30}, {Target: "app:web", Mem: 500 << 20, MemLimit: 512 << 20}, {Target: "service:postgres", Mem: 100 << 20}, {Target: "others", Cpu: 0.4, Mem: 300 << 20}}),
 		Update:      ops.UpdateInfo{Current: "v0.6.0", Latest: "v0.7.0", CheckedAt: "2026-10-02 12:00 UTC", Available: true, Updater: true, HasLast: true, Last: update.Status{State: "running", To: "v0.7.0", Message: "downloading"}}}
 
 	pages := map[string]templ.Component{
