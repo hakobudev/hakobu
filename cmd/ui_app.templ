@@ -604,7 +604,7 @@ templ appVariables(p appPage) {
 			<form hx-post={ "/apps/" + p.App.Name + "/env" } class="box" id="app-env" data-saved>
 				<div class="box-header"><span>Service variables</span></div>
 				<div class="box-body">
-					<p class="field-hint">Only for this app; they override the project's shared variables.</p>
+					<p class="field-hint">Only for this app; they override the project's shared variables. Refer to another app of the project with <span class="mono">${"{{"}api.URL{"}}"}</span> (its public address), <span class="mono">HOST</span> or <span class="mono">PRIVATE_URL</span> (inside the project, for a server). <span class="mono">VITE_</span>, <span class="mono">NEXT_PUBLIC_</span>, <span class="mono">PUBLIC_</span>, <span class="mono">REACT_APP_</span> and <span class="mono">RAILPACK_</span> variables reach the build too.</p>
 					@envEditor("env", string(p.App.Env), "/apps/"+p.App.Name+"/env/suggest")
 				</div>
 				@boxFooter("Applies on the next deploy.") {

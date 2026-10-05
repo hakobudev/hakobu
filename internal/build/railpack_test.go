@@ -37,3 +37,21 @@ func TestRailpackGetsTheAppsVariables(t *testing.T) {
 		t.Errorf("RAILPACK_START_CMD = %q, want the app's own over the shared one", lines[1])
 	}
 }
+
+// A Dockerfile build takes the same variables as build args, by name.
+func TestDockerfileGetsBuildArgs(t *testing.T) {
+	bin, dir := t.TempDir(), t.TempDir()
+	got := filepath.Join(dir, "got")
+	script := "#!/bin/sh\necho \"$*\" > " + got + "\necho \"$VITE_API_URL\" >> " + got + "\n"
+	if err := os.WriteFile(filepath.Join(bin, "docker"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if err := BuildWithStrategy(dir, "img", "dockerfile", []string{"VITE_API_URL=https://api.example.com"}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(got)
+	if want := "build -t img --build-arg VITE_API_URL " + dir + "\nhttps://api.example.com\n"; string(b) != want {
+		t.Errorf("docker got %q, want %q", b, want)
+	}
+}

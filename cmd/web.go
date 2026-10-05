@@ -1390,15 +1390,15 @@ type traceView struct {
 }
 
 // appCalls guesses which apps of a project call which: an app whose own
-// variables name another app's domain or its address on the project's
-// network calls it. Shared variables are left out: every app gets them, so
+// variables refer to another app (${{api.URL}}) or name its domain or its
+// address on the project's network calls it. Shared variables are left out: every app gets them, so
 // they say nothing about one.
 func appCalls(apps []store.App) map[string][]string {
 	calls := map[string][]string{}
 	for _, a := range apps {
 		env := strings.ToLower(string(a.Env))
 		for _, b := range apps {
-			if a.Name != b.Name && (namesHost(env, b.Domain) || namesHost(env, ops.EdgeAlias(b.Name))) {
+			if a.Name != b.Name && (ops.RefersTo(string(a.Env), b.Name) || namesHost(env, b.Domain) || namesHost(env, ops.EdgeAlias(b.Name))) {
 				calls[a.Name] = append(calls[a.Name], b.Name)
 			}
 		}

@@ -232,9 +232,20 @@ The app gets `PORT` to listen on; hakobu detects the port it actually listens on
 
 Railpack detects how to build and start the app. It also reads a `railpack.json` or
 `Procfile` in the repo, and the app's `RAILPACK_*` variables (`RAILPACK_NODE_VERSION`,
-`RAILPACK_START_CMD`, …; see [railpack.com](https://railpack.com)); no other variable
-reaches the build. **Start command** in the app's Build settings runs with `sh` instead of
+`RAILPACK_START_CMD`, …; see [railpack.com](https://railpack.com)). Variables frontend tools
+build into the browser's JavaScript (`VITE_*`, `NEXT_PUBLIC_*`, `PUBLIC_*`, `REACT_APP_*`)
+reach the build as well, also as a Dockerfile's `ARG`s; no other variable does. **Start command** in the app's Build settings runs with `sh` instead of
 whatever the image starts, Railpack's or a Dockerfile's.
+
+### Apps calling apps
+
+A variable can refer to another app of the project, filled in when the app deploys, and
+the project's canvas draws an arrow for it:
+
+- `VITE_API_URL=${{api.URL}}`: its public address, `https://api.example.com`, for a browser;
+  `${{api.HOST}}` is the host alone.
+- `API_URL=${{api.PRIVATE_URL}}`: `http://api.hakobu:8080`, inside the project, from a
+  server: quicker and never through Cloudflare.
 
 ### Moving a database in
 

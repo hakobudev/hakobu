@@ -211,13 +211,13 @@ func StartDeploy(s *store.Store, appName, trigger string) error {
 				n.DropImage(ctx(), app.Name, node.Next)
 			}
 		}()
-		buildEnv, err := railpackEnv(s, app)
+		env, err := buildEnv(s, app)
 		if err != nil {
 			return err
 		}
 		stack, err := n.Build(ctx(), node.BuildSpec{
 			App: app.Name, Repo: app.Repo, CloneURL: github.CloneURL(app.Repo), Token: token, Path: app.BuildPath, Strategy: app.BuildStrategy,
-			RailpackEnv: buildEnv,
+			Env: env,
 		}, out)
 		if err != nil {
 			return err
@@ -445,19 +445,27 @@ func restartWorker(s *store.Store, app store.App, out io.Writer) {
 
 // liveSpec is what the node needs of the app to find and reach its live
 // container, without the variables a new container gets.
-// railpackEnv are the app's variables that configure its Railpack build
-// (RAILPACK_START_CMD, RAILPACK_NODE_VERSION, …), its project's shared ones
-// included. No other variable reaches the build: what a build sees can end
-// up in the image's layers.
-func railpackEnv(s *store.Store, app store.App) ([]string, error) {
+// buildPrefixes name the variables a build gets: Railpack's own settings
+// (RAILPACK_START_CMD, RAILPACK_NODE_VERSION, …), and what frontend tools
+// put in the JavaScript they build (VITE_API_URL, NEXT_PUBLIC_…), public
+// by design. No other variable reaches the build: what a build sees can
+// end up in the image's layers.
+var buildPrefixes = []string{"RAILPACK_", "VITE_", "NEXT_PUBLIC_", "PUBLIC_", "REACT_APP_", "NUXT_PUBLIC_", "EXPO_PUBLIC_"}
+
+// buildEnv are the app's variables its build gets, its project's shared
+// ones included, references filled in.
+func buildEnv(s *store.Store, app store.App) ([]string, error) {
 	env, err := appEnv(s, app, 0)
 	if err != nil {
 		return nil, err
 	}
 	var out []string
 	for _, kv := range env {
-		if strings.HasPrefix(kv, "RAILPACK_") {
-			out = append(out, kv)
+		for _, prefix := range buildPrefixes {
+			if strings.HasPrefix(kv, prefix) {
+				out = append(out, kv)
+				break
+			}
 		}
 	}
 	return out, nil

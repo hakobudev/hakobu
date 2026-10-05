@@ -293,9 +293,10 @@ func TestAppCalls(t *testing.T) {
 		{Name: "api", Domain: "api.acme.example.com", Env: "CORS_ORIGIN=https://acme.example.com/\nSEARCH=http://search.hakobu:8080"},
 		{Name: "search", Env: "X=searchable.hakobu.io"},
 		{Name: "admin", Env: "API=https://API.ACME.example.com"},
+		{Name: "worker", Env: "SEARCH=${{search.PRIVATE_URL}}"},
 	}
 	got := appCalls(apps)
-	want := map[string][]string{"web": {"api"}, "api": {"web", "search"}, "admin": {"api"}}
+	want := map[string][]string{"web": {"api"}, "api": {"web", "search"}, "admin": {"api"}, "worker": {"search"}}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("appCalls = %v, want %v", got, want)
 	}

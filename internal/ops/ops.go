@@ -366,7 +366,10 @@ func appEnv(s *store.Store, app store.App, port int64) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return withScope(s, append(env, ParseEnv(string(app.Env))...), "app", app.Name)
+	if env, err = withScope(s, append(env, ParseEnv(string(app.Env))...), "app", app.Name); err != nil {
+		return nil, err
+	}
+	return expandRefs(s, app, env)
 }
 
 func WorkerEnv(s *store.Store, app store.App, w store.Worker) ([]string, error) {
@@ -374,7 +377,10 @@ func WorkerEnv(s *store.Store, app store.App, w store.Worker) ([]string, error) 
 	if err != nil {
 		return nil, err
 	}
-	return withScope(s, append(env, ParseEnv(string(w.Env))...), "worker", app.Name)
+	if env, err = withScope(s, append(env, ParseEnv(string(w.Env))...), "worker", app.Name); err != nil {
+		return nil, err
+	}
+	return expandRefs(s, app, env)
 }
 
 // ParseEnv turns "KEY=value" lines into a docker env slice, skipping blank

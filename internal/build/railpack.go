@@ -12,25 +12,34 @@ import (
 	"github.com/x0ryz/hakobu/internal/config"
 )
 
-// BuildWithStrategy builds sourceDir into imageTag. railpackEnv
-// ("RAILPACK_*=value") configures a Railpack build, as on Railway; the
-// values go in the build's environment, only their names on its command
-// line.
-func BuildWithStrategy(sourceDir, imageTag, strategy string, railpackEnv []string, out io.Writer) error {
-	if strategy == "dockerfile" {
-		return run(out, nil, "docker", "build", "-t", imageTag, sourceDir)
-	}
-	ensureBuildKit(out)
-	args := []string{"build", sourceDir, "--name", imageTag}
+// BuildWithStrategy builds sourceDir into imageTag. env ("NAME=value")
+// is what the build gets: Railpack reads RAILPACK_* as settings, and both
+// Railpack and a Dockerfile's ARGs take the rest. The values go in the
+// build's environment, only their names on its command line, which anyone
+// on the server can read.
+func BuildWithStrategy(sourceDir, imageTag, strategy string, env []string, out io.Writer) error {
+	var names []string
 	seen := map[string]bool{}
-	for _, kv := range railpackEnv {
+	for _, kv := range env {
 		name, _, _ := strings.Cut(kv, "=")
 		if !seen[name] {
 			seen[name] = true
-			args = append(args, "--env", name)
+			names = append(names, name)
 		}
 	}
-	if err := run(out, railpackEnv, "railpack", args...); err != nil {
+	if strategy == "dockerfile" {
+		args := []string{"build", "-t", imageTag}
+		for _, name := range names {
+			args = append(args, "--build-arg", name)
+		}
+		return run(out, env, "docker", append(args, sourceDir)...)
+	}
+	ensureBuildKit(out)
+	args := []string{"build", sourceDir, "--name", imageTag}
+	for _, name := range names {
+		args = append(args, "--env", name)
+	}
+	if err := run(out, env, "railpack", args...); err != nil {
 		return fmt.Errorf("railpack build failed (need railpack + buildkit, see https://railpack.com): %w", err)
 	}
 	return nil
