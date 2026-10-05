@@ -244,6 +244,13 @@ func TestLinkDropsMidRollOut(t *testing.T) {
 	if !errors.Is(err, node.ErrUnreachable) {
 		t.Fatalf("rollOut: %v, want ErrUnreachable", err)
 	}
+	// The server goes on with the call after the link drops, as a real one
+	// does: wait for it to finish (Called holds the fake's lock until then).
+	for deadline := time.Now().Add(5 * time.Second); !f.Called("StartCandidate"); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the server never got StartCandidate")
+		}
+	}
 	if app := webApp(t, s); app.ActiveSlot != "blue" || f.Proxies["web"] != "web-blue" {
 		t.Errorf("record %s, proxy %s: want both on blue", app.ActiveSlot, f.Proxies["web"])
 	}
