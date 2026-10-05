@@ -224,6 +224,14 @@ and backups there; the panel's server and account serve only the panel.
 
 The app gets `PORT` to listen on; hakobu detects the port it actually listens on either way.
 
+### Build and start
+
+Railpack detects how to build and start the app. It also reads a `railpack.json` or
+`Procfile` in the repo, and the app's `RAILPACK_*` variables (`RAILPACK_NODE_VERSION`,
+`RAILPACK_START_CMD`, …; see [railpack.com](https://railpack.com)); no other variable
+reaches the build. **Start command** in the app's Build settings runs with `sh` instead of
+whatever the image starts, Railpack's or a Dockerfile's.
+
 ### Moving a database in
 
 A database from another host comes in as a backup of a hakobu database. With backups on, on

@@ -468,7 +468,7 @@ func appSettings(p appPage) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, "</div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, "<p class=\"field-hint\">Railpack also reads the app's <span class=\"mono\">RAILPACK_*</span> variables, <span class=\"mono\">RAILPACK_NODE_VERSION</span> say, and a <span class=\"mono\">railpack.json</span> or <span class=\"mono\">Procfile</span> in the repo. No other variable reaches the build.</p></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -523,7 +523,7 @@ func appSettings(p appPage) templ.Component {
 				var templ_7745c5c3_Var23 string
 				templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.ResolveAttributeValue("/apps/" + p.App.Name + "/links")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 89, Col: 53}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 90, Col: 53}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var23)
 				if templ_7745c5c3_Err != nil {
@@ -557,7 +557,7 @@ func appSettings(p appPage) templ.Component {
 						var templ_7745c5c3_Var25 string
 						templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.Name)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 96, Col: 33}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 97, Col: 33}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var25)
 						if templ_7745c5c3_Err != nil {
@@ -580,7 +580,7 @@ func appSettings(p appPage) templ.Component {
 						var templ_7745c5c3_Var26 string
 						templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(d.Name)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 96, Col: 83}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 97, Col: 83}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 						if templ_7745c5c3_Err != nil {
@@ -625,7 +625,7 @@ func appSettings(p appPage) templ.Component {
 						var templ_7745c5c3_Var28 string
 						templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.ResolveAttributeValue(st.Name)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 104, Col: 34}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 105, Col: 34}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var28)
 						if templ_7745c5c3_Err != nil {
@@ -654,7 +654,7 @@ func appSettings(p appPage) templ.Component {
 						var templ_7745c5c3_Var29 string
 						templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.JoinStringErrs(storageOption(st))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 105, Col: 31}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 106, Col: 31}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var29))
 						if templ_7745c5c3_Err != nil {
@@ -682,7 +682,7 @@ func appSettings(p appPage) templ.Component {
 				var templ_7745c5c3_Var30 templ.SafeURL
 				templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinURLErrs("/projects/" + p.App.ProjectName)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 111, Col: 108}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 112, Col: 108}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 				if templ_7745c5c3_Err != nil {
@@ -765,7 +765,7 @@ func appSettings(p appPage) templ.Component {
 				var templ_7745c5c3_Var34 string
 				templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.ResolveAttributeValue("/apps/" + p.App.Name + "/limits")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 122, Col: 54}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 123, Col: 54}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var34)
 				if templ_7745c5c3_Err != nil {
@@ -795,7 +795,7 @@ func appSettings(p appPage) templ.Component {
 						var templ_7745c5c3_Var36 string
 						templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.ResolveAttributeValue(p.LastOOM)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 126, Col: 73}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 127, Col: 73}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var36)
 						if templ_7745c5c3_Err != nil {
@@ -808,7 +808,7 @@ func appSettings(p appPage) templ.Component {
 						var templ_7745c5c3_Var37 string
 						templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.JoinStringErrs(p.LastOOM)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 126, Col: 87}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 127, Col: 87}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var37))
 						if templ_7745c5c3_Err != nil {
@@ -848,7 +848,7 @@ func appSettings(p appPage) templ.Component {
 					var templ_7745c5c3_Var39 string
 					templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.ResolveAttributeValue(limitValue(p.App.MemoryMB))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 132, Col: 91}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 133, Col: 91}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var39)
 					if templ_7745c5c3_Err != nil {
@@ -883,7 +883,7 @@ func appSettings(p appPage) templ.Component {
 					var templ_7745c5c3_Var41 string
 					templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.ResolveAttributeValue(cpuValue(p.App.Cpus))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 137, Col: 93}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 138, Col: 93}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var41)
 					if templ_7745c5c3_Err != nil {
@@ -954,7 +954,7 @@ func appSettings(p appPage) templ.Component {
 				var templ_7745c5c3_Var44 string
 				templ_7745c5c3_Var44, templ_7745c5c3_Err = templ.ResolveAttributeValue("/apps/" + p.App.Name + "/worker")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 148, Col: 55}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 149, Col: 55}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var44)
 				if templ_7745c5c3_Err != nil {
@@ -983,7 +983,7 @@ func appSettings(p appPage) templ.Component {
 					var templ_7745c5c3_Var46 string
 					templ_7745c5c3_Var46, templ_7745c5c3_Err = templ.ResolveAttributeValue(workerName(p))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 152, Col: 50}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 153, Col: 50}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var46)
 					if templ_7745c5c3_Err != nil {
@@ -1022,7 +1022,7 @@ func appSettings(p appPage) templ.Component {
 					var templ_7745c5c3_Var48 string
 					templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.ResolveAttributeValue(workerCommand(p))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 156, Col: 57}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 157, Col: 57}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var48)
 					if templ_7745c5c3_Err != nil {
@@ -1124,7 +1124,7 @@ func appSettings(p appPage) templ.Component {
 			var templ_7745c5c3_Var51 string
 			templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.JoinStringErrs(deleteAppHint(len(p.Volumes)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 184, Col: 40}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 185, Col: 40}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var51))
 			if templ_7745c5c3_Err != nil {
@@ -1137,7 +1137,7 @@ func appSettings(p appPage) templ.Component {
 			var templ_7745c5c3_Var52 string
 			templ_7745c5c3_Var52, templ_7745c5c3_Err = templ.ResolveAttributeValue("/apps/" + p.App.Name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 189, Col: 41}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 190, Col: 41}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var52)
 			if templ_7745c5c3_Err != nil {
@@ -1150,7 +1150,7 @@ func appSettings(p appPage) templ.Component {
 			var templ_7745c5c3_Var53 string
 			templ_7745c5c3_Var53, templ_7745c5c3_Err = templ.ResolveAttributeValue(deleteAppText(p))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 190, Col: 37}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 191, Col: 37}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var53)
 			if templ_7745c5c3_Err != nil {
@@ -1163,7 +1163,7 @@ func appSettings(p appPage) templ.Component {
 			var templ_7745c5c3_Var54 string
 			templ_7745c5c3_Var54, templ_7745c5c3_Err = templ.ResolveAttributeValue("Delete " + p.App.Name + "?")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 191, Col: 57}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 192, Col: 57}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var54)
 			if templ_7745c5c3_Err != nil {
@@ -1176,7 +1176,7 @@ func appSettings(p appPage) templ.Component {
 			var templ_7745c5c3_Var55 string
 			templ_7745c5c3_Var55, templ_7745c5c3_Err = templ.ResolveAttributeValue(p.App.Name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 193, Col: 38}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 194, Col: 38}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var55)
 			if templ_7745c5c3_Err != nil {
@@ -1241,7 +1241,7 @@ func workerActions(p appPage) templ.Component {
 			var templ_7745c5c3_Var57 string
 			templ_7745c5c3_Var57, templ_7745c5c3_Err = templ.ResolveAttributeValue("/apps/" + p.App.Name + "/worker/restart")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 210, Col: 81}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 211, Col: 81}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var57)
 			if templ_7745c5c3_Err != nil {
@@ -1262,7 +1262,7 @@ func workerActions(p appPage) templ.Component {
 			var templ_7745c5c3_Var58 string
 			templ_7745c5c3_Var58, templ_7745c5c3_Err = templ.ResolveAttributeValue("/apps/" + p.App.Name + "/worker")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 216, Col: 49}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 217, Col: 49}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var58)
 			if templ_7745c5c3_Err != nil {
@@ -1310,7 +1310,7 @@ func appVolumes(p appPage) templ.Component {
 			var templ_7745c5c3_Var60 string
 			templ_7745c5c3_Var60, templ_7745c5c3_Err = templ.ResolveAttributeValue(p.path("settings"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 230, Col: 30}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 231, Col: 30}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var60)
 			if templ_7745c5c3_Err != nil {
@@ -1341,7 +1341,7 @@ func appVolumes(p appPage) templ.Component {
 			var templ_7745c5c3_Var61 string
 			templ_7745c5c3_Var61, templ_7745c5c3_Err = templ.JoinStringErrs(vb.Volume)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 240, Col: 45}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 241, Col: 45}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var61))
 			if templ_7745c5c3_Err != nil {
@@ -1354,7 +1354,7 @@ func appVolumes(p appPage) templ.Component {
 			var templ_7745c5c3_Var62 string
 			templ_7745c5c3_Var62, templ_7745c5c3_Err = templ.JoinStringErrs(mountOf(p, vb.Volume))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 241, Col: 56}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 242, Col: 56}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var62))
 			if templ_7745c5c3_Err != nil {
@@ -1372,7 +1372,7 @@ func appVolumes(p appPage) templ.Component {
 				var templ_7745c5c3_Var63 string
 				templ_7745c5c3_Var63, templ_7745c5c3_Err = templ.ResolveAttributeValue("/apps/" + p.App.Name + "/volumes/" + vb.Volume + "/backups")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 245, Col: 117}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 246, Col: 117}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var63)
 				if templ_7745c5c3_Err != nil {
@@ -1400,7 +1400,7 @@ func appVolumes(p appPage) templ.Component {
 			var templ_7745c5c3_Var64 string
 			templ_7745c5c3_Var64, templ_7745c5c3_Err = templ.ResolveAttributeValue("/apps/" + p.App.Name + "/volumes/" + vb.Volume)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 249, Col: 65}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 250, Col: 65}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var64)
 			if templ_7745c5c3_Err != nil {
@@ -1413,7 +1413,7 @@ func appVolumes(p appPage) templ.Component {
 			var templ_7745c5c3_Var65 string
 			templ_7745c5c3_Var65, templ_7745c5c3_Err = templ.ResolveAttributeValue("Volume " + vb.Volume + " is deleted with its data. Its backups' files stay in the bucket, but the panel forgets them.")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 250, Col: 138}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 251, Col: 138}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var65)
 			if templ_7745c5c3_Err != nil {
@@ -1426,7 +1426,7 @@ func appVolumes(p appPage) templ.Component {
 			var templ_7745c5c3_Var66 string
 			templ_7745c5c3_Var66, templ_7745c5c3_Err = templ.ResolveAttributeValue("Remove volume " + vb.Volume + "?")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 251, Col: 61}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 252, Col: 61}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var66)
 			if templ_7745c5c3_Err != nil {
@@ -1439,7 +1439,7 @@ func appVolumes(p appPage) templ.Component {
 			var templ_7745c5c3_Var67 string
 			templ_7745c5c3_Var67, templ_7745c5c3_Err = templ.ResolveAttributeValue(vb.Volume)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 253, Col: 35}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 254, Col: 35}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var67)
 			if templ_7745c5c3_Err != nil {
@@ -1461,7 +1461,7 @@ func appVolumes(p appPage) templ.Component {
 				var templ_7745c5c3_Var68 string
 				templ_7745c5c3_Var68, templ_7745c5c3_Err = templ.JoinStringErrs(vb.Job.Running)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 261, Col: 22}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 262, Col: 22}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var68))
 				if templ_7745c5c3_Err != nil {
@@ -1501,7 +1501,7 @@ func appVolumes(p appPage) templ.Component {
 				var templ_7745c5c3_Var71 string
 				templ_7745c5c3_Var71, templ_7745c5c3_Err = templ.JoinStringErrs(vb.Job.Last)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 266, Col: 114}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 267, Col: 114}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var71))
 				if templ_7745c5c3_Err != nil {
@@ -1520,7 +1520,7 @@ func appVolumes(p appPage) templ.Component {
 				var templ_7745c5c3_Var72 string
 				templ_7745c5c3_Var72, templ_7745c5c3_Err = templ.ResolveAttributeValue(b.ObjectKey)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 272, Col: 50}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 273, Col: 50}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var72)
 				if templ_7745c5c3_Err != nil {
@@ -1537,7 +1537,7 @@ func appVolumes(p appPage) templ.Component {
 				var templ_7745c5c3_Var73 string
 				templ_7745c5c3_Var73, templ_7745c5c3_Err = templ.JoinStringErrs(" · " + mb(b.SizeBytes))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 274, Col: 33}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 275, Col: 33}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var73))
 				if templ_7745c5c3_Err != nil {
@@ -1560,7 +1560,7 @@ func appVolumes(p appPage) templ.Component {
 					var templ_7745c5c3_Var74 string
 					templ_7745c5c3_Var74, templ_7745c5c3_Err = templ.ResolveAttributeValue(b.VerifyError)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 279, Col: 61}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 280, Col: 61}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var74)
 					if templ_7745c5c3_Err != nil {
@@ -1578,7 +1578,7 @@ func appVolumes(p appPage) templ.Component {
 					var templ_7745c5c3_Var75 string
 					templ_7745c5c3_Var75, templ_7745c5c3_Err = templ.ResolveAttributeValue("checked " + b.VerifiedAt)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 281, Col: 74}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 282, Col: 74}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var75)
 					if templ_7745c5c3_Err != nil {
@@ -1599,7 +1599,7 @@ func appVolumes(p appPage) templ.Component {
 					var templ_7745c5c3_Var76 string
 					templ_7745c5c3_Var76, templ_7745c5c3_Err = templ.JoinStringErrs(itoa(b.Files))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 283, Col: 32}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 284, Col: 32}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var76))
 					if templ_7745c5c3_Err != nil {
@@ -1617,7 +1617,7 @@ func appVolumes(p appPage) templ.Component {
 				var templ_7745c5c3_Var77 string
 				templ_7745c5c3_Var77, templ_7745c5c3_Err = templ.ResolveAttributeValue("/apps/" + p.App.Name + "/volumes/" + vb.Volume + "/backups/" + itoa(b.ID) + "/verify")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 288, Col: 143}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 289, Col: 143}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var77)
 				if templ_7745c5c3_Err != nil {
@@ -1640,7 +1640,7 @@ func appVolumes(p appPage) templ.Component {
 				var templ_7745c5c3_Var78 string
 				templ_7745c5c3_Var78, templ_7745c5c3_Err = templ.ResolveAttributeValue("/apps/" + p.App.Name + "/volumes/" + vb.Volume + "/backups/" + itoa(b.ID) + "/restore")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 291, Col: 104}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 292, Col: 104}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var78)
 				if templ_7745c5c3_Err != nil {
@@ -1653,7 +1653,7 @@ func appVolumes(p appPage) templ.Component {
 				var templ_7745c5c3_Var79 string
 				templ_7745c5c3_Var79, templ_7745c5c3_Err = templ.ResolveAttributeValue("Everything in volume " + vb.Volume + " is replaced with this backup. " + p.App.Name + " stops while it's written; what's in the volume now is lost.")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 292, Col: 169}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 293, Col: 169}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var79)
 				if templ_7745c5c3_Err != nil {
@@ -1666,7 +1666,7 @@ func appVolumes(p appPage) templ.Component {
 				var templ_7745c5c3_Var80 string
 				templ_7745c5c3_Var80, templ_7745c5c3_Err = templ.ResolveAttributeValue("Restore " + vb.Volume + "?")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 293, Col: 56}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 294, Col: 56}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var80)
 				if templ_7745c5c3_Err != nil {
@@ -1696,7 +1696,7 @@ func appVolumes(p appPage) templ.Component {
 			var templ_7745c5c3_Var81 string
 			templ_7745c5c3_Var81, templ_7745c5c3_Err = templ.ResolveAttributeValue("/apps/" + p.App.Name + "/share-volumes")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 303, Col: 59}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 304, Col: 59}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var81)
 			if templ_7745c5c3_Err != nil {
@@ -1739,7 +1739,7 @@ func appVolumes(p appPage) templ.Component {
 				var templ_7745c5c3_Var82 string
 				templ_7745c5c3_Var82, templ_7745c5c3_Err = templ.JoinStringErrs(p.BackupBucket)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 321, Col: 85}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 322, Col: 85}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var82))
 				if templ_7745c5c3_Err != nil {
@@ -1767,7 +1767,7 @@ func appVolumes(p appPage) templ.Component {
 		var templ_7745c5c3_Var83 string
 		templ_7745c5c3_Var83, templ_7745c5c3_Err = templ.ResolveAttributeValue("/apps/" + p.App.Name + "/volumes")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 327, Col: 52}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app_settings.templ`, Line: 328, Col: 52}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var83)
 		if templ_7745c5c3_Err != nil {

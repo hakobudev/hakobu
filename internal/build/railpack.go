@@ -6,17 +6,31 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/x0ryz/hakobu/internal/config"
 )
 
-func BuildWithStrategy(sourceDir, imageTag, strategy string, out io.Writer) error {
+// BuildWithStrategy builds sourceDir into imageTag. railpackEnv
+// ("RAILPACK_*=value") configures a Railpack build, as on Railway; the
+// values go in the build's environment, only their names on its command
+// line.
+func BuildWithStrategy(sourceDir, imageTag, strategy string, railpackEnv []string, out io.Writer) error {
 	if strategy == "dockerfile" {
-		return run(out, "docker", "build", "-t", imageTag, sourceDir)
+		return run(out, nil, "docker", "build", "-t", imageTag, sourceDir)
 	}
 	ensureBuildKit(out)
-	if err := run(out, "railpack", "build", sourceDir, "--name", imageTag); err != nil {
+	args := []string{"build", sourceDir, "--name", imageTag}
+	seen := map[string]bool{}
+	for _, kv := range railpackEnv {
+		name, _, _ := strings.Cut(kv, "=")
+		if !seen[name] {
+			seen[name] = true
+			args = append(args, "--env", name)
+		}
+	}
+	if err := run(out, railpackEnv, "railpack", args...); err != nil {
 		return fmt.Errorf("railpack build failed (need railpack + buildkit, see https://railpack.com): %w", err)
 	}
 	return nil
@@ -26,10 +40,14 @@ func BuildWithStrategy(sourceDir, imageTag, strategy string, out io.Writer) erro
 // app's deploys until hakobu restarts.
 const buildTimeout = time.Hour
 
-func run(out io.Writer, name string, args ...string) error {
+// run runs name with env added to hakobu's own environment.
+func run(out io.Writer, env []string, name string, args ...string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), buildTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...) // the last of a name wins
+	}
 	cmd.Stdout = out
 	cmd.Stderr = out
 	cmd.WaitDelay = 10 * time.Second

@@ -211,8 +211,13 @@ func StartDeploy(s *store.Store, appName, trigger string) error {
 				n.DropImage(ctx(), app.Name, node.Next)
 			}
 		}()
+		buildEnv, err := railpackEnv(s, app)
+		if err != nil {
+			return err
+		}
 		stack, err := n.Build(ctx(), node.BuildSpec{
 			App: app.Name, Repo: app.Repo, CloneURL: github.CloneURL(app.Repo), Token: token, Path: app.BuildPath, Strategy: app.BuildStrategy,
+			RailpackEnv: buildEnv,
 		}, out)
 		if err != nil {
 			return err
@@ -440,6 +445,24 @@ func restartWorker(s *store.Store, app store.App, out io.Writer) {
 
 // liveSpec is what the node needs of the app to find and reach its live
 // container, without the variables a new container gets.
+// railpackEnv are the app's variables that configure its Railpack build
+// (RAILPACK_START_CMD, RAILPACK_NODE_VERSION, …), its project's shared ones
+// included. No other variable reaches the build: what a build sees can end
+// up in the image's layers.
+func railpackEnv(s *store.Store, app store.App) ([]string, error) {
+	env, err := appEnv(s, app, 0)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "RAILPACK_") {
+			out = append(out, kv)
+		}
+	}
+	return out, nil
+}
+
 func liveSpec(app store.App) node.AppSpec {
 	return node.AppSpec{
 		Name: app.Name, Project: app.ProjectName, ActiveSlot: app.ActiveSlot, ProxyPort: app.Port,

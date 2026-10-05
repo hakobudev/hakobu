@@ -94,3 +94,34 @@ func TestDeployLogCutsTheMiddle(t *testing.T) {
 		t.Fatalf("kept %d bytes of tail", len(l.tail))
 	}
 }
+
+// Only RAILPACK_* variables reach a build, the app's over its project's.
+func TestRailpackEnv(t *testing.T) {
+	s := notifyStore(t)
+	if err := CreateProject(s, 0, "shop"); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := s.GetProject(ctx(), "shop")
+	if err := s.CreateApp(ctx(), store.CreateAppParams{ProjectID: p.ID, Name: "web", BuildStrategy: "railpack"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetSharedEnv(s, "shop", "RAILPACK_NODE_VERSION=20\nRAILPACK_START_CMD=node shared.js\nSHARED_SECRET=x"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetAppEnv(s, "web", "RAILPACK_START_CMD=node app.js\nAPI_KEY=y"); err != nil {
+		t.Fatal(err)
+	}
+	app, _ := s.GetApp(ctx(), "web")
+	env, err := railpackEnv(s, app)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, kv := range env {
+		k, v, _ := strings.Cut(kv, "=")
+		got[k] = v
+	}
+	if len(got) != 2 || got["RAILPACK_NODE_VERSION"] != "20" || got["RAILPACK_START_CMD"] != "node app.js" {
+		t.Errorf("build env %q", env)
+	}
+}

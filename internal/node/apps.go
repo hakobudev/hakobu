@@ -91,6 +91,9 @@ type BuildSpec struct {
 	Token    string // read access to the repo
 	Path     string // the directory to build, inside the repo
 	Strategy string // "railpack" or "dockerfile"
+	// RailpackEnv are the app's RAILPACK_* variables, which configure a
+	// Railpack build.
+	RailpackEnv []string
 }
 
 // Candidate is a new version started next to the live one and healthy,
@@ -119,7 +122,7 @@ func (Local) Build(ctx context.Context, b BuildSpec, out io.Writer) (stack strin
 	stack = detect.StackOf(src)
 	next := Tag(b.App, Next)
 	fmt.Fprintf(out, "building %s from %s (%s)\n", next, src, b.Strategy)
-	if err := build.BuildWithStrategy(src, next, b.Strategy, out); err != nil {
+	if err := build.BuildWithStrategy(src, next, b.Strategy, b.RailpackEnv, out); err != nil {
 		return "", fmt.Errorf("build failed: %w", err)
 	}
 	return stack, nil
