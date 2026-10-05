@@ -13,9 +13,9 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
@@ -23,7 +23,7 @@ jobs:
       - run: go vet ./...
       - run: go test ./...
 
-      - uses: sqlc-dev/setup-sqlc@v4
+      - uses: sqlc-dev/setup-sqlc@v5
         with:
           sqlc-version: "1.31.1"
       - name: generated store code is up to date
@@ -37,14 +37,14 @@ jobs:
     if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
       # The existing code has known issues; PRs are held only to what they add.
-      - uses: golangci/golangci-lint-action@v8
+      - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.14.0
           only-new-issues: true
