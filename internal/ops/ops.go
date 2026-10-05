@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -352,12 +353,14 @@ func repoToken(s *store.Store, repo string) (string, error) {
 	return github.RepoToken(app.AppID, string(app.PrivateKey), repo)
 }
 
-func ListRepos(s *store.Store) ([]string, error) {
+// ListRepos lists the repositories a user may deploy: those of the GitHub
+// App's installation on their own GitHub account.
+func ListRepos(s *store.Store, githubID int64) ([]string, error) {
 	app, err := gitHubApp(s)
 	if err != nil {
 		return nil, err
 	}
-	repos, err := github.ListRepos(app.AppID, string(app.PrivateKey))
+	repos, err := github.ListRepos(app.AppID, string(app.PrivateKey), githubID)
 	if err != nil {
 		return nil, err
 	}
@@ -365,9 +368,24 @@ func ListRepos(s *store.Store) ([]string, error) {
 	return repos, nil
 }
 
-// ScanRepoPresets detects buildable directories through the GitHub API,
-// without cloning.
-func ScanRepoPresets(s *store.Store, repo string) ([]detect.Preset, error) {
+// CheckRepo checks that a user may deploy repo.
+func CheckRepo(s *store.Store, githubID int64, repo string) error {
+	repos, err := ListRepos(s, githubID)
+	if err != nil {
+		return err
+	}
+	if !slices.Contains(repos, repo) {
+		return fmt.Errorf("repository %q isn't among yours: install the GitHub App on your account and give it access", repo)
+	}
+	return nil
+}
+
+// ScanRepoPresets detects buildable directories of a user's repository
+// through the GitHub API, without cloning.
+func ScanRepoPresets(s *store.Store, githubID int64, repo string) ([]detect.Preset, error) {
+	if err := CheckRepo(s, githubID, repo); err != nil {
+		return nil, err
+	}
 	token, err := repoToken(s, repo)
 	if err != nil {
 		return nil, err

@@ -138,19 +138,27 @@ func CloneURL(repo string) string {
 }
 
 // ListRepos returns every repo reachable through any installation of the app.
-func ListRepos(appID int64, privateKeyPEM string) ([]string, error) {
+// ListRepos lists the repositories of the App's installations on the
+// GitHub account accountID (a user's own, not their organizations').
+func ListRepos(appID int64, privateKeyPEM string, accountID int64) ([]string, error) {
 	j, err := appJWT(appID, privateKeyPEM)
 	if err != nil {
 		return nil, err
 	}
 	var installations []struct {
-		ID int64 `json:"id"`
+		ID      int64 `json:"id"`
+		Account struct {
+			ID int64 `json:"id"`
+		} `json:"account"`
 	}
 	if err := call("GET", APIURL+"/app/installations?per_page=100", j, nil, http.StatusOK, &installations); err != nil {
 		return nil, err
 	}
 	var repos []string
 	for _, inst := range installations {
+		if inst.Account.ID != accountID {
+			continue
+		}
 		token, err := InstallationToken(appID, privateKeyPEM, inst.ID)
 		if err != nil {
 			return nil, err
@@ -230,12 +238,14 @@ func BuildManifest(publicHost string) ([]byte, error) {
 	}
 	name := fmt.Sprintf("hakobu-%s-%x", host, suffix)
 	return json.Marshal(map[string]any{
-		"name":                name,
-		"url":                 base,
-		"hook_attributes":     map[string]string{"url": base + "/webhook/github"},
-		"redirect_url":        base + "/github-app/callback",
-		"callback_urls":       []string{base + "/auth/callback"},
-		"public":              false,
+		"name":            name,
+		"url":             base,
+		"hook_attributes": map[string]string{"url": base + "/webhook/github"},
+		"redirect_url":    base + "/github-app/callback",
+		"callback_urls":   []string{base + "/auth/callback"},
+		// Public so that users invited to the panel can install it on
+		// their own accounts; each sees only their installation's repos.
+		"public":              true,
 		"default_permissions": map[string]string{"contents": "read", "metadata": "read", "email_addresses": "read"},
 		"default_events":      []string{"push"},
 	})

@@ -44,3 +44,42 @@ func TestRepoTokenIsScopedToTheRepo(t *testing.T) {
 		t.Errorf("asked for %s", got)
 	}
 }
+
+// A user sees the repositories of the App's installation on their own
+// account, not those of anyone else's.
+func TestListReposOfAnAccount(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method + " " + r.URL.Path {
+		case "GET /app/installations":
+			fmt.Fprint(w, `[{"id":1,"account":{"id":42}},{"id":2,"account":{"id":7}}]`)
+		case "POST /app/installations/1/access_tokens":
+			w.WriteHeader(http.StatusCreated)
+			fmt.Fprint(w, `{"token":"t1"}`)
+		case "POST /app/installations/2/access_tokens":
+			w.WriteHeader(http.StatusCreated)
+			fmt.Fprint(w, `{"token":"t2"}`)
+		case "GET /installation/repositories":
+			if r.Header.Get("Authorization") == "Bearer t1" {
+				fmt.Fprint(w, `{"repositories":[{"full_name":"me/private"}]}`)
+			} else {
+				fmt.Fprint(w, `{"repositories":[{"full_name":"friend/site"}]}`)
+			}
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+	old := APIURL
+	APIURL = srv.URL
+	defer func() { APIURL = old }()
+
+	key, _ := rsa.GenerateKey(rand.Reader, 2048)
+	keyPEM := string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))
+	for account, want := range map[int64]string{42: "[me/private]", 7: "[friend/site]", 9: "[]"} {
+		repos, err := ListRepos(1, keyPEM, account)
+		if err != nil || fmt.Sprint(repos) != want {
+			t.Errorf("account %d: %v, %v; want %s", account, repos, err, want)
+		}
+	}
+}

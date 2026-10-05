@@ -441,7 +441,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 	})
 
 	handle("GET /projects/{p}/new-app", func(w http.ResponseWriter, r *http.Request) {
-		repos, err := ops.ListRepos(s)
+		repos, err := ops.ListRepos(s, requestUser(r).GitHubID)
 		v := newAppData{Project: r.PathValue("p"), Repos: repos}
 		v.Zones, v.DefaultZone, _ = ops.ProjectZones(s, v.Project)
 		if err != nil {
@@ -456,7 +456,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 	// The scan result is swapped into the new-app form, so errors are
 	// rendered inline instead of as a toast.
 	handle("POST /projects/{p}/apps/scan", func(w http.ResponseWriter, r *http.Request) {
-		presets, err := ops.ScanRepoPresets(s, strings.TrimSpace(r.FormValue("repo")))
+		presets, err := ops.ScanRepoPresets(s, requestUser(r).GitHubID, strings.TrimSpace(r.FormValue("repo")))
 		msg := ""
 		if err != nil {
 			msg = err.Error()
@@ -474,6 +474,11 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			Repo:          r.FormValue("repo"),
 			BuildPath:     path,
 			BuildStrategy: strategy,
+		}
+		if app.Repo != "" {
+			if err := ops.CheckRepo(s, requestUser(r).GitHubID, app.Repo); err != nil {
+				return "", err
+			}
 		}
 		return "/apps/" + app.Name, ops.CreateApp(s, r.PathValue("p"), app, formDomain(r))
 	})
