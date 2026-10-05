@@ -243,6 +243,7 @@ type User struct {
 	GitHubEmail string
 	Admin       int64
 	CreatedAt   string
+	NotifyEmail string
 }
 
 type Volume struct {

@@ -463,3 +463,55 @@ func TestCrashesOfLiveContainers(t *testing.T) {
 		t.Errorf("sent %q, want %q", got, want)
 	}
 }
+
+// An alert about a project goes to its owner: at their own address, at the
+// panel's if they're an admin without one, nowhere if they're a user
+// without one; the server's own alerts go to the panel's address.
+func TestAlertRecipients(t *testing.T) {
+	s := notifyStore(t)
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(s.SaveNotify(ctx(), store.SaveNotifyParams{Email: "panel@example.org", SenderName: "alerts", SenderDomain: "example.com", ZoneID: "z1"}))
+	admin, err := s.CreateUser(ctx(), store.CreateUserParams{GitHubID: 1, GitHubLogin: "me", Admin: 1})
+	must(err)
+	friend, err := s.CreateUser(ctx(), store.CreateUserParams{GitHubID: 2, GitHubLogin: "friend"})
+	must(err)
+	quiet, err := s.CreateUser(ctx(), store.CreateUserParams{GitHubID: 3, GitHubLogin: "quiet"})
+	must(err)
+	must(s.SetUserNotifyEmail(ctx(), store.SetUserNotifyEmailParams{NotifyEmail: "friend@example.org", ID: friend}))
+	for _, o := range []struct {
+		user         int64
+		project, app string
+		database     string
+	}{{admin, "mine", "web", "maindb"}, {friend, "theirs", "shop", "shopdb"}, {quiet, "silent", "blog", ""}} {
+		must(s.CreateUserProject(ctx(), store.CreateUserProjectParams{Name: o.project, UserID: o.user}))
+		p, _ := s.GetProject(ctx(), o.project)
+		must(s.CreateApp(ctx(), store.CreateAppParams{ProjectID: p.ID, Name: o.app, BuildStrategy: "dockerfile"}))
+		if o.database != "" {
+			must(s.CreateDatabase(ctx(), store.CreateDatabaseParams{Name: o.database, ProjectID: p.ID, User: "u", Password: "x"}))
+		}
+	}
+	for key, want := range map[string]string{
+		"deploy:web": "panel@example.org", "crash:shop": "friend@example.org", "health:blog": "",
+		"memory:worker:shop": "friend@example.org", "backup:shopdb": "friend@example.org", "backup:shop/data": "friend@example.org",
+		"backup:maindb": "panel@example.org", "backup:panel": "panel@example.org", "disk": "panel@example.org", "host-memory": "panel@example.org",
+		"oom:gone": "panel@example.org",
+	} {
+		if got := recipient(s, key); got != want {
+			t.Errorf("%s goes to %q, want %q", key, got, want)
+		}
+	}
+
+	if err := SetUserAdmin(s, admin, false); err == nil {
+		t.Error("the only admin became a regular user")
+	}
+	must(SetUserAdmin(s, friend, true))
+	must(SetUserAdmin(s, admin, false))
+	if n, _ := s.CountAdmins(ctx()); n != 1 {
+		t.Errorf("%d admins", n)
+	}
+}

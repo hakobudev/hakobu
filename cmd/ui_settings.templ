@@ -13,6 +13,7 @@ type settingsPage struct {
 	Admin                        bool // the signed-in user is the panel's admin
 	Users                        []store.User
 	Invites                      []store.Invite
+	MyNotify                     ops.UserNotify
 	Disk, LastCleanup            string
 	DiskLow                      bool
 	BackupBucket, PanelBackup    string
@@ -67,6 +68,12 @@ templ settingsView(v settingsPage) {
 					<a href="#users" class="subnav-item">
 						@ic("users", "icon-muted")
 						Users
+					</a>
+				}
+				if !v.Admin {
+					<a href="#notifications" class="subnav-item">
+						@ic("bell", "icon-muted")
+						Notifications
 					</a>
 				}
 				if v.Admin && v.Token != nil {
@@ -174,11 +181,17 @@ templ settingsView(v settingsPage) {
 							if v.Notify.On {
 								@settingsWatchdog(v.Watchdog)
 							}
+							@myNotify(v.MyNotify, true)
 						</div>
 					}
 					@settingsUsers(v)
 					if v.Token != nil {
 						@settingsToken(v)
+					}
+				}
+				if !v.Admin {
+					@section("notifications", "Notifications", "An email when something in your projects needs you: a deploy after a push failed, an app crashed, stopped answering or ran out of memory, a backup failed. Each problem is mailed once, again only if it's still there hours later, and once more when it's gone.", nil) {
+						@myNotify(v.MyNotify, false)
 					}
 				}
 				@settingsServers(v)
@@ -752,15 +765,34 @@ templ settingsUsers(v settingsPage) {
 								</span>
 							</span>
 						</span>
-						if u.Admin != 1 {
-							<button
-								class="btn btn-sm btn-danger"
-								hx-delete={ "/settings/users/" + itoa(u.ID) }
-								hx-confirm="They're signed out at once and can't sign in again without a new invite."
-								data-confirm-title={ "Remove " + u.GitHubLogin + "?" }
-								data-confirm-action="Remove"
-							>Remove</button>
-						}
+						<span class="flex gap-2">
+							if u.Admin == 1 {
+								<button
+									class="btn btn-sm"
+									hx-post={ "/settings/users/" + itoa(u.ID) + "/admin" }
+									hx-vals='{"admin":"0"}'
+									hx-confirm="They keep their projects but no longer manage the panel."
+									data-confirm-title={ "Make " + u.GitHubLogin + " a regular user?" }
+									data-confirm-action="Make regular"
+								>Remove admin</button>
+							} else {
+								<button
+									class="btn btn-sm"
+									hx-post={ "/settings/users/" + itoa(u.ID) + "/admin" }
+									hx-vals='{"admin":"1"}'
+									hx-confirm="They manage the panel as you do: updates, backups, notifications, secrets, the master key and users. They still see only their own projects."
+									data-confirm-title={ "Make " + u.GitHubLogin + " an admin?" }
+									data-confirm-action="Make admin"
+								>Make admin</button>
+								<button
+									class="btn btn-sm btn-danger"
+									hx-delete={ "/settings/users/" + itoa(u.ID) }
+									hx-confirm="They're signed out at once and can't sign in again without a new invite."
+									data-confirm-title={ "Remove " + u.GitHubLogin + "?" }
+									data-confirm-action="Remove"
+								>Remove</button>
+							}
+						</span>
 					</div>
 				}
 				for _, inv := range v.Invites {
@@ -784,6 +816,48 @@ templ settingsUsers(v settingsPage) {
 			</div>
 		</div>
 	}
+}
+
+// myNotify is the signed-in user's own alerts address; in the admin's
+// Notifications, a box under the panel's.
+templ myNotify(n ops.UserNotify, admin bool) {
+	<div class="box">
+		if admin {
+			<div class="box-header">Your own projects</div>
+		}
+		<div class="box-body space-y-3">
+			if !n.PanelOn {
+				<p class="muted">The panel doesn't send emails yet: its admin turns them on in Settings.</p>
+			} else {
+				if admin {
+					<p class="field-hint">Alerts about your projects go to the address above unless you give one of your own. Other users' alerts go to theirs.</p>
+				}
+				if n.Email != "" {
+					<p>Alerts about your projects go to <span class="mono">{ n.Email }</span>.</p>
+					if n.Err != "" {
+						@flash("danger") {
+							{ n.Err }
+						}
+					} else if !n.Verified {
+						@flash("warn") {
+							Waiting for you to confirm the address: open the email from Cloudflare and click <span class="mono">Verify email address</span>, then reload this page.
+						}
+					}
+				}
+				<form hx-post="/settings/my-notify" class="space-y-3">
+					@field("Your email", "") {
+						<input name="email" type="email" placeholder="you@example.com" value={ n.Email } class="input"/>
+					}
+					<div class="flex gap-2">
+						<button class="btn btn-primary">Save</button>
+						if n.Email != "" {
+							<button class="btn" type="button" hx-post="/settings/my-notify/test">Send a test</button>
+						}
+					</div>
+				</form>
+			}
+		</div>
+	</div>
 }
 
 templ inviteButton() {

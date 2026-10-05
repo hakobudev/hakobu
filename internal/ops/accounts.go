@@ -347,7 +347,7 @@ func RemoveUser(s *store.Store, id int64) error {
 		return err
 	}
 	if u.Admin == 1 {
-		return errors.New("the panel's admin can't be removed")
+		return errors.New("an admin can't be removed: make them a regular user first")
 	}
 	var owns []string
 	if ps, err := s.ListProjectsOf(ctx(), id); err == nil && len(ps) > 0 {
@@ -369,4 +369,26 @@ func RemoveUser(s *store.Store, id int64) error {
 		return err
 	}
 	return s.DeleteUser(ctx(), id)
+}
+
+// SetUserAdmin makes a user one of the panel's admins, or no longer; the
+// panel keeps at least one.
+func SetUserAdmin(s *store.Store, id int64, admin bool) error {
+	u, err := s.GetUser(ctx(), id)
+	if err != nil {
+		return err
+	}
+	flag := int64(0)
+	if admin {
+		flag = 1
+	}
+	if u.Admin == flag {
+		return nil
+	}
+	if !admin {
+		if n, err := s.CountAdmins(ctx()); err != nil || n <= 1 {
+			return errors.New("the panel needs at least one admin: make someone else one first")
+		}
+	}
+	return s.SetUserAdmin(ctx(), store.SetUserAdminParams{Admin: flag, ID: id})
 }

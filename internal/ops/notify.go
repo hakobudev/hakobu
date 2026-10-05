@@ -391,8 +391,18 @@ func SendTestEmail(s *store.Store) error {
 	return mailOwner(s, "Test email", "Notifications from your hakobu panel arrive here.")
 }
 
-// mailOwner sends an email to the owner, if notifications are on.
+// mailOwner sends an email to the panel's address, if notifications are
+// on.
 func mailOwner(s *store.Store, subject, text string) error {
+	n, err := s.GetNotify(ctx())
+	if err != nil {
+		return errNotifyOff
+	}
+	return mailTo(s, n.Email, subject, text)
+}
+
+// mailTo sends an email from the panel's sender, if notifications are on.
+func mailTo(s *store.Store, to, subject, text string) error {
 	n, err := s.GetNotify(ctx())
 	if err != nil {
 		return errNotifyOff
@@ -405,7 +415,7 @@ func mailOwner(s *store.Store, subject, text string) error {
 	err = c.SendEmail(cf.AccountID, cloudflare.Email{
 		FromAddress: n.SenderName + "@" + n.SenderDomain,
 		FromName:    "Hakobu",
-		To:          n.Email,
+		To:          to,
 		Subject:     subject,
 		Text:        text + "\n\n-- \nhakobu at https://" + host + "\nTurn these emails off in Settings: https://" + host + "/settings#notifications\n",
 	})
@@ -429,7 +439,7 @@ func problem(s *store.Store, key string, again time.Duration, subject, text stri
 	}
 	problems.mailed[key] = time.Now()
 	problems.Unlock()
-	async(func() { sendOrLog(s, subject, text) })
+	async(func() { sendFor(s, key, subject, text) })
 }
 
 // solved mails the owner that the problem key is gone, if it was mailed;
@@ -440,8 +450,84 @@ func solved(s *store.Store, key, subject, text string) {
 	delete(problems.mailed, key)
 	problems.Unlock()
 	if ok && subject != "" {
-		async(func() { sendOrLog(s, subject, text) })
+		async(func() { sendFor(s, key, subject, text) })
 	}
+}
+
+// sendFor mails the alert of problem key to whoever it's for.
+func sendFor(s *store.Store, key, subject, text string) {
+	to := recipient(s, key)
+	if to == "" {
+		return
+	}
+	if err := mailTo(s, to, subject, text); err != nil && !errors.Is(err, errNotifyOff) {
+		fmt.Println("failed to email", to+":", err)
+	}
+}
+
+// recipient is where the alert of problem key goes: to the user whose
+// project it's about, at their own address, or at the panel's if they're
+// an admin without one; the server's own alerts go to the panel's
+// address. "" for nobody.
+func recipient(s *store.Store, key string) string {
+	n, err := s.GetNotify(ctx())
+	if err != nil {
+		return ""
+	}
+	owner, ok := alertOwner(s, key)
+	if !ok {
+		return n.Email
+	}
+	u, err := s.GetUser(ctx(), owner)
+	switch {
+	case err != nil: // nobody's, as made before there were users
+		return n.Email
+	case u.NotifyEmail != "":
+		return u.NotifyEmail
+	case u.Admin == 1:
+		return n.Email
+	}
+	return ""
+}
+
+// alertOwner is the user whose project problem key is about: an app's
+// (deploy, crash, out of memory, health, memory use), a database's or a
+// volume's backup. ok is false for the server's own alerts.
+func alertOwner(s *store.Store, key string) (user int64, ok bool) {
+	kind, rest, _ := strings.Cut(key, ":")
+	var projectID int64
+	switch kind {
+	case "deploy", "oom", "crash", "health", "memory":
+		if kind == "memory" { // memory:app:<app> or memory:worker:<app>
+			if _, rest, ok = strings.Cut(rest, ":"); !ok {
+				return 0, false
+			}
+		}
+		a, err := s.GetApp(ctx(), rest)
+		if err != nil {
+			return 0, false
+		}
+		projectID = a.ProjectID
+	case "backup":
+		if app, _, isVolume := strings.Cut(rest, "/"); isVolume {
+			a, err := s.GetApp(ctx(), app)
+			if err != nil {
+				return 0, false
+			}
+			projectID = a.ProjectID
+		} else if d, err := s.GetDatabase(ctx(), rest); err == nil {
+			projectID = d.ProjectID
+		} else {
+			return 0, false // the panel's own backup
+		}
+	default:
+		return 0, false
+	}
+	p, err := s.GetProjectByID(ctx(), projectID)
+	if err != nil {
+		return 0, false
+	}
+	return p.UserID, true
 }
 
 // async runs an email's sending off the caller's path; tests wait for it.
@@ -523,12 +609,89 @@ func CheckForOwner(s *store.Store) {
 	}
 }
 
-// NoteOAuthConnection mails the owner that an app was given access through
-// OAuth, so a connection they didn't make doesn't go unnoticed.
-func NoteOAuthConnection(s *store.Store, client, redirectHost string, scopes []string) {
+// NoteOAuthConnection mails the user that an app was given access in their
+// name through OAuth, so a connection they didn't make doesn't go
+// unnoticed.
+func NoteOAuthConnection(s *store.Store, u store.User, client, redirectHost string, scopes []string) {
+	to := u.NotifyEmail
+	if n, err := s.GetNotify(ctx()); err == nil && to == "" && u.Admin == 1 {
+		to = n.Email
+	}
+	if to == "" {
+		return
+	}
 	async(func() {
-		sendOrLog(s, client+" connected to hakobu", fmt.Sprintf(
+		err := mailTo(s, to, client+" connected to hakobu", fmt.Sprintf(
 			"You allowed %s (it returns to %s) to use hakobu with scopes: %s.\n\nIf that wasn't you, disconnect it and sign out everywhere: %s",
 			client, redirectHost, strings.Join(scopes, ", "), panelURL("/settings#ai-apps")))
+		if err != nil && !errors.Is(err, errNotifyOff) {
+			fmt.Println("failed to email", to+":", err)
+		}
 	})
+}
+
+// UserNotify is a user's own alerts address as Settings shows it.
+type UserNotify struct {
+	PanelOn  bool   // the panel sends emails at all
+	Email    string // '' if none
+	Verified bool   // confirmed in the panel's Cloudflare account
+	Err      string
+}
+
+func UserNotifyOf(s *store.Store, u store.User) UserNotify {
+	v := UserNotify{Email: u.NotifyEmail}
+	if _, err := s.GetNotify(ctx()); err != nil {
+		return v
+	}
+	v.PanelOn = true
+	if v.Email == "" {
+		return v
+	}
+	c, cf, err := cfClient(s)
+	if err == nil {
+		var dests []cloudflare.Destination
+		if dests, err = c.Destinations(cf.AccountID); err == nil {
+			for _, d := range dests {
+				v.Verified = v.Verified || (d.Verified && strings.EqualFold(d.Email, v.Email))
+			}
+		}
+	}
+	if err != nil {
+		v.Err = tokenHint(err).Error()
+	}
+	return v
+}
+
+// SetUserNotify sets where a user's own alerts go, or with email "" stops
+// them (an admin's go to the panel's address then). The panel's Cloudflare
+// account sends them, to addresses confirmed there: Cloudflare mails the
+// user a link to confirm theirs.
+func SetUserNotify(s *store.Store, u store.User, email string) error {
+	email = strings.TrimSpace(email)
+	if email != "" {
+		addr, err := mail.ParseAddress(email)
+		if err != nil || addr.Name != "" {
+			return fmt.Errorf("%q isn't an email address", email)
+		}
+		email = addr.Address
+		if _, err := s.GetNotify(ctx()); err != nil {
+			return errors.New("the panel doesn't send emails yet: its admin turns them on in Settings")
+		}
+		c, cf, err := cfClient(s)
+		if err != nil {
+			return err
+		}
+		if _, err := c.AddDestination(cf.AccountID, email); err != nil {
+			return tokenHint(err)
+		}
+	}
+	return s.SetUserNotifyEmail(ctx(), store.SetUserNotifyEmailParams{NotifyEmail: email, ID: u.ID})
+}
+
+// SendUserTestEmail sends a test email to a user's own address.
+func SendUserTestEmail(s *store.Store, u store.User) error {
+	if u.NotifyEmail == "" {
+		return errors.New("set your address first")
+	}
+	return mailTo(s, u.NotifyEmail, "Test email", "Alerts about your projects on this hakobu panel arrive here.")
 }

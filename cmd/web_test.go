@@ -67,6 +67,7 @@ func TestPagesRender(t *testing.T) {
 		OAuthGrants: []store.OAuthGrant{{ID: 1, ClientName: "Claude", Scope: "read deploy", CreatedAt: "t", LastUsedAt: "u"}},
 		Users:       []store.User{{ID: 1, GitHubLogin: "me", Admin: 1, CreatedAt: "t"}, {ID: 2, GitHubLogin: "friend", CreatedAt: "t"}},
 		Invites:     []store.Invite{{SecretHash: "ab", ExpiresAt: "2026-10-12T00:00:00Z"}},
+		MyNotify:    ops.UserNotify{PanelOn: true, Email: "me@example.org", Verified: true},
 		Usage:       usageRows([]teldb.Sample{{Target: ops.HostTarget, Cpu: 1, CpuLimit: 4, Mem: 1 << 30, MemLimit: 8 << 30}, {Target: "app:web", Mem: 500 << 20, MemLimit: 512 << 20}, {Target: "service:postgres", Mem: 100 << 20}}),
 		Update:      ops.UpdateInfo{Current: "v0.6.0", Latest: "v0.7.0", CheckedAt: "2026-10-02 12:00 UTC", Available: true, Updater: true, HasLast: true, Last: update.Status{State: "running", To: "v0.7.0", Message: "downloading"}}}
 
@@ -93,7 +94,8 @@ func TestPagesRender(t *testing.T) {
 		"database, no backups": databaseView(databasePage{DB: db, Job: ops.DBJob{Last: "x", Failed: true}}),
 		"settings":             settingsView(settings),
 		"settings, bare":       settingsView(settingsPage{Admin: true, CloudflareConnected: true, Notify: ops.NotifyInfo{On: true, Err: "no token"}, Update: ops.UpdateInfo{Current: "dev"}}),
-		"settings, a user":     settingsView(settingsPage{PublicHost: "p", User: "friend", CloudflareConnected: true, Servers: []ops.Server{{Name: "mine"}}}),
+		"settings, a user":     settingsView(settingsPage{PublicHost: "p", User: "friend", CloudflareConnected: true, Servers: []ops.Server{{Name: "mine"}}, MyNotify: ops.UserNotify{PanelOn: true, Email: "f@example.org"}}),
+		"settings, no emails":  settingsView(settingsPage{PublicHost: "p", User: "friend"}),
 		"invite link":          inviteLink("https://p/invite/abc"),
 		"oauth-consent": oauthConsentPage(consentView{Client: oauthClient{ID: "https://claude.ai/oauth/claude-code-client-metadata", Name: "Claude Code"}, Query: "a=b",
 			RedirectHost: "localhost:3118", Loopback: true, Document: true, Deploy: true, PublicHost: "p"}),

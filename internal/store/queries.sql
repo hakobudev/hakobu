@@ -270,6 +270,15 @@ UPDATE users SET github_login = ? WHERE id = ?;
 -- name: SetUserEmail :exec
 UPDATE users SET github_email = ? WHERE id = ?;
 
+-- name: SetUserNotifyEmail :exec
+UPDATE users SET notify_email = ? WHERE id = ?;
+
+-- name: SetUserAdmin :exec
+UPDATE users SET admin = ? WHERE id = ?;
+
+-- name: CountAdmins :one
+SELECT COUNT(*) FROM users WHERE admin = 1;
+
 -- name: DeleteUser :exec
 DELETE FROM users WHERE id = ? AND admin = 0;
 

@@ -181,7 +181,7 @@ func registerOAuthRoutes(mux *http.ServeMux, s *store.Store) {
 			return
 		}
 		redirect, _ := url.Parse(ar.RedirectURI)
-		ops.NoteOAuthConnection(s, ar.Client.Name, redirect.Host, scopes)
+		ops.NoteOAuthConnection(s, user, ar.Client.Name, redirect.Host, scopes)
 		ar.redirect(w, r, url.Values{"code": {code}})
 	})
 

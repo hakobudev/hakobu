@@ -264,6 +264,19 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 	action("DELETE /settings/invites/{hash}", adminOnly(func(r *http.Request) (string, error) {
 		return "", s.DeleteInvite(r.Context(), r.PathValue("hash"))
 	}))
+	action("POST /settings/users/{id}/admin", adminOnly(func(r *http.Request) (string, error) {
+		id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+		if err != nil {
+			return "", err
+		}
+		return "", ops.SetUserAdmin(s, id, r.FormValue("admin") == "1")
+	}))
+	action("POST /settings/my-notify", func(r *http.Request) (string, error) {
+		return "", ops.SetUserNotify(s, requestUser(r), r.FormValue("email"))
+	})
+	action("POST /settings/my-notify/test", func(r *http.Request) (string, error) {
+		return "", ops.SendUserTestEmail(s, requestUser(r))
+	})
 	action("DELETE /settings/users/{id}", adminOnly(func(r *http.Request) (string, error) {
 		id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 		if err != nil {
@@ -904,6 +917,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 		if app, err := s.GetGitHubApp(r.Context()); err == nil {
 			v.GitHubSlug = app.Slug
 		}
+		v.MyNotify = ops.UserNotifyOf(s, user)
 		if v.Admin {
 			v.Users, _ = s.ListUsers(r.Context())
 			v.Invites, _ = s.LiveInvites(r.Context())
