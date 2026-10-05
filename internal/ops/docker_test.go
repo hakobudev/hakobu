@@ -807,7 +807,7 @@ func checkStats(t *testing.T, s *store.Store, app store.App) {
 		if c.Name != app.ContainerName() {
 			continue
 		}
-		if target := containerTargets(s)[c.Name]; target.name != "app:"+app.Name {
+		if target := containerTargets(s, server{})[c.Name]; target.name != "app:"+app.Name {
 			t.Errorf("recorded as %q", target.name)
 		}
 		counters, err := deploy.ContainerStats(ctx(), c.ID)

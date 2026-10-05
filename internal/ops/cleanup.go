@@ -47,17 +47,36 @@ func cleanup(s *store.Store) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	spec := node.CleanupSpec{Apps: map[string]bool{}, Busy: map[string]bool{}, Volumes: map[string]bool{}, CacheKeep: buildCacheKeep}
-	for _, a := range apps {
-		spec.Apps[a.Name] = true
-		spec.Busy[a.Name] = IsDeploying(a.Name)
+	places, err := projectPlaces(s)
+	if err != nil {
+		return "", err
 	}
-	for _, v := range vols {
-		spec.Volumes[node.Volume(v.AppName, v.Name)] = true
+	for _, a := range apps {
+		if _, ok := places[a.ProjectID]; !ok {
+			// Its server is unknown: every server would take its volumes
+			// for leftovers.
+			return "", fmt.Errorf("the project of app %s not found", a.Name)
+		}
 	}
 	var freed int64
 	var images int
 	for _, n := range allNodes(s) {
+		// A server hears only of its own apps: it could belong to someone
+		// else.
+		spec := node.CleanupSpec{Apps: map[string]bool{}, Busy: map[string]bool{}, Volumes: map[string]bool{}, CacheKeep: buildCacheKeep}
+		mine := map[string]bool{}
+		for _, a := range apps {
+			if places[a.ProjectID].server == n.ID {
+				mine[a.Name] = true
+				spec.Apps[a.Name] = true
+				spec.Busy[a.Name] = IsDeploying(a.Name)
+			}
+		}
+		for _, v := range vols {
+			if mine[v.AppName] {
+				spec.Volumes[node.Volume(v.AppName, v.Name)] = true
+			}
+		}
 		f, i, err := n.n.Cleanup(ctx(), spec)
 		freed, images = freed+f, images+i
 		if err != nil {

@@ -37,7 +37,7 @@ func oomText(app store.App) string { return node.OOMText(app.MemoryMB) }
 // it's connected (watchServer).
 func WatchDeaths(s *store.Store) {
 	for {
-		err := local.WatchDeaths(context.Background(), func(container, app string, d node.Death) { recordDeath(s, container, app, d) })
+		err := local.WatchDeaths(context.Background(), func(container, app string, d node.Death) { recordDeath(s, server{}, container, app, d) })
 		fmt.Println("docker events:", err)
 		time.Sleep(5 * time.Second)
 	}
@@ -45,8 +45,13 @@ func WatchDeaths(s *store.Store) {
 
 // recordDeath puts an out-of-memory kill of an app or worker container, or
 // a crash of a live one, in the app's Errors tab and emails the owner.
-func recordDeath(s *store.Store, container, appName string, d node.Death) {
+func recordDeath(s *store.Store, sv server, container, appName string, d node.Death) {
 	app, err := s.GetApp(ctx(), appName)
+	if on, ok := appServer(s, app); err == nil && (!ok || on.ID != sv.ID) {
+		// A server tells only of its own apps: it could belong to
+		// someone else.
+		return
+	}
 	if err != nil {
 		if d.OOM {
 			fmt.Println(container, "was killed, most likely out of memory")

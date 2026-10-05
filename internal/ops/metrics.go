@@ -136,25 +136,34 @@ type containerTarget struct {
 	memLimit int64
 }
 
-// containerTargets maps the containers worth recording by name: the live
-// slot of each app (not the candidate of a deploy), its worker, and
-// hakobu's services. Targets don't change when a deploy swaps slots.
-func containerTargets(s *store.Store) map[string]containerTarget {
+// containerTargets maps the containers on server sv worth recording by
+// name: the live slot of each app there (not the candidate of a deploy),
+// its worker, and hakobu's services. Targets don't change when a deploy
+// swaps slots. A server is asked only about its own containers, and only
+// they are taken from its answer: it could belong to someone else.
+func containerTargets(s *store.Store, sv server) map[string]containerTarget {
 	targets := map[string]containerTarget{
 		node.PostgresContainer: {name: "service:postgres"},
 		node.TunnelContainer:   {name: "service:cloudflared"},
 		"buildkit":             {name: "service:buildkit"},
 	}
-	for _, a := range tunnelAccounts(s) {
-		if !a.isPanel() {
-			targets[a.container()] = containerTarget{name: "service:cloudflared-" + a.Name}
+	for _, t := range tunnelsOn(s, sv) {
+		if !t.acct.isPanel() {
+			targets[t.acct.container()] = containerTarget{name: "service:cloudflared-" + t.acct.Name}
 		}
 	}
 	apps, err := s.ListApps(ctx())
 	if err != nil {
 		return targets
 	}
+	places, err := projectPlaces(s)
+	if err != nil {
+		return targets
+	}
 	for _, a := range apps {
+		if places[a.ProjectID].server != sv.ID {
+			continue
+		}
 		limit := containerTarget{cpuLimit: a.Cpus, memLimit: a.MemoryMB << 20}
 		limit.name = "app:" + a.Name
 		targets[a.ContainerName()] = limit
@@ -168,13 +177,13 @@ func containerTargets(s *store.Store) map[string]containerTarget {
 // connected. A container shows up from its second reading on, and not
 // after it restarted, which resets its counters.
 func collectUsage(s *store.Store, st *metricState, now time.Time) []teldb.Sample {
-	targets := containerTargets(s)
-	names := make(map[string]bool, len(targets))
-	for name := range targets {
-		names[name] = true
-	}
 	var out []teldb.Sample
 	for _, pn := range allNodes(s) {
+		targets := containerTargets(s, pn.server)
+		names := make(map[string]bool, len(targets))
+		for name := range targets {
+			names[name] = true
+		}
 		su := st.server(pn.Name)
 		r, err := pn.n.Readings(ctx(), names)
 		if r.HostErr == "" && r.Host.CPUTotal > 0 {
@@ -194,7 +203,11 @@ func collectUsage(s *store.Store, st *metricState, now time.Time) []teldb.Sample
 			if !had {
 				continue
 			}
-			if u, ok := containerUsage(targets[c.Name], prev, reading{c.Counters, now}); ok {
+			target, ok := targets[c.Name]
+			if !ok {
+				continue
+			}
+			if u, ok := containerUsage(target, prev, reading{c.Counters, now}); ok {
 				out = append(out, u)
 			}
 		}

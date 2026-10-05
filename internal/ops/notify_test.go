@@ -450,11 +450,12 @@ func TestCrashesOfLiveContainers(t *testing.T) {
 		candidate = "web-blue"
 	}
 
-	recordDeath(s, candidate, "web", deploy.Death{ExitCode: "1"}) // its deploy says so
-	recordDeath(s, "postgres", "", deploy.Death{ExitCode: "1"})   // not an app's
-	recordDeath(s, "web-"+app.ActiveSlot, "web", deploy.Death{ExitCode: "1"})
-	recordDeath(s, "web-"+app.ActiveSlot, "web", deploy.Death{ExitCode: "1"}) // restarted, crashed again
-	recordDeath(s, "web-worker", "web", deploy.Death{OOM: true})
+	recordDeath(s, server{ID: 7, Name: "other"}, "web-"+app.ActiveSlot, "web", deploy.Death{OOM: true}) // not its app
+	recordDeath(s, server{}, candidate, "web", deploy.Death{ExitCode: "1"})                             // its deploy says so
+	recordDeath(s, server{}, "postgres", "", deploy.Death{ExitCode: "1"})                               // not an app's
+	recordDeath(s, server{}, "web-"+app.ActiveSlot, "web", deploy.Death{ExitCode: "1"})
+	recordDeath(s, server{}, "web-"+app.ActiveSlot, "web", deploy.Death{ExitCode: "1"}) // restarted, crashed again
+	recordDeath(s, server{}, "web-worker", "web", deploy.Death{OOM: true})
 
 	if at, _ := s.Tel.LastTelemetryOfKind(ctx(), teldb.LastTelemetryOfKindParams{AppName: "web", Kind: "crash"}); at == "" {
 		t.Error("the crash isn't in the Errors tab")

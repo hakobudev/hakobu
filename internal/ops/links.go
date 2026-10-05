@@ -353,7 +353,7 @@ func serverConnected(s *store.Store, name string, n node.Node, watching context.
 		fmt.Println("tunnel routes not updated (retrying):", err)
 	}
 	for watching.Err() == nil {
-		err := n.WatchDeaths(watching, func(container, app string, d node.Death) { recordDeath(s, container, app, d) })
+		err := n.WatchDeaths(watching, func(container, app string, d node.Death) { recordDeath(s, sv, container, app, d) })
 		if watching.Err() == nil {
 			fmt.Println("docker events of", sv.label()+":", err)
 			time.Sleep(5 * time.Second)
@@ -384,12 +384,18 @@ func appOnServer(s *store.Store, id int64, name string) bool {
 	if err != nil {
 		return false
 	}
+	sv, ok := appServer(s, app)
+	return ok && sv.Name == name && name != ""
+}
+
+// appServer is the server app runs on.
+func appServer(s *store.Store, app store.App) (server, bool) {
 	p, err := s.GetProject(ctx(), app.ProjectName)
 	if err != nil {
-		return false
+		return server{}, false
 	}
 	sv, err := projectServer(s, p)
-	return err == nil && sv.Name == name && name != ""
+	return sv, err == nil
 }
 
 // JoinCommand is what to run, as root, on a new server to install hakobu
