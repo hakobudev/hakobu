@@ -953,6 +953,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 		if app, err := s.GetGitHubApp(r.Context()); err == nil {
 			v.GitHubSlug = app.Slug
 		}
+		v.CloudflareOAuth = ops.CloudflareOAuth()
 		v.MyNotify = ops.UserNotifyOf(s, user)
 		if v.Admin {
 			v.LogLevel = r.URL.Query().Get("log")
@@ -1012,6 +1013,40 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 
 	action("POST /settings/clients", func(r *http.Request) (string, error) {
 		return "", ops.AddClientAccount(s, requestUser(r).ID, strings.TrimSpace(r.FormValue("name")), r.FormValue("token"))
+	})
+
+	// "Connect with Cloudflare": off to Cloudflare to allow the panel in,
+	// back with a code, then the user picks the account and its name.
+	handle("GET /cloudflare/connect", func(w http.ResponseWriter, r *http.Request) {
+		u, err := ops.StartCloudflareOAuth(requestUser(r).ID)
+		if err != nil {
+			renderPage(w, r, oauthErrorPage(err.Error()))
+			return
+		}
+		http.Redirect(w, r, u, http.StatusSeeOther)
+	})
+
+	handle("GET /cloudflare/callback", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if e := q.Get("error"); e != "" {
+			renderPage(w, r, oauthErrorPage("Cloudflare didn't connect the account: "+strings.TrimSpace(e+" "+q.Get("error_description"))))
+			return
+		}
+		id, accounts, err := ops.FinishCloudflareOAuth(requestUser(r).ID, q.Get("state"), q.Get("code"))
+		if err != nil {
+			panellog.Warn("connecting a Cloudflare account failed:", err)
+			renderPage(w, r, oauthErrorPage(err.Error()))
+			return
+		}
+		renderPage(w, r, cloudflarePickPage(cloudflarePick{ID: id, Accounts: accounts, Name: ops.SuggestAccountName(s, accounts[0].Name)}))
+	})
+
+	action("POST /cloudflare/connect/{id}", func(r *http.Request) (string, error) {
+		return "/settings#clients", ops.ConnectOAuthAccount(s, requestUser(r).ID, r.PathValue("id"), r.FormValue("account"), strings.TrimSpace(r.FormValue("name")))
+	})
+
+	action("POST /settings/clients/{c}/r2-token", func(r *http.Request) (string, error) {
+		return "", ops.SetR2Token(s, r.PathValue("c"), r.FormValue("token"))
 	})
 
 	action("POST /settings/clients/{c}/token", func(r *http.Request) (string, error) {

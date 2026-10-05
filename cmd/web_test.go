@@ -126,6 +126,9 @@ func TestPagesRender(t *testing.T) {
 	pages["project, R2 off"] = projectPage(projectView{Project: project, Client: "acme", R2Off: true, R2URL: "https://dash.cloudflare.com/a/r2/overview"})
 	pages["settings, R2 off"] = settingsView(settingsPage{CloudflareConnected: true, BackupBucket: "b", R2Off: true, R2URL: "https://dash.cloudflare.com/p/r2/overview",
 		Clients: []ops.ClientAccount{{Name: "acme", AccountID: "a", R2Off: true, R2URL: "https://dash.cloudflare.com/a/r2/overview"}}})
+	pages["settings, connect with Cloudflare"] = settingsView(settingsPage{CloudflareConnected: true, CloudflareOAuth: true,
+		Clients: []ops.ClientAccount{{Name: "newco", AccountID: "n", OAuth: true}, {Name: "other", AccountID: "o", OAuth: true, R2Token: true}}})
+	pages["cloudflare pick"] = cloudflarePickPage(cloudflarePick{ID: "x", Name: "new-co", Accounts: []cloudflare.Account{{ID: "n", Name: "New Co", Zones: []string{"newco.com", "newco.dev"}}, {ID: "o", Name: "Other", Zones: []string{"other.com"}}}})
 	pages["switch projects"] = switchProjects([]store.Project{project, {Name: "b"}}, "demo")
 	pages["switch resources"] = switchResources("demo", []store.App{app.App, {Name: "x", BuildStrategy: "dockerfile"}}, []store.Database{db}, storages, "web")
 	pages["storage"] = storageView(storagePage{Storage: storages[0], Project: project, UsedBy: []string{"web"}})

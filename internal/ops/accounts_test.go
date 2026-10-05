@@ -8,11 +8,13 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/x0ryz/hakobu/internal/cloudflare"
 	"github.com/x0ryz/hakobu/internal/config"
@@ -38,6 +40,16 @@ var fakeTokens = map[string][]map[string]any{
 	"lapsed-tok": { // panel.com is gone from the account
 		{"id": "z-new", "name": "new.com", "account": map[string]string{"id": "acc"}},
 		{"id": "z-acme", "name": "acme.com", "account": map[string]string{"id": "acme-acc"}},
+	},
+	// What a "Connect with Cloudflare" sign-in reaches, before and after a
+	// refresh.
+	"oauth-at-1": {
+		{"id": "z-new", "name": "newco.com", "account": map[string]string{"id": "new-acc", "name": "New Co"}},
+		{"id": "z-other", "name": "other.com", "account": map[string]string{"id": "other-acc", "name": "Other"}},
+	},
+	"oauth-at-2": {
+		{"id": "z-new", "name": "newco.com", "account": map[string]string{"id": "new-acc", "name": "New Co"}},
+		{"id": "z-other", "name": "other.com", "account": map[string]string{"id": "other-acc", "name": "Other"}},
 	},
 	"multi-tok": {
 		{"id": "z-acme", "name": "acme.com", "account": map[string]string{"id": "acme-acc"}},
@@ -487,5 +499,102 @@ func TestAppRoutes(t *testing.T) {
 	}
 	if routes, _ := s.ListAppRoutes(ctx(), "web"); len(routes) != 1 || routes[0].Target != "admin" {
 		t.Errorf("routes left: %v", routes)
+	}
+}
+
+// "Connect with Cloudflare": the panel trades the code itself, the user
+// picks the account, and the token is refreshed before it runs out.
+func TestConnectWithCloudflare(t *testing.T) {
+	f := newFakeAccounts(t)
+	s, _, _ := accountsStore(t)
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll("data", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.SetPublicHost("panel.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	config.CloudflareClientID = "cid"
+	t.Cleanup(func() { config.CloudflareClientID = "" })
+	var grants []string
+	tokens := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		grants = append(grants, r.Form.Get("grant_type"))
+		switch {
+		case r.Form.Get("client_id") != "cid" || (r.Form.Get("grant_type") == "authorization_code" && (r.Form.Get("redirect_uri") != "https://panel.example.com/cloudflare/callback" || r.Form.Get("code_verifier") == "")):
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, `{"error":"invalid_request"}`)
+		case r.Form.Get("code") == "good":
+			fmt.Fprint(w, `{"access_token":"oauth-at-1","refresh_token":"rt-1","expires_in":3600}`)
+		case r.Form.Get("refresh_token") == "rt-1":
+			fmt.Fprint(w, `{"access_token":"oauth-at-2","refresh_token":"rt-2","expires_in":3600}`)
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, `{"error":"invalid_grant"}`)
+		}
+	}))
+	t.Cleanup(tokens.Close)
+	old := cloudflare.TokenURL
+	cloudflare.TokenURL = tokens.URL
+	t.Cleanup(func() { cloudflare.TokenURL = old })
+
+	start := func(user int64) string {
+		t.Helper()
+		u, err := StartCloudflareOAuth(user)
+		if err != nil {
+			t.Fatal(err)
+		}
+		q, _ := url.Parse(u)
+		if q.Query().Get("client_id") != "cid" || q.Query().Get("code_challenge_method") != "S256" || !strings.Contains(q.Query().Get("scope"), "argotunnel.write") {
+			t.Errorf("authorize URL %s", u)
+		}
+		return q.Query().Get("state")
+	}
+	if _, _, err := FinishCloudflareOAuth(1, start(0), "good"); err == nil {
+		t.Error("another user finished the sign-in")
+	}
+	id, accounts, err := FinishCloudflareOAuth(0, start(0), "good")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(accounts) != 2 || accounts[0].Name != "New Co" || strings.Join(accounts[0].Zones, ",") != "newco.com" {
+		t.Errorf("accounts %+v", accounts)
+	}
+	if got := SuggestAccountName(s, "New Co"); got != "new-co" {
+		t.Errorf("suggested %q", got)
+	}
+	if err := ConnectOAuthAccount(s, 1, id, "new-acc", "newco"); err == nil {
+		t.Error("another user connected the account")
+	}
+	if err := ConnectOAuthAccount(s, 0, id, "acme-acc", "x"); err == nil {
+		t.Error("connected an account the sign-in doesn't reach")
+	}
+	if err := ConnectOAuthAccount(s, 0, id, "new-acc", "newco"); err != nil {
+		t.Fatal(err)
+	}
+	row, err := s.GetCloudflareAccountByName(ctx(), "newco")
+	if err != nil || row.RefreshToken != "rt-1" || row.TunnelID == "" || f.created == 0 {
+		t.Fatalf("account %+v, %v", row, err)
+	}
+
+	// Its backups need an R2 token: a sign-in has no S3 keys.
+	if _, err := clientAccount(s, row).s3Client(); err == nil || !strings.Contains(err.Error(), "R2 token") {
+		t.Errorf("s3Client without an R2 token: %v", err)
+	}
+
+	// Close to running out, the token is refreshed and kept.
+	if err := s.SetCloudflareAccountOAuth(ctx(), store.SetCloudflareAccountOAuthParams{ApiToken: row.ApiToken, RefreshToken: row.RefreshToken, TokenExpires: time.Now().Add(time.Minute).UTC().Format(time.RFC3339), ID: row.ID}); err != nil {
+		t.Fatal(err)
+	}
+	row, _ = s.GetCloudflareAccountByName(ctx(), "newco")
+	if a := clientAccount(s, row); a.Client.Token != "oauth-at-2" {
+		t.Errorf("token %q after a refresh", a.Client.Token)
+	}
+	row, _ = s.GetCloudflareAccountByName(ctx(), "newco")
+	if row.ApiToken != "oauth-at-2" || row.RefreshToken != "rt-2" {
+		t.Errorf("refreshed tokens not kept: %+v", row)
+	}
+	if a := clientAccount(s, row); a.Client.Token != "oauth-at-2" || grants[len(grants)-1] != "refresh_token" || len(grants) != 2 {
+		t.Errorf("a fresh token was refreshed again: %v", grants)
 	}
 }

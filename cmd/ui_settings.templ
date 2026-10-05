@@ -11,6 +11,7 @@ import (
 type settingsPage struct {
 	PublicHost, User, GitHubSlug string
 	GitHubAppPrivate             bool // nobody but its owner can sign in with it
+	CloudflareOAuth              bool // "Connect with Cloudflare" is on
 	PanelLog                     []ops.PanelLogLine
 	LogLevel                     string // the least level PanelLog shows: info, warn or error
 	PanelLogErrors               int64  // errors in the last day
@@ -739,8 +740,31 @@ templ settingsClients(v settingsPage) {
 									<span class="kv-key">Account ID</span>
 									<span class="mono">{ c.AccountID }</span>
 								</div>
+								if c.OAuth {
+									<div class="kv">
+										<span class="kv-key">Connected</span>
+										<span>with Cloudflare sign-in; hakobu renews its access itself</span>
+									</div>
+									<form hx-post={ "/settings/clients/" + c.Name + "/r2-token" } class="space-y-2">
+										if c.R2Token {
+											<p class="field-hint">Backups use its R2 token. To replace it, open <a href={ templ.SafeURL(ops.R2TokenURL(c.Name)) } target="_blank" rel="noopener">this link</a> in that account and paste the new one.</p>
+										} else {
+											@flash("warn") {
+												Backups of projects here need an R2 token too: a sign-in gives no keys for R2's S3 API. Open <a href={ templ.SafeURL(ops.R2TokenURL(c.Name)) } target="_blank" rel="noopener">this link</a> signed in to that account (Workers R2 Storage Edit is filled in), select <span class="strong">Continue to summary</span> → <span class="strong">Create Token</span>, and paste it here.
+											}
+										}
+										<div class="flex gap-2">
+											<input name="token" type="password" required autocomplete="off" placeholder="R2 API token" class="input mono"/>
+											@submit("Save R2 token", false)
+										</div>
+									</form>
+								}
 								<form hx-post={ "/settings/clients/" + c.Name + "/token" } class="space-y-2">
-									<p class="field-hint">A new token for the same account. Then delete the old one in Cloudflare.</p>
+									if c.OAuth {
+										<p class="field-hint">Or connect it with an API token instead of the sign-in (its own keys then serve backups).</p>
+									} else {
+										<p class="field-hint">A new token for the same account. Then delete the old one in Cloudflare.</p>
+									}
 									<div class="flex gap-2">
 										<input name="token" type="password" required autocomplete="off" placeholder="New API token" class="input mono"/>
 										@submit("Replace token", false)
@@ -774,6 +798,13 @@ templ settingsClients(v settingsPage) {
 			<form class="box" hx-post="/settings/clients">
 				<div class="box-header">Add an account</div>
 				<div class="box-body space-y-4">
+					if v.CloudflareOAuth {
+						<a href="/cloudflare/connect" class="btn btn-primary">
+							@ic("cloud")
+							Connect with Cloudflare
+						</a>
+						<p class="field-hint">Sign in to Cloudflare and pick the account: nothing to copy. Or with an API token:</p>
+					}
 					<p class="field-hint">Open <a href={ templ.SafeURL(v.ClientTokenURL) } target="_blank" rel="noopener">this link</a> signed in to the Cloudflare account (or send it to a client), select <span class="strong">Continue to summary</span> → <span class="strong">Create Token</span>, and paste the token here. It needs Zone Read, DNS Edit, Cloudflare Tunnel Edit and Workers R2 Storage Edit, and must be made in that account (account-owned).</p>
 					@field("Name", "Lowercase letters, digits and dashes, e.g. your name or the client's; shown in project settings.") {
 						<input name="name" required pattern="[a-z][a-z0-9\-]{0,39}" placeholder="e.g. acme" class="input mono"/>

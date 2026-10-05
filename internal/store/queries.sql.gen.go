@@ -336,6 +336,33 @@ func (q *Queries) CreateOAuthClient(ctx context.Context, arg CreateOAuthClientPa
 	return err
 }
 
+const createOAuthCloudflareAccount = `-- name: CreateOAuthCloudflareAccount :one
+INSERT INTO cloudflare_accounts (name, api_token, refresh_token, token_expires, account_id, user_id) VALUES (?, ?, ?, ?, ?, ?) RETURNING id
+`
+
+type CreateOAuthCloudflareAccountParams struct {
+	Name         string
+	ApiToken     secret.String
+	RefreshToken secret.String
+	TokenExpires string
+	AccountID    string
+	UserID       int64
+}
+
+func (q *Queries) CreateOAuthCloudflareAccount(ctx context.Context, arg CreateOAuthCloudflareAccountParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, createOAuthCloudflareAccount,
+		arg.Name,
+		arg.ApiToken,
+		arg.RefreshToken,
+		arg.TokenExpires,
+		arg.AccountID,
+		arg.UserID,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const createOAuthGrant = `-- name: CreateOAuthGrant :one
 INSERT INTO oauth_grants (client_id, client_name, redirect_uri, scope, github_id) VALUES (?, ?, ?, ?, ?) RETURNING id
 `
@@ -1039,7 +1066,7 @@ func (q *Queries) GetCloudflare(ctx context.Context) (Cloudflare, error) {
 }
 
 const getCloudflareAccount = `-- name: GetCloudflareAccount :one
-SELECT id, name, api_token, account_id, tunnel_id, tunnel_token, backup_bucket, user_id FROM cloudflare_accounts WHERE id = ?
+SELECT id, name, api_token, account_id, tunnel_id, tunnel_token, backup_bucket, user_id, refresh_token, token_expires, r2_token FROM cloudflare_accounts WHERE id = ?
 `
 
 func (q *Queries) GetCloudflareAccount(ctx context.Context, id int64) (CloudflareAccount, error) {
@@ -1054,12 +1081,15 @@ func (q *Queries) GetCloudflareAccount(ctx context.Context, id int64) (Cloudflar
 		&i.TunnelToken,
 		&i.BackupBucket,
 		&i.UserID,
+		&i.RefreshToken,
+		&i.TokenExpires,
+		&i.R2Token,
 	)
 	return i, err
 }
 
 const getCloudflareAccountByAccountID = `-- name: GetCloudflareAccountByAccountID :one
-SELECT id, name, api_token, account_id, tunnel_id, tunnel_token, backup_bucket, user_id FROM cloudflare_accounts WHERE account_id = ?
+SELECT id, name, api_token, account_id, tunnel_id, tunnel_token, backup_bucket, user_id, refresh_token, token_expires, r2_token FROM cloudflare_accounts WHERE account_id = ?
 `
 
 func (q *Queries) GetCloudflareAccountByAccountID(ctx context.Context, accountID string) (CloudflareAccount, error) {
@@ -1074,12 +1104,15 @@ func (q *Queries) GetCloudflareAccountByAccountID(ctx context.Context, accountID
 		&i.TunnelToken,
 		&i.BackupBucket,
 		&i.UserID,
+		&i.RefreshToken,
+		&i.TokenExpires,
+		&i.R2Token,
 	)
 	return i, err
 }
 
 const getCloudflareAccountByName = `-- name: GetCloudflareAccountByName :one
-SELECT id, name, api_token, account_id, tunnel_id, tunnel_token, backup_bucket, user_id FROM cloudflare_accounts WHERE name = ?
+SELECT id, name, api_token, account_id, tunnel_id, tunnel_token, backup_bucket, user_id, refresh_token, token_expires, r2_token FROM cloudflare_accounts WHERE name = ?
 `
 
 func (q *Queries) GetCloudflareAccountByName(ctx context.Context, name string) (CloudflareAccount, error) {
@@ -1094,6 +1127,9 @@ func (q *Queries) GetCloudflareAccountByName(ctx context.Context, name string) (
 		&i.TunnelToken,
 		&i.BackupBucket,
 		&i.UserID,
+		&i.RefreshToken,
+		&i.TokenExpires,
+		&i.R2Token,
 	)
 	return i, err
 }
@@ -1964,7 +2000,7 @@ func (q *Queries) ListBackups(ctx context.Context, arg ListBackupsParams) ([]Bac
 
 const listCloudflareAccounts = `-- name: ListCloudflareAccounts :many
 
-SELECT id, name, api_token, account_id, tunnel_id, tunnel_token, backup_bucket, user_id FROM cloudflare_accounts ORDER BY name
+SELECT id, name, api_token, account_id, tunnel_id, tunnel_token, backup_bucket, user_id, refresh_token, token_expires, r2_token FROM cloudflare_accounts ORDER BY name
 `
 
 // Clients' Cloudflare accounts
@@ -1986,6 +2022,9 @@ func (q *Queries) ListCloudflareAccounts(ctx context.Context) ([]CloudflareAccou
 			&i.TunnelToken,
 			&i.BackupBucket,
 			&i.UserID,
+			&i.RefreshToken,
+			&i.TokenExpires,
+			&i.R2Token,
 		); err != nil {
 			return nil, err
 		}
@@ -3171,17 +3210,38 @@ func (q *Queries) SetCloudflareAccountBackupBucket(ctx context.Context, arg SetC
 	return err
 }
 
-const setCloudflareAccountToken = `-- name: SetCloudflareAccountToken :exec
-UPDATE cloudflare_accounts SET api_token = ? WHERE id = ?
+const setCloudflareAccountOAuth = `-- name: SetCloudflareAccountOAuth :exec
+UPDATE cloudflare_accounts SET api_token = ?, refresh_token = ?, token_expires = ? WHERE id = ?
 `
 
-type SetCloudflareAccountTokenParams struct {
-	ApiToken secret.String
-	ID       int64
+type SetCloudflareAccountOAuthParams struct {
+	ApiToken     secret.String
+	RefreshToken secret.String
+	TokenExpires string
+	ID           int64
 }
 
-func (q *Queries) SetCloudflareAccountToken(ctx context.Context, arg SetCloudflareAccountTokenParams) error {
-	_, err := q.db.ExecContext(ctx, setCloudflareAccountToken, arg.ApiToken, arg.ID)
+func (q *Queries) SetCloudflareAccountOAuth(ctx context.Context, arg SetCloudflareAccountOAuthParams) error {
+	_, err := q.db.ExecContext(ctx, setCloudflareAccountOAuth,
+		arg.ApiToken,
+		arg.RefreshToken,
+		arg.TokenExpires,
+		arg.ID,
+	)
+	return err
+}
+
+const setCloudflareAccountR2Token = `-- name: SetCloudflareAccountR2Token :exec
+UPDATE cloudflare_accounts SET r2_token = ? WHERE id = ?
+`
+
+type SetCloudflareAccountR2TokenParams struct {
+	R2Token secret.String
+	ID      int64
+}
+
+func (q *Queries) SetCloudflareAccountR2Token(ctx context.Context, arg SetCloudflareAccountR2TokenParams) error {
+	_, err := q.db.ExecContext(ctx, setCloudflareAccountR2Token, arg.R2Token, arg.ID)
 	return err
 }
 

@@ -394,8 +394,14 @@ SELECT * FROM cloudflare_accounts WHERE account_id = ?;
 -- name: CreateCloudflareAccount :one
 INSERT INTO cloudflare_accounts (name, api_token, account_id, user_id) VALUES (?, ?, ?, ?) RETURNING id;
 
--- name: SetCloudflareAccountToken :exec
-UPDATE cloudflare_accounts SET api_token = ? WHERE id = ?;
+-- name: CreateOAuthCloudflareAccount :one
+INSERT INTO cloudflare_accounts (name, api_token, refresh_token, token_expires, account_id, user_id) VALUES (?, ?, ?, ?, ?, ?) RETURNING id;
+
+-- name: SetCloudflareAccountOAuth :exec
+UPDATE cloudflare_accounts SET api_token = ?, refresh_token = ?, token_expires = ? WHERE id = ?;
+
+-- name: SetCloudflareAccountR2Token :exec
+UPDATE cloudflare_accounts SET r2_token = ? WHERE id = ?;
 
 -- name: SetCloudflareAccountTunnel :exec
 UPDATE cloudflare_accounts SET tunnel_id = ?, tunnel_token = ? WHERE id = ?;

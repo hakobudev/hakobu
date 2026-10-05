@@ -521,6 +521,12 @@ func alertOwner(s *store.Store, key string) (user int64, ok bool) {
 		} else {
 			return 0, false // the panel's own backup
 		}
+	case "cloudflare": // cloudflare:<account>, a sign-in that can't renew
+		a, err := s.GetCloudflareAccountByName(ctx(), rest)
+		if err != nil {
+			return 0, false
+		}
+		return a.UserID, true
 	default:
 		return 0, false
 	}

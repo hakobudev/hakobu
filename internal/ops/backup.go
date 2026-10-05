@@ -383,7 +383,15 @@ func backupDownload(s *store.Store, t backupTarget, key string, parts int64, sha
 
 // presigner signs URLs for method on objects of t's bucket.
 func presigner(s *store.Store, t backupTarget, method string) (func(object string) (string, error), error) {
-	c, account, bucket, err := r2At(s, t)
+	_, account, bucket, err := r2At(s, t)
+	if err != nil {
+		return nil, err
+	}
+	a, err := accountByCloudflareID(s, t.AccountID)
+	if err != nil {
+		return nil, err
+	}
+	c, err := a.s3Client()
 	if err != nil {
 		return nil, err
 	}

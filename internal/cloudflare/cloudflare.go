@@ -2,12 +2,13 @@
 // token the owner creates for it and manages the tunnel and DNS records
 // hakobu needs.
 //
-// Not OAuth: Cloudflare's token endpoint lives on dash.cloudflare.com,
-// whose bot protection challenges many server networks (Hetzner,
-// DigitalOcean, VPNs), so a server can't trade codes or refresh tokens
-// itself, and doing it elsewhere means a third party sees the tokens. The
-// API (api.cloudflare.com) isn't challenged, and an API token needs no
-// refreshing.
+// An API token, not OAuth, by default: Cloudflare's token endpoint lives on
+// dash.cloudflare.com, whose bot protection challenges many server networks
+// (Hetzner, DigitalOcean, VPNs), so a server there can't trade codes or
+// refresh tokens itself, and doing it elsewhere means a third party sees
+// the tokens. The API (api.cloudflare.com) isn't challenged, and an API
+// token needs no refreshing. A panel on a network Cloudflare answers can
+// offer OAuth as well (oauth.go).
 package cloudflare
 
 import (
@@ -93,6 +94,12 @@ func TokenTemplateURL(name string) string {
 // needs only domains, a tunnel and R2.
 func ClientTokenTemplateURL(name string) string {
 	return templateURL(name, clientTokenPermissions)
+}
+
+// R2TokenTemplateURL is TokenTemplateURL for R2 alone: the S3 keys of an
+// account connected with OAuth, whose token has none.
+func R2TokenTemplateURL(name string) string {
+	return templateURL(name, tokenPermissions[3:4])
 }
 
 func templateURL(name string, permissions []struct{ Key, Type string }) string {
@@ -280,7 +287,8 @@ type Zone struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
 	Account struct {
-		ID string `json:"id"`
+		ID   string `json:"id"`
+		Name string `json:"name"`
 	} `json:"account"`
 }
 

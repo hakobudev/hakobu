@@ -24,6 +24,11 @@ var (
 	// Cloudflare account serves only the panel. Each project runs on a
 	// server of its owner's, in a Cloudflare account of theirs.
 	PanelOnly = envBool("HAKOBU_PANEL_ONLY")
+	// CloudflareClientID is the panel's OAuth client in Cloudflare, for
+	// "Connect with Cloudflare" in Settings → Cloudflare accounts; its
+	// redirect URI is https://<panel>/cloudflare/callback. Only for a
+	// server Cloudflare's sign-in answers: it challenges Hetzner's.
+	CloudflareClientID = os.Getenv("HAKOBU_CF_CLIENT_ID")
 )
 
 // The master key lives outside data/, so a copy of data/ (a backup of the

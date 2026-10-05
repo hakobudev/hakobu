@@ -100,7 +100,7 @@ func accountByID(s *store.Store, id int64) (cfAccount, error) {
 	if err != nil {
 		return cfAccount{}, err
 	}
-	return clientAccount(a), nil
+	return clientAccount(s, a), nil
 }
 
 // place is where a project is: its account's and its server's IDs.

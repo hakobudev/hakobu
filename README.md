@@ -172,6 +172,19 @@ let a third party see your tokens. An API token goes straight from the dashboard
 server, never needs refreshing and works from any network. You can also limit it to the
 server's IP address in the dashboard (Client IP Address Filtering).
 
+### Connect with Cloudflare (OAuth)
+
+A panel shared with others can let each of them connect their Cloudflare account by signing in,
+with nothing to copy: create an OAuth client in Cloudflare (Manage Account → OAuth clients) with
+the redirect URI `https://<panel address>/cloudflare/callback` and the scopes `zone.read dns.write
+argotunnel.write workers-r2.write offline_access`, make it public, and set its ID in the panel's
+environment (`Environment=HAKOBU_CF_CLIENT_ID=…`, as for panel-only). Settings → Cloudflare accounts
+then shows **Connect with Cloudflare**. The panel trades the code and renews the access itself,
+every few minutes, warning the account's owner when it can't: Cloudflare's sign-in turns some
+server networks away (Hetzner's always), so the panel must run elsewhere, and an API token stays
+the fallback. A sign-in gives no keys for R2's S3 API, so backups in such an account also need an
+R2 token, which the account's settings link to.
+
 ### Other Cloudflare accounts
 
 One server can host projects for several clients, each keeping their own Cloudflare account.

@@ -33,9 +33,23 @@ type cfAccount struct {
 	TunnelID     string
 	TunnelToken  secret.String
 	BackupBucket string
+	OAuth        bool   // connected with "Connect with Cloudflare"
+	R2Token      string // an OAuth account's API token for R2, whose S3 keys backups use
 }
 
 func (a cfAccount) isPanel() bool { return a.ID == 0 }
+
+// s3Client is the client whose token's S3 keys reach the account's R2: its
+// own, or for an OAuth account, whose token has no S3 keys, its R2 token.
+func (a cfAccount) s3Client() (cloudflare.Client, error) {
+	if !a.OAuth {
+		return a.Client, nil
+	}
+	if a.R2Token == "" {
+		return cloudflare.Client{}, fmt.Errorf("backups in Cloudflare account %s need an R2 token: add one in Settings → Cloudflare accounts", a.Name)
+	}
+	return cloudflare.Client{Token: a.R2Token, AccountID: a.AccountID}, nil
+}
 
 func (a cfAccount) label() string {
 	if a.isPanel() {
@@ -55,10 +69,11 @@ func panelAccount(s *store.Store) (cfAccount, error) {
 	return cfAccount{Client: c, AccountID: cf.AccountID, TunnelID: cf.TunnelID, TunnelToken: cf.TunnelToken, BackupBucket: cf.BackupBucket}, nil
 }
 
-func clientAccount(a store.CloudflareAccount) cfAccount {
+func clientAccount(s *store.Store, a store.CloudflareAccount) cfAccount {
 	return cfAccount{
-		ID: a.ID, Name: a.Name, Client: cloudflare.Client{Token: string(a.ApiToken), AccountID: a.AccountID},
+		ID: a.ID, Name: a.Name, Client: cloudflare.Client{Token: freshToken(s, a), AccountID: a.AccountID},
 		AccountID: a.AccountID, TunnelID: a.TunnelID, TunnelToken: a.TunnelToken, BackupBucket: a.BackupBucket,
+		OAuth: a.RefreshToken != "", R2Token: string(a.R2Token),
 	}
 }
 
@@ -70,7 +85,7 @@ func projectAccount(s *store.Store, p store.Project) (cfAccount, error) {
 	if err != nil {
 		return cfAccount{}, fmt.Errorf("the Cloudflare account of project %s: %w", p.Name, err)
 	}
-	return clientAccount(a), nil
+	return clientAccount(s, a), nil
 }
 
 func projectAccountByName(s *store.Store, project string) (cfAccount, error) {
@@ -96,7 +111,7 @@ func accountByCloudflareID(s *store.Store, id string) (cfAccount, error) {
 	if err != nil {
 		return cfAccount{}, fmt.Errorf("Cloudflare account %s isn't connected any more", id)
 	}
-	return clientAccount(a), nil
+	return clientAccount(s, a), nil
 }
 
 // tunnelAccounts are the accounts with a tunnel, the panel's first.
@@ -108,7 +123,7 @@ func tunnelAccounts(s *store.Store) []cfAccount {
 	clients, _ := s.ListCloudflareAccounts(ctx())
 	for _, c := range clients {
 		if c.TunnelID != "" {
-			out = append(out, clientAccount(c))
+			out = append(out, clientAccount(s, c))
 		}
 	}
 	return out
@@ -125,6 +140,8 @@ type ClientAccount struct {
 	Projects  []string
 	R2Off     bool   // known only after CheckClientsR2
 	R2URL     string // where the client turns R2 on
+	OAuth     bool   // connected with "Connect with Cloudflare"
+	R2Token   bool   // an OAuth account has its R2 token for backups
 }
 
 // CheckClientsR2 tells which clients haven't turned R2 on (R2Off).
@@ -134,7 +151,7 @@ func CheckClientsR2(s *store.Store, clients []ClientAccount) {
 		if err != nil {
 			continue
 		}
-		clients[i].R2Off, clients[i].R2URL = R2Off(clientAccount(a).Client, a.AccountID), cloudflare.R2URL(a.AccountID)
+		clients[i].R2Off, clients[i].R2URL = R2Off(clientAccount(s, a).Client, a.AccountID), cloudflare.R2URL(a.AccountID)
 	}
 }
 
@@ -145,7 +162,7 @@ func ClientAccounts(s *store.Store) ([]ClientAccount, error) {
 	}
 	out := make([]ClientAccount, len(rows))
 	for i, a := range rows {
-		out[i] = ClientAccount{ID: a.ID, UserID: a.UserID, Name: a.Name, AccountID: a.AccountID}
+		out[i] = ClientAccount{ID: a.ID, UserID: a.UserID, Name: a.Name, AccountID: a.AccountID, OAuth: a.RefreshToken != "", R2Token: a.R2Token != ""}
 		out[i].Projects, _ = s.ProjectsInCloudflareAccount(ctx(), sql.NullInt64{Int64: a.ID, Valid: true})
 	}
 	return out, nil
@@ -155,6 +172,12 @@ func ClientAccounts(s *store.Store) ([]ClientAccount, error) {
 func ClientTokenURL(name string) string {
 	host, _ := os.Hostname()
 	return cloudflare.ClientTokenTemplateURL("hakobu " + strings.Split(host, ".")[0] + " " + name)
+}
+
+// R2TokenURL is ClientTokenURL for an OAuth account's R2 token.
+func R2TokenURL(name string) string {
+	host, _ := os.Hostname()
+	return cloudflare.R2TokenTemplateURL("hakobu " + strings.Split(host, ".")[0] + " " + name + " R2")
 }
 
 // checkClientToken checks a client's token and returns the one account
@@ -184,6 +207,14 @@ func AddClientAccount(s *store.Store, userID int64, name, token string) error {
 	if err != nil {
 		return err
 	}
+	return connectAccount(s, userID, name, account, cloudflare.Client{Token: token, AccountID: account}, func() (int64, error) {
+		return s.CreateCloudflareAccount(ctx(), store.CreateCloudflareAccountParams{Name: name, ApiToken: secret.String(token), AccountID: account, UserID: userID})
+	})
+}
+
+// connectAccount checks a Cloudflare account can be connected as name,
+// records it with insert and creates its tunnel with c.
+func connectAccount(s *store.Store, userID int64, name, account string, c cloudflare.Client, insert func() (int64, error)) error {
 	if panel, err := panelAccount(s); err == nil && panel.AccountID == account {
 		return errors.New("that is the panel's own Cloudflare account: its projects need no client account")
 	}
@@ -196,11 +227,11 @@ func AddClientAccount(s *store.Store, userID int64, name, token string) error {
 	if _, err := s.GetCloudflareAccountByName(ctx(), name); err == nil {
 		return fmt.Errorf("a client named %q already exists", name)
 	}
-	id, err := s.CreateCloudflareAccount(ctx(), store.CreateCloudflareAccountParams{Name: name, ApiToken: secret.String(token), AccountID: account, UserID: userID})
+	id, err := insert()
 	if err != nil {
 		return err
 	}
-	a := cfAccount{ID: id, Name: name, Client: cloudflare.Client{Token: token, AccountID: account}, AccountID: account}
+	a := cfAccount{ID: id, Name: name, Client: c, AccountID: account}
 	host, _ := os.Hostname()
 	suffix, err := RandomHex(3)
 	if err == nil {
@@ -237,7 +268,9 @@ func ReplaceClientToken(s *store.Store, name, token string) error {
 	if account != row.AccountID {
 		return fmt.Errorf("the token is for another Cloudflare account than client %s's", name)
 	}
-	return s.SetCloudflareAccountToken(ctx(), store.SetCloudflareAccountTokenParams{ApiToken: secret.String(token), ID: row.ID})
+	// An API token in place of OAuth ends the refreshing; its own S3 keys
+	// then serve the backups.
+	return s.SetCloudflareAccountOAuth(ctx(), store.SetCloudflareAccountOAuthParams{ApiToken: secret.String(token), ID: row.ID})
 }
 
 // RemoveClientAccount disconnects a client's account that no project uses
@@ -251,7 +284,7 @@ func RemoveClientAccount(s *store.Store, name string) error {
 	if projects, _ := s.ProjectsInCloudflareAccount(ctx(), sql.NullInt64{Int64: row.ID, Valid: true}); len(projects) > 0 {
 		return fmt.Errorf("client %s still has %s: move or delete them first", name, strings.Join(projects, ", "))
 	}
-	a := clientAccount(row)
+	a := clientAccount(s, row)
 	if err := local.RemoveTunnel(ctx(), a.Name); err != nil {
 		return err
 	}

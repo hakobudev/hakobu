@@ -109,6 +109,9 @@ type CloudflareAccount struct {
 	TunnelToken  secret.String
 	BackupBucket string
 	UserID       int64
+	RefreshToken secret.String
+	TokenExpires string
+	R2Token      secret.String
 }
 
 type Database struct {
