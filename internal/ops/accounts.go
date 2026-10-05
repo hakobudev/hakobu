@@ -278,6 +278,9 @@ func SetProjectAccount(s *store.Store, project, client string) error {
 	if err != nil {
 		return fmt.Errorf("project %q not found: %w", project, err)
 	}
+	if config.PanelOnly && client == "" {
+		return errPanelOnly
+	}
 	var id sql.NullInt64
 	if client != "" {
 		a, err := s.GetCloudflareAccountByName(ctx(), client)

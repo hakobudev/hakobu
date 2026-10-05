@@ -3,6 +3,7 @@ package ops
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -398,5 +399,41 @@ func TestMovedDomain(t *testing.T) {
 		if got, ok := movedDomain(c.domain, "old.com", "new.com"); got != c.want || ok != (c.want != "") {
 			t.Errorf("movedDomain(%q) = %q, %v", c.domain, got, ok)
 		}
+	}
+}
+
+func TestPanelOnlyProjectsUseTheirOwnersPlaces(t *testing.T) {
+	newFakeAccounts(t)
+	s, _, _ := accountsStore(t)
+	joinServer(t, s, "box", nil)
+	config.PanelOnly = true
+	t.Cleanup(func() { config.PanelOnly = false })
+
+	for _, place := range [][2]string{{"", ""}, {"box", ""}, {"", "acme"}} {
+		if err := CreateProjectOn(s, 0, "web", place[0], place[1]); !errors.Is(err, errPanelOnly) {
+			t.Errorf("server %q, account %q: %v, want errPanelOnly", place[0], place[1], err)
+		}
+		if _, err := s.GetProject(ctx(), "web"); err == nil {
+			t.Fatalf("server %q, account %q: the project was left behind", place[0], place[1])
+		}
+	}
+	if err := CreateProjectOn(s, 1, "web", "box", "acme"); err == nil {
+		t.Error("a user put a project on another user's server and account")
+	}
+	if err := CreateProjectOn(s, 0, "web", "box", "acme"); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := s.GetProject(ctx(), "web")
+	if a, err := projectAccount(s, p); err != nil || a.Name != "acme" {
+		t.Errorf("account = %q (%v), want acme", a.Name, err)
+	}
+	if sv, err := projectServer(s, p); err != nil || sv.Name != "box" {
+		t.Errorf("server = %q (%v), want box", sv.Name, err)
+	}
+	if err := SetProjectServer(s, "web", ""); !errors.Is(err, errPanelOnly) {
+		t.Errorf("moved to the panel's server: %v", err)
+	}
+	if err := SetProjectAccount(s, "web", ""); !errors.Is(err, errPanelOnly) {
+		t.Errorf("moved to the panel's account: %v", err)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 
+	"github.com/x0ryz/hakobu/internal/config"
 	"github.com/x0ryz/hakobu/internal/node"
 	"github.com/x0ryz/hakobu/internal/store"
 )
@@ -110,6 +111,9 @@ func SetProjectServer(s *store.Store, project, serverName string) error {
 	p, err := s.GetProject(ctx(), project)
 	if err != nil {
 		return fmt.Errorf("project %q not found: %w", project, err)
+	}
+	if config.PanelOnly && serverName == "" {
+		return errPanelOnly
 	}
 	var id sql.NullInt64
 	if serverName != "" {

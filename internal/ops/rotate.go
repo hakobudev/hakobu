@@ -103,7 +103,7 @@ func rotateSecrets(s *store.Store, out io.Writer) (manual []string, failures int
 		}
 		manual = append(manual, "Cloudflare API token: roll it in the Cloudflare dashboard (Manage Account → API Tokens → Roll) and give hakobu the new one with `cd /opt/hakobu && sudo -u hakobu ./hakobu setup --reconnect`")
 		if clients, _ := s.ListCloudflareAccounts(ctx()); len(clients) > 0 {
-			manual = append(manual, "Clients' Cloudflare API tokens: ask each client to roll theirs and paste the new one in Settings → Clients")
+			manual = append(manual, "Clients' Cloudflare API tokens: ask each client to roll theirs and paste the new one in Settings → Cloudflare accounts")
 		}
 	}
 

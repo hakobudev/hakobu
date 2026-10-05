@@ -19,6 +19,11 @@ var (
 	BackupEvery      = envDuration("HAKOBU_BACKUP_EVERY", 24*time.Hour)
 	BackupKeep       = envInt("HAKOBU_BACKUP_KEEP", 7) // plus one a week for four weeks
 	RetentionDays    = envInt("HAKOBU_RETENTION_DAYS", 7)
+	// PanelOnly is a panel shared by people who don't trust each other's
+	// apps, such as a hosted one: its own server runs none, and its
+	// Cloudflare account serves only the panel. Each project runs on a
+	// server of its owner's, in a Cloudflare account of theirs.
+	PanelOnly = envBool("HAKOBU_PANEL_ONLY")
 )
 
 // The master key lives outside data/, so a copy of data/ (a backup of the
@@ -118,6 +123,11 @@ func envDuration(key string, def time.Duration) time.Duration {
 		return d
 	}
 	return def
+}
+
+func envBool(key string) bool {
+	b, _ := strconv.ParseBool(os.Getenv(key))
+	return b
 }
 
 func envInt(key string, def int) int {

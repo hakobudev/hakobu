@@ -200,11 +200,11 @@ func settingsView(v settingsPage) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = ic("users", "icon-muted").Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = ic("cloud", "icon-muted").Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "Clients</a> ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "Cloudflare accounts</a> ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -2583,7 +2583,7 @@ func settingsClients(v settingsPage) templ.Component {
 						return templ_7745c5c3_Err
 					}
 					if c.R2Off {
-						templ_7745c5c3_Err = r2OffFlash(c.Name+"'s Cloudflare account", c.R2URL, "the client").Render(ctx, templ_7745c5c3_Buffer)
+						templ_7745c5c3_Err = r2OffFlash("Cloudflare account "+c.Name, c.R2URL, "its owner").Render(ctx, templ_7745c5c3_Buffer)
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
@@ -2614,7 +2614,7 @@ func settingsClients(v settingsPage) templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 233, "\" class=\"space-y-2\"><p class=\"field-hint\">A new token from the client, for the same account. Then they delete the old one.</p><div class=\"flex gap-2\"><input name=\"token\" type=\"password\" required autocomplete=\"off\" placeholder=\"New API token\" class=\"input mono\">")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 233, "\" class=\"space-y-2\"><p class=\"field-hint\">A new token for the same account. Then delete the old one in Cloudflare.</p><div class=\"flex gap-2\"><input name=\"token\" type=\"password\" required autocomplete=\"off\" placeholder=\"New API token\" class=\"input mono\">")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -2632,7 +2632,7 @@ func settingsClients(v settingsPage) templ.Component {
 							return templ_7745c5c3_Err
 						}
 					} else {
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 236, "Stops its tunnel. Buckets and backups in the client's account stay.")
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 236, "Stops its tunnel. Buckets and backups in the account stay.")
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
@@ -2668,15 +2668,15 @@ func settingsClients(v settingsPage) templ.Component {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var104 string
-					templ_7745c5c3_Var104, templ_7745c5c3_Err = templ.ResolveAttributeValue("Remove client " + c.Name + "?")
+					templ_7745c5c3_Var104, templ_7745c5c3_Err = templ.ResolveAttributeValue("Remove account " + c.Name + "?")
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_settings.templ`, Line: 709, Col: 62}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_settings.templ`, Line: 709, Col: 63}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var104)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 240, "\" data-confirm-action=\"Remove client\"")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 240, "\" data-confirm-action=\"Remove account\"")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -2704,20 +2704,20 @@ func settingsClients(v settingsPage) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 245, "<form class=\"box\" hx-post=\"/settings/clients\"><div class=\"box-header\">Add a client</div><div class=\"box-body space-y-4\"><p class=\"field-hint\">Send the client <a href=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 245, "<form class=\"box\" hx-post=\"/settings/clients\"><div class=\"box-header\">Add an account</div><div class=\"box-body space-y-4\"><p class=\"field-hint\">Open <a href=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var105 templ.SafeURL
 			templ_7745c5c3_Var105, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(v.ClientTokenURL))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_settings.templ`, Line: 725, Col: 84}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_settings.templ`, Line: 725, Col: 73}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var105))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 246, "\" target=\"_blank\" rel=\"noopener\">this link</a>: signed in to their Cloudflare account, they select <span class=\"strong\">Continue to summary</span> → <span class=\"strong\">Create Token</span> and give you the token. It needs Zone Read, DNS Edit, Cloudflare Tunnel Edit and Workers R2 Storage Edit, and must be made in their account (account-owned).</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 246, "\" target=\"_blank\" rel=\"noopener\">this link</a> signed in to the Cloudflare account (or send it to a client), select <span class=\"strong\">Continue to summary</span> → <span class=\"strong\">Create Token</span>, and paste the token here. It needs Zone Read, DNS Edit, Cloudflare Tunnel Edit and Workers R2 Storage Edit, and must be made in that account (account-owned).</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -2739,7 +2739,7 @@ func settingsClients(v settingsPage) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = field("Name", "Lowercase letters, digits and dashes; shown in project settings.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var106), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = field("Name", "Lowercase letters, digits and dashes, e.g. your name or the client's; shown in project settings.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var106), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -2781,13 +2781,13 @@ func settingsClients(v settingsPage) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = submit("Add client", true).Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = submit("Add account", true).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = boxFooter("hakobu creates a tunnel in the client's account.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var108), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = boxFooter("hakobu creates a tunnel in the account.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var108), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -2797,7 +2797,7 @@ func settingsClients(v settingsPage) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = section("clients", "Clients", "A client's Cloudflare account: projects assigned to it get their domains, R2 storages and backups there, through a tunnel of its own. The client keeps their account; you only get a token for it.", nil).Render(templ.WithChildren(ctx, templ_7745c5c3_Var97), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = section("clients", "Cloudflare accounts", "Another Cloudflare account, yours or a client's: projects assigned to it get their domains, R2 storages and backups there, through a tunnel of its own. Its owner keeps the account; hakobu only gets a token for it.", nil).Render(templ.WithChildren(ctx, templ_7745c5c3_Var97), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

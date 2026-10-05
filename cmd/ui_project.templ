@@ -7,6 +7,7 @@ import "github.com/x0ryz/hakobu/internal/store"
 type projectView struct {
 	Project          store.Project
 	Tab              string // "", "variables" or "settings"
+	PanelOnly        bool   // the panel's own server and account aren't offered
 	Apps             []appView
 	Workers          map[string]workerCard
 	LastDeploy       map[string]store.DeployLog
@@ -564,7 +565,9 @@ templ projectSettings(v projectView) {
 			<div class="box-body space-y-3">
 				<p class="field-hint">Where its apps, databases and volumes run. It can move while it has none.</p>
 				<select name="server" class="input">
-					<option value="" selected?={ v.Server == "" }>This server, the panel's</option>
+					if !v.PanelOnly {
+						<option value="" selected?={ v.Server == "" }>This server, the panel's</option>
+					}
 					for _, sv := range v.Servers {
 						<option value={ sv } selected?={ v.Server == sv }>{ sv }</option>
 					}
@@ -579,11 +582,13 @@ templ projectSettings(v projectView) {
 		<form class="box mb-6" hx-post={ "/projects/" + v.Project.Name + "/account" }>
 			<div class="box-header">Cloudflare account</div>
 			<div class="box-body space-y-3">
-				<p class="field-hint">Where the project's domains, R2 storages and backups are: your account, or a client's (Settings → Clients). Apps must be private to move; storages made before stay where they are.</p>
+				<p class="field-hint">Where the project's domains, R2 storages and backups are: the panel's, or another one (Settings → Cloudflare accounts). Apps must be private to move; storages made before stay where they are.</p>
 				<select name="client" class="input">
-					<option value="" selected?={ v.Client == "" }>Your account</option>
+					if !v.PanelOnly {
+						<option value="" selected?={ v.Client == "" }>The panel's account</option>
+					}
 					for _, c := range v.Clients {
-						<option value={ c } selected?={ v.Client == c }>{ "Client " + c }</option>
+						<option value={ c } selected?={ v.Client == c }>{ c }</option>
 					}
 				</select>
 			</div>

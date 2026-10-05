@@ -4,7 +4,9 @@ package ops
 
 import (
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -44,25 +46,51 @@ func checkName(kind, name string) error {
 // Projects.
 
 func CreateProject(s *store.Store, userID int64, name string) error {
-	return CreateProjectOn(s, userID, name, "")
+	return CreateProjectOn(s, userID, name, "", "")
 }
 
+// errPanelOnly is what a panel-only panel says to a project that would use
+// its own server or Cloudflare account.
+var errPanelOnly = errors.New("this panel runs no apps of its own: a project runs on a server of yours (Settings → Servers), in a Cloudflare account of yours (Settings → Cloudflare accounts)")
+
 // CreateProjectOn creates a project of user's on a server of theirs (""
-// for the panel's).
-func CreateProjectOn(s *store.Store, userID int64, name, serverName string) error {
+// for the panel's), in a Cloudflare account of theirs ("" for the panel's).
+func CreateProjectOn(s *store.Store, userID int64, name, serverName, client string) error {
 	if err := checkName("project", name); err != nil {
 		return err
+	}
+	if config.PanelOnly && (serverName == "" || client == "") {
+		return errPanelOnly
+	}
+	var account sql.NullInt64
+	if client != "" {
+		a, err := s.GetCloudflareAccountByName(ctx(), client)
+		if err != nil || a.UserID != userID {
+			return fmt.Errorf("Cloudflare account %q not found", client)
+		}
+		account = sql.NullInt64{Int64: a.ID, Valid: true}
 	}
 	// Its networks are created when it first needs them.
 	if err := s.CreateUserProject(ctx(), store.CreateUserProjectParams{Name: name, UserID: userID}); err != nil {
 		return err
 	}
-	if serverName == "" {
-		return nil
-	}
-	if err := SetProjectServer(s, name, serverName); err != nil {
+	undo := func(err error) error {
 		_ = s.DeleteProject(ctx(), name)
 		return err
+	}
+	if serverName != "" {
+		if err := SetProjectServer(s, name, serverName); err != nil {
+			return undo(err)
+		}
+	}
+	if account.Valid {
+		p, err := s.GetProject(ctx(), name)
+		if err != nil {
+			return undo(err)
+		}
+		if err := s.SetProjectCloudflareAccount(ctx(), store.SetProjectCloudflareAccountParams{CloudflareAccountID: account, ID: p.ID}); err != nil {
+			return undo(err)
+		}
 	}
 	return nil
 }

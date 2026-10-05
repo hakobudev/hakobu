@@ -91,8 +91,8 @@ templ settingsView(v settingsPage) {
 				</a>
 				if v.CloudflareConnected {
 					<a href="#clients" class="subnav-item">
-						@ic("users", "icon-muted")
-						Clients
+						@ic("cloud", "icon-muted")
+						Cloudflare accounts
 					</a>
 				}
 				<a href="#ai-apps" class="subnav-item">
@@ -661,7 +661,7 @@ templ joinCommand(name, command string) {
 }
 
 templ settingsClients(v settingsPage) {
-	@section("clients", "Clients", "A client's Cloudflare account: projects assigned to it get their domains, R2 storages and backups there, through a tunnel of its own. The client keeps their account; you only get a token for it.", nil) {
+	@section("clients", "Cloudflare accounts", "Another Cloudflare account, yours or a client's: projects assigned to it get their domains, R2 storages and backups there, through a tunnel of its own. Its owner keeps the account; hakobu only gets a token for it.", nil) {
 		<div class="space-y-6">
 			if len(v.Clients) > 0 {
 				<div class="box">
@@ -681,14 +681,14 @@ templ settingsClients(v settingsPage) {
 							</summary>
 							<div class="box-body space-y-4">
 								if c.R2Off {
-									@r2OffFlash(c.Name+"'s Cloudflare account", c.R2URL, "the client")
+									@r2OffFlash("Cloudflare account "+c.Name, c.R2URL, "its owner")
 								}
 								<div class="kv">
 									<span class="kv-key">Account ID</span>
 									<span class="mono">{ c.AccountID }</span>
 								</div>
 								<form hx-post={ "/settings/clients/" + c.Name + "/token" } class="space-y-2">
-									<p class="field-hint">A new token from the client, for the same account. Then they delete the old one.</p>
+									<p class="field-hint">A new token for the same account. Then delete the old one in Cloudflare.</p>
 									<div class="flex gap-2">
 										<input name="token" type="password" required autocomplete="off" placeholder="New API token" class="input mono"/>
 										@submit("Replace token", false)
@@ -699,15 +699,15 @@ templ settingsClients(v settingsPage) {
 										if len(c.Projects) > 0 {
 											Move or delete its projects first.
 										} else {
-											Stops its tunnel. Buckets and backups in the client's account stay.
+											Stops its tunnel. Buckets and backups in the account stay.
 										}
 									</p>
 									<button
 										class="btn btn-danger"
 										hx-delete={ "/settings/clients/" + c.Name }
 										hx-confirm={ "hakobu deletes the tunnel in " + c.Name + "'s account and forgets its token. Its buckets and backups stay in the account." }
-										data-confirm-title={ "Remove client " + c.Name + "?" }
-										data-confirm-action="Remove client"
+										data-confirm-title={ "Remove account " + c.Name + "?" }
+										data-confirm-action="Remove account"
 										disabled?={ len(c.Projects) > 0 }
 									>
 										@ic("trash-2")
@@ -720,18 +720,18 @@ templ settingsClients(v settingsPage) {
 				</div>
 			}
 			<form class="box" hx-post="/settings/clients">
-				<div class="box-header">Add a client</div>
+				<div class="box-header">Add an account</div>
 				<div class="box-body space-y-4">
-					<p class="field-hint">Send the client <a href={ templ.SafeURL(v.ClientTokenURL) } target="_blank" rel="noopener">this link</a>: signed in to their Cloudflare account, they select <span class="strong">Continue to summary</span> → <span class="strong">Create Token</span> and give you the token. It needs Zone Read, DNS Edit, Cloudflare Tunnel Edit and Workers R2 Storage Edit, and must be made in their account (account-owned).</p>
-					@field("Name", "Lowercase letters, digits and dashes; shown in project settings.") {
+					<p class="field-hint">Open <a href={ templ.SafeURL(v.ClientTokenURL) } target="_blank" rel="noopener">this link</a> signed in to the Cloudflare account (or send it to a client), select <span class="strong">Continue to summary</span> → <span class="strong">Create Token</span>, and paste the token here. It needs Zone Read, DNS Edit, Cloudflare Tunnel Edit and Workers R2 Storage Edit, and must be made in that account (account-owned).</p>
+					@field("Name", "Lowercase letters, digits and dashes, e.g. your name or the client's; shown in project settings.") {
 						<input name="name" required pattern="[a-z][a-z0-9\-]{0,39}" placeholder="e.g. acme" class="input mono"/>
 					}
 					@field("API token", "") {
 						<input name="token" type="password" required autocomplete="off" class="input mono"/>
 					}
 				</div>
-				@boxFooter("hakobu creates a tunnel in the client's account.") {
-					@submit("Add client", true)
+				@boxFooter("hakobu creates a tunnel in the account.") {
+					@submit("Add account", true)
 				}
 			</form>
 		</div>

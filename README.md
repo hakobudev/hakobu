@@ -167,10 +167,10 @@ let a third party see your tokens. An API token goes straight from the dashboard
 server, never needs refreshing and works from any network. You can also limit it to the
 server's IP address in the dashboard (Client IP Address Filtering).
 
-### Clients' Cloudflare accounts
+### Other Cloudflare accounts
 
 One server can host projects for several clients, each keeping their own Cloudflare account.
-Under **Settings → Clients**, send the client the token link: they create an account-owned
+Under **Settings → Cloudflare accounts**, send the client the token link: they create an account-owned
 token in their account (Zone Read, DNS Edit, Cloudflare Tunnel Edit, Workers R2 Storage Edit)
 and give it to you. hakobu creates a tunnel in their account; a project assigned to the
 client (project **Settings**) gets its domains, R2 storages and database and volume backups
@@ -198,6 +198,20 @@ reached through a tunnel of their Cloudflare account on that server, and its bac
 from that server straight to R2 through URLs the panel signs for each part. A server gets
 nothing of the panel's: not its master key or tokens, and for builds a GitHub token for
 the one repository.
+
+### A panel for others: panel-only
+
+A panel shared with people whose apps you don't want on your server, a hosted one say,
+runs none on its own. Set it in a drop-in (`sudo systemctl edit hakobu`):
+
+```ini
+[Service]
+Environment=HAKOBU_PANEL_ONLY=1
+```
+
+Then every project runs on a server of its owner's (Settings → Servers) and in a
+Cloudflare account of theirs (Settings → Cloudflare accounts), with its domains, storages
+and backups there; the panel's server and account serve only the panel.
 
 ## Using it
 

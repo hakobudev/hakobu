@@ -154,7 +154,7 @@ func TestServerSendsItsAppsEnvelopes(t *testing.T) {
 		if p == "there" {
 			server = "far"
 		}
-		if err := CreateProjectOn(s, 0, p, server); err != nil {
+		if err := CreateProjectOn(s, 0, p, server, ""); err != nil {
 			t.Fatal(err)
 		}
 		pr, _ := s.GetProject(ctx(), p)

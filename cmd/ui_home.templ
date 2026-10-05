@@ -45,7 +45,7 @@ templ expiringFlash(expiring []ops.DomainExpiry) {
 	}
 }
 
-templ homePage(projects []homeProject, lacking []cloudflare.Permission, expiring []ops.DomainExpiry, servers []string) {
+templ homePage(projects []homeProject, lacking []cloudflare.Permission, expiring []ops.DomainExpiry, where projectPlaces) {
 	@shell("") {
 		@pageHeader(pageHead{Title: "Projects", Actions: newProjectButton()})
 		@lackingFlash(lacking)
@@ -115,14 +115,33 @@ templ homePage(projects []homeProject, lacking []cloudflare.Permission, expiring
 				@field("Name", "Lowercase letters, digits and dashes, starting with a letter.") {
 					<input name="name" required autofocus pattern="[a-z][a-z0-9\-]{0,39}" class="input mono" placeholder="e.g. shop"/>
 				}
-				if len(servers) > 0 {
+				if where.PanelOnly {
 					@field("Server", "Where its apps, databases and volumes run. It moves only while it has none.") {
-						<select name="server" class="input">
-							<option value="">This server, the panel's</option>
-							for _, sv := range servers {
-								<option value={ sv }>{ sv }</option>
-							}
-						</select>
+						@placeSelect("server", where.Servers)
+					}
+					@field("Cloudflare account", "Where its domains, R2 storages and backups are.") {
+						@placeSelect("client", where.Clients)
+					}
+				} else {
+					if len(where.Servers) > 0 {
+						@field("Server", "Where its apps, databases and volumes run. It moves only while it has none.") {
+							<select name="server" class="input">
+								<option value="">This server, the panel's</option>
+								for _, sv := range where.Servers {
+									<option value={ sv }>{ sv }</option>
+								}
+							</select>
+						}
+					}
+					if len(where.Clients) > 0 {
+						@field("Cloudflare account", "Where its domains, R2 storages and backups are.") {
+							<select name="client" class="input">
+								<option value="">The panel's account</option>
+								for _, c := range where.Clients {
+									<option value={ c }>{ c }</option>
+								}
+							</select>
+						}
 					}
 				}
 				<button class="btn btn-primary btn-block">
@@ -131,6 +150,34 @@ templ homePage(projects []homeProject, lacking []cloudflare.Permission, expiring
 				</button>
 			</form>
 		}
+	}
+}
+
+// projectPlaces are the servers and Cloudflare accounts of a user's a new
+// project can go to, besides the panel's own (none on a panel-only panel).
+type projectPlaces struct {
+	Servers, Clients []string
+	PanelOnly        bool
+}
+
+// placeSelect picks one of the user's own servers or Cloudflare accounts,
+// or says where to add one when there is none.
+templ placeSelect(name string, options []string) {
+	if len(options) == 0 {
+		<p class="field-hint">
+			if name == "server" {
+				None yet: add one in <a href="/settings#servers">Settings → Servers</a>.
+			} else {
+				None yet: connect one in <a href="/settings#clients">Settings → Cloudflare accounts</a>.
+			}
+		</p>
+		<input type="hidden" name={ name } value=""/>
+	} else {
+		<select name={ name } class="input" required>
+			for _, o := range options {
+				<option value={ o }>{ o }</option>
+			}
+		</select>
 	}
 }
 

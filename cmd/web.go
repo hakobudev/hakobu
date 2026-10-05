@@ -325,12 +325,12 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			}
 			cards = append(cards, card)
 		}
-		renderPage(w, r, homePage(cards, cloudflare.Lacking(ops.CachedTokenPermissions()), ops.ExpiringDomains(), joinedServers(s, requestUser(r))))
+		renderPage(w, r, homePage(cards, cloudflare.Lacking(ops.CachedTokenPermissions()), ops.ExpiringDomains(), placesOf(s, requestUser(r))))
 	})
 
 	action("POST /projects", func(r *http.Request) (string, error) {
 		name := strings.TrimSpace(r.FormValue("name"))
-		return "/projects/" + name, ops.CreateProjectOn(s, requestUser(r).ID, name, r.FormValue("server"))
+		return "/projects/" + name, ops.CreateProjectOn(s, requestUser(r).ID, name, r.FormValue("server"), r.FormValue("client"))
 	})
 
 	action("POST /projects/{p}/server", func(r *http.Request) (string, error) {
@@ -395,6 +395,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			v.Calls = appCalls(apps)
 			v.Watchdog = ops.Watchdog(s).On
 			v.Server, v.Servers = ops.ProjectServerName(s, p), joinedServers(s, requestUser(r))
+			v.PanelOnly = config.PanelOnly
 			if clients, err := ops.ClientAccounts(s); err == nil {
 				for _, c := range clients {
 					if c.UserID != p.UserID {
@@ -1411,9 +1412,20 @@ func deploySummaries(ctx context.Context, s *store.Store, app string, n int64) [
 	return logs
 }
 
-// joinedServers are the names of the servers that joined, to run projects on.
 // joinedServers are the user's servers that have joined, to put projects
 // on.
+// placesOf are where the user's new projects can go.
+func placesOf(s *store.Store, u store.User) projectPlaces {
+	where := projectPlaces{Servers: joinedServers(s, u), PanelOnly: config.PanelOnly}
+	clients, _ := ops.ClientAccounts(s)
+	for _, c := range clients {
+		if c.UserID == u.ID {
+			where.Clients = append(where.Clients, c.Name)
+		}
+	}
+	return where
+}
+
 func joinedServers(s *store.Store, u store.User) []string {
 	servers, _ := ops.Servers(s)
 	var names []string
