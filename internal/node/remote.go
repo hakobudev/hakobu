@@ -64,6 +64,26 @@ func (r *Remote) Handler() http.Handler {
 	return mux
 }
 
+// TellPanelURL tells the node the panel's new address ("https://host"),
+// which it connects at from then on.
+func (r *Remote) TellPanelURL(ctx context.Context, url string) error {
+	body, _ := json.Marshal(map[string]string{"URL": url})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://node/panel", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	resp, err := r.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrUnreachable, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("the server didn't take the panel's address (%d): %s", resp.StatusCode, bytes.TrimSpace(msg))
+	}
+	return nil
+}
+
 // remoteError is an error the node returned; it unwraps to the panel's
 // sentinel for its code.
 type remoteError struct {

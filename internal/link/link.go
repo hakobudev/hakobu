@@ -122,13 +122,24 @@ type hello struct {
 type welcome struct {
 	Node    string `json:"node,omitempty"`
 	Version string `json:"version,omitempty"`
+	URL     string `json:"url,omitempty"` // the panel's address now
 	Error   string `json:"error,omitempty"`
+}
+
+// Panel is the panel as a node finds it on connecting.
+type Panel struct {
+	Version string // its hakobu version
+	// URL is its address now ("https://host"), which a node keeps for
+	// connecting next time: the panel may have moved. "" if unknown.
+	URL string
 }
 
 // Server takes nodes' connections on the panel.
 type Server struct {
 	Key     ed25519.PrivateKey
 	Version string // the panel's hakobu version
+	// URL is the panel's address now, told to each node that connects.
+	URL func() string
 	// Admit decides on a node by its key and, the first time, its token's
 	// secret, and names it.
 	Admit func(node ed25519.PublicKey, joinSecret, version string) (name string, err error)
@@ -187,6 +198,9 @@ func (sv *Server) accept(conn net.Conn) (name, version string, only bool, sess *
 	}
 	name, admitErr := sv.Admit(node, h.Join, h.Version)
 	wel := welcome{Node: name, Version: sv.Version}
+	if sv.URL != nil {
+		wel.URL = sv.URL()
+	}
 	if admitErr != nil {
 		wel = welcome{Error: admitErr.Error()}
 	}
@@ -203,20 +217,19 @@ func (sv *Server) accept(conn net.Conn) (name, version string, only bool, sess *
 
 // Dial connects a node to the panel at panelURL ("https://host"), checking
 // it's the panel by its key. joinSecret is the token's, the first time.
-// It returns the panel's version.
-func Dial(ctx context.Context, panelURL string, key ed25519.PrivateKey, panelKey ed25519.PublicKey, joinSecret, version string) (*yamux.Session, string, error) {
+func Dial(ctx context.Context, panelURL string, key ed25519.PrivateKey, panelKey ed25519.PublicKey, joinSecret, version string) (*yamux.Session, Panel, error) {
 	return dial(ctx, panelURL, key, panelKey, hello{Join: joinSecret, Version: version})
 }
 
 // Join joins a node to the panel with its token's secret, and leaves: the
 // node then connects with Dial. It returns the panel's version.
 func Join(ctx context.Context, panelURL string, key ed25519.PrivateKey, panelKey ed25519.PublicKey, joinSecret, version string) (string, error) {
-	sess, panelVersion, err := dial(ctx, panelURL, key, panelKey, hello{Join: joinSecret, Version: version, Only: true})
+	sess, panel, err := dial(ctx, panelURL, key, panelKey, hello{Join: joinSecret, Version: version, Only: true})
 	if err != nil {
 		return "", err
 	}
 	sess.Close()
-	return panelVersion, nil
+	return panel.Version, nil
 }
 
 // ErrChallenged: Cloudflare answered the node with a challenge instead of
@@ -226,22 +239,22 @@ var ErrChallenged = errors.New("Cloudflare challenged this server instead of let
 	"In the Cloudflare dashboard of the panel's domain, allow this server's IPv4 and IPv6 addresses " +
 	"(Security → WAF → Tools → IP Access Rules, action Allow; the IPv6 one as its /64), or turn Bot Fight Mode off")
 
-func dial(ctx context.Context, panelURL string, key ed25519.PrivateKey, panelKey ed25519.PublicKey, h hello) (*yamux.Session, string, error) {
+func dial(ctx context.Context, panelURL string, key ed25519.PrivateKey, panelKey ed25519.PublicKey, h hello) (*yamux.Session, Panel, error) {
 	u := strings.TrimSuffix(panelURL, "/") + Path
 	u = "ws" + strings.TrimPrefix(u, "http")
 	ws, resp, err := websocket.Dial(ctx, u, nil)
 	if err != nil {
 		if resp != nil && resp.StatusCode == http.StatusForbidden && resp.Header.Get("Cf-Mitigated") == "challenge" {
-			return nil, "", ErrChallenged
+			return nil, Panel{}, ErrChallenged
 		}
-		return nil, "", err
+		return nil, Panel{}, err
 	}
 	ws.SetReadLimit(-1)
 	conn := websocket.NetConn(context.Background(), ws, websocket.MessageBinary)
 	cert, err := certificate(key)
 	if err != nil {
 		conn.Close()
-		return nil, "", err
+		return nil, Panel{}, err
 	}
 	tc := tls.Client(conn, &tls.Config{
 		Certificates: []tls.Certificate{cert},
@@ -259,9 +272,9 @@ func dial(ctx context.Context, panelURL string, key ed25519.PrivateKey, panelKey
 			return nil
 		},
 	})
-	fail := func(err error) (*yamux.Session, string, error) {
+	fail := func(err error) (*yamux.Session, Panel, error) {
 		tc.Close()
-		return nil, "", err
+		return nil, Panel{}, err
 	}
 	_ = tc.SetDeadline(time.Now().Add(30 * time.Second))
 	if err := tc.HandshakeContext(ctx); err != nil {
@@ -283,7 +296,7 @@ func dial(ctx context.Context, panelURL string, key ed25519.PrivateKey, panelKey
 	if err != nil {
 		return fail(err)
 	}
-	return sess, wel.Version, nil
+	return sess, Panel{Version: wel.Version, URL: wel.URL}, nil
 }
 
 // readLine reads one JSON message, the line json.Encoder wrote, taking no

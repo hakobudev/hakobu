@@ -68,12 +68,30 @@ func Serve(l net.Listener, n Node, dial func() (net.Conn, error)) error {
 	return (&http.Server{Handler: Handler(n, dial)}).Serve(l)
 }
 
+// PanelMoved, on a node, keeps the panel's new address ("https://host")
+// the panel sends when it moves, for connecting next time.
+var PanelMoved func(url string) error
+
 // Handler is the HTTP side of Serve.
 func Handler(n Node, dial func() (net.Conn, error)) http.Handler {
 	panel := &http.Client{Transport: &http.Transport{
 		DialContext: func(context.Context, string, string) (net.Conn, error) { return dial() },
 	}}
 	mux := http.NewServeMux()
+	mux.HandleFunc("POST /panel", func(w http.ResponseWriter, r *http.Request) {
+		var a struct{ URL string }
+		if err := json.NewDecoder(r.Body).Decode(&a); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if PanelMoved == nil {
+			http.Error(w, "this server keeps no panel address", http.StatusNotFound)
+			return
+		}
+		if err := PanelMoved(a.URL); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	})
 	mux.HandleFunc("POST /call/{method}", func(w http.ResponseWriter, r *http.Request) {
 		m := reflect.ValueOf(n).MethodByName(r.PathValue("method"))
 		if !m.IsValid() {

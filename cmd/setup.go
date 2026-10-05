@@ -105,14 +105,16 @@ func movePanel(s *store.Store) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("The panel is at https://" + host + " (restart hakobu: systemctl restart hakobu)")
+	fmt.Println("The panel is at https://" + host + "; hakobu takes the new address as it runs, no restart needed.")
 	if len(manual) > 0 {
-		fmt.Println("\nStill to change in the GitHub App:")
+		fmt.Println("\nStill to change:")
 		for _, m := range manual {
 			fmt.Println("  " + m)
 		}
 	}
-	fmt.Println("\nOther servers: set \"panel\" in /opt/hakobu/data/node.json on each to https://" + host + " and restart hakobu there.")
+	fmt.Println("\nConnected servers are told the new address within 10 seconds (restart hakobu before then and they aren't).")
+	fmt.Println("A server that is away learns it when it connects, if the old address still reaches the panel; if not, set")
+	fmt.Println("\"panel\" in /opt/hakobu/data/node.json on it to https://" + host + " and restart hakobu there.")
 	return nil
 }
 

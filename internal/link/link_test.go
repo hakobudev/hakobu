@@ -74,7 +74,7 @@ func panel(t *testing.T) (url string, key ed25519.PrivateKey, token Token, sessi
 	known := map[string]bool{}
 	used := false
 	sessions = make(chan *yamux.Session, 4)
-	sv := &Server{Key: key, Version: "v1", Admit: func(node ed25519.PublicKey, join, version string) (string, error) {
+	sv := &Server{Key: key, Version: "v1", URL: func() string { return "https://panel.example.com" }, Admit: func(node ed25519.PublicKey, join, version string) (string, error) {
 		mu.Lock()
 		defer mu.Unlock()
 		switch {
@@ -101,13 +101,13 @@ func TestNodeJoinsAndTalksBothWays(t *testing.T) {
 	url, _, token, sessions, w := panel(t)
 	ctx := context.Background()
 	nodeKey, _ := NewKey()
-	sess, version, err := Dial(ctx, url, nodeKey, token.PanelKey, token.Secret, "v1")
+	sess, p, err := Dial(ctx, url, nodeKey, token.PanelKey, token.Secret, "v1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer sess.Close()
-	if version != "v1" {
-		t.Errorf("panel version %q", version)
+	if p != (Panel{Version: "v1", URL: "https://panel.example.com"}) {
+		t.Errorf("panel %+v", p)
 	}
 	panelSide := <-sessions
 

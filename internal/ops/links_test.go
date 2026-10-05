@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/x0ryz/hakobu/internal/config"
 	"github.com/x0ryz/hakobu/internal/link"
 	"github.com/x0ryz/hakobu/internal/node"
 	"github.com/x0ryz/hakobu/internal/node/nodetest"
@@ -46,9 +47,9 @@ func TestServerJoinsAndServes(t *testing.T) {
 
 	key, _ := link.NewKey()
 	ctx := context.Background()
-	sess, version, err := link.Dial(ctx, srv.URL, key, tok.PanelKey, tok.Secret, "v1")
-	if err != nil || version != "v1" {
-		t.Fatalf("join: %v (%s)", err, version)
+	sess, p, err := link.Dial(ctx, srv.URL, key, tok.PanelKey, tok.Secret, "v1")
+	if err != nil || p.Version != "v1" {
+		t.Fatalf("join: %v (%+v)", err, p)
 	}
 	f := nodetest.New()
 	f.Containers["web-blue"] = "running"
@@ -182,5 +183,53 @@ func TestServerSendsItsAppsEnvelopes(t *testing.T) {
 	}
 	if fmt.Sprint(got) != fmt.Sprintf("[%d Sentry sentry_key=k]", there.ID) {
 		t.Errorf("ingested %v", got)
+	}
+}
+
+// A server learns the panel's address when it connects, and its new one
+// over the link when the panel moves.
+func TestServersFollowThePanel(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := config.SetPublicHost("panel.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	s, err := store.Open(filepath.Join(t.TempDir(), "hakobu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := LinkServer(s, "v1", http.NotFoundHandler())
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	token, err := AddServer(s, "follower")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok, _ := link.ParseToken(token)
+	key, _ := link.NewKey()
+	sess, p, err := link.Dial(context.Background(), srv.URL, key, tok.PanelKey, tok.Secret, "v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close()
+	if p.URL != "https://panel.example.com" {
+		t.Errorf("told the panel is at %q", p.URL)
+	}
+
+	told := make(chan string, 1)
+	node.PanelMoved = func(url string) error { told <- url; return nil }
+	t.Cleanup(func() { node.PanelMoved = nil })
+	go func() { _ = node.Serve(sess, nodetest.New(), sess.Open) }()
+	waitServer(t, "follower")
+	tellServersPanelURL("https://panel.example.net")
+	select {
+	case url := <-told:
+		if url != "https://panel.example.net" {
+			t.Errorf("told %q", url)
+		}
+	case <-time.After(5 * time.Second):
+		t.Error("the server wasn't told the panel moved")
 	}
 }

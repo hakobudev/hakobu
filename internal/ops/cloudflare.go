@@ -423,12 +423,17 @@ func MovePanel(s *store.Store, to string) (host string, manual []string, err err
 		return "", nil, err
 	}
 
+	if n, err := s.GetNotify(ctx()); err == nil {
+		if _, ok := cloudflare.ZoneFor(zones, n.SenderDomain); !ok {
+			manual = append(manual, fmt.Sprintf("Emails come from %s@%s, a domain gone from Cloudflare: pick a sender in https://%s/settings#notifications", n.SenderName, n.SenderDomain, host))
+		}
+	}
 	if app, err := s.GetGitHubApp(ctx()); err == nil {
 		settings := "https://github.com/settings/apps/" + app.Slug
 		if err := github.SetWebhookURL(app.AppID, string(app.PrivateKey), "https://"+host+"/webhook/github"); err != nil {
-			manual = append(manual, fmt.Sprintf("Webhook URL: https://%s/webhook/github at %s (hakobu couldn't: %v)", host, settings, err))
+			manual = append(manual, fmt.Sprintf("GitHub App webhook URL: https://%s/webhook/github at %s (hakobu couldn't: %v)", host, settings, err))
 		}
-		manual = append(manual, fmt.Sprintf("Callback URL: https://%s/auth/callback at %s (signing in fails until then)", host, settings))
+		manual = append(manual, fmt.Sprintf("GitHub App callback URL: https://%s/auth/callback at %s (signing in fails until then)", host, settings))
 	}
 	return host, manual, nil
 }

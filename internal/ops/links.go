@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"strconv"
 	"strings"
@@ -186,8 +187,9 @@ func LinkServer(s *store.Store, version string, ingest http.Handler) (http.Handl
 	if err != nil {
 		return nil, err
 	}
+	watchPanelURL.Do(func() { go tellPanelMoves(10 * time.Second) })
 	return &link.Server{
-		Key: key, Version: version,
+		Key: key, Version: version, URL: panelAddress,
 		Admit: func(k ed25519.PublicKey, joinSecret, v string) (string, error) { return admit(s, k, joinSecret, v) },
 		Serve: func(name, v string, sess *yamux.Session) {
 			r := node.NewRemote(sess.Open)
@@ -216,6 +218,45 @@ func LinkServer(s *store.Store, version string, ingest http.Handler) (http.Handl
 			fmt.Println("server", name, "disconnected")
 		},
 	}, nil
+}
+
+// panelAddress is the panel's address for servers, "" before setup.
+func panelAddress() string {
+	if host := config.PublicHost(); host != "" {
+		return "https://" + host
+	}
+	return ""
+}
+
+var watchPanelURL sync.Once
+
+// tellPanelMoves tells the connected servers the panel's new address
+// when `hakobu setup --domain` changes it, while their links still
+// stand: the old address may already be gone. Servers away then learn it
+// when they connect, if they still can.
+func tellPanelMoves(every time.Duration) {
+	last := panelAddress()
+	for range time.Tick(every) {
+		url := panelAddress()
+		if url == last || url == "" {
+			continue
+		}
+		last = url
+		tellServersPanelURL(url)
+	}
+}
+
+func tellServersPanelURL(url string) {
+	links.mu.Lock()
+	connected := maps.Clone(links.m)
+	links.mu.Unlock()
+	for name, c := range connected {
+		if err := c.remote.TellPanelURL(ctx(), url); err != nil {
+			fmt.Println("server", name, "wasn't told the panel's new address:", err)
+			continue
+		}
+		fmt.Println("told server", name, "the panel is at", url)
+	}
 }
 
 // Server is a server as the panel shows it.

@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -86,8 +87,7 @@ var nodeJoinCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		b, _ := json.MarshalIndent(nodeConfig{Panel: panel, PanelKey: base64.StdEncoding.EncodeToString(tok.PanelKey)}, "", "  ")
-		if err := os.WriteFile(nodeConfigFile, b, 0o600); err != nil {
+		if err := saveNode(nodeConfig{Panel: panel, PanelKey: base64.StdEncoding.EncodeToString(tok.PanelKey)}); err != nil {
 			return err
 		}
 		fmt.Printf("Joined the panel at %s (hakobu %s). Run `hakobu node` to keep this server connected.\n", panel, panelVersion)
@@ -119,6 +119,11 @@ func nodeKey() (ed25519.PrivateKey, error) {
 		return nil, err
 	}
 	return key, os.WriteFile(nodeKeyFile, []byte(base64.StdEncoding.EncodeToString(key)+"\n"), 0o600)
+}
+
+func saveNode(cfg nodeConfig) error {
+	b, _ := json.MarshalIndent(cfg, "", "  ")
+	return os.WriteFile(nodeConfigFile, b, 0o600)
 }
 
 func loadNode() (nodeConfig, ed25519.PrivateKey, error) {
@@ -156,6 +161,32 @@ func runNode(ctx context.Context, cfg nodeConfig, key ed25519.PrivateKey) error 
 		return fmt.Errorf("%s: the panel's key is corrupt", nodeConfigFile)
 	}
 	panelKey := ed25519.PublicKey(raw)
+	// The panel tells its address when it moves and on each connection;
+	// the node connects at the newest one.
+	var mu sync.Mutex
+	node.PanelMoved = func(url string) error {
+		if !strings.HasPrefix(url, "https://") && !strings.HasPrefix(url, "http://") {
+			return fmt.Errorf("not a panel address: %q", url)
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if url == cfg.Panel {
+			return nil
+		}
+		next := cfg
+		next.Panel = url
+		if err := saveNode(next); err != nil {
+			return err
+		}
+		fmt.Println("the panel moved from", cfg.Panel, "to", url)
+		cfg = next
+		return nil
+	}
+	panelURL := func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		return cfg.Panel
+	}
 	// The apps' errors and traces come in through the ingest relay, a
 	// container the panel starts here, and go on to the panel over the
 	// link while there is one.
@@ -170,7 +201,7 @@ func runNode(ctx context.Context, cfg nodeConfig, key ed25519.PrivateKey) error 
 	}()
 	for wait := time.Second; ctx.Err() == nil; {
 		dial, cancel := context.WithTimeout(ctx, time.Minute)
-		sess, panelVersion, err := link.Dial(dial, cfg.Panel, key, panelKey, "", version)
+		sess, panel, err := link.Dial(dial, panelURL(), key, panelKey, "", version)
 		cancel()
 		if err != nil {
 			fmt.Printf("can't reach the panel (trying again in %s): %v\n", wait, err)
@@ -182,8 +213,13 @@ func runNode(ctx context.Context, cfg nodeConfig, key ed25519.PrivateKey) error 
 			continue
 		}
 		wait = time.Second
-		fmt.Println("connected to the panel at", cfg.Panel+", hakobu", panelVersion)
-		noteLinked(panelVersion)
+		fmt.Println("connected to the panel at", panelURL()+", hakobu", panel.Version)
+		noteLinked(panel.Version)
+		if panel.URL != "" {
+			if err := node.PanelMoved(panel.URL); err != nil {
+				fmt.Println("the panel's new address isn't kept:", err)
+			}
+		}
 		toPanel.Store(&http.Client{Transport: &http.Transport{
 			DialContext: func(context.Context, string, string) (net.Conn, error) { return sess.Open() },
 		}})
