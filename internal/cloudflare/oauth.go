@@ -5,13 +5,17 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
+
+	"github.com/x0ryz/hakobu/internal/panellog"
 )
 
 // "Connect with Cloudflare", for a panel whose server Cloudflare's token
@@ -87,13 +91,46 @@ func Refresh(clientID, refreshToken string) (Token, error) {
 	return t, err
 }
 
+// tokenRelay is the panel's own Worker (SetTokenRelay) that its token
+// requests go through when Cloudflare challenges its server's network.
+var tokenRelay atomic.Pointer[struct{ url, secret string }]
+
+// SetTokenRelay has token requests that Cloudflare challenges go through
+// the Worker at url, which takes them with secret; "" turns it off.
+func SetTokenRelay(url, secret string) {
+	if url == "" {
+		tokenRelay.Store(nil)
+		return
+	}
+	tokenRelay.Store(&struct{ url, secret string }{url, secret})
+}
+
+// errChallenged: Cloudflare's bot protection turned the request away.
+var errChallenged = errors.New("Cloudflare's sign-in challenges this server's network (cf-mitigated), so it can't trade the code or renew the token: connect the account with an API token instead")
+
+// tokenRequest asks the token endpoint, or when it challenges this server,
+// the relay Worker, which asks it from inside Cloudflare.
 func tokenRequest(form url.Values) (Token, error) {
-	req, err := http.NewRequest(http.MethodPost, TokenURL, strings.NewReader(form.Encode()))
+	t, err := postToken(TokenURL, "", form)
+	if errors.Is(err, errChallenged) {
+		if r := tokenRelay.Load(); r != nil {
+			panellog.Warn("Cloudflare's sign-in challenged this server: asking through the relay Worker")
+			return postToken(r.url, r.secret, form)
+		}
+	}
+	return t, err
+}
+
+func postToken(endpoint, secret string, form url.Values) (Token, error) {
+	req, err := http.NewRequest(http.MethodPost, endpoint, strings.NewReader(form.Encode()))
 	if err != nil {
 		return Token{}, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
+	if secret != "" {
+		req.Header.Set("Authorization", "Bearer "+secret)
+	}
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return Token{}, err
@@ -101,7 +138,7 @@ func tokenRequest(form url.Values) (Token, error) {
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.Header.Get("cf-mitigated") == "challenge" {
-		return Token{}, fmt.Errorf("Cloudflare's sign-in challenges this server's network (cf-mitigated), so it can't trade the code: connect the account with an API token instead")
+		return Token{}, errChallenged
 	}
 	var res struct {
 		AccessToken  string `json:"access_token"`

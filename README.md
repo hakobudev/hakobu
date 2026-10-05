@@ -180,9 +180,12 @@ the redirect URI `https://<panel address>/cloudflare/callback` and the scopes `z
 argotunnel.write workers-r2.write offline_access`, make it public, and set its ID in the panel's
 environment (`Environment=HAKOBU_CF_CLIENT_ID=…`, as for panel-only). Settings → Cloudflare accounts
 then shows **Connect with Cloudflare**. The panel trades the code and renews the access itself,
-every few minutes, warning the account's owner when it can't: Cloudflare's sign-in turns some
-server networks away (Hetzner's always), so the panel must run elsewhere, and an API token stays
-the fallback. A sign-in gives no keys for R2's S3 API, so backups in such an account also need an
+every few minutes. Cloudflare's sign-in turns some server networks away (Hetzner's always), so
+when it challenges the panel, the panel asks again through a small Worker of its own
+(`hakobu-token-relay-…`, deployed in the panel's Cloudflare account at each start with a new
+secret, needing Workers Scripts Edit like the watchdog): it runs inside Cloudflare, which isn't
+challenged, takes only the panel's requests for its client, and keeps nothing. Should that fail
+too, the account's owner is emailed, and an API token stays the fallback. A sign-in gives no keys for R2's S3 API, so backups in such an account also need an
 R2 token, which the account's settings link to.
 
 ### Other Cloudflare accounts

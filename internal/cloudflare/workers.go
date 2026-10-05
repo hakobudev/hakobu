@@ -3,6 +3,7 @@ package cloudflare
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"mime/multipart"
 	"net/textproto"
 	"net/url"
@@ -118,4 +119,25 @@ func (c Client) WorkerExists(accountID, name string) (bool, error) {
 		return false, nil
 	}
 	return err == nil, err
+}
+
+// WorkersSubdomain is the account's workers.dev subdomain: a Worker on it
+// answers at https://<name>.<subdomain>.workers.dev.
+func (c Client) WorkersSubdomain(accountID string) (string, error) {
+	var res struct {
+		Subdomain string `json:"subdomain"`
+	}
+	if err := c.call("GET", "/accounts/"+accountID+"/workers/subdomain", nil, &res); err != nil {
+		return "", err
+	}
+	if res.Subdomain == "" {
+		return "", errors.New("the account has no workers.dev subdomain yet: open Workers & Pages in its dashboard once")
+	}
+	return res.Subdomain, nil
+}
+
+// EnableWorkersDev puts the Worker name on the account's workers.dev
+// subdomain.
+func (c Client) EnableWorkersDev(accountID, name string) error {
+	return c.call("POST", "/accounts/"+accountID+"/workers/scripts/"+url.PathEscape(name)+"/subdomain", map[string]bool{"enabled": true}, nil)
 }

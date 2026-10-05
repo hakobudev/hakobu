@@ -42,3 +42,32 @@ func TestTokenRequests(t *testing.T) {
 		t.Errorf("challenged: %v", err)
 	}
 }
+
+// A challenged token request goes again through the relay, with its
+// secret; without a relay it fails saying why.
+func TestTokenRelay(t *testing.T) {
+	direct := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("cf-mitigated", "challenge")
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer direct.Close()
+	var auth, grant string
+	relay := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		auth, grant = r.Header.Get("Authorization"), r.Form.Get("grant_type")
+		fmt.Fprint(w, `{"access_token":"at-r","refresh_token":"rt-r","expires_in":3600}`)
+	}))
+	defer relay.Close()
+	old := TokenURL
+	TokenURL = direct.URL
+	defer func() { TokenURL = old; SetTokenRelay("", "") }()
+
+	if _, err := Refresh("cid", "rt"); err == nil || !strings.Contains(err.Error(), "challenges this server's network") {
+		t.Errorf("without a relay: %v", err)
+	}
+	SetTokenRelay(relay.URL, "s3cret")
+	tok, err := Refresh("cid", "rt")
+	if err != nil || tok.AccessToken != "at-r" || auth != "Bearer s3cret" || grant != "refresh_token" {
+		t.Errorf("through the relay: %+v, %v (auth %q, grant %q)", tok, err, auth, grant)
+	}
+}

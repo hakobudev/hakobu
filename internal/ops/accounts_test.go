@@ -598,3 +598,50 @@ func TestConnectWithCloudflare(t *testing.T) {
 		t.Errorf("a fresh token was refreshed again: %v", grants)
 	}
 }
+
+// The relay Worker goes up with a fresh secret and the panel's client ID,
+// on the account's workers.dev; a panel without OAuth deploys nothing.
+func TestEnsureTokenRelay(t *testing.T) {
+	s := notifyStore(t)
+	var calls []string
+	var meta string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r.Method+" "+r.URL.Path)
+		switch {
+		case r.Method == "GET" && r.URL.Path == "/accounts/acc/workers/subdomain":
+			fmt.Fprint(w, `{"success":true,"result":{"subdomain":"panelco"}}`)
+		case r.Method == "PUT" && strings.HasPrefix(r.URL.Path, "/accounts/acc/workers/scripts/hakobu-token-relay-"):
+			if err := r.ParseMultipartForm(1 << 20); err == nil {
+				meta = r.FormValue("metadata")
+				if f, _, err := r.FormFile("worker.js"); err == nil {
+					b, _ := io.ReadAll(f)
+					if !strings.Contains(string(b), "dash.cloudflare.com/oauth2/token") {
+						t.Error("uploaded another Worker")
+					}
+				}
+			}
+			fmt.Fprint(w, `{"success":true,"result":{}}`)
+		case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/subdomain"):
+			fmt.Fprint(w, `{"success":true,"result":{}}`)
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	old := cloudflare.APIURL
+	cloudflare.APIURL = srv.URL
+	t.Cleanup(func() { cloudflare.APIURL = old; cloudflare.SetTokenRelay("", "") })
+
+	if err := EnsureTokenRelay(s); err != nil || len(calls) != 0 {
+		t.Fatalf("without OAuth: %v, calls %v", err, calls)
+	}
+	config.CloudflareClientID = "cid"
+	t.Cleanup(func() { config.CloudflareClientID = "" })
+	if err := EnsureTokenRelay(s); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 3 || !strings.Contains(meta, `"type":"secret_text"`) || !strings.Contains(meta, `"text":"cid"`) {
+		t.Errorf("calls %v, metadata %s", calls, meta)
+	}
+}

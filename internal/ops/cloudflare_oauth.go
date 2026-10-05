@@ -1,6 +1,9 @@
 package ops
 
 import (
+	"crypto/sha256"
+	_ "embed"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"regexp"
@@ -244,4 +247,56 @@ func SetR2Token(s *store.Store, name, token string) error {
 		return fmt.Errorf("the token can't reach R2: give it Workers R2 Storage Edit (%w)", err)
 	}
 	return s.SetCloudflareAccountR2Token(ctx(), store.SetCloudflareAccountR2TokenParams{R2Token: secret.String(token), ID: row.ID})
+}
+
+// The relay: a Worker of the panel's own, in its own Cloudflare account,
+// that takes the panel's token requests to Cloudflare's token endpoint from
+// inside Cloudflare, which its bot protection doesn't challenge. Only for a
+// panel that offers "Connect with Cloudflare", where the panel holds those
+// tokens anyway: the Worker is the panel's, not a third party's. Requests go
+// to it only after the endpoint challenged the server (cloudflare.SetTokenRelay).
+
+//go:embed token_relay.js
+var tokenRelayJS string
+
+const tokenRelayCompatibilityDate = "2026-09-01"
+
+// tokenRelayName is the relay Worker's name, one per panel.
+func tokenRelayName() string {
+	sum := sha256.Sum256([]byte(config.PublicHost()))
+	return "hakobu-token-relay-" + hex.EncodeToString(sum[:4])
+}
+
+// EnsureTokenRelay deploys the relay Worker with a new secret and points
+// the panel's token requests' fallback at it. Run when the panel starts; a
+// panel without the relay asks the endpoint directly, as before.
+func EnsureTokenRelay(s *store.Store) error {
+	if !CloudflareOAuth() {
+		return nil
+	}
+	c, cf, err := cfClient(s)
+	if err != nil {
+		return err
+	}
+	sub, err := c.WorkersSubdomain(cf.AccountID)
+	if err != nil {
+		return workersHint(err)
+	}
+	secret, err := RandomHex(32)
+	if err != nil {
+		return err
+	}
+	name := tokenRelayName()
+	bindings := []cloudflare.Binding{
+		{"type": "secret_text", "name": "SECRET", "text": secret},
+		{"type": "plain_text", "name": "CLIENT_ID", "text": config.CloudflareClientID},
+	}
+	if err := c.UploadWorker(cf.AccountID, name, tokenRelayJS, tokenRelayCompatibilityDate, bindings); err != nil {
+		return workersHint(err)
+	}
+	if err := c.EnableWorkersDev(cf.AccountID, name); err != nil {
+		return workersHint(err)
+	}
+	cloudflare.SetTokenRelay("https://"+name+"."+sub+".workers.dev", secret)
+	return nil
 }

@@ -113,7 +113,12 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	go ops.WatchDeaths(s)
 	go ops.WatchHealth(s)
 	go ops.WatchMetrics(s)
-	go ops.RenewCloudflareSignIns(s, 10*time.Minute)
+	go func() {
+		if err := ops.EnsureTokenRelay(s); err != nil {
+			panellog.Warn("the Cloudflare token relay isn't deployed (sign-ins go straight to Cloudflare):", err)
+		}
+		ops.RenewCloudflareSignIns(s, 10*time.Minute)
+	}()
 	go runBackupScheduler(s)
 	if err := ops.StartTunnel(s); err != nil {
 		panellog.Error("failed to start the tunnel:", err)
