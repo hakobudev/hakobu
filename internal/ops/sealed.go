@@ -3,6 +3,7 @@ package ops
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/x0ryz/hakobu/internal/secret"
@@ -173,4 +174,58 @@ func EffectiveEnv(s *store.Store, app store.App) ([]EnvVar, error) {
 		out = append(out, e)
 	}
 	return out, nil
+}
+
+// ChangeAppVars sets and removes some of the app's visible variables,
+// keeping the rest of its text as it is: an AI app adding DATABASE_PATH
+// doesn't rewrite what the user typed.
+func ChangeAppVars(s *store.Store, app string, set map[string]string, unset []string) error {
+	text, err := visibleEnv(s, "app", app)
+	if err != nil {
+		return fmt.Errorf("app %s not found", app)
+	}
+	for k, v := range set {
+		if !validEnvKey.MatchString(k) {
+			return fmt.Errorf("invalid variable name %q", k)
+		}
+		if strings.ContainsAny(v, "\r\n") {
+			return fmt.Errorf("%s: a value is one line", k)
+		}
+	}
+	drop := map[string]bool{}
+	for _, k := range unset {
+		drop[k] = true
+	}
+	for k := range set {
+		drop[k] = true // replaced where it was, below
+	}
+	var lines []string
+	done := map[string]bool{}
+	for _, line := range strings.Split(text, "\n") {
+		k, _, isVar := strings.Cut(strings.TrimPrefix(strings.TrimSpace(line), "export "), "=")
+		k = strings.TrimSpace(k)
+		if isVar && drop[k] {
+			if v, ok := set[k]; ok && !done[k] {
+				lines = append(lines, k+"="+v)
+				done[k] = true
+			}
+			continue
+		}
+		lines = append(lines, line)
+	}
+	text = strings.TrimRight(strings.Join(lines, "\n"), "\n")
+	var added []string
+	for k, v := range set {
+		if !done[k] {
+			added = append(added, k+"="+v)
+		}
+	}
+	slices.Sort(added)
+	if len(added) > 0 {
+		if text != "" {
+			text += "\n"
+		}
+		text += strings.Join(added, "\n")
+	}
+	return SetAppEnv(s, app, text)
 }

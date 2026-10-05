@@ -142,7 +142,20 @@ func DeleteProject(s *store.Store, name string) error {
 // CreateApp stores the app, gives it its domain ("" keeps it private) and
 // kicks off its first build and deploy.
 func CreateApp(s *store.Store, projectName string, app store.CreateAppParams, domain string) error {
+	return CreateAppWith(s, projectName, app, domain, "")
+}
+
+// CreateAppWith is CreateApp for an app with a start command of its own,
+// set before its first deploy.
+func CreateAppWith(s *store.Store, projectName string, app store.CreateAppParams, domain, startCommand string) error {
 	if err := checkName("app", app.Name); err != nil {
+		return err
+	}
+	if app.BuildStrategy == "" {
+		app.BuildStrategy = "railpack"
+	}
+	var err error
+	if app.BuildPath, app.BuildStrategy, err = checkBuild(app.BuildPath, app.BuildStrategy); err != nil {
 		return err
 	}
 	p, err := s.GetProject(ctx(), projectName)
@@ -151,9 +164,6 @@ func CreateApp(s *store.Store, projectName string, app store.CreateAppParams, do
 	}
 	if err := CheckDomain(s, app.Name, domain); err != nil {
 		return err
-	}
-	if app.BuildStrategy == "" {
-		app.BuildStrategy = "railpack"
 	}
 	app.ProjectID = p.ID
 	if err := s.CreateApp(ctx(), app); err != nil {
@@ -169,6 +179,12 @@ func CreateApp(s *store.Store, projectName string, app store.CreateAppParams, do
 	if err := SetAppDomain(s, created, domain); err != nil {
 		s.DeleteAppCascade(ctx(), app.Name)
 		return err
+	}
+	if startCommand = strings.TrimSpace(startCommand); startCommand != "" {
+		if err := s.SetAppBuild(ctx(), store.SetAppBuildParams{Name: app.Name, BuildPath: app.BuildPath, BuildStrategy: app.BuildStrategy, StartCommand: startCommand}); err != nil {
+			_ = s.DeleteAppCascade(ctx(), app.Name)
+			return err
+		}
 	}
 	async(func() { watchApps(s) })
 	return StartDeploy(s, app.Name, "create")
@@ -186,16 +202,26 @@ func watchApps(s *store.Store) {
 // shell command instead of the image's own start, "" for that). Applies on
 // the next deploy; no need to delete and recreate the app.
 func SetAppBuild(s *store.Store, appName, path, strategy, startCommand string) error {
-	strategy = strings.TrimSpace(strategy)
-	if strategy != "railpack" && strategy != "dockerfile" {
-		return fmt.Errorf("unknown build strategy %q: railpack or dockerfile", strategy)
-	}
-	path = strings.Trim(strings.TrimSpace(path), "/.")
-	if strings.Contains(path, "..") {
-		return fmt.Errorf("invalid build path %q", path)
+	path, strategy, err := checkBuild(path, strategy)
+	if err != nil {
+		return err
 	}
 	startCommand = strings.TrimSpace(startCommand)
 	return s.SetAppBuild(ctx(), store.SetAppBuildParams{Name: appName, BuildPath: path, BuildStrategy: strategy, StartCommand: startCommand})
+}
+
+// checkBuild cleans up a build path in the repo and a strategy, and
+// rejects what can't be built.
+func checkBuild(path, strategy string) (string, string, error) {
+	strategy = strings.TrimSpace(strategy)
+	if strategy != "railpack" && strategy != "dockerfile" {
+		return "", "", fmt.Errorf("unknown build strategy %q: railpack or dockerfile", strategy)
+	}
+	path = strings.Trim(strings.TrimSpace(path), "/.")
+	if strings.Contains(path, "..") {
+		return "", "", fmt.Errorf("invalid build path %q", path)
+	}
+	return path, strategy, nil
 }
 
 // CheckDomain rejects a domain that the panel or another app already uses.

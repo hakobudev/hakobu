@@ -84,3 +84,37 @@ func TestSealedVars(t *testing.T) {
 		t.Errorf("%d sealed vars left, want the project's 2", len(vars))
 	}
 }
+
+// ChangeAppVars edits the variables it names and keeps the rest of the
+// text, comments included.
+func TestChangeAppVars(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "hakobu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := CreateProject(s, 0, "p"); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := s.GetProject(ctx(), "p")
+	if err := s.CreateApp(ctx(), store.CreateAppParams{ProjectID: p.ID, Name: "web", BuildStrategy: "dockerfile"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetAppEnv(s, "web", "# mine\nA=1\nB=2\nexport C=3"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SealVar(s, "app", "web", "KEY", "secret"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ChangeAppVars(s, "web", map[string]string{"B": "two", "D": "4", "C": "three"}, []string{"A"}); err != nil {
+		t.Fatal(err)
+	}
+	app, _ := s.GetApp(ctx(), "web")
+	if got, want := string(app.Env), "# mine\nB=two\nC=three\nD=4"; got != want {
+		t.Errorf("env = %q, want %q", got, want)
+	}
+	for _, bad := range []map[string]string{{"KEY": "plain"}, {"1X": "y"}, {"X": "a\nY=b"}} {
+		if err := ChangeAppVars(s, "web", bad, nil); err == nil {
+			t.Errorf("took %v", bad)
+		}
+	}
+}

@@ -667,7 +667,7 @@ func oauthConsentPage(v consentView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			if v.Deploy {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 43, "<label class=\"check\"><input type=\"checkbox\" name=\"deploy\" value=\"1\" checked> <span><span class=\"check-label\">Deploy</span><br><span class=\"field-hint\">Deploy apps, roll them back (with their database, if asked) and restart workers.</span></span></label> ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 43, "<label class=\"check\"><input type=\"checkbox\" name=\"deploy\" value=\"1\" checked> <span><span class=\"check-label\">Deploy and set up</span><br><span class=\"field-hint\">Deploy apps, roll them back (with their database, if asked) and restart workers; make projects, apps, databases and volumes, and set variables and how apps build and start. Never delete anything or read a secret.</span></span></label> ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
