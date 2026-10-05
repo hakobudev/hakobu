@@ -59,8 +59,9 @@ curl -fsSL https://hakobu.dev/install.sh | sudo bash
 2. Pick one of your domains from the list and the panel's subdomain (default `hakobu`).
    Hakobu creates the tunnel and a DNS record for the panel.
 3. Open the printed link, `https://hakobu.example.com/setup?token=…`, click
-   **Connect GitHub** (this registers a private GitHub App for your panel), sign in with
-   GitHub and you are the owner. Only that link can claim a fresh panel.
+   **Connect GitHub** (this registers a GitHub App for your panel; under it you can put
+   the app on an organization and name it, as people see that name when they sign in),
+   sign in with GitHub and you are the admin. Only that link can claim a fresh panel.
 
 Every app then gets its own address in any domain of the account (`app.example.com`,
 `myapp.dev`, …); hakobu creates and removes the DNS records itself.

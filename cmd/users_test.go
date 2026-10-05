@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"html"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -274,4 +275,43 @@ func sourceDir(t *testing.T) string {
 		t.Fatal("no caller")
 	}
 	return filepath.Dir(file)
+}
+
+// Setup can make the GitHub App on an organization, under a given name.
+func TestSetupOnAnOrganization(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := config.PrepareDataDir(); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.SetPublicHost("dash.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.SetSetupToken("setup"); err != nil {
+		t.Fatal(err)
+	}
+	s, err := store.Open(config.DatabaseFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	registerWebRoutes(mux, s)
+	get := func(query string) string {
+		r := httptest.NewRequest("GET", "https://dash.example.com/setup"+query, nil)
+		r.AddCookie(&http.Cookie{Name: setupCookie, Value: "setup"})
+		w := httptest.NewRecorder()
+		panelHandler(mux).ServeHTTP(w, r)
+		return html.UnescapeString(w.Body.String())
+	}
+	body := get("?org=hakobudev&name=Hakobu")
+	for _, want := range []string{`action="https://github.com/organizations/hakobudev/settings/apps/new"`, `"name":"Hakobu"`, "Create the GitHub App on hakobudev"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("setup on an org lacks %s", want)
+		}
+	}
+	body = get("?org=../evil&name=" + strings.Repeat("x", 35))
+	for _, want := range []string{`action="https://github.com/settings/apps/new"`, `"name":"hakobu-dash-example-com-`, "isn't a GitHub organization", "at most 34"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("setup with a bad org and name lacks %s", want)
+		}
+	}
 }

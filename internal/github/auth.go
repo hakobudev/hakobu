@@ -245,24 +245,43 @@ func FileContent(repo, path, token string) (content string, ok bool) {
 	return string(raw), true
 }
 
+// NewAppURL is where the manifest is posted to create the GitHub App: on
+// the signed-in account, or with org on that organization.
+func NewAppURL(org string) string {
+	if org == "" {
+		return WebURL + "/settings/apps/new"
+	}
+	return WebURL + "/organizations/" + url.PathEscape(org) + "/settings/apps/new"
+}
+
+// MaxAppName is the longest name GitHub takes for an app.
+const MaxAppName = 34
+
 // BuildManifest describes the GitHub App for the manifest flow
 // (https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest):
-// read-only contents, push events, webhook and OAuth pointing at publicHost.
-func BuildManifest(publicHost string) ([]byte, error) {
+// read-only contents, push events, webhook and OAuth pointing at
+// publicHost. name "" makes one up from the host.
+func BuildManifest(publicHost, name string) ([]byte, error) {
 	base := "https://" + publicHost
-	// App names are globally unique on GitHub and capped at 34 characters;
-	// the random suffix keeps reinstalls on the same host from colliding.
-	host := strings.ReplaceAll(strings.ToLower(publicHost), ".", "-")
-	if len(host) > 22 {
-		host = strings.TrimRight(host[:22], "-")
+	if name == "" {
+		// App names are globally unique on GitHub; the random suffix keeps
+		// reinstalls on the same host from colliding.
+		host := strings.ReplaceAll(strings.ToLower(publicHost), ".", "-")
+		if len(host) > 22 {
+			host = strings.TrimRight(host[:22], "-")
+		}
+		suffix := make([]byte, 2)
+		if _, err := rand.Read(suffix); err != nil {
+			return nil, err
+		}
+		name = fmt.Sprintf("hakobu-%s-%x", host, suffix)
 	}
-	suffix := make([]byte, 2)
-	if _, err := rand.Read(suffix); err != nil {
-		return nil, err
+	if len(name) > MaxAppName {
+		return nil, fmt.Errorf("a GitHub App's name is at most %d characters", MaxAppName)
 	}
-	name := fmt.Sprintf("hakobu-%s-%x", host, suffix)
 	return json.Marshal(map[string]any{
 		"name":            name,
+		"description":     "Signs you in to hakobu at " + publicHost + " and deploys the repositories you give it on each push.",
 		"url":             base,
 		"hook_attributes": map[string]string{"url": base + "/webhook/github"},
 		"redirect_url":    base + "/github-app/callback",

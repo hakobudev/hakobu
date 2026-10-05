@@ -55,21 +55,50 @@ templ loginPage(connected bool, errMsg string) {
 	}
 }
 
-templ setupPage(publicHost, manifest, state string) {
+// setupView is the setup page: the GitHub App to create.
+type setupView struct {
+	Host, Manifest, State string
+	Action                string // where the manifest is posted: the account's or Org's
+	Org, Name             string // "" for the signed-in account, a made-up name
+	Err                   string
+}
+
+templ setupPage(v setupView) {
 	@centered("Setup") {
-		@signinMark("Connect GitHub", publicHost)
+		@signinMark("Connect GitHub", v.Host)
+		if v.Err != "" {
+			@flash("danger") {
+				{ v.Err }
+			}
+		}
 		<div class="box">
-			if manifest != "" {
-				<div class="box-body">
-					<p>This creates a private GitHub App for <span class="mono">{ publicHost }</span>. It's used to sign in to this panel, clone your repos and deploy on push. You then sign in and become the owner.</p>
-					<form method="post" action="https://github.com/settings/apps/new">
-						<input type="hidden" name="manifest" value={ manifest }/>
-						<input type="hidden" name="state" value={ state }/>
+			if v.Manifest != "" {
+				<div class="box-body space-y-4">
+					<p>This creates a GitHub App for <span class="mono">{ v.Host }</span>. It's used to sign in to this panel, clone your repos and deploy on push. You then sign in and become its admin.</p>
+					<form method="post" action={ templ.SafeURL(v.Action) }>
+						<input type="hidden" name="manifest" value={ v.Manifest }/>
+						<input type="hidden" name="state" value={ v.State }/>
 						<button class="btn btn-github">
 							@ic("github")
-							Create the GitHub App
+							if v.Org != "" {
+								{ "Create the GitHub App on " + v.Org }
+							} else {
+								Create the GitHub App
+							}
 						</button>
 					</form>
+					<details open?={ v.Org != "" || v.Name != "" }>
+						<summary class="field-hint cursor-pointer">On an organization, or under a name of your own</summary>
+						<form method="get" action="/setup" class="space-y-3 mt-3">
+							@field("Organization", "One you own on GitHub. Leave it empty for your own account.") {
+								<input name="org" value={ v.Org } placeholder="e.g. acme" class="input mono"/>
+							}
+							@field("App name", "What people see when they sign in. Unique on GitHub, at most 34 characters; empty makes one up.") {
+								<input name="name" value={ v.Name } maxlength="34" placeholder="e.g. Acme Deploy" class="input"/>
+							}
+							<button class="btn btn-block">Use these</button>
+						</form>
+					</details>
 				</div>
 			} else {
 				<div class="box-body">

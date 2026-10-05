@@ -14,6 +14,7 @@ import (
 	"html/template"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -1105,18 +1106,28 @@ func registerAuthRoutes(mux *http.ServeMux, s *store.Store) {
 			http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
 			return
 		}
-		var manifest, state string
-		if host := config.PublicHost(); host != "" {
-			m, err := github.BuildManifest(host)
+		// The app can go on an organization, under a name of one's own: a
+		// panel for others shows its name when they sign in.
+		v := setupView{Host: config.PublicHost(), Org: strings.TrimSpace(r.URL.Query().Get("org")), Name: strings.TrimSpace(r.URL.Query().Get("name"))}
+		if v.Org != "" && !validGitHubLogin.MatchString(v.Org) {
+			v.Err, v.Org = "That isn't a GitHub organization's name.", ""
+		}
+		if len(v.Name) > github.MaxAppName {
+			v.Err = strings.TrimSpace(fmt.Sprintf("%s A GitHub App's name is at most %d characters.", v.Err, github.MaxAppName))
+			v.Name = ""
+		}
+		v.Action = github.NewAppURL(v.Org)
+		if v.Host != "" {
+			m, err := github.BuildManifest(v.Host, v.Name)
 			if err != nil {
 				fail(w, err)
 				return
 			}
-			state, _ = ops.RandomHex(16)
-			setCookie(w, manifestCookie, state, 600)
-			manifest = string(m)
+			v.State, _ = ops.RandomHex(16)
+			setCookie(w, manifestCookie, v.State, 600)
+			v.Manifest = string(m)
 		}
-		renderPage(w, r, setupPage(config.PublicHost(), manifest, state))
+		renderPage(w, r, setupPage(v))
 	})
 
 	mux.HandleFunc("GET /github-app/callback", func(w http.ResponseWriter, r *http.Request) {
@@ -1430,6 +1441,9 @@ func deploySummaries(ctx context.Context, s *store.Store, app string, n int64) [
 // joinedServers are the user's servers that have joined, to put projects
 // on.
 // placesOf are where the user's new projects can go.
+// validGitHubLogin is what GitHub takes as a user's or organization's name.
+var validGitHubLogin = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9]|-[A-Za-z0-9]){0,38}$`)
+
 func placesOf(s *store.Store, u store.User) projectPlaces {
 	where := projectPlaces{Servers: joinedServers(s, u), PanelOnly: config.PanelOnly}
 	clients, _ := ops.ClientAccounts(s)
