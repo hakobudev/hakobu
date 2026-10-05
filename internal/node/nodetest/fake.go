@@ -500,6 +500,28 @@ func (f *Fake) RestoreVolume(ctx context.Context, app node.AppSpec, name string,
 	return nil
 }
 
+// PutVolumeFile keeps the file's content at "<volume>/<name>" in Volumes.
+// The panel uploads the file to the bucket itself, sealed, so it's
+// fetched as Local fetches it.
+func (f *Fake) PutVolumeFile(ctx context.Context, app node.AppSpec, volume, name string, dl node.Download, out io.Writer) error {
+	unlock, err := f.call("PutVolumeFile")
+	defer unlock()
+	if err != nil {
+		return err
+	}
+	body, err := node.Fetch(ctx, dl)
+	if err != nil {
+		return err
+	}
+	defer body.Close()
+	content, err := io.ReadAll(body)
+	if err != nil {
+		return err
+	}
+	f.Volumes[node.Volume(app.Name, volume)+"/"+name] = string(content)
+	return nil
+}
+
 // VerifyVolumeBackup counts a non-empty archive as one file.
 func (f *Fake) VerifyVolumeBackup(ctx context.Context, dl node.Download) (int, error) {
 	unlock, err := f.call("VerifyVolumeBackup")

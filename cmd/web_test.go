@@ -1,12 +1,16 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"maps"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -328,5 +332,34 @@ func TestLogos(t *testing.T) {
 	// Every logo the mapping names is in the sprite.
 	for _, slug := range append(slices.Collect(maps.Values(stackLogos)), "docker", "celery", "postgresql", "cloudflare") {
 		renders(t, slug, logo(slug))
+	}
+}
+
+// An uploaded file lands in a private file under data/uploads, named by
+// the form's "name", or its own name.
+func TestReceiveUpload(t *testing.T) {
+	t.Chdir(t.TempDir())
+	send := func(name, filename, content string) (string, string, error) {
+		var body bytes.Buffer
+		mw := multipart.NewWriter(&body)
+		if name != "" {
+			_ = mw.WriteField("name", name)
+		}
+		fw, _ := mw.CreateFormFile("file", filename)
+		_, _ = fw.Write([]byte(content))
+		_ = mw.Close()
+		r := httptest.NewRequest("POST", "/apps/web/volumes/data/files", &body)
+		r.Header.Set("Content-Type", mw.FormDataContentType())
+		return receiveUpload(httptest.NewRecorder(), r)
+	}
+	path, name, err := send("db/app.db", "local.sqlite", "SQLite format 3")
+	if b, _ := os.ReadFile(path); err != nil || name != "db/app.db" || string(b) != "SQLite format 3" || !strings.HasPrefix(path, filepath.Join("data", "uploads")) {
+		t.Errorf("got %q %q %q, %v", path, name, b, err)
+	}
+	if _, name, _ := send("", "dir/local.sqlite", "x"); name != "local.sqlite" {
+		t.Errorf("name from the file: %q", name)
+	}
+	if _, _, err := send("a.db", "a.db", ""); err == nil {
+		t.Error("took an empty file")
 	}
 }

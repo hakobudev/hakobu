@@ -12,8 +12,11 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -727,6 +730,21 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 
 	action("POST /apps/{a}/volumes", func(r *http.Request) (string, error) {
 		return "", ops.AddVolume(s, r.PathValue("a"), strings.TrimSpace(r.FormValue("name")), r.FormValue("mount_path"))
+	})
+
+	// A file uploaded into a volume streams to a private file first: up to
+	// what Cloudflare passes in one request, given minutes to arrive.
+	handle("POST /apps/{a}/volumes/{v}/files", func(w http.ResponseWriter, r *http.Request) {
+		src, name, err := receiveUpload(w, r)
+		if err == nil {
+			err = ops.StartVolumeUpload(s, r.PathValue("a"), r.PathValue("v"), name, src)
+		}
+		if err != nil {
+			fmt.Println(r.Method, r.URL.Path, "failed:", err)
+			fail(w, err)
+			return
+		}
+		done(w, "")
 	})
 
 	action("DELETE /apps/{a}/volumes/{v}", func(r *http.Request) (string, error) {
@@ -1459,6 +1477,58 @@ func deploySummaries(ctx context.Context, s *store.Store, app string, n int64) [
 
 // joinedServers are the user's servers that have joined, to put projects
 // on.
+// maxUpload is the most Cloudflare passes in one request on its free plan.
+const maxUpload = 100 << 20
+
+// receiveUpload saves the request's "file" to a private file and returns
+// its path, with "name" (sent before it), or the file's own name.
+func receiveUpload(w http.ResponseWriter, r *http.Request) (path, name string, err error) {
+	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(15 * time.Minute))
+	r.Body = http.MaxBytesReader(w, r.Body, maxUpload+1<<20)
+	mr, err := r.MultipartReader()
+	if err != nil {
+		return "", "", err
+	}
+	for {
+		part, err := mr.NextPart()
+		if err != nil {
+			return "", "", errors.New("no file was sent")
+		}
+		switch part.FormName() {
+		case "name":
+			b, _ := io.ReadAll(io.LimitReader(part, 1024))
+			name = strings.TrimSpace(string(b))
+		case "file":
+			if name == "" {
+				name = filepath.Base(part.FileName())
+			}
+			dir := filepath.Join("data", "uploads")
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				return "", "", err
+			}
+			f, err := os.CreateTemp(dir, "upload-*")
+			if err != nil {
+				return "", "", err
+			}
+			n, err := io.Copy(f, io.LimitReader(part, maxUpload+1))
+			if cerr := f.Close(); err == nil {
+				err = cerr
+			}
+			if err == nil && n > maxUpload {
+				err = fmt.Errorf("the file is over %d MB, more than Cloudflare passes at once", maxUpload>>20)
+			}
+			if err == nil && n == 0 {
+				err = errors.New("the file is empty")
+			}
+			if err != nil {
+				os.Remove(f.Name())
+				return "", "", err
+			}
+			return f.Name(), name, nil
+		}
+	}
+}
+
 // placesOf are where the user's new projects can go.
 // validGitHubLogin is what GitHub takes as a user's or organization's name.
 var validGitHubLogin = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9]|-[A-Za-z0-9]){0,38}$`)

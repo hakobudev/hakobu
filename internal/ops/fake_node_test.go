@@ -3,6 +3,7 @@ package ops
 import (
 	"database/sql"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -312,5 +313,66 @@ func TestServerDropsAfterTheSwitch(t *testing.T) {
 		links.mu.Lock()
 		delete(links.m, "far")
 		links.mu.Unlock()
+	}
+}
+
+// A file uploaded into a volume: the volume is backed up first, the file
+// reaches the node through the bucket, and its copy there is deleted.
+func TestUploadIntoAVolume(t *testing.T) {
+	s, f := fakeNode(t)
+	objects, _ := fakeR2(t)
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(s.SaveCloudflareToken(ctx(), "tok"))
+	must(s.SaveCloudflareTunnel(ctx(), store.SaveCloudflareTunnelParams{AccountID: "acc", TunnelID: "t"}))
+	must(s.SetBackupBucket(ctx(), "hakobu-backups-1"))
+	must(s.AddVolume(ctx(), store.AddVolumeParams{AppName: "web", Name: "data", MountPath: "/data"}))
+	f.Volumes[node.Volume("web", "data")] = "files"
+
+	file := func(content string) string {
+		p := filepath.Join(t.TempDir(), "upload")
+		must(os.WriteFile(p, []byte(content), 0o600))
+		return p
+	}
+	for _, bad := range []string{"../x.db", "/", "a/../b", "a b"} {
+		src := file("x")
+		if err := StartVolumeUpload(s, "web", "data", bad, src); err == nil {
+			t.Errorf("took path %q", bad)
+		}
+		if _, err := os.Stat(src); err == nil {
+			t.Errorf("%q: the upload was left on disk", bad)
+		}
+	}
+
+	src := file("SQLite format 3")
+	must(StartVolumeUpload(s, "web", "data", "db/app.db", src))
+	waitJobs(t, "web")
+	if got := f.Volumes[node.Volume("web", "data")+"/db/app.db"]; got != "SQLite format 3" {
+		logs, _ := s.ListDeployLogs(ctx(), store.ListDeployLogsParams{AppName: "web", Limit: 1})
+		t.Errorf("the volume has %q; log %+v", got, logs)
+	}
+	if backups, _ := s.ListVolumeBackups(ctx(), store.ListVolumeBackupsParams{AppName: "web", Volume: "data", Limit: 5}); len(backups) != 1 {
+		t.Errorf("%d backups of the volume before the upload, want 1", len(backups))
+	}
+	for key := range objects {
+		if strings.HasPrefix(key, "uploads/") {
+			t.Errorf("the uploaded copy %s is still in the bucket", key)
+		}
+	}
+	if _, err := os.Stat(src); err == nil {
+		t.Error("the upload was left on disk")
+	}
+}
+
+func waitJobs(t *testing.T, app string) {
+	t.Helper()
+	for deadline := time.Now().Add(10 * time.Second); IsDeploying(app); time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("job still running")
+		}
 	}
 }

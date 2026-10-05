@@ -266,6 +266,12 @@ dump into a scratch database and counts its tables; **Restore** replaces the dat
 it (objects become the database role's, grants are dropped). A restore that fails changes nothing,
 so a trial move and the real one later are the same two steps.
 
+An SQLite database (or any file) goes into an app's volume from the panel: app **Settings →
+Volumes → Upload a file**, with its path in the volume, e.g. `app.db`. The volume is backed up
+first, then the app stops while the file is written in place of one of that name, owned as the
+volume is. It goes to the app's server through the backup bucket, sealed, so backups must be on;
+Cloudflare passes up to 100 MB in one upload.
+
 ## Local development
 
 ```bash

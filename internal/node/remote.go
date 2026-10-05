@@ -333,6 +333,10 @@ func (r *Remote) RestoreVolume(ctx context.Context, app AppSpec, name string, dl
 	return r.call(ctx, "RestoreVolume", out, nil, []any{app, name, dl})
 }
 
+func (r *Remote) PutVolumeFile(ctx context.Context, app AppSpec, volume, name string, dl Download, out io.Writer) error {
+	return r.call(ctx, "PutVolumeFile", out, nil, []any{app, volume, name, dl})
+}
+
 func (r *Remote) VerifyVolumeBackup(ctx context.Context, dl Download) (files int, err error) {
 	err = r.call(ctx, "VerifyVolumeBackup", nil, nil, []any{dl}, &files)
 	return files, err

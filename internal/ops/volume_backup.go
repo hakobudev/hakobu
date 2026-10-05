@@ -36,6 +36,24 @@ func BackupVolume(s *store.Store, app, volume string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
+	// Held like a deploy while the app is paused and its archive goes up,
+	// so no deploy starts or stops its containers meanwhile; a push is
+	// deployed after it.
+	if ok, _ := reserve(app, false); !ok {
+		return 0, errAppBusy
+	}
+	id, err := backupVolumeHeld(s, a, volume)
+	if release(app) {
+		if err := StartDeploy(s, app, "push"); err != nil {
+			fmt.Println("deploying", app, "after its backup failed:", err)
+		}
+	}
+	return id, err
+}
+
+// backupVolumeHeld is BackupVolume for a caller holding the app.
+func backupVolumeHeld(s *store.Store, a store.App, volume string) (int64, error) {
+	app := a.Name
 	n := AppNode(s, a)
 	if ok, err := n.HasVolume(ctx(), app, volume); err != nil || !ok {
 		return 0, err
@@ -49,18 +67,7 @@ func BackupVolume(s *store.Store, app, volume string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	// Held like a deploy while the app is paused and its archive goes up,
-	// so no deploy starts or stops its containers meanwhile; a push is
-	// deployed after it.
-	if ok, _ := reserve(app, false); !ok {
-		return 0, errAppBusy
-	}
 	obj, err := n.BackupVolume(ctx(), app, volume, up)
-	if release(app) {
-		if err := StartDeploy(s, app, "push"); err != nil {
-			fmt.Println("deploying", app, "after its backup failed:", err)
-		}
-	}
 	if err != nil {
 		return 0, err
 	}

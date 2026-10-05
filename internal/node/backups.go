@@ -126,6 +126,39 @@ func (n Local) RestoreVolume(ctx context.Context, app AppSpec, name string, dl D
 	return nil
 }
 
+// PutVolumeFile downloads the file, all of it checked, then writes it into
+// the volume with the app stopped, as RestoreVolume does a backup.
+func (n Local) PutVolumeFile(ctx context.Context, app AppSpec, volume, name string, dl Download, out io.Writer) error {
+	fmt.Fprintln(out, "downloading", name)
+	body, err := download(ctx, dl)
+	if err != nil {
+		return err
+	}
+	defer body.Close()
+	fmt.Fprintln(out, "stopping", app.Name)
+	if err := n.StopApp(ctx, app); err != nil {
+		return err
+	}
+	defer n.StartApp(ctx, app, out)
+	fmt.Fprintf(out, "writing %s into volume %s\n", name, volume)
+	if err := backup.PutVolumeFile(ctx, config.PostgresImage, Volume(app.Name, volume), name, body); err != nil {
+		return err
+	}
+	fmt.Fprintln(out, "written; starting", app.Name, "again")
+	return nil
+}
+
+// Fetch downloads dl whole, checks it and opens it, as a restore does.
+func Fetch(ctx context.Context, dl Download) (io.ReadCloser, error) {
+	return download(ctx, dl)
+}
+
+// UploadSealed seals what write writes with up's key and uploads it in
+// parts, as a backup is: the panel uploads a file for PutVolumeFile so.
+func UploadSealed(ctx context.Context, up Upload, write func(io.Writer) error) (Uploaded, error) {
+	return uploadSealed(ctx, up, write)
+}
+
 // VerifyVolumeBackup downloads a backup and reads the whole tar in it,
 // counting its files.
 func (Local) VerifyVolumeBackup(ctx context.Context, dl Download) (files int, err error) {

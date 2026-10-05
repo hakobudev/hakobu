@@ -73,6 +73,9 @@ type Node interface {
 	BackupVolume(ctx context.Context, app, name string, up Upload) (Uploaded, error)
 	RestoreVolume(ctx context.Context, app AppSpec, name string, dl Download, out io.Writer) error
 	VerifyVolumeBackup(ctx context.Context, dl Download) (files int, err error)
+	// PutVolumeFile writes a file uploaded to the panel (a sealed object
+	// like a backup) into the volume at name, with the app stopped.
+	PutVolumeFile(ctx context.Context, app AppSpec, volume, name string, dl Download, out io.Writer) error
 
 	// Snapshots for Rollback with data, kept on the node.
 	SaveDump(ctx context.Context, d DBSpec) (Dump, error)

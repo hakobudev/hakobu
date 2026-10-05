@@ -94,3 +94,28 @@ func docker(t *testing.T, args ...string) string {
 	}
 	return strings.TrimSpace(string(out))
 }
+
+// A file goes into a volume whole, in its directory, owned as the volume
+// is, so an app that doesn't run as root can write it.
+func TestDockerPutVolumeFile(t *testing.T) {
+	if os.Getenv("HAKOBU_DOCKER_TEST") == "" {
+		t.Skip("set HAKOBU_DOCKER_TEST=1 to run against the local Docker")
+	}
+	ctx := context.Background()
+	vol := "zt-put-volume-file"
+	_ = exec.Command("docker", "volume", "rm", "-f", vol).Run()
+	t.Cleanup(func() { _ = exec.Command("docker", "volume", "rm", "-f", vol).Run() })
+	docker(t, "run", "--rm", "-v", vol+":/v", "busybox:1.36", "sh", "-c", "echo old > /v/keep && chown 1000:1000 /v")
+
+	if err := PutVolumeFile(ctx, "postgres:18", vol, "db/app.db", strings.NewReader("SQLite format 3")); err != nil {
+		t.Fatal(err)
+	}
+	if err := PutVolumeFile(ctx, "postgres:18", vol, "db/app.db", strings.NewReader("newer")); err != nil {
+		t.Fatal(err)
+	}
+	got := docker(t, "run", "--rm", "-v", vol+":/v", "busybox:1.36", "sh", "-c",
+		"cat /v/db/app.db; echo; stat -c '%u:%g' /v/db /v/db/app.db; cat /v/keep; ls /v/db")
+	if want := "newer\n1000:1000\n1000:1000\nold\napp.db"; got != want {
+		t.Errorf("volume:\n%s\nwant:\n%s", got, want)
+	}
+}

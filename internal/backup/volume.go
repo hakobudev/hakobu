@@ -44,3 +44,26 @@ func RestoreVolume(ctx context.Context, image, volume string, r io.Reader) error
 	}
 	return nil
 }
+
+// PutVolumeFile writes r to the file name (a path inside the volume) in
+// place of what's there, whole or not at all: it's written next to it and
+// renamed. The file and the directories made for it get the owner of the
+// volume's root, whom the app's containers write as.
+func PutVolumeFile(ctx context.Context, image, volume, name string, r io.Reader) error {
+	script := `set -e
+f="/v/$1"; d="$(dirname "$f")"
+mkdir -p "$d"
+cat > "$f.hakobu-upload"
+chown --reference=/v "$f.hakobu-upload"
+mv -f "$f.hakobu-upload" "$f"
+while [ "$d" != /v ]; do chown --reference=/v "$d"; d="$(dirname "$d")"; done`
+	cmd := volumeTar(ctx, image, volume, "/v", script, "sh", name)
+	cmd.Stdin = r
+	stderr := &tail{}
+	cmd.Stderr = stderr
+	cmd.Stdout = io.Discard
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("writing %s to %s failed: %w: %s", name, volume, err, stderr)
+	}
+	return nil
+}

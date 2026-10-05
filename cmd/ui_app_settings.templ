@@ -277,6 +277,29 @@ templ appVolumes(p appPage) {
 					<span class={ templ.KV("text-danger", vb.Job.Failed), templ.KV("muted", !vb.Job.Failed) }>Last: { vb.Job.Last }</span>
 				</div>
 			}
+			if p.BackupBucket != "" && vb.Job.Running == "" {
+				<details class="box-body small">
+					<summary class="cursor-pointer muted">Upload a file, an SQLite database say</summary>
+					<form
+						class="space-y-3 mt-3"
+						hx-post={ "/apps/" + p.App.Name + "/volumes/" + vb.Volume + "/files" }
+						hx-encoding="multipart/form-data"
+						hx-confirm={ "The volume is backed up first, then " + p.App.Name + " stops while the file is written, replacing a file of that name." }
+						data-confirm-title={ "Upload into " + vb.Volume + "?" }
+						data-confirm-action="Upload"
+					>
+						<div class="fields">
+							@field("Path in the volume", "Empty: the file's own name.") {
+								<input name="name" placeholder="e.g. app.db" class="input mono"/>
+							}
+							@field("File", "Up to 100 MB.") {
+								<input name="file" type="file" required class="input"/>
+							}
+						</div>
+						@submit("Upload", false)
+					</form>
+				</details>
+			}
 			for _, b := range vb.Backups {
 				<div class="box-row small">
 					<span class="row-main">
