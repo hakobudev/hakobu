@@ -111,11 +111,21 @@ var apiURL = "https://api.github.com"
 // SetWebhookSecret changes the secret GitHub signs the app's webhook
 // deliveries with.
 func SetWebhookSecret(appID int64, privateKeyPEM, secret string) error {
+	return setHookConfig(appID, privateKeyPEM, map[string]string{"secret": secret})
+}
+
+// SetWebhookURL changes where GitHub delivers the app's webhooks. The
+// sign-in callback URL has no API: only github.com changes it.
+func SetWebhookURL(appID int64, privateKeyPEM, url string) error {
+	return setHookConfig(appID, privateKeyPEM, map[string]string{"url": url})
+}
+
+func setHookConfig(appID int64, privateKeyPEM string, cfg map[string]string) error {
 	j, err := appJWT(appID, privateKeyPEM)
 	if err != nil {
 		return err
 	}
-	body, _ := json.Marshal(map[string]string{"secret": secret})
+	body, _ := json.Marshal(cfg)
 	return call("PATCH", apiURL+"/app/hook/config", j, bytes.NewReader(body), http.StatusOK, nil)
 }
 

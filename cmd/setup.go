@@ -18,7 +18,10 @@ import (
 	"github.com/x0ryz/hakobu/internal/store"
 )
 
-var setupReconnect bool
+var (
+	setupReconnect bool
+	setupDomain    string
+)
 
 var setupCmd = &cobra.Command{
 	Use:   "setup",
@@ -28,6 +31,7 @@ var setupCmd = &cobra.Command{
 
 func init() {
 	setupCmd.Flags().BoolVar(&setupReconnect, "reconnect", false, "give hakobu a new Cloudflare API token")
+	setupCmd.Flags().StringVar(&setupDomain, "domain", "", "move the panel to this domain (keeping its subdomain) or host")
 	rootCmd.AddCommand(setupCmd)
 }
 
@@ -43,6 +47,9 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		if err := connectCloudflare(s); err != nil {
 			return err
 		}
+	}
+	if setupDomain != "" {
+		return movePanel(s)
 	}
 	if ops.TunnelReady(s) {
 		fmt.Println("Cloudflare is connected, panel: https://" + config.PublicHost())
@@ -90,6 +97,22 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	fmt.Println("Created the tunnel and https://" + host)
+	return nil
+}
+
+func movePanel(s *store.Store) error {
+	host, manual, err := ops.MovePanel(s, setupDomain)
+	if err != nil {
+		return err
+	}
+	fmt.Println("The panel is at https://" + host + " (restart hakobu: systemctl restart hakobu)")
+	if len(manual) > 0 {
+		fmt.Println("\nStill to change in the GitHub App:")
+		for _, m := range manual {
+			fmt.Println("  " + m)
+		}
+	}
+	fmt.Println("\nOther servers: set \"panel\" in /opt/hakobu/data/node.json on each to https://" + host + " and restart hakobu there.")
 	return nil
 }
 

@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/x0ryz/hakobu/internal/cloudflare"
+	"github.com/x0ryz/hakobu/internal/config"
 	"github.com/x0ryz/hakobu/internal/deploy"
 	"github.com/x0ryz/hakobu/internal/store"
 )
@@ -33,6 +34,11 @@ type fakeAccounts struct {
 var fakeTokens = map[string][]map[string]any{
 	"panel-tok": {{"id": "z-panel", "name": "panel.com", "account": map[string]string{"id": "acc"}}},
 	"acme-tok":  {{"id": "z-acme", "name": "acme.com", "account": map[string]string{"id": "acme-acc"}}},
+	"moved-tok": {
+		{"id": "z-panel", "name": "panel.com", "account": map[string]string{"id": "acc"}},
+		{"id": "z-new", "name": "new.com", "account": map[string]string{"id": "acc"}},
+		{"id": "z-acme", "name": "acme.com", "account": map[string]string{"id": "acme-acc"}},
+	},
 	"multi-tok": {
 		{"id": "z-acme", "name": "acme.com", "account": map[string]string{"id": "acme-acc"}},
 		{"id": "z-other", "name": "other.com", "account": map[string]string{"id": "other-acc"}},
@@ -333,4 +339,41 @@ func TestDockerClientTunnelNetworks(t *testing.T) {
 	}
 	expect(panel, projectEdge("shop"), "-", true)
 	expect(acme, deploy.EdgeNetwork+"-acme", projectEdge("shop"), false)
+}
+
+// A panel whose domain lapsed moves to another domain of its account,
+// keeping its subdomain and its tunnel.
+func TestMovePanel(t *testing.T) {
+	f := newFakeAccounts(t)
+	s, _, _ := accountsStore(t)
+	t.Chdir(t.TempDir()) // data/public_host, data/apps_domain
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(s.SaveCloudflareToken(ctx(), "moved-tok"))
+	must(s.SaveCloudflareTunnel(ctx(), store.SaveCloudflareTunnelParams{AccountID: "acc", TunnelID: "t-panel", TunnelToken: "x", PanelZoneID: "z-panel", PanelRecordID: "rec-hakobu.panel.com"}))
+	must(config.SetPublicHost("hakobu.panel.com"))
+	must(config.SetAppsDomain("panel.com"))
+	f.records["hakobu.panel.com"] = "t-panel.cfargotunnel.com"
+
+	for _, to := range []string{"elsewhere.org", "acme.com"} {
+		if _, _, err := MovePanel(s, to); err == nil {
+			t.Errorf("moved the panel to %s", to)
+		}
+	}
+	host, manual, err := MovePanel(s, "New.com.")
+	must(err)
+	if host != "hakobu.new.com" || len(manual) != 0 {
+		t.Errorf("moved to %q, manual %v", host, manual)
+	}
+	if want := map[string]string{"hakobu.new.com": "t-panel.cfargotunnel.com"}; fmt.Sprint(f.records) != fmt.Sprint(want) {
+		t.Errorf("records %v", f.records)
+	}
+	cf, _ := s.GetCloudflare(ctx())
+	if config.PublicHost() != "hakobu.new.com" || config.AppsDomain() != "new.com" || cf.TunnelID != "t-panel" || cf.PanelZoneID != "z-new" || cf.PanelRecordID != "rec-hakobu.new.com" {
+		t.Errorf("host %s, apps domain %s, cloudflare %+v", config.PublicHost(), config.AppsDomain(), cf)
+	}
 }

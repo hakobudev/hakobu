@@ -10,6 +10,7 @@ import (
 
 	"github.com/x0ryz/hakobu/internal/cloudflare"
 	"github.com/x0ryz/hakobu/internal/config"
+	"github.com/x0ryz/hakobu/internal/github"
 	"github.com/x0ryz/hakobu/internal/node"
 	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store"
@@ -368,6 +369,68 @@ func SetupTunnel(s *store.Store, zoneID, sub string) (string, error) {
 		return "", err
 	}
 	return host, nil
+}
+
+// MovePanel gives the panel a new address in the tunnel's account, as when
+// its domain lapsed: to is a host, or a domain that keeps the panel's
+// subdomain (hakobu.old.com moves to hakobu.new.com). The old address's
+// record goes if its domain is still there. It returns the new host and
+// what is left for the owner to change on github.com.
+func MovePanel(s *store.Store, to string) (host string, manual []string, err error) {
+	c, cf, err := cfClient(s)
+	if err != nil {
+		return "", nil, err
+	}
+	if cf.TunnelID == "" {
+		return "", nil, fmt.Errorf("the panel has no tunnel yet: run `hakobu setup`")
+	}
+	to = strings.Trim(strings.ToLower(strings.TrimSpace(to)), ".")
+	zones, err := c.Zones()
+	if err != nil {
+		return "", nil, err
+	}
+	zone, ok := cloudflare.ZoneFor(zones, to)
+	if !ok {
+		return "", nil, fmt.Errorf("%s is not in a domain the Cloudflare token sees: add the domain to Cloudflare, or give hakobu a token that covers it (--reconnect)", to)
+	}
+	if zone.Account.ID != cf.AccountID {
+		return "", nil, fmt.Errorf("%s is in another Cloudflare account than the panel's tunnel", zone.Name)
+	}
+	host = to
+	if sub, ok := strings.CutSuffix(config.PublicHost(), "."+config.AppsDomain()); ok && to == zone.Name && sub != "" {
+		host = sub + "." + zone.Name
+	}
+	if app, err := s.GetAppByDomain(ctx(), host); err == nil {
+		return "", nil, fmt.Errorf("%s is the address of app %s", host, app.Name)
+	}
+
+	recordID, err := c.RouteHost(cf.AccountID, zone.ID, host, cf.TunnelID)
+	if err != nil {
+		return "", nil, err
+	}
+	if cf.PanelRecordID != "" && cf.PanelRecordID != recordID {
+		_ = c.DeleteRecord(cf.PanelZoneID, cf.PanelRecordID) // its domain may have left Cloudflare
+	}
+	if err := s.SaveCloudflareTunnel(ctx(), store.SaveCloudflareTunnelParams{
+		AccountID: cf.AccountID, TunnelID: cf.TunnelID, TunnelToken: cf.TunnelToken, PanelZoneID: zone.ID, PanelRecordID: recordID,
+	}); err != nil {
+		return "", nil, err
+	}
+	if err := config.SetPublicHost(host); err != nil {
+		return "", nil, err
+	}
+	if err := config.SetAppsDomain(zone.Name); err != nil {
+		return "", nil, err
+	}
+
+	if app, err := s.GetGitHubApp(ctx()); err == nil {
+		settings := "https://github.com/settings/apps/" + app.Slug
+		if err := github.SetWebhookURL(app.AppID, string(app.PrivateKey), "https://"+host+"/webhook/github"); err != nil {
+			manual = append(manual, fmt.Sprintf("Webhook URL: https://%s/webhook/github at %s (hakobu couldn't: %v)", host, settings, err))
+		}
+		manual = append(manual, fmt.Sprintf("Callback URL: https://%s/auth/callback at %s (signing in fails until then)", host, settings))
+	}
+	return host, manual, nil
 }
 
 // SetAppDomain points domain at the tunnel of the app's project's account
