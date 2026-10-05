@@ -187,7 +187,7 @@ func LinkServer(s *store.Store, version string, ingest http.Handler) (http.Handl
 	if err != nil {
 		return nil, err
 	}
-	watchPanelURL.Do(func() { go tellPanelMoves(10 * time.Second) })
+	watchPanelURL.Do(func() { go tellPanelMoves(s, 10*time.Second) })
 	return &link.Server{
 		Key: key, Version: version, URL: panelAddress,
 		Admit: func(k ed25519.PublicKey, joinSecret, v string) (string, error) { return admit(s, k, joinSecret, v) },
@@ -230,11 +230,12 @@ func panelAddress() string {
 
 var watchPanelURL sync.Once
 
-// tellPanelMoves tells the connected servers the panel's new address
-// when `hakobu setup --domain` changes it, while their links still
-// stand: the old address may already be gone. Servers away then learn it
-// when they connect, if they still can.
-func tellPanelMoves(every time.Duration) {
+// tellPanelMoves follows `hakobu setup --domain` changing the panel's
+// address: it tells the connected servers, while their links still stand
+// (the old address may already be gone; servers away learn it when they
+// connect, if they still can), then restarts the apps, whose
+// SENTRY_PUBLIC_DSN has the panel's address in it.
+func tellPanelMoves(s *store.Store, every time.Duration) {
 	last := panelAddress()
 	for range time.Tick(every) {
 		url := panelAddress()
@@ -243,6 +244,22 @@ func tellPanelMoves(every time.Duration) {
 		}
 		last = url
 		tellServersPanelURL(url)
+		restartForPanel(s)
+	}
+}
+
+func restartForPanel(s *store.Store) {
+	apps, err := s.ListApps(ctx())
+	if err != nil {
+		fmt.Println("apps not restarted for the panel's new address:", err)
+		return
+	}
+	for _, app := range apps {
+		if err := restartApp(s, app.Name); err != nil {
+			fmt.Printf("%s not restarted for the panel's new address (deploy it again): %v\n", app.Name, err)
+			continue
+		}
+		fmt.Println("restarted", app.Name, "for the panel's new address")
 	}
 }
 

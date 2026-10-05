@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -371,42 +372,63 @@ func SetupTunnel(s *store.Store, zoneID, sub string) (string, error) {
 	return host, nil
 }
 
+// zoneGone tells whether the zone has left the account (its domain
+// lapsed, say), taking its records along.
+func zoneGone(c cloudflare.Client, zoneID string) bool {
+	zones, err := c.Zones()
+	if err != nil {
+		return false
+	}
+	return !slices.ContainsFunc(zones, func(z cloudflare.Zone) bool { return z.ID == zoneID })
+}
+
+// PanelMove is what MovePanel did, and what is left for the owner.
+type PanelMove struct {
+	Host   string
+	Done   []string
+	Manual []string
+}
+
 // MovePanel gives the panel a new address in the tunnel's account, as when
 // its domain lapsed: to is a host, or a domain that keeps the panel's
-// subdomain (hakobu.old.com moves to hakobu.new.com). The old address's
-// record goes if its domain is still there. It returns the new host and
-// what is left for the owner to change on github.com.
-func MovePanel(s *store.Store, to string) (host string, manual []string, err error) {
+// subdomain (hakobu.old.com moves to hakobu.new.com). What lived on the
+// old domain moves along: the apps' addresses (web.old.com to
+// web.new.com) and the domain emails come from. The old address's record
+// goes if its domain is still there. The running panel then tells its
+// servers and restarts the apps for the new address (tellPanelMoves).
+func MovePanel(s *store.Store, to string) (PanelMove, error) {
+	var m PanelMove
 	c, cf, err := cfClient(s)
 	if err != nil {
-		return "", nil, err
+		return m, err
 	}
 	if cf.TunnelID == "" {
-		return "", nil, fmt.Errorf("the panel has no tunnel yet: run `hakobu setup`")
+		return m, fmt.Errorf("the panel has no tunnel yet: run `hakobu setup`")
 	}
 	to = strings.Trim(strings.ToLower(strings.TrimSpace(to)), ".")
 	zones, err := c.Zones()
 	if err != nil {
-		return "", nil, err
+		return m, err
 	}
 	zone, ok := cloudflare.ZoneFor(zones, to)
 	if !ok {
-		return "", nil, fmt.Errorf("%s is not in a domain the Cloudflare token sees: add the domain to Cloudflare, or give hakobu a token that covers it (--reconnect)", to)
+		return m, fmt.Errorf("%s is not in a domain the Cloudflare token sees: add the domain to Cloudflare, or give hakobu a token that covers it (--reconnect)", to)
 	}
 	if zone.Account.ID != cf.AccountID {
-		return "", nil, fmt.Errorf("%s is in another Cloudflare account than the panel's tunnel", zone.Name)
+		return m, fmt.Errorf("%s is in another Cloudflare account than the panel's tunnel", zone.Name)
 	}
-	host = to
-	if sub, ok := strings.CutSuffix(config.PublicHost(), "."+config.AppsDomain()); ok && to == zone.Name && sub != "" {
+	oldHost, oldDomain := config.PublicHost(), config.AppsDomain()
+	host := to
+	if sub, ok := strings.CutSuffix(oldHost, "."+oldDomain); ok && to == zone.Name && sub != "" {
 		host = sub + "." + zone.Name
 	}
 	if app, err := s.GetAppByDomain(ctx(), host); err == nil {
-		return "", nil, fmt.Errorf("%s is the address of app %s", host, app.Name)
+		return m, fmt.Errorf("%s is the address of app %s", host, app.Name)
 	}
 
 	recordID, err := c.RouteHost(cf.AccountID, zone.ID, host, cf.TunnelID)
 	if err != nil {
-		return "", nil, err
+		return m, err
 	}
 	if cf.PanelRecordID != "" && cf.PanelRecordID != recordID {
 		_ = c.DeleteRecord(cf.PanelZoneID, cf.PanelRecordID) // its domain may have left Cloudflare
@@ -414,28 +436,78 @@ func MovePanel(s *store.Store, to string) (host string, manual []string, err err
 	if err := s.SaveCloudflareTunnel(ctx(), store.SaveCloudflareTunnelParams{
 		AccountID: cf.AccountID, TunnelID: cf.TunnelID, TunnelToken: cf.TunnelToken, PanelZoneID: zone.ID, PanelRecordID: recordID,
 	}); err != nil {
-		return "", nil, err
+		return m, err
 	}
 	if err := config.SetPublicHost(host); err != nil {
-		return "", nil, err
+		return m, err
 	}
 	if err := config.SetAppsDomain(zone.Name); err != nil {
-		return "", nil, err
+		return m, err
+	}
+	m.Host = host
+
+	if oldDomain != "" && oldDomain != zone.Name {
+		apps, err := s.ListApps(ctx())
+		if err != nil {
+			return m, err
+		}
+		for _, app := range apps {
+			domain, ok := movedDomain(app.Domain, oldDomain, zone.Name)
+			if !ok {
+				continue
+			}
+			if err := SetAppDomain(s, app, domain); err != nil {
+				m.Manual = append(m.Manual, fmt.Sprintf("App %s stays at %s: %v", app.Name, app.Domain, err))
+				continue
+			}
+			m.Done = append(m.Done, fmt.Sprintf("app %s: %s → %s", app.Name, app.Domain, domain))
+		}
 	}
 
 	if n, err := s.GetNotify(ctx()); err == nil {
-		if _, ok := cloudflare.ZoneFor(zones, n.SenderDomain); !ok {
-			manual = append(manual, fmt.Sprintf("Emails come from %s@%s, a domain gone from Cloudflare: pick a sender in https://%s/settings#notifications", n.SenderName, n.SenderDomain, host))
+		from, moved := movedDomain(n.SenderDomain, oldDomain, zone.Name)
+		if n.SenderDomain == oldHost {
+			from, moved = "", true // the panel's own address: its new one
+		}
+		if moved {
+			_ = SetupNotifications(s, n.Email, n.SenderName, from) // undoing the old domain's routing may fail with it gone
+			if now, err := s.GetNotify(ctx()); err == nil && now.SenderDomain != n.SenderDomain {
+				m.Done = append(m.Done, fmt.Sprintf("emails: from %s@%s", now.SenderName, now.SenderDomain))
+			} else {
+				m.Manual = append(m.Manual, fmt.Sprintf("Emails still come from %s@%s: pick a sender in https://%s/settings#notifications", n.SenderName, n.SenderDomain, host))
+			}
+		} else if _, ok := cloudflare.ZoneFor(zones, n.SenderDomain); !ok {
+			m.Manual = append(m.Manual, fmt.Sprintf("Emails come from %s@%s, a domain gone from Cloudflare: pick a sender in https://%s/settings#notifications", n.SenderName, n.SenderDomain, host))
+		} else if err := EnsureWatchdog(s, false); err != nil { // to check the new address
+			fmt.Println("the watchdog isn't updated yet:", err)
 		}
 	}
+
 	if app, err := s.GetGitHubApp(ctx()); err == nil {
 		settings := "https://github.com/settings/apps/" + app.Slug
 		if err := github.SetWebhookURL(app.AppID, string(app.PrivateKey), "https://"+host+"/webhook/github"); err != nil {
-			manual = append(manual, fmt.Sprintf("GitHub App webhook URL: https://%s/webhook/github at %s (hakobu couldn't: %v)", host, settings, err))
+			m.Manual = append(m.Manual, fmt.Sprintf("GitHub App webhook URL: https://%s/webhook/github at %s (hakobu couldn't: %v)", host, settings, err))
+		} else {
+			m.Done = append(m.Done, "GitHub App webhook URL")
 		}
-		manual = append(manual, fmt.Sprintf("GitHub App callback URL: https://%s/auth/callback at %s (signing in fails until then)", host, settings))
+		m.Manual = append(m.Manual, fmt.Sprintf("GitHub App callback URL: https://%s/auth/callback at %s (signing in fails until then)", host, settings))
 	}
-	return host, manual, nil
+	return m, nil
+}
+
+// movedDomain is domain moved from the old zone to the new one, if it was
+// in the old one.
+func movedDomain(domain, from, to string) (string, bool) {
+	switch {
+	case from == "" || domain == "":
+		return "", false
+	case domain == from:
+		return to, true
+	}
+	if sub, ok := strings.CutSuffix(domain, "."+from); ok {
+		return sub + "." + to, true
+	}
+	return "", false
 }
 
 // SetAppDomain points domain at the tunnel of the app's project's account
@@ -481,7 +553,7 @@ func SetAppDomain(s *store.Store, app store.App, domain string) error {
 		params.DnsZoneID = zone.ID
 	}
 	if connected && app.DnsRecordID != "" {
-		if err := a.Client.DeleteRecord(app.DnsZoneID, app.DnsRecordID); err != nil {
+		if err := a.Client.DeleteRecord(app.DnsZoneID, app.DnsRecordID); err != nil && !zoneGone(a.Client, app.DnsZoneID) {
 			if params.DnsRecordID != "" {
 				_ = a.Client.DeleteRecord(params.DnsZoneID, params.DnsRecordID)
 			}

@@ -31,7 +31,7 @@ var setupCmd = &cobra.Command{
 
 func init() {
 	setupCmd.Flags().BoolVar(&setupReconnect, "reconnect", false, "give hakobu a new Cloudflare API token")
-	setupCmd.Flags().StringVar(&setupDomain, "domain", "", "move the panel to this domain (keeping its subdomain) or host")
+	setupCmd.Flags().StringVar(&setupDomain, "domain", "", "move the panel to this domain (keeping its subdomain) or host, with the apps and emails on its old domain")
 	rootCmd.AddCommand(setupCmd)
 }
 
@@ -101,20 +101,24 @@ func runSetup(cmd *cobra.Command, args []string) error {
 }
 
 func movePanel(s *store.Store) error {
-	host, manual, err := ops.MovePanel(s, setupDomain)
+	m, err := ops.MovePanel(s, setupDomain)
 	if err != nil {
 		return err
 	}
-	fmt.Println("The panel is at https://" + host + "; hakobu takes the new address as it runs, no restart needed.")
-	if len(manual) > 0 {
+	fmt.Println("The panel is at https://" + m.Host + "; hakobu takes the new address as it runs, no restart needed.")
+	for _, d := range m.Done {
+		fmt.Println("  moved " + d)
+	}
+	fmt.Println("\nWithin 10 seconds the panel tells its connected servers the new address (restart hakobu")
+	fmt.Println("before then and they aren't told), then restarts the apps one by one for their SENTRY_PUBLIC_DSN.")
+	fmt.Println("A server that is away learns it when it connects, if the old address still reaches the panel; if not,")
+	fmt.Println("set \"panel\" in /opt/hakobu/data/node.json on it to https://" + m.Host + " and restart hakobu there.")
+	if len(m.Manual) > 0 {
 		fmt.Println("\nStill to change:")
-		for _, m := range manual {
-			fmt.Println("  " + m)
+		for _, l := range m.Manual {
+			fmt.Println("  " + l)
 		}
 	}
-	fmt.Println("\nConnected servers are told the new address within 10 seconds (restart hakobu before then and they aren't).")
-	fmt.Println("A server that is away learns it when it connects, if the old address still reaches the panel; if not, set")
-	fmt.Println("\"panel\" in /opt/hakobu/data/node.json on it to https://" + host + " and restart hakobu there.")
 	return nil
 }
 

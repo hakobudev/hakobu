@@ -34,8 +34,7 @@ type fakeAccounts struct {
 var fakeTokens = map[string][]map[string]any{
 	"panel-tok": {{"id": "z-panel", "name": "panel.com", "account": map[string]string{"id": "acc"}}},
 	"acme-tok":  {{"id": "z-acme", "name": "acme.com", "account": map[string]string{"id": "acme-acc"}}},
-	"moved-tok": {
-		{"id": "z-panel", "name": "panel.com", "account": map[string]string{"id": "acc"}},
+	"lapsed-tok": { // panel.com is gone from the account
 		{"id": "z-new", "name": "new.com", "account": map[string]string{"id": "acc"}},
 		{"id": "z-acme", "name": "acme.com", "account": map[string]string{"id": "acme-acc"}},
 	},
@@ -72,6 +71,8 @@ func newFakeAccounts(t *testing.T) *fakeAccounts {
 		switch {
 		case route == "GET /zones":
 			ok(zones)
+		case strings.HasSuffix(route, "/tokens/verify"):
+			ok(map[string]string{"status": "active"})
 		case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/cfd_tunnel"):
 			ok([]any{})
 		case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/cfd_tunnel"):
@@ -342,10 +343,10 @@ func TestDockerClientTunnelNetworks(t *testing.T) {
 }
 
 // A panel whose domain lapsed moves to another domain of its account,
-// keeping its subdomain and its tunnel.
+// keeping its subdomain and its tunnel, and its apps move along.
 func TestMovePanel(t *testing.T) {
 	f := newFakeAccounts(t)
-	s, _, _ := accountsStore(t)
+	s, own, _ := accountsStore(t)
 	t.Chdir(t.TempDir()) // data/public_host, data/apps_domain
 	must := func(err error) {
 		t.Helper()
@@ -353,27 +354,49 @@ func TestMovePanel(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	must(s.SaveCloudflareToken(ctx(), "moved-tok"))
 	must(s.SaveCloudflareTunnel(ctx(), store.SaveCloudflareTunnelParams{AccountID: "acc", TunnelID: "t-panel", TunnelToken: "x", PanelZoneID: "z-panel", PanelRecordID: "rec-hakobu.panel.com"}))
 	must(config.SetPublicHost("hakobu.panel.com"))
 	must(config.SetAppsDomain("panel.com"))
 	f.records["hakobu.panel.com"] = "t-panel.cfargotunnel.com"
+	for _, a := range []struct{ name, domain string }{{"web", "web.panel.com"}, {"apex", "panel.com"}, {"elsewhere", ""}} {
+		must(s.CreateApp(ctx(), store.CreateAppParams{ProjectID: own.ID, Name: a.name, BuildStrategy: "dockerfile"}))
+		app, _ := s.GetApp(ctx(), a.name)
+		must(SetAppDomain(s, app, a.domain))
+	}
+	must(s.SaveCloudflareToken(ctx(), "lapsed-tok"))
 
 	for _, to := range []string{"elsewhere.org", "acme.com"} {
-		if _, _, err := MovePanel(s, to); err == nil {
+		if _, err := MovePanel(s, to); err == nil {
 			t.Errorf("moved the panel to %s", to)
 		}
 	}
-	host, manual, err := MovePanel(s, "New.com.")
+	m, err := MovePanel(s, "New.com.")
 	must(err)
-	if host != "hakobu.new.com" || len(manual) != 0 {
-		t.Errorf("moved to %q, manual %v", host, manual)
+	if m.Host != "hakobu.new.com" || len(m.Manual) != 0 || len(m.Done) != 2 {
+		t.Errorf("moved: %+v", m)
 	}
-	if want := map[string]string{"hakobu.new.com": "t-panel.cfargotunnel.com"}; fmt.Sprint(f.records) != fmt.Sprint(want) {
-		t.Errorf("records %v", f.records)
+	for _, host := range []string{"hakobu.new.com", "web.new.com", "new.com"} {
+		if f.records[host] != "t-panel.cfargotunnel.com" {
+			t.Errorf("%s → %q", host, f.records[host])
+		}
+	}
+	for name, want := range map[string]string{"web": "web.new.com", "apex": "new.com", "elsewhere": ""} {
+		if app, _ := s.GetApp(ctx(), name); app.Domain != want || (want != "" && app.DnsZoneID != "z-new") {
+			t.Errorf("app %s at %q in %s", name, app.Domain, app.DnsZoneID)
+		}
 	}
 	cf, _ := s.GetCloudflare(ctx())
 	if config.PublicHost() != "hakobu.new.com" || config.AppsDomain() != "new.com" || cf.TunnelID != "t-panel" || cf.PanelZoneID != "z-new" || cf.PanelRecordID != "rec-hakobu.new.com" {
 		t.Errorf("host %s, apps domain %s, cloudflare %+v", config.PublicHost(), config.AppsDomain(), cf)
+	}
+}
+
+func TestMovedDomain(t *testing.T) {
+	for _, c := range []struct{ domain, want string }{
+		{"old.com", "new.com"}, {"a.b.old.com", "a.b.new.com"}, {"gold.com", ""}, {"old.com.ua", ""}, {"", ""},
+	} {
+		if got, ok := movedDomain(c.domain, "old.com", "new.com"); got != c.want || ok != (c.want != "") {
+			t.Errorf("movedDomain(%q) = %q, %v", c.domain, got, ok)
+		}
 	}
 }
