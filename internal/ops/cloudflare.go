@@ -13,6 +13,7 @@ import (
 	"github.com/x0ryz/hakobu/internal/config"
 	"github.com/x0ryz/hakobu/internal/github"
 	"github.com/x0ryz/hakobu/internal/node"
+	"github.com/x0ryz/hakobu/internal/panellog"
 	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store"
 )
@@ -219,7 +220,7 @@ func tunnelFor(s *store.Store, p store.Project) (tunnel, error) {
 	}
 	// Started now if the server is connected, else as it connects.
 	if err := startTunnel(s, t); err != nil {
-		fmt.Printf("%s not started yet: %v\n", t.label(), err)
+		panellog.Warnf("%s not started yet: %v", t.label(), err)
 	}
 	return t, nil
 }
@@ -493,7 +494,7 @@ func MovePanel(s *store.Store, to string) (PanelMove, error) {
 		} else if _, ok := cloudflare.ZoneFor(zones, n.SenderDomain); !ok {
 			m.Manual = append(m.Manual, fmt.Sprintf("Emails come from %s@%s, a domain gone from Cloudflare: pick a sender in https://%s/settings#notifications", n.SenderName, n.SenderDomain, host))
 		} else if err := EnsureWatchdog(s, false); err != nil { // to check the new address
-			fmt.Println("the watchdog isn't updated yet:", err)
+			panellog.Error("the watchdog isn't updated yet:", err)
 		}
 	}
 
@@ -578,7 +579,7 @@ func SetAppDomain(s *store.Store, app store.App, domain string) error {
 		return err
 	}
 	if err := SyncTunnel(s); err != nil {
-		fmt.Println("tunnel routes not updated (retrying):", err)
+		panellog.Warn("tunnel routes not updated (retrying):", err)
 	}
 	return nil
 }

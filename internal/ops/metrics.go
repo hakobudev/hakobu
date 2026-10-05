@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/x0ryz/hakobu/internal/node"
+	"github.com/x0ryz/hakobu/internal/panellog"
 	"github.com/x0ryz/hakobu/internal/store"
 	"github.com/x0ryz/hakobu/internal/store/teldb"
 )
@@ -93,13 +94,13 @@ func recordUsage(s *store.Store, st *metricState, now time.Time) {
 	ts := now.Unix()
 	for _, u := range collectUsage(s, st, now) {
 		if err := putSample(s, minuteRes, ts, u); err != nil {
-			fmt.Println("failed to record the usage of", u.Target+":", err)
+			panellog.Warn("failed to record the usage of", u.Target+":", err)
 		}
 	}
 	// Summarize the five minutes before the current ones, once.
 	if bucket := ts/fiveMinRes*fiveMinRes - fiveMinRes; bucket > st.rolled {
 		if err := summarize(s, bucket); err != nil {
-			fmt.Println("failed to summarize usage:", err)
+			panellog.Error("failed to summarize usage:", err)
 		} else {
 			st.rolled = bucket
 		}
@@ -201,7 +202,7 @@ func collectUsage(s *store.Store, st *metricState, now time.Time) []teldb.Sample
 			}
 		}
 		if err != nil {
-			fmt.Println("usage of", pn.label()+":", err)
+			panellog.Warn("usage of", pn.label()+":", err)
 			continue
 		}
 		seen := map[string]bool{}

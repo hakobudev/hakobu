@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/x0ryz/hakobu/internal/panellog"
 )
 
 // The apps' telemetry lives in telemetry.db next to the panel's database:
@@ -31,6 +33,8 @@ var telSecretColumns = map[string][]string{
 	"telemetry_events": {"message", "payload"},
 	// A span's description holds SQL and URLs, with their values.
 	"traces": {"slow_span", "payload"},
+	// The panel's errors quote what failed: hosts, names, the odd URL.
+	"panel_log": {"message"},
 }
 
 // openTelemetry opens telemetry.db in dir, starting a new one when it was
@@ -59,7 +63,7 @@ func openTelemetry(dir string, keyMissing bool) (*sql.DB, error) {
 	}
 	db, err := open()
 	if errors.Is(err, errNewerSchema) {
-		fmt.Println(telemetryFile, "is from a newer hakobu; starting a new one")
+		panellog.Warn(telemetryFile, "is from a newer hakobu; starting a new one")
 		removeTelemetry(path)
 		db, err = open()
 	}
@@ -72,7 +76,7 @@ func openTelemetry(dir string, keyMissing bool) (*sql.DB, error) {
 func removeTelemetry(path string) {
 	for _, f := range []string{path, path + "-wal", path + "-shm"} {
 		if err := os.Remove(f); err != nil && !errors.Is(err, os.ErrNotExist) {
-			fmt.Println("failed to remove", f+":", err)
+			panellog.Error("failed to remove", f+":", err)
 		}
 	}
 }
@@ -124,7 +128,7 @@ func (s *Store) reencryptTelemetry() error {
 func (s *Store) dropTelemetry() {
 	for table := range telSecretColumns {
 		if _, err := s.telDB.Exec(`DELETE FROM ` + table); err != nil {
-			fmt.Println("failed to empty", table+":", err)
+			panellog.Error("failed to empty", table+":", err)
 		}
 	}
 }
@@ -151,6 +155,9 @@ func (s *Store) pruneTelemetry(ctx context.Context, retentionDays int) error {
 		return err
 	}
 	if err := s.Tel.PruneEvents(ctx, timestamp(time.Now().Add(-eventRetention))); err != nil {
+		return err
+	}
+	if err := s.Tel.PrunePanelLog(ctx, timestamp(time.Now().Add(-eventRetention))); err != nil {
 		return err
 	}
 	traceCutoff := time.Now().Add(-traceRetention).Unix()

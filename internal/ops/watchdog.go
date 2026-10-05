@@ -12,6 +12,7 @@ import (
 
 	"github.com/x0ryz/hakobu/internal/cloudflare"
 	"github.com/x0ryz/hakobu/internal/config"
+	"github.com/x0ryz/hakobu/internal/panellog"
 	"github.com/x0ryz/hakobu/internal/store"
 )
 
@@ -97,7 +98,7 @@ func EnsureWatchdog(s *store.Store, redeploy bool) error {
 			if exists, err := c.WorkerExists(cf.AccountID, w.Script); err != nil || exists {
 				return err
 			}
-			fmt.Println("the watchdog's Worker is gone from Cloudflare: deploying it again")
+			panellog.Warn("the watchdog's Worker is gone from Cloudflare: deploying it again")
 		}
 	}
 	err := EnableWatchdog(s)
@@ -165,7 +166,7 @@ func EnableWatchdog(s *store.Store) error {
 			_, err = c.QueryD1(cf.AccountID, d1, cloudflare.D1Query{SQL: checksSchema})
 		}
 		if err != nil {
-			fmt.Println("the watchdog runs without its history:", err)
+			panellog.Warn("the watchdog runs without its history:", err)
 			d1 = ""
 		} else {
 			bindings = append(bindings, cloudflare.Binding{"type": "d1", "name": "DB", "database_id": d1})

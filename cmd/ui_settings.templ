@@ -11,6 +11,9 @@ import (
 type settingsPage struct {
 	PublicHost, User, GitHubSlug string
 	GitHubAppPrivate             bool // nobody but its owner can sign in with it
+	PanelLog                     []ops.PanelLogLine
+	LogLevel                     string // the least level PanelLog shows: info, warn or error
+	PanelLogErrors               int64  // errors in the last day
 	Admin                        bool // the signed-in user is the panel's admin
 	Users                        []store.User
 	Invites                      []store.Invite
@@ -111,6 +114,13 @@ templ settingsView(v settingsPage) {
 					<a href="#server" class="subnav-item">
 						@ic("hard-drive", "icon-muted")
 						This server
+					</a>
+					<a href="#panel-log" class="subnav-item">
+						@ic("scroll-text", "icon-muted")
+						Panel log
+						if v.PanelLogErrors > 0 {
+							<span class="subnav-count">{ itoa(v.PanelLogErrors) }</span>
+						}
 					</a>
 				}
 			</nav>
@@ -255,8 +265,49 @@ templ settingsView(v settingsPage) {
 							</div>
 						</div>
 					}
+					@settingsPanelLog(v)
 				}
 			</div>
+		</div>
+	}
+}
+
+// panelLogLevels are Settings → Panel log's filters: the least level shown.
+var panelLogLevels = []struct{ Value, Label string }{{"info", "Everything"}, {"warn", "Warnings and errors"}, {"error", "Errors"}}
+
+templ settingsPanelLog(v settingsPage) {
+	@section("panel-log", "Panel log", "What hakobu itself did and what went wrong for it, newest first, kept a month: deploys after a push, servers coming and going, retries, failures. On the server, journalctl -u hakobu shows the same, with -p err for the errors alone.", nil) {
+		<div class="box">
+			<div class="box-header">
+				<div class="btn-group">
+					for _, l := range panelLogLevels {
+						<a href={ templ.SafeURL("/settings?log=" + l.Value + "#panel-log") } class={ "btn", "btn-sm", templ.KV("btn-primary", v.LogLevel == l.Value) }>{ l.Label }</a>
+					}
+				</div>
+			</div>
+			if len(v.PanelLog) == 0 {
+				<div class="box-body">
+					<p class="field-hint">Nothing at this level.</p>
+				</div>
+			}
+			for _, line := range v.PanelLog {
+				<div class="box-row small">
+					<span class="row-main min-w-0">
+						switch line.Level {
+							case "error":
+								<span class="badge badge-danger">error</span>
+							case "warn":
+								<span class="badge badge-attention">warn</span>
+							default:
+								<span class="badge">info</span>
+						}
+						<span class="mono break-all">{ line.Message }</span>
+					</span>
+					<span class="row-meta mono muted nowrap">
+						@timeAgo(line.At)
+					</span>
+				</div>
+			}
 		</div>
 	}
 }

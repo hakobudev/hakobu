@@ -10,6 +10,7 @@ import (
 	"github.com/x0ryz/hakobu/internal/cloudflare"
 	"github.com/x0ryz/hakobu/internal/config"
 	"github.com/x0ryz/hakobu/internal/node"
+	"github.com/x0ryz/hakobu/internal/panellog"
 	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store"
 )
@@ -264,7 +265,7 @@ func RemoveClientAccount(s *store.Store, name string) error {
 		// A revoked token mustn't keep the client connected here; the
 		// tunnel left behind has no connector and routes nothing of ours.
 		if err := a.Client.DeleteTunnel(a.AccountID, a.TunnelID); err != nil {
-			fmt.Printf("failed to delete the tunnel of client %s (delete it in their dashboard): %v\n", name, err)
+			panellog.Errorf("failed to delete the tunnel of client %s (delete it in their dashboard): %v", name, err)
 		}
 	}
 	return s.DeleteCloudflareAccount(ctx(), row.ID)

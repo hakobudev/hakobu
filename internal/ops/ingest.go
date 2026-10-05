@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/x0ryz/hakobu/internal/node"
+	"github.com/x0ryz/hakobu/internal/panellog"
 	"github.com/x0ryz/hakobu/internal/store"
 )
 
@@ -32,7 +33,7 @@ func KeepIngestRelay(s *store.Store) {
 		if err == nil {
 			return
 		}
-		fmt.Printf("ingest relay not started (trying again in %s): %v\n", wait, err)
+		panellog.Warnf("ingest relay not started (trying again in %s): %v", wait, err)
 		time.Sleep(wait)
 	}
 }

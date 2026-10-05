@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/x0ryz/hakobu/internal/node"
+	"github.com/x0ryz/hakobu/internal/panellog"
 	"github.com/x0ryz/hakobu/internal/store"
 )
 
@@ -99,7 +100,7 @@ func putVolumeFile(s *store.Store, app store.App, volume, name, src string, targ
 	}
 	defer func() {
 		if err := deleteParts(s, target, key, int64(obj.Parts)); err != nil {
-			fmt.Println("the uploaded copy of", name, "stays in the bucket at", key+":", err)
+			panellog.Warn("the uploaded copy of", name, "stays in the bucket at", key+":", err)
 		}
 	}()
 	dl, err := backupDownload(s, target, key, int64(obj.Parts), obj.SHA256, up.FileKey)

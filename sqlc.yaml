@@ -95,3 +95,5 @@ sql:
             go_type: {import: github.com/x0ryz/hakobu/internal/secret, type: String}
           - column: traces.payload
             go_type: {import: github.com/x0ryz/hakobu/internal/secret, type: String}
+          - column: panel_log.message
+            go_type: {import: github.com/x0ryz/hakobu/internal/secret, type: String}

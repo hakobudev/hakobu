@@ -35,12 +35,12 @@ func TestDevServer(t *testing.T) {
 	s, err := store.Open(config.DatabaseFile)
 	must(err)
 	ctx := context.Background()
-	_, err = s.CreateUser(ctx, store.CreateUserParams{GitHubID: 42, GitHubLogin: "x0ryz", Admin: 1})
+	me, err := s.CreateUser(ctx, store.CreateUserParams{GitHubID: 42, GitHubLogin: "x0ryz", Admin: 1})
 	must(err)
 	must(s.NewSession(ctx, "dev", 42, 24*3600*1e9))
 
 	for _, p := range []string{"acme", "shop"} {
-		must(s.CreateProject(ctx, p))
+		must(s.CreateUserProject(ctx, store.CreateUserProjectParams{Name: p, UserID: me}))
 	}
 	acme, _ := s.GetProject(ctx, "acme")
 	shop, _ := s.GetProject(ctx, "shop")
@@ -65,6 +65,17 @@ func TestDevServer(t *testing.T) {
 	must(s.SetAppLinkedDB(ctx, store.SetAppLinkedDBParams{Name: "admin", LinkedDB: "analytics"}))
 	must(s.SaveWorker(ctx, store.SaveWorkerParams{AppName: "api", Name: "worker", Command: "taskiq worker app.tasks:broker", Env: "CONCURRENCY=4"}))
 	must(s.AddVolume(ctx, store.AddVolumeParams{AppName: "api", Name: "data", MountPath: "/app/data"}))
+	must(s.SetAppRoute(ctx, store.SetAppRouteParams{AppName: "web", Path: "/api", Target: "api"}))
+	for _, l := range []struct {
+		level int64
+		msg   string
+	}{
+		{0, "server node-1 connected, hakobu v0.20.0"},
+		{1, "tunnel routes not updated (retrying in 5s): context deadline exceeded"},
+		{2, "backup failed for main: R2 is off in the panel's Cloudflare account"},
+	} {
+		must(s.Tel.AddPanelLog(ctx, teldb.AddPanelLogParams{Level: l.level, Message: secret.String(l.msg)}))
+	}
 	must(s.SetAppEnv(ctx, store.SetAppEnvParams{Name: "web", Env: "VITE_API_URL=https://api.acme.example.com"}))
 	for app, stack := range map[string]string{"web": "Node.js · React", "api": "Python · FastAPI", "admin": "Python · Django", "store": "Node.js · Next.js"} {
 		must(s.SetAppStack(ctx, store.SetAppStackParams{Name: app, Stack: stack}))

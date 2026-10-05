@@ -8,6 +8,7 @@ import (
 
 	"github.com/x0ryz/hakobu/internal/config"
 	"github.com/x0ryz/hakobu/internal/node"
+	"github.com/x0ryz/hakobu/internal/panellog"
 	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store"
 )
@@ -45,7 +46,7 @@ func BackupVolume(s *store.Store, app, volume string) (int64, error) {
 	id, err := backupVolumeHeld(s, a, volume)
 	if release(app) {
 		if err := StartDeploy(s, app, "push"); err != nil {
-			fmt.Println("deploying", app, "after its backup failed:", err)
+			panellog.Error("deploying", app, "after its backup failed:", err)
 		}
 	}
 	return id, err
@@ -123,7 +124,7 @@ func volumeBackupAndCheck(s *store.Store, app, volume string) error {
 	}
 	verifyErr := VerifyVolumeBackup(s, id)
 	if err := RotateVolumeBackups(s, app, volume, time.Now()); err != nil {
-		fmt.Println("backup rotation of", volumeJob(app, volume), "failed:", err)
+		panellog.Error("backup rotation of", volumeJob(app, volume), "failed:", err)
 	}
 	if verifyErr != nil {
 		return fmt.Errorf("the backup was uploaded, but reading it back failed: %w", verifyErr)

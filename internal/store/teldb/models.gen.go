@@ -8,6 +8,13 @@ import (
 	"github.com/x0ryz/hakobu/internal/secret"
 )
 
+type PanelLog struct {
+	ID        int64
+	Level     int64
+	Message   secret.String
+	CreatedAt string
+}
+
 type Sample struct {
 	Target    string
 	Res       int64

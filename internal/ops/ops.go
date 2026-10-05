@@ -16,6 +16,7 @@ import (
 	"github.com/x0ryz/hakobu/internal/config"
 	"github.com/x0ryz/hakobu/internal/detect"
 	"github.com/x0ryz/hakobu/internal/github"
+	"github.com/x0ryz/hakobu/internal/panellog"
 	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store"
 )
@@ -193,7 +194,7 @@ func CreateAppWith(s *store.Store, projectName string, app store.CreateAppParams
 // watchApps has the watchdog check the apps there are now.
 func watchApps(s *store.Store) {
 	if err := EnsureWatchdog(s, false); err != nil {
-		fmt.Println("watchdog:", err)
+		panellog.Error("watchdog:", err)
 	}
 }
 
@@ -254,7 +255,7 @@ func DeleteApp(s *store.Store, name string) error {
 		return err
 	}
 	if err := removeAppDNS(s, app); err != nil {
-		fmt.Println("failed to delete the DNS record of", app.Domain+":", err)
+		panellog.Error("failed to delete the DNS record of", app.Domain+":", err)
 	}
 	if err := s.DeleteAppCascade(ctx(), name); err != nil {
 		return err
@@ -267,7 +268,7 @@ func DeleteApp(s *store.Store, name string) error {
 		return err
 	}
 	if err := SyncTunnel(s); err != nil {
-		fmt.Println("tunnel routes not updated (retrying):", err)
+		panellog.Warn("tunnel routes not updated (retrying):", err)
 	}
 	async(func() { watchApps(s) })
 	return nil

@@ -11,6 +11,7 @@ import (
 
 	"github.com/x0ryz/hakobu/internal/github"
 	"github.com/x0ryz/hakobu/internal/node"
+	"github.com/x0ryz/hakobu/internal/panellog"
 	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store"
 )
@@ -212,7 +213,7 @@ func rotateDatabasePassword(s *store.Store, d store.Database) error {
 func SyncDatabasePasswords(s *store.Store) {
 	dbs, err := s.ListDatabases(ctx())
 	if err != nil {
-		fmt.Println("failed to check the database passwords:", err)
+		panellog.Error("failed to check the database passwords:", err)
 		return
 	}
 	ready := map[node.Node]bool{}
@@ -228,7 +229,7 @@ func SyncDatabasePasswords(s *store.Store) {
 			continue
 		}
 		if err := n.SetPassword(ctx(), dbSpec(d)); err != nil {
-			fmt.Println("failed to set the password of", d.User+":", err)
+			panellog.Error("failed to set the password of", d.User+":", err)
 		}
 	}
 }

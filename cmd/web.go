@@ -28,6 +28,7 @@ import (
 	"github.com/x0ryz/hakobu/internal/github"
 	"github.com/x0ryz/hakobu/internal/node"
 	"github.com/x0ryz/hakobu/internal/ops"
+	"github.com/x0ryz/hakobu/internal/panellog"
 	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store"
 	"github.com/x0ryz/hakobu/internal/store/teldb"
@@ -228,7 +229,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			}
 			redirect, err := h(r)
 			if err != nil {
-				fmt.Println(r.Method, r.URL.Path, "failed:", err)
+				panellog.Warn(r.Method, r.URL.Path, "failed:", err)
 				fail(w, err)
 				return
 			}
@@ -740,7 +741,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			err = ops.StartVolumeUpload(s, r.PathValue("a"), r.PathValue("v"), name, src)
 		}
 		if err != nil {
-			fmt.Println(r.Method, r.URL.Path, "failed:", err)
+			panellog.Warn(r.Method, r.URL.Path, "failed:", err)
 			fail(w, err)
 			return
 		}
@@ -954,6 +955,18 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 		}
 		v.MyNotify = ops.UserNotifyOf(s, user)
 		if v.Admin {
+			v.LogLevel = r.URL.Query().Get("log")
+			level := panellog.LevelWarn
+			switch v.LogLevel {
+			case "info":
+				level = panellog.LevelInfo
+			case "error":
+				level = panellog.LevelError
+			default:
+				v.LogLevel = "warn"
+			}
+			v.PanelLog, _ = ops.PanelLog(s, level, 200)
+			v.PanelLogErrors = ops.PanelErrorsToday(s)
 			v.Users, _ = s.ListUsers(r.Context())
 			v.Invites, _ = s.LiveInvites(r.Context())
 			if v.GitHubSlug != "" {
@@ -1092,7 +1105,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			return
 		}
 		if err := ops.MarkKeyDownloaded(); err != nil {
-			fmt.Println("failed to note the key download:", err)
+			panellog.Error("failed to note the key download:", err)
 		}
 		host := strings.Map(func(r rune) rune {
 			if r == '.' || r == '-' || ('a' <= r && r <= 'z') || ('0' <= r && r <= '9') {
@@ -1276,7 +1289,7 @@ func registerAuthRoutes(mux *http.ServeMux, s *store.Store) {
 			}
 			if isAdmin {
 				if err := config.ClearSetupToken(); err != nil {
-					fmt.Println("failed to remove the setup token:", err)
+					panellog.Error("failed to remove the setup token:", err)
 				}
 				setCookie(w, setupCookie, "", -1)
 			}
@@ -1287,12 +1300,12 @@ func registerAuthRoutes(mux *http.ServeMux, s *store.Store) {
 		case u.GitHubLogin != user.Login:
 			// They renamed their account; the panel shows the new name.
 			if err := s.SetUserLogin(r.Context(), store.SetUserLoginParams{GitHubLogin: user.Login, ID: u.ID}); err != nil {
-				fmt.Println("failed to update a user's login:", err)
+				panellog.Error("failed to update a user's login:", err)
 			}
 		}
 		if user.Email != "" { // offered for notifications
 			if err := s.SetUserEmail(r.Context(), store.SetUserEmailParams{GitHubEmail: user.Email, ID: u.ID}); err != nil {
-				fmt.Println("failed to note a user's email:", err)
+				panellog.Error("failed to note a user's email:", err)
 			}
 		}
 
@@ -1404,7 +1417,7 @@ func userSession(r *http.Request, s *store.Store) (session, bool) {
 		return session{User: u, SignedIn: signedIn}, true
 	}
 	if err := s.EndSession(r.Context(), c.Value); err != nil {
-		fmt.Println("failed to end a session:", err)
+		panellog.Error("failed to end a session:", err)
 	}
 	return session{}, false
 }

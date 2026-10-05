@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/x0ryz/hakobu/internal/config"
+	"github.com/x0ryz/hakobu/internal/panellog"
 	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store"
 	"github.com/x0ryz/hakobu/internal/store/teldb"
@@ -89,7 +90,7 @@ func recordHealth(s *store.Store, app, level, message string) {
 	if err := s.Tel.CreateTelemetryEvent(ctx(), teldb.CreateTelemetryEventParams{
 		AppName: app, Kind: "health", Level: level, Message: secret.String(message),
 	}); err != nil {
-		fmt.Println("failed to record the health of", app+":", err)
+		panellog.Error("failed to record the health of", app+":", err)
 	}
 }
 

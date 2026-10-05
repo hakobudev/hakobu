@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/x0ryz/hakobu/internal/node"
+	"github.com/x0ryz/hakobu/internal/panellog"
 	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store"
 	"github.com/x0ryz/hakobu/internal/store/teldb"
@@ -38,7 +39,7 @@ func oomText(app store.App) string { return node.OOMText(app.MemoryMB) }
 func WatchDeaths(s *store.Store) {
 	for {
 		err := local.WatchDeaths(context.Background(), func(container, app string, d node.Death) { recordDeath(s, server{}, container, app, d) })
-		fmt.Println("docker events:", err)
+		panellog.Warn("docker events:", err)
 		time.Sleep(5 * time.Second)
 	}
 }
@@ -54,7 +55,7 @@ func recordDeath(s *store.Store, sv server, container, appName string, d node.De
 	}
 	if err != nil {
 		if d.OOM {
-			fmt.Println(container, "was killed, most likely out of memory")
+			panellog.Warn(container, "was killed, most likely out of memory")
 		}
 		return
 	}
@@ -74,7 +75,7 @@ func recordDeath(s *store.Store, sv server, container, appName string, d node.De
 	if err := s.Tel.CreateTelemetryEvent(ctx(), teldb.CreateTelemetryEventParams{
 		AppName: app.Name, Kind: kind, Level: "fatal", Message: secret.String(message),
 	}); err != nil {
-		fmt.Println("failed to record that", container, "stopped:", err)
+		panellog.Error("failed to record that", container, "stopped:", err)
 	}
 	if kind == "oom" {
 		noteOOM(s, app.Name, message)

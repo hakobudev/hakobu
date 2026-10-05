@@ -21,6 +21,7 @@ import (
 	"github.com/x0ryz/hakobu/internal/config"
 	"github.com/x0ryz/hakobu/internal/link"
 	"github.com/x0ryz/hakobu/internal/node"
+	"github.com/x0ryz/hakobu/internal/panellog"
 	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store"
 )
@@ -116,13 +117,13 @@ func RemoveServer(s *store.Store, name string) error {
 // the record. What can't be deleted is left behind, said so.
 func dropServerTunnel(s *store.Store, t tunnel) {
 	if err := t.server.node().RemoveTunnel(ctx(), t.acct.Name); err != nil {
-		fmt.Printf("%s: its cloudflared is left on the server: %v\n", t.label(), err)
+		panellog.Warnf("%s: its cloudflared is left on the server: %v", t.label(), err)
 	}
 	if err := t.acct.Client.DeleteTunnel(t.acct.AccountID, t.ID); err != nil {
-		fmt.Printf("%s: delete it in Cloudflare: %v\n", t.label(), err)
+		panellog.Warnf("%s: delete it in Cloudflare: %v", t.label(), err)
 	}
 	if err := s.DeleteServerTunnel(ctx(), t.row); err != nil {
-		fmt.Printf("%s: %v\n", t.label(), err)
+		panellog.Errorf("%s: %v", t.label(), err)
 	}
 }
 
@@ -210,7 +211,7 @@ func LinkServer(s *store.Store, version string, ingest http.Handler) (http.Handl
 			if old != nil {
 				old.session.Close() // the node came back on a new connection
 			}
-			fmt.Println("server", name, "connected, hakobu", v)
+			panellog.Info("server", name, "connected, hakobu", v)
 			go func() { _ = http.Serve(sess, fromServer(s, name, r, ingest)) }()
 			watching, stopWatching := context.WithCancel(context.Background())
 			linkWork.Add(1)
@@ -228,7 +229,7 @@ func LinkServer(s *store.Store, version string, ingest http.Handler) (http.Handl
 			if n, err := s.GetNodeByName(ctx(), name); err == nil {
 				_ = s.SeeNode(ctx(), store.SeeNodeParams{Version: v, LastSeen: now(), ID: n.ID})
 			}
-			fmt.Println("server", name, "disconnected")
+			panellog.Info("server", name, "disconnected")
 		},
 	}, nil
 }
@@ -264,15 +265,15 @@ func tellPanelMoves(s *store.Store, every time.Duration) {
 func restartForPanel(s *store.Store) {
 	apps, err := s.ListApps(ctx())
 	if err != nil {
-		fmt.Println("apps not restarted for the panel's new address:", err)
+		panellog.Warn("apps not restarted for the panel's new address:", err)
 		return
 	}
 	for _, app := range apps {
 		if err := restartApp(s, app.Name); err != nil {
-			fmt.Printf("%s not restarted for the panel's new address (deploy it again): %v\n", app.Name, err)
+			panellog.Warnf("%s not restarted for the panel's new address (deploy it again): %v", app.Name, err)
 			continue
 		}
-		fmt.Println("restarted", app.Name, "for the panel's new address")
+		panellog.Info("restarted", app.Name, "for the panel's new address")
 	}
 }
 
@@ -282,10 +283,10 @@ func tellServersPanelURL(url string) {
 	links.mu.Unlock()
 	for name, c := range connected {
 		if err := c.remote.TellPanelURL(ctx(), url); err != nil {
-			fmt.Println("server", name, "wasn't told the panel's new address:", err)
+			panellog.Warn("server", name, "wasn't told the panel's new address:", err)
 			continue
 		}
-		fmt.Println("told server", name, "the panel is at", url)
+		panellog.Info("told server", name, "the panel is at", url)
 	}
 }
 
@@ -335,16 +336,16 @@ func serverConnected(s *store.Store, name string, n node.Node, watching context.
 	sv := server{ID: row.ID, Name: name}
 	for _, t := range tunnelsOn(s, sv) {
 		if err := startTunnel(s, t); err != nil {
-			fmt.Printf("%s: %v\n", t.label(), err)
+			panellog.Errorf("%s: %v", t.label(), err)
 		}
 	}
 	// The relay its apps send errors and traces to; it joins the projects'
 	// networks next.
 	if err := n.StartIngestRelay(ctx(), IngestSocket()); err != nil {
-		fmt.Println("ingest relay of", sv.label()+":", err)
+		panellog.Warn("ingest relay of", sv.label()+":", err)
 	}
 	if err := ensureServerNetworks(s, sv); err != nil {
-		fmt.Println("networks of", sv.label()+":", err)
+		panellog.Warn("networks of", sv.label()+":", err)
 	}
 	var specs []node.AppSpec
 	apps, _ := s.ListApps(ctx())
@@ -360,12 +361,12 @@ func serverConnected(s *store.Store, name string, n node.Node, watching context.
 		n.EnsureProxy(ctx(), spec)
 	}
 	if err := SyncTunnel(s); err != nil {
-		fmt.Println("tunnel routes not updated (retrying):", err)
+		panellog.Warn("tunnel routes not updated (retrying):", err)
 	}
 	for watching.Err() == nil {
 		err := n.WatchDeaths(watching, func(container, app string, d node.Death) { recordDeath(s, sv, container, app, d) })
 		if watching.Err() == nil {
-			fmt.Println("docker events of", sv.label()+":", err)
+			panellog.Warn("docker events of", sv.label()+":", err)
 			time.Sleep(5 * time.Second)
 		}
 	}

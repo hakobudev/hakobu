@@ -11,6 +11,7 @@ import (
 
 	"github.com/x0ryz/hakobu/internal/github"
 	"github.com/x0ryz/hakobu/internal/node"
+	"github.com/x0ryz/hakobu/internal/panellog"
 	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store"
 )
@@ -280,20 +281,20 @@ func finishPromotions(s *store.Store, sv server, n node.Node) {
 			continue
 		} else if next {
 			if err := n.Promote(ctx(), app.Name); err != nil && !errors.Is(err, node.ErrPreviousNotKept) {
-				fmt.Println("keeping the live build of", app.Name, "as the latest:", err)
+				panellog.Error("keeping the live build of", app.Name, "as the latest:", err)
 				continue
 			}
 			n.DropImage(ctx(), app.Name, node.Next)
 		}
 		if err := s.DeletePendingPromotion(ctx(), app.Name); err != nil {
-			fmt.Println(app.Name+":", err)
+			panellog.Error(app.Name+":", err)
 		}
 		if w, err := s.GetWorker(ctx(), app.Name); err == nil {
 			if err := runWorker(s, app, w, io.Discard); err != nil {
-				fmt.Println("starting the worker of", app.Name+":", err)
+				panellog.Error("starting the worker of", app.Name+":", err)
 			}
 		}
-		fmt.Println("kept the live build of", app.Name, "as the latest on", sv.label())
+		panellog.Info("kept the live build of", app.Name, "as the latest on", sv.label())
 	}
 }
 
@@ -564,7 +565,7 @@ func RemoveProxy(s *store.Store, app store.App) { AppNode(s, app).RemoveProxy(ap
 func ReconcileSlots(s *store.Store) {
 	apps, err := s.ListApps(ctx())
 	if err != nil {
-		fmt.Println("failed to check the apps' containers:", err)
+		panellog.Error("failed to check the apps' containers:", err)
 		return
 	}
 	// Servers that joined are reconciled as they connect (serverConnected).

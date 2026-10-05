@@ -11,6 +11,31 @@ import (
 	"github.com/x0ryz/hakobu/internal/secret"
 )
 
+const addPanelLog = `-- name: AddPanelLog :exec
+INSERT INTO panel_log (level, message) VALUES (?, ?)
+`
+
+type AddPanelLogParams struct {
+	Level   int64
+	Message secret.String
+}
+
+func (q *Queries) AddPanelLog(ctx context.Context, arg AddPanelLogParams) error {
+	_, err := q.db.ExecContext(ctx, addPanelLog, arg.Level, arg.Message)
+	return err
+}
+
+const countPanelErrorsSince = `-- name: CountPanelErrorsSince :one
+SELECT count(*) FROM panel_log WHERE level >= 2 AND created_at >= ?
+`
+
+func (q *Queries) CountPanelErrorsSince(ctx context.Context, createdAt string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countPanelErrorsSince, createdAt)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countTrace = `-- name: CountTrace :exec
 INSERT INTO trace_routes (app_name, name, hour, count, errors, total_ms, b0, b1, b2, b3, b4, b5, b6, b7, b8, b9, b10)
 VALUES (?1, ?2, ?3, 1, ?4, ?5,
@@ -288,6 +313,43 @@ func (q *Queries) LatestSamples(ctx context.Context, arg LatestSamplesParams) ([
 	return items, nil
 }
 
+const listPanelLog = `-- name: ListPanelLog :many
+SELECT id, level, message, created_at FROM panel_log WHERE level >= ? ORDER BY id DESC LIMIT ?
+`
+
+type ListPanelLogParams struct {
+	Level int64
+	Limit int64
+}
+
+func (q *Queries) ListPanelLog(ctx context.Context, arg ListPanelLogParams) ([]PanelLog, error) {
+	rows, err := q.db.QueryContext(ctx, listPanelLog, arg.Level, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PanelLog
+	for rows.Next() {
+		var i PanelLog
+		if err := rows.Scan(
+			&i.ID,
+			&i.Level,
+			&i.Message,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listProblems = `-- name: ListProblems :many
 SELECT id, app_name, kind, level, message, payload, created_at, trace_id FROM telemetry_events WHERE app_name = ? AND kind != 'log' ORDER BY id DESC LIMIT ?
 `
@@ -541,6 +603,15 @@ DELETE FROM telemetry_events WHERE kind = 'log' AND created_at < ?
 
 func (q *Queries) PruneLogs(ctx context.Context, createdAt string) error {
 	_, err := q.db.ExecContext(ctx, pruneLogs, createdAt)
+	return err
+}
+
+const prunePanelLog = `-- name: PrunePanelLog :exec
+DELETE FROM panel_log WHERE created_at < ?
+`
+
+func (q *Queries) PrunePanelLog(ctx context.Context, createdAt string) error {
+	_, err := q.db.ExecContext(ctx, prunePanelLog, createdAt)
 	return err
 }
 

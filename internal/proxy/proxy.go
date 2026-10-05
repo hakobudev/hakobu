@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/x0ryz/hakobu/internal/deploy"
+	"github.com/x0ryz/hakobu/internal/panellog"
 )
 
 // transport reaches the containers; tests point it at local backends.
@@ -65,7 +66,7 @@ func Ensure(name string, port int64) (isNew bool, err error) {
 	registry[name] = &entry{proxy: p, server: srv}
 	go func() {
 		if err := srv.Serve(ln); err != http.ErrServerClosed {
-			fmt.Println("proxy for", name+":", err)
+			panellog.Warn("proxy for", name+":", err)
 		}
 	}()
 	return true, nil

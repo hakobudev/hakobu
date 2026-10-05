@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/x0ryz/hakobu/internal/cloudflare"
+	"github.com/x0ryz/hakobu/internal/panellog"
 	"github.com/x0ryz/hakobu/internal/store"
 )
 
@@ -51,7 +52,7 @@ func SetAppRoute(s *store.Store, appName, routePath, target string) error {
 	}
 	async(func() {
 		if err := SyncTunnel(s); err != nil {
-			fmt.Println("tunnel routes not updated:", err)
+			panellog.Warn("tunnel routes not updated:", err)
 		}
 	})
 	return nil

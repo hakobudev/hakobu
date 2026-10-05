@@ -11,6 +11,7 @@ import (
 	"github.com/x0ryz/hakobu/internal/cloudflare"
 	"github.com/x0ryz/hakobu/internal/config"
 	"github.com/x0ryz/hakobu/internal/node"
+	"github.com/x0ryz/hakobu/internal/panellog"
 	"github.com/x0ryz/hakobu/internal/s3"
 	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store"
@@ -308,7 +309,7 @@ func backupAndCheck(s *store.Store, dbName string) error {
 	}
 	verifyErr := VerifyBackup(s, id)
 	if err := RotateBackups(s, dbName, time.Now()); err != nil {
-		fmt.Println("backup rotation of", dbName, "failed:", err)
+		panellog.Error("backup rotation of", dbName, "failed:", err)
 	}
 	if verifyErr != nil {
 		return fmt.Errorf("the backup was uploaded, but restoring it failed: %w", verifyErr)

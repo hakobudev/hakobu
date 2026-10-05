@@ -13,6 +13,7 @@ import (
 
 	"github.com/x0ryz/hakobu/internal/ingest"
 	"github.com/x0ryz/hakobu/internal/ops"
+	"github.com/x0ryz/hakobu/internal/panellog"
 	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store"
 	"github.com/x0ryz/hakobu/internal/store/teldb"
@@ -140,7 +141,7 @@ func ingestHandler(s *store.Store) http.HandlerFunc {
 				return
 			}
 			if err := s.Tel.CreateTelemetryEvent(r.Context(), teldb.CreateTelemetryEventParams{AppName: app.Name, Kind: kind, Level: sum.Level, Message: secret.String(sum.Message), Payload: secret.String(payload), TraceID: sum.TraceID}); err != nil {
-				fmt.Println("ingest: failed to store event:", err)
+				panellog.Error("ingest: failed to store event:", err)
 			}
 		}
 		for _, item := range items {
@@ -154,7 +155,7 @@ func ingestHandler(s *store.Store) http.HandlerFunc {
 			case "transaction":
 				if tx, ok := ingest.ExtractTransaction(item); ok {
 					if err := ops.RecordTransaction(s, app.Name, tx, item.Payload); err != nil {
-						fmt.Println("ingest: failed to store a trace:", err)
+						panellog.Error("ingest: failed to store a trace:", err)
 					}
 				}
 			}

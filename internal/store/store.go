@@ -16,6 +16,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
+	"github.com/x0ryz/hakobu/internal/panellog"
 	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store/teldb"
 )
@@ -64,7 +65,7 @@ func OpenWithKey(path, keyPath string) (*Store, error) {
 	}
 	if moved { // give back the space the telemetry took
 		if _, err := db.Exec(`VACUUM`); err != nil {
-			fmt.Println("failed to compact", path+":", err)
+			panellog.Error("failed to compact", path+":", err)
 		}
 	}
 	s := &Store{Queries: New(db), db: db, dir: dir, keyPath: keyPath, Tel: teldb.New(telDB), telDB: telDB}
@@ -148,14 +149,14 @@ func (s *Store) finishRotation() error {
 		return err
 	}
 	if err := s.reencryptTelemetry(); err != nil {
-		fmt.Println("master key rotation: dropping the telemetry, which can't be re-encrypted:", err)
+		panellog.Error("master key rotation: dropping the telemetry, which can't be re-encrypted:", err)
 		s.dropTelemetry()
 	}
 	s.rewrapSealedFiles()
 	// The copy kept for rolling hakobu back holds secrets under the old
 	// key: putting it back would leave them unreadable.
 	if err := os.Remove(filepath.Join(s.dir, "hakobu.db.prev")); err != nil && !errors.Is(err, os.ErrNotExist) {
-		fmt.Println("master key rotation: the database copy from before the last update is left:", err)
+		panellog.Error("master key rotation: the database copy from before the last update is left:", err)
 	}
 	return secret.FinishRotation(s.keyPath)
 }
@@ -207,7 +208,7 @@ func (s *Store) rewrapSealedFiles() {
 	files, _ := filepath.Glob(filepath.Join(s.dir, "snapshots", "*.enc"))
 	for _, f := range files {
 		if err := secret.RewrapFile(f); err != nil {
-			fmt.Println("master key rotation: snapshot", filepath.Base(f), "can't be read after it:", err)
+			panellog.Error("master key rotation: snapshot", filepath.Base(f), "can't be read after it:", err)
 		}
 	}
 }

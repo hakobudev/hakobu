@@ -11,6 +11,7 @@ import (
 
 	"github.com/x0ryz/hakobu/internal/cloudflare"
 	"github.com/x0ryz/hakobu/internal/config"
+	"github.com/x0ryz/hakobu/internal/panellog"
 	"github.com/x0ryz/hakobu/internal/store"
 )
 
@@ -461,7 +462,7 @@ func sendFor(s *store.Store, key, subject, text string) {
 		return
 	}
 	if err := mailTo(s, to, subject, text); err != nil && !errors.Is(err, errNotifyOff) {
-		fmt.Println("failed to email", to+":", err)
+		panellog.Error("failed to email", to+":", err)
 	}
 }
 
@@ -535,7 +536,7 @@ var async = func(f func()) { go f() }
 
 func sendOrLog(s *store.Store, subject, text string) {
 	if err := mailOwner(s, subject, text); err != nil && !errors.Is(err, errNotifyOff) {
-		fmt.Println("failed to email the owner:", err)
+		panellog.Error("failed to email the owner:", err)
 	}
 }
 
@@ -593,7 +594,7 @@ func noteCrash(s *store.Store, app, message string) {
 func CheckForOwner(s *store.Store) {
 	TokenPermissions(s, true)
 	if err := EnsureWatchdog(s, false); err != nil {
-		fmt.Println("watchdog:", err)
+		panellog.Error("watchdog:", err)
 	}
 	if disk, low := DiskUsage(); low {
 		problem(s, "disk", notifyAgain, "The server's disk is almost full",
@@ -625,7 +626,7 @@ func NoteOAuthConnection(s *store.Store, u store.User, client, redirectHost stri
 			"You allowed %s (it returns to %s) to use hakobu with scopes: %s.\n\nIf that wasn't you, disconnect it and sign out everywhere: %s",
 			client, redirectHost, strings.Join(scopes, ", "), panelURL("/settings#ai-apps")))
 		if err != nil && !errors.Is(err, errNotifyOff) {
-			fmt.Println("failed to email", to+":", err)
+			panellog.Error("failed to email", to+":", err)
 		}
 	})
 }

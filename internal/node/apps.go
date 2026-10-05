@@ -14,6 +14,7 @@ import (
 	"github.com/x0ryz/hakobu/internal/build"
 	"github.com/x0ryz/hakobu/internal/deploy"
 	"github.com/x0ryz/hakobu/internal/detect"
+	"github.com/x0ryz/hakobu/internal/panellog"
 	"github.com/x0ryz/hakobu/internal/proxy"
 )
 
@@ -445,15 +446,15 @@ func (Local) Reconcile(ctx context.Context, apps []AppSpec) {
 			other = app.Name + "-blue"
 		}
 		if st, _ := deploy.ContainerStatus(ctx, other); st != "not found" && st != "unknown" {
-			fmt.Println("removing", other+", left by an unfinished deploy of", app.Name)
+			panellog.Info("removing", other+", left by an unfinished deploy of", app.Name)
 			if err := deploy.RemoveContainer(ctx, other); err != nil {
-				fmt.Println("failed to remove", other+":", err)
+				panellog.Error("failed to remove", other+":", err)
 			}
 		}
 		if status == "exited" || status == "created" {
-			fmt.Println("starting", live+", stopped by an unfinished deploy")
+			panellog.Info("starting", live+", stopped by an unfinished deploy")
 			if err := deploy.StartContainer(ctx, live); err != nil {
-				fmt.Println("failed to start", live+":", err)
+				panellog.Error("failed to start", live+":", err)
 			}
 		}
 	}

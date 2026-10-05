@@ -141,6 +141,12 @@ func TestUsersSignIn(t *testing.T) {
 	if w := do("POST", "/settings/invites", cookie(sessionCookie, admin)); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "https://hakobu.example.com/invite/") {
 		t.Errorf("the admin's invite: %d %q", w.Code, w.Body)
 	}
+	if w := do("GET", "/settings", cookie(sessionCookie, friend)); strings.Contains(w.Body.String(), `id="panel-log"`) {
+		t.Error("a user sees the panel's log")
+	}
+	if w := do("GET", "/settings", cookie(sessionCookie, admin)); !strings.Contains(w.Body.String(), `id="panel-log"`) {
+		t.Error("the admin doesn't see the panel's log")
+	}
 	if w := do("GET", "/settings", cookie(sessionCookie, admin)); !strings.Contains(w.Body.String(), "Invites don't work yet") {
 		t.Error("the admin isn't told the GitHub App is private")
 	}

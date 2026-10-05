@@ -14,6 +14,7 @@ import (
 	"github.com/x0ryz/hakobu/internal/backup"
 	"github.com/x0ryz/hakobu/internal/config"
 	"github.com/x0ryz/hakobu/internal/deploy"
+	"github.com/x0ryz/hakobu/internal/panellog"
 	"github.com/x0ryz/hakobu/internal/secret"
 )
 
@@ -117,7 +118,7 @@ func scratchDatabase(ctx context.Context, d DBSpec, scratch string) (drop func()
 	}
 	return func() {
 		if err := deploy.PostgresExec(ctx, PostgresContainer, dropSQL); err != nil {
-			fmt.Println("failed to drop", scratch+":", err)
+			panellog.Error("failed to drop", scratch+":", err)
 		}
 	}, nil
 }

@@ -63,7 +63,11 @@ func TestPagesRender(t *testing.T) {
 			{Volume: "cache", Job: ops.DBJob{Last: "x", Failed: true}},
 		}}
 	bare := appPage{App: appView{App: store.App{Name: "web", ProjectName: "demo", LinkedDB: "main"}, State: deploy.State{Status: "exited"}}, DataRollbackBlocker: "no snapshot"}
-	settings := settingsPage{PublicHost: "p", User: "me", Admin: true, GitHubSlug: "hakobu-p", Disk: "1.0 GB of 10.0 GB used (10%)", DiskLow: true, LastCleanup: "2026-09-27 12:00: freed 1.0 GB", BackupBucket: "hakobu-backups-1",
+	settings := settingsPage{PublicHost: "p", User: "me", Admin: true, LogLevel: "info", PanelLogErrors: 2, PanelLog: []ops.PanelLogLine{
+		{At: "2026-10-05T19:00:00Z", Level: "error", Message: "backup failed for main: R2 is off in the panel's Cloudflare account"},
+		{At: "2026-10-05T18:59:00Z", Level: "warn", Message: "tunnel routes not updated (retrying in 5s): context deadline exceeded"},
+		{At: "2026-10-05T18:58:00Z", Level: "info", Message: "server node-1 connected, hakobu v0.20.0"},
+	}, GitHubSlug: "hakobu-p", Disk: "1.0 GB of 10.0 GB used (10%)", DiskLow: true, LastCleanup: "2026-09-27 12:00: freed 1.0 GB", BackupBucket: "hakobu-backups-1",
 		Rotation:            ops.Rotation{Started: "2026-09-30 10:00", Log: "done    x\n", Manual: []string{"GitHub App ..."}, Failures: 1},
 		CloudflareConnected: true, Notify: ops.NotifyInfo{On: true, Email: "me@example.org", From: "hakobu@mail.p"}, Watchdog: ops.WatchdogInfo{On: true, Script: "hakobu-watchdog-1a2b3c4d", Err: "boom"}, TokenURL: "https://dash.cloudflare.com/x",
 		Servers:     []ops.Server{{Name: "acme", Joined: true, Connected: true, Version: "v0.7.0"}, {Name: "away", Joined: true, LastSeen: "2026-10-03T10:00:00Z"}, {Name: "new"}},
@@ -101,7 +105,7 @@ func TestPagesRender(t *testing.T) {
 			Keep: 7, Job: ops.DBJob{Running: "backing up"}}),
 		"database, no backups": databaseView(databasePage{DB: db, Job: ops.DBJob{Last: "x", Failed: true}}),
 		"settings":             settingsView(settings),
-		"settings, bare":       settingsView(settingsPage{Admin: true, GitHubSlug: "hakobu-x", GitHubAppPrivate: true, CloudflareConnected: true, Notify: ops.NotifyInfo{On: true, Err: "no token"}, Update: ops.UpdateInfo{Current: "dev"}}),
+		"settings, bare":       settingsView(settingsPage{Admin: true, LogLevel: "error", GitHubSlug: "hakobu-x", GitHubAppPrivate: true, CloudflareConnected: true, Notify: ops.NotifyInfo{On: true, Err: "no token"}, Update: ops.UpdateInfo{Current: "dev"}}),
 		"settings, a user":     settingsView(settingsPage{PublicHost: "p", User: "friend", CloudflareConnected: true, Servers: []ops.Server{{Name: "mine"}}, MyNotify: ops.UserNotify{PanelOn: true, Email: "f@example.org"}}),
 		"settings, no emails":  settingsView(settingsPage{PublicHost: "p", User: "friend"}),
 		"invite link":          inviteLink("https://p/invite/abc"),

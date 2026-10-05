@@ -12,6 +12,7 @@ import (
 	"golang.org/x/net/publicsuffix"
 
 	"github.com/x0ryz/hakobu/internal/config"
+	"github.com/x0ryz/hakobu/internal/panellog"
 	"github.com/x0ryz/hakobu/internal/store"
 )
 
@@ -105,7 +106,7 @@ func CheckDomains(s *store.Store) {
 	for domain, uses := range watchedDomains(s) {
 		at, err := domainExpiry(domain)
 		if err != nil {
-			fmt.Println("expiry of", domain+":", err)
+			panellog.Warn("expiry of", domain+":", err)
 			continue
 		}
 		if time.Until(at) > domainWarnBefore {

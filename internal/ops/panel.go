@@ -15,6 +15,7 @@ import (
 
 	"github.com/x0ryz/hakobu/internal/cloudflare"
 	"github.com/x0ryz/hakobu/internal/config"
+	"github.com/x0ryz/hakobu/internal/panellog"
 	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store"
 )
@@ -145,7 +146,7 @@ func BackupPanel(s *store.Store) (err error) {
 		return err
 	}
 	if err := rotatePanelBackups(s, time.Now()); err != nil {
-		fmt.Println("panel backup rotation failed:", err)
+		panellog.Error("panel backup rotation failed:", err)
 	}
 	return nil
 }

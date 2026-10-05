@@ -14,6 +14,7 @@ import (
 	"github.com/x0ryz/hakobu/internal/backup"
 	"github.com/x0ryz/hakobu/internal/config"
 	"github.com/x0ryz/hakobu/internal/deploy"
+	"github.com/x0ryz/hakobu/internal/panellog"
 	"github.com/x0ryz/hakobu/internal/secret"
 )
 
@@ -331,16 +332,16 @@ func (Local) archiveVolume(ctx context.Context, app, name string, w io.Writer) e
 	volume := Volume(app, name)
 	users, err := deploy.RunningWithVolume(ctx, volume)
 	if err != nil {
-		fmt.Println("backup of", volume+": copying without pausing its containers:", err)
+		panellog.Warn("backup of", volume+": copying without pausing its containers:", err)
 	}
 	for _, c := range users {
 		if err := deploy.PauseContainer(ctx, c); err != nil {
-			fmt.Println("backup of", volume+": copying while", c, "runs:", err)
+			panellog.Warn("backup of", volume+": copying while", c, "runs:", err)
 			continue
 		}
 		defer func() {
 			if err := deploy.UnpauseContainer(ctx, c); err != nil {
-				fmt.Println("failed to unpause", c+":", err)
+				panellog.Error("failed to unpause", c+":", err)
 			}
 		}()
 	}

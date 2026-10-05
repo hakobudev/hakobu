@@ -22,7 +22,10 @@ import (
 	"github.com/x0ryz/hakobu/internal/edge"
 	"github.com/x0ryz/hakobu/internal/link"
 	"github.com/x0ryz/hakobu/internal/ops"
+	"github.com/x0ryz/hakobu/internal/panellog"
+	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/x0ryz/hakobu/internal/store/teldb"
 )
 
 var (
@@ -49,6 +52,12 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	// The panel's log is kept for Settings → Panel log from here on.
+	panellog.SetSink(func(l panellog.Level, msg string) {
+		if err := s.Tel.AddPanelLog(context.Background(), teldb.AddPanelLogParams{Level: int64(l), Message: secret.String(msg)}); err != nil {
+			fmt.Fprintln(os.Stderr, "panel log not kept:", err)
+		}
+	})
 	if agentPublicHost != "" {
 		if err := config.SetPublicHost(agentPublicHost); err != nil {
 			return err
@@ -106,17 +115,17 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	go ops.WatchMetrics(s)
 	go runBackupScheduler(s)
 	if err := ops.StartTunnel(s); err != nil {
-		fmt.Println("failed to start the tunnel:", err)
+		panellog.Error("failed to start the tunnel:", err)
 	}
 
-	fmt.Println("hakobu listening on", ln.Addr())
+	panellog.Info("hakobu listening on", ln.Addr())
 	switch {
 	case config.PublicHost() == "":
-		fmt.Println("No panel address yet: run `hakobu setup`.")
+		panellog.Info("No panel address yet: run `hakobu setup`.")
 	case setupURL != "":
-		fmt.Println("Finish setup:", setupURL)
+		panellog.Info("Finish setup:", setupURL)
 	default:
-		fmt.Println("Panel: https://" + config.PublicHost())
+		panellog.Info("Panel: https://" + config.PublicHost())
 	}
 	srv := &http.Server{
 		Handler:      edge.Router(s, panelHandler(mux)),
@@ -126,13 +135,13 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	}
 	go func() {
 		if err := srv.Serve(sock); err != nil && err != http.ErrServerClosed {
-			fmt.Println("panel socket:", err)
+			panellog.Error("panel socket:", err)
 		}
 	}()
 	go func() {
 		ingestSrv := &http.Server{Handler: ingestMux, ReadTimeout: config.ReadTimeout, WriteTimeout: config.ReadTimeout, IdleTimeout: config.IdleTimeout}
 		if err := ingestSrv.Serve(ingestSock); err != nil {
-			fmt.Println("ingest socket:", err)
+			panellog.Error("ingest socket:", err)
 		}
 	}()
 	go ops.KeepIngestRelay(s)
@@ -149,15 +158,15 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	// systemd waits 90 seconds before killing: let requests and running
 	// deploys finish meanwhile. One cut short is tidied up at the next
 	// start (ReconcileSlots, FailRunningDeployLogs).
-	fmt.Println("stopping: finishing requests and running deploys")
+	panellog.Info("stopping: finishing requests and running deploys")
 	ops.CloseJobs("hakobu is stopping")
 	shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdown); err != nil {
-		fmt.Println("some requests were cut short:", err)
+		panellog.Warn("some requests were cut short:", err)
 	}
 	if !ops.WaitForJobs(time.Minute) {
-		fmt.Println("a deploy was still running and is cut short; the next start tidies up after it")
+		panellog.Warn("a deploy was still running and is cut short; the next start tidies up after it")
 	}
 	return nil
 }
@@ -229,7 +238,7 @@ func runProxyPoller(s *store.Store) {
 			wait = syncBackoff(wait, err)
 			nextSync = time.Now().Add(wait)
 			if err != nil && err.Error() != lastErr {
-				fmt.Printf("tunnel routes not updated (retrying in %s): %v\n", wait, err)
+				panellog.Warnf("tunnel routes not updated (retrying in %s): %v", wait, err)
 			}
 			lastErr = fmt.Sprint(err)
 		}
@@ -259,19 +268,19 @@ func runBackupScheduler(s *store.Store) {
 	for ; ; time.Sleep(time.Hour) {
 		for name, err := range ops.BackupDue(s) {
 			if err != nil {
-				fmt.Println("backup failed for", name+":", err)
+				panellog.Error("backup failed for", name+":", err)
 			}
 			ops.NoteBackup(s, name, err)
 		}
 		for name, err := range ops.VolumeBackupDue(s) {
 			if err != nil {
-				fmt.Println("backup failed for volume", name+":", err)
+				panellog.Error("backup failed for volume", name+":", err)
 			}
 			ops.NoteBackup(s, name, err)
 		}
 		err := ops.PanelBackupDue(s)
 		if err != nil {
-			fmt.Println("panel backup failed:", err)
+			panellog.Error("panel backup failed:", err)
 		}
 		ops.NoteBackup(s, "panel", err)
 		ops.CheckForOwner(s)
@@ -281,10 +290,10 @@ func runBackupScheduler(s *store.Store) {
 		}
 		lastCleanup = time.Now()
 		if err := s.PruneOldData(context.Background(), config.RetentionDays); err != nil {
-			fmt.Println("prune failed:", err)
+			panellog.Error("prune failed:", err)
 		}
 		if err := ops.Cleanup(s); err != nil {
-			fmt.Println("cleanup failed:", err)
+			panellog.Error("cleanup failed:", err)
 		}
 	}
 }
@@ -354,7 +363,7 @@ func webhookHandler(s *store.Store) http.HandlerFunc {
 		}
 		for _, a := range apps {
 			if err := ops.StartDeploy(s, a.Name, "push"); err != nil {
-				fmt.Println("push deploy of", a.Name, "skipped:", err)
+				panellog.Warn("push deploy of", a.Name, "skipped:", err)
 			}
 		}
 	}
