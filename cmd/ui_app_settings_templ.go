@@ -521,7 +521,7 @@ func appSettings(p appPage) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 41, "<p class=\"field-hint\">Railpack also reads the app's <span class=\"mono\">RAILPACK_*</span> variables, <span class=\"mono\">RAILPACK_NODE_VERSION</span> say, and a <span class=\"mono\">railpack.json</span> or <span class=\"mono\">Procfile</span> in the repo. No other variable reaches the build.</p></div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 41, "<p class=\"field-hint\">Railpack also reads the app's <span class=\"mono\">RAILPACK_*</span> variables, <span class=\"mono\">RAILPACK_NODE_VERSION</span> say, and a <span class=\"mono\">railpack.json</span> or <span class=\"mono\">Procfile</span> in the repo. The build gets those and the public variables frontends build in (<span class=\"mono\">VITE_*</span>, <span class=\"mono\">NEXT_PUBLIC_*</span>, …), and no other.</p></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
