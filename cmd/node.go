@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
@@ -191,12 +192,13 @@ func runNode(ctx context.Context, cfg nodeConfig, key ed25519.PrivateKey) error 
 	// container the panel starts here, and go on to the panel over the
 	// link while there is one.
 	var toPanel atomic.Pointer[http.Client]
+	spool := newIngestSpool(ingestSpoolDir)
 	ingestSock, err := listenSocket(ops.IngestSocketDir, filepath.Base(ops.IngestSocket()))
 	if err != nil {
 		return err
 	}
 	go func() {
-		srv := &http.Server{Handler: forwardIngest(&toPanel), ReadTimeout: config.ReadTimeout, WriteTimeout: config.ReadTimeout}
+		srv := &http.Server{Handler: forwardIngest(&toPanel, spool), ReadTimeout: config.ReadTimeout, WriteTimeout: config.ReadTimeout}
 		_ = srv.Serve(ingestSock)
 	}()
 	for wait := time.Second; ctx.Err() == nil; {
@@ -220,9 +222,20 @@ func runNode(ctx context.Context, cfg nodeConfig, key ed25519.PrivateKey) error 
 				fmt.Println("the panel's new address isn't kept:", err)
 			}
 		}
-		toPanel.Store(&http.Client{Transport: &http.Transport{
+		linked := &http.Client{Transport: &http.Transport{
 			DialContext: func(context.Context, string, string) (net.Conn, error) { return sess.Open() },
-		}})
+		}}
+		toPanel.Store(linked)
+		go func() {
+			n, err := spool.drain(linked)
+			if n > 0 || err != nil {
+				fmt.Printf("sent the panel %d envelopes kept while it was away", n)
+				if err != nil {
+					fmt.Printf(" (the rest wait: %v)", err)
+				}
+				fmt.Println()
+			}
+		}()
 		go func() {
 			select {
 			case <-ctx.Done():
@@ -241,31 +254,53 @@ func runNode(ctx context.Context, cfg nodeConfig, key ed25519.PrivateKey) error 
 }
 
 // forwardIngest passes the envelopes the ingest relay brings on to the
-// panel over the link; while there's none, they're turned away, as the
-// panel's own endpoint does when it's down.
-func forwardIngest(toPanel *atomic.Pointer[http.Client]) http.Handler {
+// panel over the link; while the panel is out of reach they're kept in
+// spool, sent on when the node is linked again.
+func forwardIngest(toPanel *atomic.Pointer[http.Client], spool *ingestSpool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		c := toPanel.Load()
-		if c == nil {
-			http.Error(w, "not connected to the panel", http.StatusServiceUnavailable)
-			return
-		}
-		req, err := http.NewRequestWithContext(r.Context(), r.Method, "http://panel"+r.URL.RequestURI(), r.Body)
+		body, err := io.ReadAll(io.LimitReader(r.Body, maxEnvelopeBytes+1))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		for _, h := range []string{"Content-Type", "Content-Encoding", "X-Sentry-Auth"} {
+		if len(body) > maxEnvelopeBytes {
+			http.Error(w, "envelope too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		keep := func(why string) {
+			if err := spool.put(r.URL.RequestURI(), r.Header, body); err != nil {
+				fmt.Println("an envelope is lost:", why+", and keeping it failed:", err)
+				http.Error(w, why, http.StatusServiceUnavailable)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, "{}")
+		}
+		c := toPanel.Load()
+		if c == nil {
+			keep("not connected to the panel")
+			return
+		}
+		req, err := http.NewRequestWithContext(r.Context(), r.Method, "http://panel"+r.URL.RequestURI(), bytes.NewReader(body))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		for _, h := range ingestHeaders {
 			if v := r.Header.Get(h); v != "" {
 				req.Header.Set(h, v)
 			}
 		}
 		resp, err := c.Do(req)
 		if err != nil {
-			http.Error(w, "the panel isn't reachable", http.StatusBadGateway)
+			keep("the panel isn't reachable")
 			return
 		}
 		defer resp.Body.Close()
+		if resp.StatusCode >= 500 {
+			keep("the panel answered " + resp.Status)
+			return
+		}
 		w.WriteHeader(resp.StatusCode)
 		_, _ = io.Copy(w, io.LimitReader(resp.Body, 64<<10))
 	})
