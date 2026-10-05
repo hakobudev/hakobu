@@ -562,6 +562,20 @@ func (q *Queries) DeleteApp(ctx context.Context, name string) error {
 	return err
 }
 
+const deleteAppRoute = `-- name: DeleteAppRoute :exec
+DELETE FROM app_routes WHERE app_name = ? AND path = ?
+`
+
+type DeleteAppRouteParams struct {
+	AppName string
+	Path    string
+}
+
+func (q *Queries) DeleteAppRoute(ctx context.Context, arg DeleteAppRouteParams) error {
+	_, err := q.db.ExecContext(ctx, deleteAppRoute, arg.AppName, arg.Path)
+	return err
+}
+
 const deleteBackup = `-- name: DeleteBackup :exec
 DELETE FROM backups WHERE id = ?
 `
@@ -685,6 +699,15 @@ DELETE FROM projects WHERE name = ?
 
 func (q *Queries) DeleteProject(ctx context.Context, name string) error {
 	_, err := q.db.ExecContext(ctx, deleteProject, name)
+	return err
+}
+
+const deleteRoutesOfApp = `-- name: DeleteRoutesOfApp :exec
+DELETE FROM app_routes WHERE app_name = ?1 OR target = ?1
+`
+
+func (q *Queries) DeleteRoutesOfApp(ctx context.Context, appName string) error {
+	_, err := q.db.ExecContext(ctx, deleteRoutesOfApp, appName)
 	return err
 }
 
@@ -1530,6 +1553,33 @@ func (q *Queries) JoinNode(ctx context.Context, arg JoinNodeParams) error {
 	return err
 }
 
+const listAllAppRoutes = `-- name: ListAllAppRoutes :many
+SELECT app_name, path, target FROM app_routes ORDER BY app_name, path
+`
+
+func (q *Queries) ListAllAppRoutes(ctx context.Context) ([]AppRoute, error) {
+	rows, err := q.db.QueryContext(ctx, listAllAppRoutes)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AppRoute
+	for rows.Next() {
+		var i AppRoute
+		if err := rows.Scan(&i.AppName, &i.Path, &i.Target); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAllBackups = `-- name: ListAllBackups :many
 SELECT id, "database", object_key, parts, size_bytes, sha256, created_at, verified_at, verify_error, tables, file_key, account_id, bucket FROM backups WHERE database = ? ORDER BY id DESC
 `
@@ -1664,6 +1714,33 @@ func (q *Queries) ListAllVolumes(ctx context.Context) ([]Volume, error) {
 	for rows.Next() {
 		var i Volume
 		if err := rows.Scan(&i.AppName, &i.Name, &i.MountPath); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAppRoutes = `-- name: ListAppRoutes :many
+SELECT app_name, path, target FROM app_routes WHERE app_name = ? ORDER BY path
+`
+
+func (q *Queries) ListAppRoutes(ctx context.Context, appName string) ([]AppRoute, error) {
+	rows, err := q.db.QueryContext(ctx, listAppRoutes, appName)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AppRoute
+	for rows.Next() {
+		var i AppRoute
+		if err := rows.Scan(&i.AppName, &i.Path, &i.Target); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -2959,6 +3036,22 @@ type SetAppLiveParams struct {
 
 func (q *Queries) SetAppLive(ctx context.Context, arg SetAppLiveParams) error {
 	_, err := q.db.ExecContext(ctx, setAppLive, arg.ActiveSlot, arg.LivePort, arg.Name)
+	return err
+}
+
+const setAppRoute = `-- name: SetAppRoute :exec
+INSERT INTO app_routes (app_name, path, target) VALUES (?, ?, ?)
+ON CONFLICT(app_name, path) DO UPDATE SET target = excluded.target
+`
+
+type SetAppRouteParams struct {
+	AppName string
+	Path    string
+	Target  string
+}
+
+func (q *Queries) SetAppRoute(ctx context.Context, arg SetAppRouteParams) error {
+	_, err := q.db.ExecContext(ctx, setAppRoute, arg.AppName, arg.Path, arg.Target)
 	return err
 }
 

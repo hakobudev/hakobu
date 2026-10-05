@@ -354,10 +354,12 @@ func (c Client) RotateTunnelSecret(accountID, tunnelID string) (token string, er
 	return token, c.call("DELETE", path+"/connections", nil, nil)
 }
 
-// IngressRule sends requests for Hostname (any, if empty) to Service. The
-// last rule must have no hostname.
+// IngressRule sends requests for Hostname (any, if empty) whose path
+// matches the regular expression Path (any, if empty) to Service. The
+// first rule that matches wins; the last must have no hostname.
 type IngressRule struct {
 	Hostname string `json:"hostname,omitempty"`
+	Path     string `json:"path,omitempty"`
 	Service  string `json:"service"`
 }
 

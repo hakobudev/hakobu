@@ -123,6 +123,22 @@ INSERT INTO volumes (app_name, name, mount_path) VALUES (?, ?, ?);
 -- name: ListVolumes :many
 SELECT * FROM volumes WHERE app_name = ? ORDER BY name;
 
+-- name: SetAppRoute :exec
+INSERT INTO app_routes (app_name, path, target) VALUES (?, ?, ?)
+ON CONFLICT(app_name, path) DO UPDATE SET target = excluded.target;
+
+-- name: DeleteAppRoute :exec
+DELETE FROM app_routes WHERE app_name = ? AND path = ?;
+
+-- name: ListAppRoutes :many
+SELECT * FROM app_routes WHERE app_name = ? ORDER BY path;
+
+-- name: ListAllAppRoutes :many
+SELECT * FROM app_routes ORDER BY app_name, path;
+
+-- name: DeleteRoutesOfApp :exec
+DELETE FROM app_routes WHERE app_name = ?1 OR target = ?1;
+
 -- name: ListAllVolumes :many
 SELECT * FROM volumes;
 

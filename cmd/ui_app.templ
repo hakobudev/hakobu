@@ -40,6 +40,8 @@ type appPage struct {
 	Volumes          []store.Volume
 	VolumeBackups    []volumeBackups
 	VolumeJobRunning bool
+	PathRoutes       []store.AppRoute
+	Siblings         []string // the project's other apps
 	BackupBucket     string
 	SealedWorker     []string
 }

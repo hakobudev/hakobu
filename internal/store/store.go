@@ -247,7 +247,8 @@ func (s *Store) FailRunningDeployLogs(ctx context.Context) error {
 	return nil
 }
 
-// DeleteAppCascade removes the app with its worker, volumes, deploy logs and telemetry.
+// DeleteAppCascade removes the app with its worker, volumes, routes (its
+// own and to it), deploy logs and telemetry.
 func (s *Store) DeleteAppCascade(ctx context.Context, name string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -257,7 +258,7 @@ func (s *Store) DeleteAppCascade(ctx context.Context, name string) error {
 	q := s.WithTx(tx)
 	// Backups of its volumes stay in the bucket, but a new app of the same
 	// name mustn't list (and rotate away) them.
-	for _, del := range []func(context.Context, string) error{q.DeleteWorker, q.DeleteVolumesOfApp, q.DeleteVolumeBackupsOfApp, q.DeleteDeployLogsOfApp, q.DeletePendingPromotion, q.DeleteApp} {
+	for _, del := range []func(context.Context, string) error{q.DeleteWorker, q.DeleteVolumesOfApp, q.DeleteVolumeBackupsOfApp, q.DeleteDeployLogsOfApp, q.DeletePendingPromotion, q.DeleteRoutesOfApp, q.DeleteApp} {
 		if err := del(ctx, name); err != nil {
 			return err
 		}

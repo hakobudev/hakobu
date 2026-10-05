@@ -47,7 +47,7 @@ func TestPagesRender(t *testing.T) {
 		Storages: storages, Sealed: []string{"P"}, SuggestedDB: "demo", BackupBucket: "hakobu-backups-1", Watchdog: true,
 		Volumes: map[string][]volumeCard{"web": {{Volume: store.Volume{Name: "data", MountPath: "/data"}}, {Volume: store.Volume{Name: "up"}, HasLast: true, Last: store.VolumeBackup{VerifiedAt: "t"}}}},
 		Calls:   map[string][]string{"api": {"web"}}}
-	ap := appPage{App: app, Project: project, Worker: worker, WorkerStatus: "running", DataRollbackBlocker: "", LastOOM: "2026-09-29T10:00:00Z",
+	ap := appPage{App: app, Project: project, PathRoutes: []store.AppRoute{{AppName: "web", Path: "/api", Target: "api"}}, Siblings: []string{"api", "admin"}, Worker: worker, WorkerStatus: "running", DataRollbackBlocker: "", LastOOM: "2026-09-29T10:00:00Z",
 		Deploys: deploys, Events: events, Output: "line", Range: "24h",
 		Routes:    []ops.RouteStats{{Name: "/orders/{id}", Count: 20, Errors: 1, AvgMs: 40, P50Ms: 20, P95Ms: 10000, P95Over: true}},
 		Traces:    []teldb.ListTracesRow{{ID: 1, AppName: "web", Name: "/orders/{id}", Status: "internal_error", HttpStatus: 500, DurationMs: 30}},
@@ -294,9 +294,10 @@ func TestAppCalls(t *testing.T) {
 		{Name: "search", Env: "X=searchable.hakobu.io"},
 		{Name: "admin", Env: "API=https://API.ACME.example.com"},
 		{Name: "worker", Env: "SEARCH=${{search.PRIVATE_URL}}"},
+		{Name: "site"},
 	}
-	got := appCalls(apps)
-	want := map[string][]string{"web": {"api"}, "api": {"web", "search"}, "admin": {"api"}, "worker": {"search"}}
+	got := appCalls(apps, []store.AppRoute{{AppName: "site", Path: "/api", Target: "api"}})
+	want := map[string][]string{"web": {"api"}, "api": {"web", "search"}, "admin": {"api"}, "worker": {"search"}, "site": {"api"}}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("appCalls = %v, want %v", got, want)
 	}

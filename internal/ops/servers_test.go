@@ -82,7 +82,7 @@ func TestProjectOnAnotherServer(t *testing.T) {
 		t.Errorf("tunnel on far: %+v", tun)
 	}
 	must(SyncTunnel(s))
-	if got := fmt.Sprint(cf.ingress["t-new-1"]); got != "[{web.panel.com http://web.hakobu:8080} { http_status:404}]" {
+	if got := fmt.Sprint(cf.ingress["t-new-1"]); got != "[{web.panel.com  http://web.hakobu:8080} {  http_status:404}]" {
 		t.Errorf("far's tunnel routes %s", got)
 	}
 	if got := fmt.Sprint(cf.ingress["t-panel"]); strings.Contains(got, "web.panel.com") {

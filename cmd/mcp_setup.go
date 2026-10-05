@@ -244,4 +244,22 @@ func addSetupTools(server *mcp.Server, s *store.Store, getApp func(context.Conte
 			}
 			return nil, mcpDone{Done: fmt.Sprintf("set %d, removed %d", len(in.Set), len(in.Unset)), Next: "deploy " + in.App}, nil
 		})
+
+	mcp.AddTool(server, &mcp.Tool{Name: "set_route", Description: "Serve a path of an app's address by another app of its project, like a proxy in front of both: with path /api and target api, shop.example.com/api/... reaches api and the rest the shop. One address for a frontend and its API: no CORS, shared cookies. The target sees the whole path, /api included, and needs no address of its own. target \"\" removes the route. Applies within seconds.", Annotations: &mcp.ToolAnnotations{DestructiveHint: new(false), IdempotentHint: true, OpenWorldHint: new(false)}},
+		func(ctx context.Context, req *mcp.CallToolRequest, in struct {
+			App    string `json:"app" jsonschema:"the app whose address it is"`
+			Path   string `json:"path" jsonschema:"a prefix like /api"`
+			Target string `json:"target" jsonschema:"another app of the project; empty to remove the route"`
+		}) (*mcp.CallToolResult, mcpDone, error) {
+			if err := mayDeploy(req); err != nil {
+				return nil, mcpDone{}, err
+			}
+			if err := ops.SetAppRoute(s, in.App, in.Path, in.Target); err != nil {
+				return nil, mcpDone{}, err
+			}
+			if in.Target == "" {
+				return nil, mcpDone{Done: "removed the route of " + in.Path}, nil
+			}
+			return nil, mcpDone{Done: in.App + in.Path + " goes to " + in.Target}, nil
+		})
 }

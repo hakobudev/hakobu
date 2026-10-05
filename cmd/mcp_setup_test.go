@@ -99,6 +99,8 @@ func TestMCPSetup(t *testing.T) {
 		{"link_database", `{"app":"web","database":"theirdb"}`, `no database named \"theirdb\"`},
 		{"set_env", `{"app":"theirs","set":{"A":"1"}}`, `no app named \"theirs\"`},
 		{"add_volume", `{"app":"theirs","name":"data","mount_path":"/data"}`, `no app named \"theirs\"`},
+		{"set_route", `{"app":"theirs","path":"/api","target":"web"}`, `no app named \"theirs\"`},
+		{"set_route", `{"app":"web","path":"/api","target":"theirs"}`, `theirs isn't an app of project mine`},
 	} {
 		if out := call(deploy, c.tool, c.args); !strings.Contains(out, c.want) {
 			t.Errorf("%s %s: %s, want %s", c.tool, c.args, out, c.want)

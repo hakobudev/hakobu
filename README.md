@@ -247,6 +247,11 @@ the project's canvas draws an arrow for it:
 - `API_URL=${{api.PRIVATE_URL}}`: `http://api.hakobu:8080`, inside the project, from a
   server: quicker and never through Cloudflare.
 
+An app can also serve a path of its address by another app of the project, like a proxy in
+front of both (app **Settings → Routes**): with `/api` → `api`, `shop.example.com/api/…`
+reaches the api and the rest the shop. One address, so the browser needs no CORS and shares
+cookies; the api sees the whole path, `/api` included, and needs no address of its own.
+
 ### Moving a database in
 
 A database from another host comes in as a backup of a hakobu database. With backups on, on

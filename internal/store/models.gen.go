@@ -67,6 +67,12 @@ type AppRecord struct {
 	StartCommand    string
 }
 
+type AppRoute struct {
+	AppName string
+	Path    string
+	Target  string
+}
+
 type Backup struct {
 	ID          int64
 	Database    string

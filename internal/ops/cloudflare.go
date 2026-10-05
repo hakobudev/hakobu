@@ -230,8 +230,9 @@ var (
 )
 
 // SyncTunnel points every public app's domain at its live container
-// through the tunnel of its project's account on its server, for each
-// tunnel whose routes changed since the last sync.
+// through the tunnel of its project's account on its server, with the
+// paths routed to other apps first, for each tunnel whose routes changed
+// since the last sync.
 func SyncTunnel(s *store.Store) error {
 	ingressMu.Lock()
 	defer ingressMu.Unlock()
@@ -247,11 +248,24 @@ func SyncTunnel(s *store.Store) error {
 	if err != nil {
 		return err
 	}
+	routes, err := s.ListAllAppRoutes(ctx())
+	if err != nil {
+		return err
+	}
+	routesOf := map[string][]store.AppRoute{}
+	for _, r := range routes {
+		routesOf[r.AppName] = append(routesOf[r.AppName], r)
+	}
+	live := map[string]int64{}
+	for _, app := range apps {
+		live[app.Name] = app.LivePort
+	}
 	var errs []error
 	for _, t := range tunnels {
 		var rules []cloudflare.IngressRule
 		for _, app := range apps {
 			if places[app.ProjectID] == (place{t.acct.ID, t.server.ID}) && app.Domain != "" && app.LivePort > 0 {
+				rules = append(rules, routeRules(app, routesOf[app.Name], live)...)
 				rules = append(rules, cloudflare.IngressRule{Hostname: app.Domain, Service: fmt.Sprintf("http://%s:%d", EdgeAlias(app.Name), app.LivePort)})
 			}
 		}

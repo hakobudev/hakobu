@@ -393,7 +393,8 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 					v.Volumes[a.Name] = append(v.Volumes[a.Name], card)
 				}
 			}
-			v.Calls = appCalls(apps)
+			routes, _ := s.ListAllAppRoutes(r.Context())
+			v.Calls = appCalls(apps, routes)
 			v.Watchdog = ops.Watchdog(s).On
 			v.Server, v.Servers = ops.ProjectServerName(s, p), joinedServers(s, requestUser(r))
 			v.PanelOnly = config.PanelOnly
@@ -641,6 +642,14 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 					p.VolumeBackups = append(p.VolumeBackups, volumeBackups{Volume: v.Name, Backups: list, Job: job})
 					p.VolumeJobRunning = p.VolumeJobRunning || job.Running != ""
 				}
+				p.PathRoutes, _ = s.ListAppRoutes(r.Context(), app.Name)
+				if apps, err := s.ListAppsByProject(r.Context(), app.ProjectID); err == nil {
+					for _, a := range apps {
+						if a.Name != app.Name {
+							p.Siblings = append(p.Siblings, a.Name)
+						}
+					}
+				}
 				p.BackupBucket = ops.BackupBucket(s)
 				p.SealedWorker = ops.SealedKeys(s, "worker", app.Name)
 				renderPage(w, r, appSettings(p))
@@ -709,6 +718,11 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 
 	action("POST /apps/{a}/build", func(r *http.Request) (string, error) {
 		return "", ops.SetAppBuild(s, r.PathValue("a"), r.FormValue("build_path"), r.FormValue("build_strategy"), r.FormValue("start_command"))
+	})
+
+	// A route with no target is removed.
+	action("POST /apps/{a}/routes", func(r *http.Request) (string, error) {
+		return "", ops.SetAppRoute(s, r.PathValue("a"), r.FormValue("path"), r.FormValue("target"))
 	})
 
 	action("POST /apps/{a}/volumes", func(r *http.Request) (string, error) {
@@ -1389,16 +1403,21 @@ type traceView struct {
 	At string
 }
 
-// appCalls guesses which apps of a project call which: an app whose own
-// variables refer to another app (${{api.URL}}) or name its domain or its
-// address on the project's network calls it. Shared variables are left out: every app gets them, so
-// they say nothing about one.
-func appCalls(apps []store.App) map[string][]string {
+// appCalls guesses which apps of a project call which: an app that routes
+// a path to another, or whose own variables refer to it (${{api.URL}}) or
+// name its domain or its address on the project's network, calls it.
+// Shared variables are left out: every app gets them, so they say nothing
+// about one.
+func appCalls(apps []store.App, routes []store.AppRoute) map[string][]string {
+	routed := map[[2]string]bool{}
+	for _, r := range routes {
+		routed[[2]string{r.AppName, r.Target}] = true
+	}
 	calls := map[string][]string{}
 	for _, a := range apps {
 		env := strings.ToLower(string(a.Env))
 		for _, b := range apps {
-			if a.Name != b.Name && (ops.RefersTo(string(a.Env), b.Name) || namesHost(env, b.Domain) || namesHost(env, ops.EdgeAlias(b.Name))) {
+			if a.Name != b.Name && (routed[[2]string{a.Name, b.Name}] || ops.RefersTo(string(a.Env), b.Name) || namesHost(env, b.Domain) || namesHost(env, ops.EdgeAlias(b.Name))) {
 				calls[a.Name] = append(calls[a.Name], b.Name)
 			}
 		}

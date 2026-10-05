@@ -194,8 +194,8 @@ func TestClientTunnelsAreIsolated(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]string{
-		"t-panel": "[{web.panel.com http://web.hakobu:3000} { unix:/run/hakobu/panel.sock}]",
-		"t-acme":  "[{store.acme.com http://store.hakobu:3000} { http_status:404}]",
+		"t-panel": "[{web.panel.com  http://web.hakobu:3000} {  unix:/run/hakobu/panel.sock}]",
+		"t-acme":  "[{store.acme.com  http://store.hakobu:3000} {  http_status:404}]",
 	}
 	for tunnel, rules := range want {
 		if got := fmt.Sprint(f.ingress[tunnel]); got != rules {
@@ -435,5 +435,57 @@ func TestPanelOnlyProjectsUseTheirOwnersPlaces(t *testing.T) {
 	}
 	if err := SetProjectAccount(s, "web", ""); !errors.Is(err, errPanelOnly) {
 		t.Errorf("moved to the panel's account: %v", err)
+	}
+}
+
+// A route sends a path of an app's address to another app of its
+// project, before the app's own rule, longest path first.
+func TestAppRoutes(t *testing.T) {
+	f := newFakeAccounts(t)
+	s, own, shop := accountsStore(t)
+	for _, a := range []struct {
+		project store.Project
+		name    string
+		port    int64
+	}{{own, "web", 3000}, {own, "api", 8080}, {own, "admin", 0}, {shop, "store", 3000}} {
+		if err := s.CreateApp(ctx(), store.CreateAppParams{ProjectID: a.project.ID, Name: a.name, BuildStrategy: "dockerfile"}); err != nil {
+			t.Fatal(err)
+		}
+		if a.port > 0 {
+			if err := s.SetAppLive(ctx(), store.SetAppLiveParams{Name: a.name, ActiveSlot: "blue", LivePort: a.port}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	web, _ := s.GetApp(ctx(), "web")
+	if err := SetAppDomain(s, web, "web.panel.com"); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range [][2]string{{"/api", "api"}, {"api/v2/", "api"}, {"/admin", "admin"}} {
+		if err := SetAppRoute(s, "web", r[0], r[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, bad := range [][2]string{{"/", "api"}, {"/a b", "api"}, {"/x", "store"}, {"/x", "web"}, {"/x", "nobody"}} {
+		if err := SetAppRoute(s, "web", bad[0], bad[1]); err == nil {
+			t.Errorf("took route %s → %s", bad[0], bad[1])
+		}
+	}
+	if err := SyncTunnel(s); err != nil {
+		t.Fatal(err)
+	}
+	// admin isn't deployed: its route waits.
+	want := "[{web.panel.com ^/api/v2(/|$) http://api.hakobu:8080} {web.panel.com ^/api(/|$) http://api.hakobu:8080} {web.panel.com  http://web.hakobu:3000} {  unix:/run/hakobu/panel.sock}]"
+	if got := fmt.Sprint(f.ingress["t-panel"]); got != want {
+		t.Errorf("ingress = %s, want %s", got, want)
+	}
+	if err := SetAppRoute(s, "web", "/api/v2", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteAppCascade(ctx(), "api"); err != nil {
+		t.Fatal(err)
+	}
+	if routes, _ := s.ListAppRoutes(ctx(), "web"); len(routes) != 1 || routes[0].Target != "admin" {
+		t.Errorf("routes left: %v", routes)
 	}
 }
