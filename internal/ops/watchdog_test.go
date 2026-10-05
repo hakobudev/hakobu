@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/x0ryz/hakobu/internal/cloudflare"
+	"github.com/x0ryz/hakobu/internal/config"
 	"github.com/x0ryz/hakobu/internal/store"
 )
 
@@ -74,6 +75,19 @@ func TestWatchdog(t *testing.T) {
 	}
 	if b := binding(f.workers[name], "TO"); b["text"] != "other@example.org" || len(f.kv) != 1 {
 		t.Errorf("after the address changed, TO is %v, namespaces %v", b, f.kv)
+	}
+
+	// The panel moved: its watchdog keeps its name and history, and
+	// checks the new address.
+	if err := config.SetPublicHost("panel.example.net"); err != nil {
+		t.Fatal(err)
+	}
+	CheckForOwner(s)
+	if b := binding(f.workers[name], "TARGETS"); len(f.workers) != 1 || len(f.kv) != 1 || len(f.d1) != 1 || !strings.Contains(b["text"], "https://panel.example.net/healthz") {
+		t.Errorf("after the panel moved: workers %v, namespaces %v, databases %v, TARGETS %v", f.workers, f.kv, f.d1, b)
+	}
+	if err := config.SetPublicHost("panel.example.com"); err != nil { // the domain emails come from
+		t.Fatal(err)
 	}
 
 	delete(f.workers, name) // removed in the dashboard

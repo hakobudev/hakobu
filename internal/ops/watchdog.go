@@ -140,7 +140,12 @@ func EnableWatchdog(s *store.Store) error {
 	if err != nil {
 		return err
 	}
+	// The name the panel had when it was first deployed, so a panel that
+	// moves keeps its watchdog and history.
 	name := watchdogName()
+	if w, err := s.GetWatchdog(ctx()); err == nil && w.Script != "" {
+		name = w.Script
+	}
 	kv, err := c.FindOrCreateKVNamespace(cf.AccountID, name)
 	if err != nil {
 		return workersHint(err)
