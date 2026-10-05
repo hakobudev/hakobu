@@ -383,6 +383,7 @@ func TestUpdateANode(t *testing.T) {
 	r.publish("v0.7.0", "v0.7.0")
 	f := newFakeInstall(t, "v0.6.0")
 	f.Node = true
+	f.panelUp = func() error { return nil }
 	f.Install.healthy = nil // the real check: LinkedFile touched after the start
 	f.schema = "99"         // a rollback mustn't touch any database
 	linked := filepath.Join(f.Dir, LinkedFile)
@@ -417,5 +418,27 @@ func TestUpdateANode(t *testing.T) {
 	}
 	if f.read(binaryFile) != "v0.6.0" || f.read(databaseFile) != "db of v0.6.0" {
 		t.Errorf("after rollback: binary %q, db %q", f.read(binaryFile), f.read(databaseFile))
+	}
+}
+
+// A node that can't reach its panel isn't updated: the new version
+// couldn't link and would only be rolled back.
+func TestNodeUpdateNeedsItsPanel(t *testing.T) {
+	r := newFakeRelease(t)
+	r.publish("v0.7.0", "v0.7.0")
+	f := newFakeInstall(t, "v0.6.0")
+	f.Node = true
+	panel := httptest.NewServer(http.NotFoundHandler())
+	mustWrite(t, filepath.Join(f.Dir, nodeConfigFile), []byte(`{"panel":"`+panel.URL+`"}`))
+	err := f.Update("")
+	if err == nil || !strings.Contains(err.Error(), "can't reach its panel at "+panel.URL) || !strings.Contains(err.Error(), "404") {
+		t.Errorf("update with the panel answering 404: %v", err)
+	}
+	panel.Close()
+	if err := f.Update(""); err == nil {
+		t.Error("updated with the panel gone")
+	}
+	if f.read(binaryFile) != "v0.6.0" || len(f.commands) != 0 {
+		t.Errorf("binary %q, commands %v", f.read(binaryFile), f.commands)
 	}
 }

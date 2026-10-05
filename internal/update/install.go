@@ -59,6 +59,7 @@ type Install struct {
 
 	run     func(dir string, name string, args ...string) (string, error)
 	healthy func() bool
+	panelUp func() error // a node's panel answers it; nil: checkPanel
 	addr    string
 }
 
@@ -136,6 +137,13 @@ func (in *Install) Update(tag string) error {
 			return nil
 		}
 		tag = latest
+	}
+	// A node that can't reach its panel would only come up to go back.
+	if in.Node {
+		if err := in.checkPanel(); err != nil {
+			in.setStatus("failed", tag, err.Error())
+			return err
+		}
 	}
 	in.setStatus("running", tag, "downloading and checking "+tag)
 	in.logf("downloading hakobu %s and checking its signature", tag)
@@ -435,6 +443,36 @@ func (in *Install) waitHealthy() bool {
 		}
 	}
 	return false
+}
+
+// nodeConfigFile, under the install's directory, names a node's panel.
+const nodeConfigFile = "data/node.json"
+
+// checkPanel tells whether the node's panel answers it, which the node
+// needs to be found up after an update.
+func (in *Install) checkPanel() error {
+	if in.panelUp != nil {
+		return in.panelUp()
+	}
+	var cfg struct{ Panel string }
+	b, err := os.ReadFile(in.path(nodeConfigFile))
+	if err == nil {
+		err = json.Unmarshal(b, &cfg)
+	}
+	if err != nil {
+		return fmt.Errorf("%s: %w", nodeConfigFile, err)
+	}
+	c := &http.Client{Timeout: 15 * time.Second}
+	resp, err := c.Get(cfg.Panel + "/healthz")
+	if err == nil {
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			return nil
+		}
+		err = fmt.Errorf("it answers %s", resp.Status)
+	}
+	return fmt.Errorf("not updating: this server can't reach its panel at %s (%v), so the new version couldn't link to it. "+
+		"If the panel moved, set \"panel\" in %s to its address and restart hakobu", cfg.Panel, err, in.path(nodeConfigFile))
 }
 
 // LinkedFile, under the install's directory, is touched by a node each
