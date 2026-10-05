@@ -182,9 +182,10 @@ func watchApps(s *store.Store) {
 }
 
 // SetAppBuild changes how the app is built (strategy "railpack" or
-// "dockerfile", path of the build context inside the repo). Applies on the
-// next deploy; no need to delete and recreate the app.
-func SetAppBuild(s *store.Store, appName, path, strategy string) error {
+// "dockerfile", path of the build context inside the repo) and started (a
+// shell command instead of the image's own start, "" for that). Applies on
+// the next deploy; no need to delete and recreate the app.
+func SetAppBuild(s *store.Store, appName, path, strategy, startCommand string) error {
 	strategy = strings.TrimSpace(strategy)
 	if strategy != "railpack" && strategy != "dockerfile" {
 		return fmt.Errorf("unknown build strategy %q: railpack or dockerfile", strategy)
@@ -193,7 +194,8 @@ func SetAppBuild(s *store.Store, appName, path, strategy string) error {
 	if strings.Contains(path, "..") {
 		return fmt.Errorf("invalid build path %q", path)
 	}
-	return s.SetAppBuild(ctx(), store.SetAppBuildParams{Name: appName, BuildPath: path, BuildStrategy: strategy})
+	startCommand = strings.TrimSpace(startCommand)
+	return s.SetAppBuild(ctx(), store.SetAppBuildParams{Name: appName, BuildPath: path, BuildStrategy: strategy, StartCommand: startCommand})
 }
 
 // CheckDomain rejects a domain that the panel or another app already uses.

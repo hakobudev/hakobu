@@ -97,6 +97,10 @@ func TestDockerDeploys(t *testing.T) {
 	if m := dockerOut(t, "inspect", "-f", "{{range .Mounts}}{{.Name}}{{end}}", app.Name+"-worker"); m != node.Volume(app.Name, "data") {
 		t.Errorf("worker mounts %q", m)
 	}
+	time.Sleep(2 * time.Second) // a command the entrypoint swallowed has exited by now
+	if st := dockerOut(t, "inspect", "-f", "{{.State.Running}} {{.RestartCount}}", app.Name+"-worker"); st != "true 0" {
+		t.Errorf("the worker's command doesn't run: running, restarts = %s", st)
+	}
 
 	// A third build drops v1: only :latest and :previous are kept.
 	deployVersion("v3", false)
@@ -146,8 +150,21 @@ func TestDockerDeploys(t *testing.T) {
 	}
 	expectServing(t, app, "v4")
 
-	// Rollback goes to v3b, rolling back again returns to v4.
-	for _, want := range []string{"v3b", "v4"} {
+	// A start command runs instead of the image's.
+	if err := SetAppBuild(s, app.Name, "", "dockerfile", `echo -n custom > /www/index.html; trap 'exit 0' TERM; httpd -f -p 8080 -h /www & wait`); err != nil {
+		t.Fatal(err)
+	}
+	deployVersion("v5", false)
+	expectServing(t, app, "custom")
+	if err := SetAppBuild(s, app.Name, "", "dockerfile", ""); err != nil {
+		t.Fatal(err)
+	}
+	deployVersion("v4", false)
+	expectServing(t, app, "v4")
+
+	// Rollback goes to v5 (now with the image's own start), rolling back
+	// again returns to v4.
+	for _, want := range []string{"v5", "v4"} {
 		if err := StartRollback(s, app.Name, false); err != nil {
 			t.Fatal(err)
 		}
@@ -246,7 +263,9 @@ func buildTestImage(t *testing.T, tag, version string) {
 		cmd = "exec dd if=/dev/zero of=/dev/null bs=256M count=1"
 	}
 	dir := t.TempDir()
-	dockerfile := fmt.Sprintf("FROM busybox:1.36\nRUN mkdir /www && echo -n %s > /www/index.html\nCMD [\"sh\", \"-c\", %q]\n", version, cmd)
+	// Started the way Railpack's images are: a shell entrypoint that
+	// takes the command as Cmd.
+	dockerfile := fmt.Sprintf("FROM busybox:1.36\nRUN mkdir /www && echo -n %s > /www/index.html\nENTRYPOINT [\"/bin/sh\", \"-c\"]\nCMD [%q]\n", version, cmd)
 	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte(dockerfile), 0o644); err != nil {
 		t.Fatal(err)
 	}

@@ -171,10 +171,20 @@ type AppOptions struct {
 	Binds    []string
 	MemoryMB int64   // 0: no limit
 	CPUs     float64 // 0: no limit
+	// Command is a shell command run instead of the image's own start
+	// ("" keeps it).
+	Command string
 }
 
 func (o AppOptions) spec(imageTag string) (spec, hostConfig map[string]any) {
 	spec = map[string]any{"Image": imageTag, "Env": o.Env, "Labels": map[string]string{AppLabel: o.App}}
+	if o.Command != "" {
+		// The entrypoint goes too: Railpack's images start with
+		// ["/bin/bash", "-c"], which would take a Cmd of ["sh", "-c",
+		// command] for a script that only says "sh".
+		spec["Entrypoint"] = []string{"/bin/sh", "-c"}
+		spec["Cmd"] = []string{o.Command}
+	}
 	hostConfig = map[string]any{
 		"NetworkMode": o.Network,
 		"Binds":       o.Binds,
@@ -222,10 +232,10 @@ func KeepRestarting(ctx context.Context, name string) error {
 
 // RunWorkerContainer starts a worker from the app's image with a shell command.
 func RunWorkerContainer(ctx context.Context, imageTag, name, command string, opts AppOptions) (string, error) {
-	spec, hostConfig := opts.spec(imageTag)
 	if command != "" {
-		spec["Cmd"] = []string{"sh", "-c", command}
+		opts.Command = command
 	}
+	spec, hostConfig := opts.spec(imageTag)
 	return runContainer(ctx, name, spec, hostConfig)
 }
 

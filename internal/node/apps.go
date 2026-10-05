@@ -64,6 +64,7 @@ type AppSpec struct {
 	CPUs          float64
 	Env           []string
 	Binds         []string
+	Command       string // run instead of the image's start, "" for its own
 	// Recreate stops the live version before the new one starts, for an
 	// app whose volumes mustn't be written by two versions at once.
 	Recreate bool
@@ -79,7 +80,7 @@ func (a AppSpec) Live() string {
 }
 
 func (a AppSpec) options() deploy.AppOptions {
-	return deploy.AppOptions{App: a.Name, Network: ProjectNetwork(a.Project), Env: a.Env, Binds: a.Binds, MemoryMB: a.MemoryMB, CPUs: a.CPUs}
+	return deploy.AppOptions{App: a.Name, Network: ProjectNetwork(a.Project), Env: a.Env, Binds: a.Binds, MemoryMB: a.MemoryMB, CPUs: a.CPUs, Command: a.Command}
 }
 
 // BuildSpec is what to clone and how to build it.

@@ -708,7 +708,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 	})
 
 	action("POST /apps/{a}/build", func(r *http.Request) (string, error) {
-		return "", ops.SetAppBuild(s, r.PathValue("a"), r.FormValue("build_path"), r.FormValue("build_strategy"))
+		return "", ops.SetAppBuild(s, r.PathValue("a"), r.FormValue("build_path"), r.FormValue("build_strategy"), r.FormValue("start_command"))
 	})
 
 	action("POST /apps/{a}/volumes", func(r *http.Request) (string, error) {

@@ -444,7 +444,7 @@ func liveSpec(app store.App) node.AppSpec {
 	return node.AppSpec{
 		Name: app.Name, Project: app.ProjectName, ActiveSlot: app.ActiveSlot, ProxyPort: app.Port,
 		ContainerPort: app.ContainerPort, PortHint: portHint(app, 0), HealthPath: app.HealthCheckPath,
-		MemoryMB: app.MemoryMB, CPUs: app.Cpus,
+		MemoryMB: app.MemoryMB, CPUs: app.Cpus, Command: app.StartCommand,
 	}
 }
 

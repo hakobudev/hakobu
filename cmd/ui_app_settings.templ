@@ -76,6 +76,9 @@ templ appSettings(p appPage) {
 									<input name="build_path" value={ p.App.BuildPath } placeholder="e.g. services/api" class="input mono"/>
 								}
 							</div>
+							@field("Start command", "Run with sh instead of the image's own start; empty keeps what Railpack or the Dockerfile set. Listen on $PORT.") {
+								<input name="start_command" value={ p.App.StartCommand } placeholder="e.g. npm run migrate && node server.js" class="input mono"/>
+							}
 						</div>
 						@boxFooter("Applies on the next deploy.") {
 							@submit("Save", false)

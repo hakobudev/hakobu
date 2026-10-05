@@ -36,6 +36,7 @@ type App struct {
 	SnapshotDB      string
 	SnapshotAt      string
 	Stack           string
+	StartCommand    string
 }
 
 type AppRecord struct {
@@ -63,6 +64,7 @@ type AppRecord struct {
 	SnapshotDB      string
 	SnapshotAt      string
 	Stack           string
+	StartCommand    string
 }
 
 type Backup struct {
