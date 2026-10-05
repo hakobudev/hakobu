@@ -923,6 +923,12 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 		if v.Admin {
 			v.Users, _ = s.ListUsers(r.Context())
 			v.Invites, _ = s.LiveInvites(r.Context())
+			if v.GitHubSlug != "" {
+				ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+				public, err := github.AppPublic(ctx, v.GitHubSlug)
+				cancel()
+				v.GitHubAppPrivate = err == nil && !public
+			}
 		}
 		renderPage(w, r, settingsView(v))
 	})

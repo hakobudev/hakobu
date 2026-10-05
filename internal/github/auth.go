@@ -5,6 +5,7 @@ package github
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -111,6 +112,29 @@ var (
 	APIURL = "https://api.github.com"
 	WebURL = "https://github.com"
 )
+
+// AppPublic reports whether the app with slug is public: only its owner
+// can sign in with a private one, GitHub shows anyone else a 404. GitHub
+// tells only the public ones apart to an anonymous caller.
+func AppPublic(ctx context.Context, slug string) (bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, APIURL+"/apps/"+url.PathEscape(slug), nil)
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return false, err
+	}
+	resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return true, nil
+	case http.StatusNotFound:
+		return false, nil
+	}
+	return false, fmt.Errorf("github api GET /apps/%s: %d", slug, resp.StatusCode)
+}
 
 // SetWebhookSecret changes the secret GitHub signs the app's webhook
 // deliveries with.

@@ -10,6 +10,7 @@ import (
 
 type settingsPage struct {
 	PublicHost, User, GitHubSlug string
+	GitHubAppPrivate             bool // nobody but its owner can sign in with it
 	Admin                        bool // the signed-in user is the panel's admin
 	Users                        []store.User
 	Invites                      []store.Invite
@@ -748,6 +749,11 @@ func clientProjects(c ops.ClientAccount) string {
 templ settingsUsers(v settingsPage) {
 	@section("users", "Users", "Who can sign in. Each user sees only their own projects, servers and Cloudflare accounts, and deploys on this server and their own; you keep the panel's settings. Someone joins with an invite link: it works once, within a week.", inviteButton()) {
 		<div class="space-y-6">
+			if v.GitHubAppPrivate {
+				@flash("warn") {
+					Invites don't work yet: the panel's GitHub App is private, so GitHub shows anyone but you a 404. On <a href={ templ.SafeURL("https://github.com/settings/apps/" + v.GitHubSlug + "/advanced") } target="_blank" rel="noopener">its Advanced page</a>, select <span class="strong">Make public</span>. Others can then sign in and install it on their own accounts; it reaches only the repositories each of them picks.
+				}
+			}
 			<div id="invite-link"></div>
 			<div class="box">
 				for _, u := range v.Users {

@@ -96,7 +96,7 @@ func TestPagesRender(t *testing.T) {
 			Keep: 7, Job: ops.DBJob{Running: "backing up"}}),
 		"database, no backups": databaseView(databasePage{DB: db, Job: ops.DBJob{Last: "x", Failed: true}}),
 		"settings":             settingsView(settings),
-		"settings, bare":       settingsView(settingsPage{Admin: true, CloudflareConnected: true, Notify: ops.NotifyInfo{On: true, Err: "no token"}, Update: ops.UpdateInfo{Current: "dev"}}),
+		"settings, bare":       settingsView(settingsPage{Admin: true, GitHubSlug: "hakobu-x", GitHubAppPrivate: true, CloudflareConnected: true, Notify: ops.NotifyInfo{On: true, Err: "no token"}, Update: ops.UpdateInfo{Current: "dev"}}),
 		"settings, a user":     settingsView(settingsPage{PublicHost: "p", User: "friend", CloudflareConnected: true, Servers: []ops.Server{{Name: "mine"}}, MyNotify: ops.UserNotify{PanelOn: true, Email: "f@example.org"}}),
 		"settings, no emails":  settingsView(settingsPage{PublicHost: "p", User: "friend"}),
 		"invite link":          inviteLink("https://p/invite/abc"),

@@ -30,6 +30,8 @@ func fakeGitHubUsers(t *testing.T, users map[string]int64) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": users[login], "login": login})
 		case "/user/emails":
 			_ = json.NewEncoder(w).Encode([]any{})
+		case "/apps/hakobu": // made before apps were public
+			http.NotFound(w, r)
 		default:
 			t.Errorf("unexpected %s %s", r.Method, r.URL)
 			http.NotFound(w, r)
@@ -137,6 +139,9 @@ func TestUsersSignIn(t *testing.T) {
 	}
 	if w := do("POST", "/settings/invites", cookie(sessionCookie, admin)); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "https://hakobu.example.com/invite/") {
 		t.Errorf("the admin's invite: %d %q", w.Code, w.Body)
+	}
+	if w := do("GET", "/settings", cookie(sessionCookie, admin)); !strings.Contains(w.Body.String(), "Invites don't work yet") {
+		t.Error("the admin isn't told the GitHub App is private")
 	}
 	if w := do("GET", "/settings", cookie(sessionCookie, friend)); w.Code != http.StatusOK || strings.Contains(w.Body.String(), `id="users"`) || strings.Contains(w.Body.String(), `id="update"`) {
 		t.Errorf("a user's settings show the admin's parts: %d", w.Code)
