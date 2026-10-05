@@ -182,6 +182,10 @@ func (l *linkSet) drop(name string) {
 	}
 }
 
+// linkWork is what the panel does for connected servers, for tests to wait
+// on once their servers are gone.
+var linkWork sync.WaitGroup
+
 // LinkServer takes nodes' connections at link.Path. ingest takes the
 // errors, logs and traces a server's apps send (POST
 // /api/{app_id}/envelope/), passed on by the server over its link.
@@ -195,6 +199,8 @@ func LinkServer(s *store.Store, version string, ingest http.Handler) (http.Handl
 		Key: key, Version: version, URL: panelAddress,
 		Admit: func(k ed25519.PublicKey, joinSecret, v string) (string, error) { return admit(s, k, joinSecret, v) },
 		Serve: func(name, v string, sess *yamux.Session) {
+			linkWork.Add(1)
+			defer linkWork.Done()
 			r := node.NewRemote(sess.Open)
 			c := &linked{remote: r, session: sess, version: v, since: time.Now()}
 			links.mu.Lock()
@@ -207,7 +213,11 @@ func LinkServer(s *store.Store, version string, ingest http.Handler) (http.Handl
 			fmt.Println("server", name, "connected, hakobu", v)
 			go func() { _ = http.Serve(sess, fromServer(s, name, r, ingest)) }()
 			watching, stopWatching := context.WithCancel(context.Background())
-			go serverConnected(s, name, r, watching)
+			linkWork.Add(1)
+			go func() {
+				defer linkWork.Done()
+				serverConnected(s, name, r, watching)
+			}()
 			<-sess.CloseChan()
 			stopWatching()
 			links.mu.Lock()

@@ -201,6 +201,9 @@ func TestServersFollowThePanel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// What the panel does for the server writes to its database until
+	// the server is gone.
+	t.Cleanup(linkWork.Wait)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 	token, err := AddServer(s, 0, "follower")
