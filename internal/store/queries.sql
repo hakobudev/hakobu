@@ -12,6 +12,12 @@ SELECT * FROM projects WHERE id = ?;
 -- name: ListProjects :many
 SELECT * FROM projects ORDER BY name;
 
+-- name: CreateUserProject :exec
+INSERT INTO projects (name, user_id) VALUES (?, ?);
+
+-- name: ListProjectsOf :many
+SELECT * FROM projects WHERE user_id = ? ORDER BY name;
+
 -- name: SetProjectSharedEnv :exec
 UPDATE projects SET shared_env = ? WHERE name = ?;
 
@@ -226,7 +232,7 @@ DELETE FROM volume_backups WHERE app_name = ? AND volume = ?;
 -- name: DeleteVolumeBackupsOfApp :exec
 DELETE FROM volume_backups WHERE app_name = ?;
 
--- GitHub App and the owner
+-- GitHub App
 
 -- name: SaveGitHubApp :exec
 INSERT OR REPLACE INTO github_app (id, app_id, slug, private_key, webhook_secret, client_id, client_secret)
@@ -238,17 +244,52 @@ UPDATE github_app SET webhook_secret = ? WHERE id = 1;
 -- name: GetGitHubApp :one
 SELECT * FROM github_app WHERE id = 1;
 
--- name: GetOwner :one
-SELECT github_id, github_login, github_email FROM owner WHERE id = 1;
+-- Users and invites
 
--- name: SetOwner :exec
-INSERT INTO owner (id, github_id, github_login) VALUES (1, ?, ?);
+-- name: GetUserByGitHubID :one
+SELECT * FROM users WHERE github_id = ?;
 
--- name: SetOwnerLogin :exec
-UPDATE owner SET github_login = ? WHERE id = 1;
+-- name: GetUser :one
+SELECT * FROM users WHERE id = ?;
 
--- name: SetOwnerEmail :exec
-UPDATE owner SET github_email = ? WHERE id = 1;
+-- name: GetAdmin :one
+SELECT * FROM users WHERE admin = 1 ORDER BY id LIMIT 1;
+
+-- name: ListUsers :many
+SELECT * FROM users ORDER BY id;
+
+-- name: CountUsers :one
+SELECT COUNT(*) FROM users;
+
+-- name: CreateUser :one
+INSERT INTO users (github_id, github_login, admin) VALUES (?, ?, ?) RETURNING id;
+
+-- name: SetUserLogin :exec
+UPDATE users SET github_login = ? WHERE id = ?;
+
+-- name: SetUserEmail :exec
+UPDATE users SET github_email = ? WHERE id = ?;
+
+-- name: DeleteUser :exec
+DELETE FROM users WHERE id = ? AND admin = 0;
+
+-- name: DeleteSessionsOf :exec
+DELETE FROM sessions WHERE github_id = ?;
+
+-- name: CreateInvite :exec
+INSERT INTO invites (secret_hash, created_by, expires_at) VALUES (?, ?, ?);
+
+-- name: TakeInvite :one
+DELETE FROM invites WHERE secret_hash = ? AND expires_at > ? RETURNING created_by;
+
+-- name: ListInvites :many
+SELECT * FROM invites WHERE expires_at > ? ORDER BY expires_at;
+
+-- name: DeleteInvite :exec
+DELETE FROM invites WHERE secret_hash = ?;
+
+-- name: DeleteExpiredInvites :exec
+DELETE FROM invites WHERE expires_at <= ?;
 
 -- name: CreateSession :exec
 INSERT INTO sessions (id, github_id, signed_in_at, expires_at) VALUES (?, ?, ?, ?);
@@ -310,6 +351,9 @@ UPDATE cloudflare SET tunnel_token = ? WHERE id = 1;
 -- name: ListCloudflareAccounts :many
 SELECT * FROM cloudflare_accounts ORDER BY name;
 
+-- name: CountCloudflareAccountsOf :one
+SELECT COUNT(*) FROM cloudflare_accounts WHERE user_id = ?;
+
 -- name: GetCloudflareAccount :one
 SELECT * FROM cloudflare_accounts WHERE id = ?;
 
@@ -320,7 +364,7 @@ SELECT * FROM cloudflare_accounts WHERE name = ?;
 SELECT * FROM cloudflare_accounts WHERE account_id = ?;
 
 -- name: CreateCloudflareAccount :one
-INSERT INTO cloudflare_accounts (name, api_token, account_id) VALUES (?, ?, ?) RETURNING id;
+INSERT INTO cloudflare_accounts (name, api_token, account_id, user_id) VALUES (?, ?, ?, ?) RETURNING id;
 
 -- name: SetCloudflareAccountToken :exec
 UPDATE cloudflare_accounts SET api_token = ? WHERE id = ?;
@@ -401,6 +445,9 @@ DELETE FROM oauth_grants WHERE id = ?;
 -- name: DeleteAllOAuthGrants :exec
 DELETE FROM oauth_grants;
 
+-- name: DeleteOAuthGrantsOf :exec
+DELETE FROM oauth_grants WHERE github_id = ?;
+
 -- Grants none of whose tokens can be used any more.
 -- name: PruneOAuthGrants :exec
 DELETE FROM oauth_grants
@@ -447,6 +494,9 @@ DELETE FROM watchdog_off;
 -- name: ListNodes :many
 SELECT * FROM nodes ORDER BY name;
 
+-- name: CountNodesOf :one
+SELECT COUNT(*) FROM nodes WHERE user_id = ?;
+
 -- name: GetNodeByName :one
 SELECT * FROM nodes WHERE name = ?;
 
@@ -457,7 +507,7 @@ SELECT * FROM nodes WHERE public_key = ? AND public_key != '';
 SELECT * FROM nodes WHERE join_secret_hash = ? AND join_secret_hash != '';
 
 -- name: CreateNode :exec
-INSERT INTO nodes (name, join_secret_hash, join_expires) VALUES (?, ?, ?);
+INSERT INTO nodes (name, join_secret_hash, join_expires, user_id) VALUES (?, ?, ?, ?);
 
 -- name: SetNodeJoin :exec
 UPDATE nodes SET join_secret_hash = ?, join_expires = ? WHERE name = ?;

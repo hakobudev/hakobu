@@ -4,10 +4,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	"database/sql"
 	"embed"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"net/http"
@@ -93,16 +95,29 @@ const (
 	manifestCookie   = "__Host-hakobu_gh_state"
 	oauthStateCookie = "__Host-hakobu_oauth_state"
 	afterCookie      = "__Host-hakobu_after" // where to go after signing in
+	inviteCookie     = "__Host-hakobu_invite"
 	sessionTTL       = 30 * 24 * time.Hour
+	inviteTTL        = 7 * 24 * time.Hour
 )
 
 // keyFreshFor is how soon after signing in the master key can be
 // downloaded; tests change it.
 var keyFreshFor = 5 * time.Minute
 
-// signedInKey holds, in an authed request's context, when its session
-// signed in.
-type signedInKey struct{}
+// session is who an authed request comes from, and when they signed in;
+// sessionKey holds it in the request's context.
+type session struct {
+	User     store.User
+	SignedIn time.Time
+}
+
+type sessionKey struct{}
+
+// requestUser is the signed-in user of an authed request.
+func requestUser(r *http.Request) store.User {
+	sess, _ := r.Context().Value(sessionKey{}).(session)
+	return sess.User
+}
 
 func setCookie(w http.ResponseWriter, name, value string, maxAge int) {
 	http.SetCookie(w, &http.Cookie{
@@ -177,8 +192,8 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 
 	authed := func(h http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
-			if signedIn, ok := ownerSession(r, s); ok {
-				h(w, r.WithContext(context.WithValue(r.Context(), signedInKey{}, signedIn)))
+			if sess, ok := userSession(r, s); ok {
+				h(w, r.WithContext(context.WithValue(r.Context(), sessionKey{}, sess)))
 				return
 			}
 			if r.Header.Get("HX-Request") == "true" {
@@ -211,6 +226,46 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			done(w, redirect)
 		})
 	}
+
+	// adminOnly guards what only the panel's admin may do: its updates,
+	// backups, Cloudflare, notifications, secrets and users.
+	adminOnly := func(h func(r *http.Request) (string, error)) func(r *http.Request) (string, error) {
+		return func(r *http.Request) (string, error) {
+			if requestUser(r).Admin != 1 {
+				return "", errors.New("only the panel's admin can do that")
+			}
+			return h(r)
+		}
+	}
+
+	// Users.
+
+	handle("POST /settings/invites", func(w http.ResponseWriter, r *http.Request) {
+		user := requestUser(r)
+		if user.Admin != 1 {
+			fail(w, errors.New("only the panel's admin can invite"))
+			return
+		}
+		secret, err := ops.RandomHex(16)
+		if err == nil {
+			err = s.NewInvite(r.Context(), secret, user.ID, inviteTTL)
+		}
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		renderPage(w, r, inviteLink("https://"+config.PublicHost()+"/invite/"+secret))
+	})
+	action("DELETE /settings/invites/{hash}", adminOnly(func(r *http.Request) (string, error) {
+		return "", s.DeleteInvite(r.Context(), r.PathValue("hash"))
+	}))
+	action("DELETE /settings/users/{id}", adminOnly(func(r *http.Request) (string, error) {
+		id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+		if err != nil {
+			return "", err
+		}
+		return "", ops.RemoveUser(s, id)
+	}))
 
 	// Projects.
 
@@ -796,10 +851,10 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 	// Settings.
 
 	handle("GET /settings", func(w http.ResponseWriter, r *http.Request) {
-		owner, _ := s.Owner(r.Context())
+		user := requestUser(r)
 		disk, diskLow := ops.DiskUsage()
 		v := settingsPage{
-			PublicHost: config.PublicHost(), Owner: owner.GitHubLogin,
+			PublicHost: config.PublicHost(), User: user.GitHubLogin, Admin: user.Admin == 1,
 			Disk: disk, DiskLow: diskLow, LastCleanup: ops.LastCleanup(),
 			BackupBucket: ops.BackupBucket(s), CloudflareConnected: ops.CloudflareConnected(s),
 			Rotation: ops.LastRotation(), PanelBackup: ops.LastPanelBackup(), KeyDownloaded: ops.KeyDownloaded(),
@@ -817,28 +872,37 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			v.Usage = usageRows(usage)
 		}
 		v.Servers, _ = ops.Servers(s)
-		v.OAuthGrants, _ = s.LiveOAuthGrants(r.Context())
+		grants, _ := s.LiveOAuthGrants(r.Context())
+		for _, g := range grants {
+			if g.GitHubID == user.GitHubID {
+				v.OAuthGrants = append(v.OAuthGrants, g)
+			}
+		}
 		if app, err := s.GetGitHubApp(r.Context()); err == nil {
 			v.GitHubSlug = app.Slug
+		}
+		if v.Admin {
+			v.Users, _ = s.ListUsers(r.Context())
+			v.Invites, _ = s.LiveInvites(r.Context())
 		}
 		renderPage(w, r, settingsView(v))
 	})
 
-	action("POST /settings/update/check", func(r *http.Request) (string, error) {
+	action("POST /settings/update/check", adminOnly(func(r *http.Request) (string, error) {
 		return "", ops.CheckForUpdates()
-	})
+	}))
 
-	action("POST /settings/update", func(r *http.Request) (string, error) {
+	action("POST /settings/update", adminOnly(func(r *http.Request) (string, error) {
 		return "", ops.RequestUpdate()
-	})
+	}))
 
-	action("POST /settings/rollback", func(r *http.Request) (string, error) {
+	action("POST /settings/rollback", adminOnly(func(r *http.Request) (string, error) {
 		return "", ops.RequestRollback()
-	})
+	}))
 
-	action("POST /settings/cleanup", func(r *http.Request) (string, error) {
+	action("POST /settings/cleanup", adminOnly(func(r *http.Request) (string, error) {
 		return "", ops.Cleanup(s)
-	})
+	}))
 
 	// The join command is shown once, in place of the form.
 	handle("POST /settings/servers", func(w http.ResponseWriter, r *http.Request) {
@@ -867,18 +931,22 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 		return "", ops.RemoveClientAccount(s, r.PathValue("c"))
 	})
 
-	action("POST /settings/backups", func(r *http.Request) (string, error) {
+	action("POST /settings/backups", adminOnly(func(r *http.Request) (string, error) {
 		return "", ops.SetupBackups(s)
-	})
+	}))
 
-	action("POST /settings/notify", func(r *http.Request) (string, error) {
+	action("POST /settings/notify", adminOnly(func(r *http.Request) (string, error) {
 		email := r.FormValue("email")
 		if email == "" {
 			email = r.FormValue("other")
 		}
 		return "", ops.SetupNotifications(s, email, r.FormValue("name"), r.FormValue("from"))
-	})
+	}))
 	handle("GET /settings/notify/form", func(w http.ResponseWriter, r *http.Request) {
+		if requestUser(r).Admin != 1 {
+			http.NotFound(w, r)
+			return
+		}
 		to, from, why, err := ops.NotifyChoices(s)
 		n := ops.Notifications(s)
 		name := n.Name
@@ -894,41 +962,48 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 		}
 		renderPage(w, r, notifyForm(v))
 	})
-	action("POST /settings/watchdog", func(r *http.Request) (string, error) {
+	action("POST /settings/watchdog", adminOnly(func(r *http.Request) (string, error) {
 		return "", ops.TurnWatchdogOn(s)
-	})
+	}))
 
-	action("DELETE /settings/watchdog", func(r *http.Request) (string, error) {
+	action("DELETE /settings/watchdog", adminOnly(func(r *http.Request) (string, error) {
 		return "", ops.TurnWatchdogOff(s)
-	})
+	}))
 
-	action("POST /settings/cloudflare/token", func(r *http.Request) (string, error) {
+	action("POST /settings/cloudflare/token", adminOnly(func(r *http.Request) (string, error) {
 		return "", ops.ReplaceCloudflareToken(s, r.FormValue("token"))
-	})
+	}))
 
-	action("POST /settings/notify/test", func(r *http.Request) (string, error) {
+	action("POST /settings/notify/test", adminOnly(func(r *http.Request) (string, error) {
 		return "", ops.SendTestEmail(s)
-	})
-	action("DELETE /settings/notify", func(r *http.Request) (string, error) {
+	}))
+	action("DELETE /settings/notify", adminOnly(func(r *http.Request) (string, error) {
 		return "", ops.TurnOffNotifications(s)
-	})
+	}))
 
 	action("DELETE /settings/ai-apps/{id}", func(r *http.Request) (string, error) {
 		id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 		if err != nil {
 			return "", fmt.Errorf("no such app")
 		}
+		if g, err := s.GetOAuthGrant(r.Context(), id); err != nil || g.GitHubID != requestUser(r).GitHubID {
+			return "", fmt.Errorf("no such app")
+		}
 		return "", s.DeleteOAuthGrant(r.Context(), id)
 	})
 
-	action("POST /settings/rotate-secrets", func(r *http.Request) (string, error) {
+	action("POST /settings/rotate-secrets", adminOnly(func(r *http.Request) (string, error) {
 		return "", ops.StartRotation(s)
-	})
+	}))
 
 	// The master key opens every secret and backup, so it's handed out only
 	// right after a GitHub sign-in, not to whoever finds a session open.
 	handle("GET /settings/master-key", func(w http.ResponseWriter, r *http.Request) {
-		if signedIn, _ := r.Context().Value(signedInKey{}).(time.Time); time.Since(signedIn) > keyFreshFor {
+		if requestUser(r).Admin != 1 {
+			http.NotFound(w, r)
+			return
+		}
+		if sess, _ := r.Context().Value(sessionKey{}).(session); time.Since(sess.SignedIn) > keyFreshFor {
 			setCookie(w, afterCookie, "master-key", 600)
 			http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
 			return
@@ -963,7 +1038,7 @@ func registerAuthRoutes(mux *http.ServeMux, s *store.Store) {
 	}
 
 	mux.HandleFunc("GET /setup", func(w http.ResponseWriter, r *http.Request) {
-		if owner, _ := s.Owner(r.Context()); owner.GitHubID != 0 {
+		if admin, _ := s.Admin(r.Context()); admin.GitHubID != 0 {
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
 		}
@@ -1000,7 +1075,7 @@ func registerAuthRoutes(mux *http.ServeMux, s *store.Store) {
 	})
 
 	mux.HandleFunc("GET /github-app/callback", func(w http.ResponseWriter, r *http.Request) {
-		if owner, err := s.Owner(r.Context()); err != nil || owner.GitHubID != 0 {
+		if admin, err := s.Admin(r.Context()); err != nil || admin.GitHubID != 0 {
 			http.Error(w, "the panel already has an owner", http.StatusForbidden)
 			return
 		}
@@ -1021,6 +1096,13 @@ func registerAuthRoutes(mux *http.ServeMux, s *store.Store) {
 			fail(w, err)
 			return
 		}
+		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
+	})
+
+	// An invite link keeps its secret in a cookie for the sign-in, which
+	// spends it when it makes the new user.
+	mux.HandleFunc("GET /invite/{secret}", func(w http.ResponseWriter, r *http.Request) {
+		setCookie(w, inviteCookie, r.PathValue("secret"), 3600)
 		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
 	})
 
@@ -1063,37 +1145,58 @@ func registerAuthRoutes(mux *http.ServeMux, s *store.Store) {
 			return
 		}
 
-		owner, err := s.Owner(r.Context())
-		if err != nil {
-			fail(w, err)
-			return
-		}
-		if owner.GitHubID == 0 {
-			if !setupAllowed(r) {
-				deny("the panel has no owner yet, sign in through the installer's setup link")
-				return
-			}
-			if err := s.SetOwner(r.Context(), store.SetOwnerParams{GitHubID: user.ID, GitHubLogin: user.Login}); err != nil {
+		u, err := s.GetUserByGitHubID(r.Context(), user.ID)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			admin, err := s.Admin(r.Context())
+			if err != nil {
 				fail(w, err)
 				return
 			}
-			if err := config.ClearSetupToken(); err != nil {
-				fmt.Println("failed to remove the setup token:", err)
+			isAdmin := admin.GitHubID == 0
+			switch c, cerr := r.Cookie(inviteCookie); {
+			case isAdmin && !setupAllowed(r):
+				deny("the panel has no admin yet, sign in through the installer's setup link")
+				return
+			case isAdmin:
+			case cerr != nil:
+				deny("GitHub account " + user.Login + " has no access to this panel: ask its admin for an invite")
+				return
+			default:
+				setCookie(w, inviteCookie, "", -1)
+				if err := s.UseInvite(r.Context(), c.Value); err != nil {
+					deny(err.Error())
+					return
+				}
 			}
-			setCookie(w, setupCookie, "", -1)
-		} else if owner.GitHubID == user.ID && owner.GitHubLogin != user.Login {
-			// The owner renamed their account; the panel shows the new name.
-			if err := s.SetOwnerLogin(r.Context(), user.Login); err != nil {
-				fmt.Println("failed to update the owner's login:", err)
+			flag := int64(0)
+			if isAdmin {
+				flag = 1
 			}
-		}
-		if !mayAccess(r.Context(), s, user.ID) {
-			deny("GitHub account " + user.Login + " has no access to this panel")
+			id, err := s.CreateUser(r.Context(), store.CreateUserParams{GitHubID: user.ID, GitHubLogin: user.Login, Admin: flag})
+			if err != nil {
+				fail(w, err)
+				return
+			}
+			if isAdmin {
+				if err := config.ClearSetupToken(); err != nil {
+					fmt.Println("failed to remove the setup token:", err)
+				}
+				setCookie(w, setupCookie, "", -1)
+			}
+			u = store.User{ID: id, GitHubID: user.ID, GitHubLogin: user.Login, Admin: flag}
+		case err != nil:
+			fail(w, err)
 			return
+		case u.GitHubLogin != user.Login:
+			// They renamed their account; the panel shows the new name.
+			if err := s.SetUserLogin(r.Context(), store.SetUserLoginParams{GitHubLogin: user.Login, ID: u.ID}); err != nil {
+				fmt.Println("failed to update a user's login:", err)
+			}
 		}
 		if user.Email != "" { // offered for notifications
-			if err := s.SetOwnerEmail(r.Context(), user.Email); err != nil {
-				fmt.Println("failed to note the owner's email:", err)
+			if err := s.SetUserEmail(r.Context(), store.SetUserEmailParams{GitHubEmail: user.Email, ID: u.ID}); err != nil {
+				fmt.Println("failed to note a user's email:", err)
 			}
 		}
 
@@ -1188,32 +1291,32 @@ func splitDomain(domain string, zones []string) (sub, zone string) {
 	return sub, zone
 }
 
-// ownerSession reports whether the request has the owner's session, and
-// when it signed in. The session's account is checked against the owner on
-// every request, so a change of owner takes effect at once; a session of
-// anyone else is ended.
-func ownerSession(r *http.Request, s *store.Store) (signedIn time.Time, ok bool) {
+// userSession reports who the request's session belongs to and when they
+// signed in. The account is looked up on every request, so a user who was
+// removed is out at once; their session is ended.
+func userSession(r *http.Request, s *store.Store) (session, bool) {
 	c, err := r.Cookie(sessionCookie)
 	if err != nil {
-		return signedIn, false
+		return session{}, false
 	}
 	id, signedIn, err := s.SessionUser(r.Context(), c.Value)
 	if err != nil {
-		return signedIn, false
+		return session{}, false
 	}
-	if mayAccess(r.Context(), s, id) {
-		return signedIn, true
+	u, err := s.GetUserByGitHubID(r.Context(), id)
+	if err == nil {
+		return session{User: u, SignedIn: signedIn}, true
 	}
 	if err := s.EndSession(r.Context(), c.Value); err != nil {
 		fmt.Println("failed to end a session:", err)
 	}
-	return signedIn, false
+	return session{}, false
 }
 
-// mayAccess reports whether a GitHub user ID is the owner's.
+// mayAccess reports whether a GitHub user ID is a user's.
 func mayAccess(ctx context.Context, s *store.Store, githubID int64) bool {
-	owner, err := s.Owner(ctx)
-	return err == nil && owner.GitHubID != 0 && githubID == owner.GitHubID
+	_, err := s.GetUserByGitHubID(ctx, githubID)
+	return err == nil
 }
 
 // traceView is a kept trace for its page.

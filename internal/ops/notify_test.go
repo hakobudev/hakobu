@@ -292,10 +292,11 @@ func TestSetupNotifications(t *testing.T) {
 	s := notifyStore(t)
 	f.addresses["old@example.org"] = true // confirmed in Cloudflare before
 	f.mx = []string{"mx1.other.example"}  // the domain's mail goes elsewhere
-	if err := s.SetOwner(ctx(), store.SetOwnerParams{GitHubID: 1, GitHubLogin: "me"}); err != nil {
+	id, err := s.CreateUser(ctx(), store.CreateUserParams{GitHubID: 1, GitHubLogin: "me", Admin: 1})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetOwnerEmail(ctx(), "me@example.org"); err != nil {
+	if err := s.SetUserEmail(ctx(), store.SetUserEmailParams{GitHubEmail: "me@example.org", ID: id}); err != nil {
 		t.Fatal(err)
 	}
 

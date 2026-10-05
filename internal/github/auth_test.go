@@ -30,9 +30,9 @@ func TestRepoTokenIsScopedToTheRepo(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	old := apiURL
-	apiURL = srv.URL
-	defer func() { apiURL = old }()
+	old := APIURL
+	APIURL = srv.URL
+	defer func() { APIURL = old }()
 
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})

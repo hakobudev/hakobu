@@ -100,6 +100,7 @@ type CloudflareAccount struct {
 	TunnelID     string
 	TunnelToken  secret.String
 	BackupBucket string
+	UserID       int64
 }
 
 type Database struct {
@@ -128,6 +129,12 @@ type GitHubApp struct {
 	ClientSecret  secret.String
 }
 
+type Invite struct {
+	SecretHash string
+	CreatedBy  int64
+	ExpiresAt  string
+}
+
 type LinkKey struct {
 	ID         int64
 	PrivateKey secret.String
@@ -142,6 +149,7 @@ type Node struct {
 	Version        string
 	LastSeen       string
 	CreatedAt      string
+	UserID         int64
 }
 
 type Notify struct {
@@ -181,13 +189,6 @@ type OAuthToken struct {
 	UsedAt        string
 }
 
-type Owner struct {
-	ID          int64
-	GitHubID    int64
-	GitHubLogin string
-	GitHubEmail string
-}
-
 type PendingPromotion struct {
 	AppName string
 }
@@ -198,6 +199,7 @@ type Project struct {
 	SharedEnv           secret.String
 	CloudflareAccountID sql.NullInt64
 	NodeID              sql.NullInt64
+	UserID              int64
 }
 
 type SealedVar struct {
@@ -232,6 +234,15 @@ type Storage struct {
 	SecretAccessKey secret.String
 	Bucket          string
 	Region          string
+}
+
+type User struct {
+	ID          int64
+	GitHubID    int64
+	GitHubLogin string
+	GitHubEmail string
+	Admin       int64
+	CreatedAt   string
 }
 
 type Volume struct {

@@ -333,3 +333,36 @@ func ProjectZones(s *store.Store, project string) (zones []string, def string, e
 	}
 	return zones, def, nil
 }
+
+// RemoveUser takes a user's access away: their sessions and AI apps end.
+// Only someone who owns nothing any more can be removed: the panel's admin
+// doesn't see others' projects, so they remove their own first.
+func RemoveUser(s *store.Store, id int64) error {
+	u, err := s.GetUser(ctx(), id)
+	if err != nil {
+		return err
+	}
+	if u.Admin == 1 {
+		return errors.New("the panel's admin can't be removed")
+	}
+	var owns []string
+	if ps, err := s.ListProjectsOf(ctx(), id); err == nil && len(ps) > 0 {
+		owns = append(owns, fmt.Sprintf("%d %s", len(ps), plural(len(ps), "project", "projects")))
+	}
+	if n, err := s.CountNodesOf(ctx(), id); err == nil && n > 0 {
+		owns = append(owns, fmt.Sprintf("%d %s", n, plural(int(n), "server", "servers")))
+	}
+	if n, err := s.CountCloudflareAccountsOf(ctx(), id); err == nil && n > 0 {
+		owns = append(owns, fmt.Sprintf("%d Cloudflare %s", n, plural(int(n), "account", "accounts")))
+	}
+	if len(owns) > 0 {
+		return fmt.Errorf("%s still has %s: they remove them first", u.GitHubLogin, strings.Join(owns, ", "))
+	}
+	if err := s.DeleteOAuthGrantsOf(ctx(), u.GitHubID); err != nil {
+		return err
+	}
+	if err := s.DeleteSessionsOf(ctx(), u.GitHubID); err != nil {
+		return err
+	}
+	return s.DeleteUser(ctx(), id)
+}

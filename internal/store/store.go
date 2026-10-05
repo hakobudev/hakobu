@@ -273,14 +273,33 @@ func (s *Store) DeleteAppCascade(ctx context.Context, name string) error {
 	return s.deleteTelemetryOf(ctx, name)
 }
 
-// Owner returns the GitHub account that claimed the panel; its GitHubID is
-// 0 before anyone has.
-func (s *Store) Owner(ctx context.Context) (Owner, error) {
-	o, err := s.GetOwner(ctx)
+// Admin returns the panel's admin, the first user; its GitHubID is 0
+// before anyone has claimed the panel.
+func (s *Store) Admin(ctx context.Context) (User, error) {
+	u, err := s.GetAdmin(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Owner{}, nil
+		return User{}, nil
 	}
-	return Owner{ID: 1, GitHubID: o.GitHubID, GitHubLogin: o.GitHubLogin}, err
+	return u, err
+}
+
+// NewInvite records an invite with the given secret, valid for ttl.
+func (s *Store) NewInvite(ctx context.Context, secret string, by int64, ttl time.Duration) error {
+	return s.CreateInvite(ctx, CreateInviteParams{SecretHash: sessionID(secret), CreatedBy: by, ExpiresAt: timestamp(time.Now().Add(ttl))})
+}
+
+// UseInvite spends an invite: it works once, before it expires.
+func (s *Store) UseInvite(ctx context.Context, secret string) error {
+	_, err := s.TakeInvite(ctx, TakeInviteParams{SecretHash: sessionID(secret), ExpiresAt: timestamp(time.Now())})
+	if errors.Is(err, sql.ErrNoRows) {
+		return errors.New("the invite was used or has expired: ask for a new one")
+	}
+	return err
+}
+
+// LiveInvites are the invites not used or expired yet.
+func (s *Store) LiveInvites(ctx context.Context) ([]Invite, error) {
+	return s.ListInvites(ctx, timestamp(time.Now()))
 }
 
 // Sessions are stored by the SHA-256 of their token, so the database
@@ -326,6 +345,9 @@ func (s *Store) PruneOldData(ctx context.Context, retentionDays int) error {
 		return err
 	}
 	if err := s.DeleteExpiredSessions(ctx, timestamp(time.Now())); err != nil {
+		return err
+	}
+	if err := s.DeleteExpiredInvites(ctx, timestamp(time.Now())); err != nil {
 		return err
 	}
 	if err := s.pruneOAuth(ctx); err != nil {

@@ -75,17 +75,37 @@ func TestStore(t *testing.T) {
 		t.Error("deploy logs survived app deletion")
 	}
 
-	if owner, err := s.Owner(ctx); err != nil || owner.GitHubID != 0 {
-		t.Errorf("Owner = %+v, %v before setup", owner, err)
+	if admin, err := s.Admin(ctx); err != nil || admin.GitHubID != 0 {
+		t.Errorf("Admin = %+v, %v before setup", admin, err)
 	}
-	if err := s.SetOwner(ctx, SetOwnerParams{GitHubID: 42, GitHubLogin: "me"}); err != nil {
+	if _, err := s.CreateUser(ctx, CreateUserParams{GitHubID: 42, GitHubLogin: "me", Admin: 1}); err != nil {
 		t.Fatal(err)
 	}
-	if owner, _ := s.Owner(ctx); owner.GitHubID != 42 || owner.GitHubLogin != "me" {
-		t.Errorf("Owner = %+v", owner)
+	if admin, _ := s.Admin(ctx); admin.GitHubID != 42 || admin.GitHubLogin != "me" {
+		t.Errorf("Admin = %+v", admin)
 	}
-	if err := s.SetOwner(ctx, SetOwnerParams{GitHubID: 7, GitHubLogin: "someone-else"}); err == nil {
-		t.Error("the panel can only be claimed once")
+	if _, err := s.CreateUser(ctx, CreateUserParams{GitHubID: 42, GitHubLogin: "again"}); err == nil {
+		t.Error("one GitHub account became two users")
+	}
+
+	// An invite works once, before it expires.
+	if err := s.NewInvite(ctx, "secret", 1, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.NewInvite(ctx, "stale", 1, -time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if live, _ := s.LiveInvites(ctx); len(live) != 1 {
+		t.Errorf("live invites %+v", live)
+	}
+	if err := s.UseInvite(ctx, "stale"); err == nil {
+		t.Error("an expired invite worked")
+	}
+	if err := s.UseInvite(ctx, "secret"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UseInvite(ctx, "secret"); err == nil {
+		t.Error("an invite worked twice")
 	}
 
 	if err := s.NewSession(ctx, "live", 42, time.Hour); err != nil {

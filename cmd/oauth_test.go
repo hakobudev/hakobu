@@ -33,7 +33,7 @@ func TestOAuthAndMCP(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	if err := s.SetOwner(ctx, store.SetOwnerParams{GitHubID: 42, GitHubLogin: "me"}); err != nil {
+	if _, err := s.CreateUser(ctx, store.CreateUserParams{GitHubID: 42, GitHubLogin: "me", Admin: 1}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.NewSession(ctx, "tok", 42, time.Hour); err != nil {

@@ -9,25 +9,28 @@ import (
 )
 
 type settingsPage struct {
-	PublicHost, Owner, GitHubSlug string
-	Disk, LastCleanup             string
-	DiskLow                       bool
-	BackupBucket, PanelBackup     string
-	CloudflareConnected           bool
-	Rotation                      ops.Rotation
-	KeyDownloaded                 bool
-	Notify                        ops.NotifyInfo
-	Watchdog                      ops.WatchdogInfo
-	Update                        ops.UpdateInfo
-	TokenURL                      string
-	Token                         []cloudflare.Permission
-	Clients                       []ops.ClientAccount
-	ClientTokenURL                string
-	R2Off                         bool   // R2 isn't on in the panel's account
-	R2URL                         string // where it's turned on
-	Servers                       []ops.Server
-	Usage                         []usageRow
-	OAuthGrants                   []store.OAuthGrant
+	PublicHost, User, GitHubSlug string
+	Admin                        bool // the signed-in user is the panel's admin
+	Users                        []store.User
+	Invites                      []store.Invite
+	Disk, LastCleanup            string
+	DiskLow                      bool
+	BackupBucket, PanelBackup    string
+	CloudflareConnected          bool
+	Rotation                     ops.Rotation
+	KeyDownloaded                bool
+	Notify                       ops.NotifyInfo
+	Watchdog                     ops.WatchdogInfo
+	Update                       ops.UpdateInfo
+	TokenURL                     string
+	Token                        []cloudflare.Permission
+	Clients                      []ops.ClientAccount
+	ClientTokenURL               string
+	R2Off                        bool   // R2 isn't on in the panel's account
+	R2URL                        string // where it's turned on
+	Servers                      []ops.Server
+	Usage                        []usageRow
+	OAuthGrants                  []store.OAuthGrant
 }
 
 func (u settingsPageUpdate) busy() bool {
@@ -45,22 +48,28 @@ templ settingsView(v settingsPage) {
 					@ic("globe", "icon-muted")
 					Panel
 				</a>
-				<a href="#update" class="subnav-item">
-					@ic("refresh-cw", "icon-muted")
-					Updates
-					if v.Update.Available {
-						<span class="subnav-count"><span class="dot dot-accent"></span></span>
-					}
-				</a>
-				<a href="#backups" class="subnav-item">
-					@ic("archive", "icon-muted")
-					Backups
-				</a>
-				<a href="#notifications" class="subnav-item">
-					@ic("bell", "icon-muted")
-					Notifications
-				</a>
-				if v.Token != nil {
+				if v.Admin {
+					<a href="#update" class="subnav-item">
+						@ic("refresh-cw", "icon-muted")
+						Updates
+						if v.Update.Available {
+							<span class="subnav-count"><span class="dot dot-accent"></span></span>
+						}
+					</a>
+					<a href="#backups" class="subnav-item">
+						@ic("archive", "icon-muted")
+						Backups
+					</a>
+					<a href="#notifications" class="subnav-item">
+						@ic("bell", "icon-muted")
+						Notifications
+					</a>
+					<a href="#users" class="subnav-item">
+						@ic("users", "icon-muted")
+						Users
+					</a>
+				}
+				if v.Admin && v.Token != nil {
 					<a href="#cloudflare" class="subnav-item">
 						@ic("cloud", "icon-muted")
 						Cloudflare
@@ -83,17 +92,19 @@ templ settingsView(v settingsPage) {
 					@ic("bot", "icon-muted")
 					AI apps
 				</a>
-				<a href="#security" class="subnav-item">
-					@ic("shield", "icon-muted")
-					Security
-					if !v.KeyDownloaded {
-						<span class="subnav-count"><span class="dot dot-danger"></span></span>
-					}
-				</a>
-				<a href="#server" class="subnav-item">
-					@ic("hard-drive", "icon-muted")
-					This server
-				</a>
+				if v.Admin {
+					<a href="#security" class="subnav-item">
+						@ic("shield", "icon-muted")
+						Security
+						if !v.KeyDownloaded {
+							<span class="subnav-count"><span class="dot dot-danger"></span></span>
+						}
+					</a>
+					<a href="#server" class="subnav-item">
+						@ic("hard-drive", "icon-muted")
+						This server
+					</a>
+				}
 			</nav>
 			<div class="min-w-0">
 				@section("panel", "Panel", "", nil) {
@@ -101,11 +112,17 @@ templ settingsView(v settingsPage) {
 						<div class="box-body">
 							<div class="kv">
 								<span class="kv-key">Address</span>
-								<span class="flex items-center gap-1"><span class="mono">{ "https://" + v.PublicHost }</span>
+								<span class="flex items-center gap-1">
+									<span class="mono">{ "https://" + v.PublicHost }</span>
 									@copyButton("https://" + v.PublicHost)
 								</span>
-								<span class="kv-key">Owner</span>
-								<span><span class="mono">{ v.Owner }</span> <span class="muted">· the only one who can sign in</span></span>
+								<span class="kv-key">Signed in as</span>
+								<span>
+									<span class="mono">{ v.User }</span>
+									if v.Admin {
+										<span class="muted">· the panel's admin</span>
+									}
+								</span>
 								<span class="kv-key">Theme</span>
 								<span class="flex flex-wrap items-center gap-3">
 									<span class="segmented" data-theme-choices>
@@ -126,99 +143,104 @@ templ settingsView(v settingsPage) {
 						</div>
 					</div>
 				}
-				@settingsUpdate(v.Update)
-				@settingsBackups(v)
-				@section("notifications", "Notifications", "An email when something needs you: a deploy after a push failed, a backup failed, an app crashed or ran out of memory, the disk is almost full, the master key isn't downloaded. Each problem is mailed once, again only if it's still there hours later, and once more when it's gone.", notifyActions(v.Notify)) {
-					<div class="space-y-6">
-						<div class="box">
+				if v.Admin {
+					@settingsUpdate(v.Update)
+					@settingsBackups(v)
+					@section("notifications", "Notifications", "An email when something needs you: a deploy after a push failed, a backup failed, an app crashed or ran out of memory, the disk is almost full, the master key isn't downloaded. Each problem is mailed once, again only if it's still there hours later, and once more when it's gone.", notifyActions(v.Notify)) {
+						<div class="space-y-6">
+							<div class="box">
+								if v.Notify.On {
+									<div class="box-body">
+										<p>Emails go to <span class="mono">{ v.Notify.Email }</span> from <span class="mono">{ v.Notify.From }</span>.</p>
+										if v.Notify.Err != "" {
+											@flash("danger") {
+												{ v.Notify.Err }
+											}
+										} else if !v.Notify.Verified {
+											@flash("warn") {
+												Waiting for you to confirm the address: open the email from Cloudflare and click <span class="mono">Verify email address</span>, then reload this page.
+											}
+										}
+									</div>
+								}
+								if v.CloudflareConnected {
+									<div hx-get="/settings/notify/form" hx-trigger="load" hx-swap="outerHTML" class="box-body">
+										@skeleton(2, false)
+									</div>
+								} else {
+									<div class="box-body muted">Needs Cloudflare connected first.</div>
+								}
+							</div>
 							if v.Notify.On {
-								<div class="box-body">
-									<p>Emails go to <span class="mono">{ v.Notify.Email }</span> from <span class="mono">{ v.Notify.From }</span>.</p>
-									if v.Notify.Err != "" {
-										@flash("danger") {
-											{ v.Notify.Err }
-										}
-									} else if !v.Notify.Verified {
-										@flash("warn") {
-											Waiting for you to confirm the address: open the email from Cloudflare and click <span class="mono">Verify email address</span>, then reload this page.
-										}
-									}
-								</div>
-							}
-							if v.CloudflareConnected {
-								<div hx-get="/settings/notify/form" hx-trigger="load" hx-swap="outerHTML" class="box-body">
-									@skeleton(2, false)
-								</div>
-							} else {
-								<div class="box-body muted">Needs Cloudflare connected first.</div>
+								@settingsWatchdog(v.Watchdog)
 							}
 						</div>
-						if v.Notify.On {
-							@settingsWatchdog(v.Watchdog)
-						}
-					</div>
-				}
-				if v.Token != nil {
-					@settingsToken(v)
+					}
+					@settingsUsers(v)
+					if v.Token != nil {
+						@settingsToken(v)
+					}
 				}
 				@settingsServers(v)
 				if v.CloudflareConnected {
 					@settingsClients(v)
 				}
 				@settingsAIApps(v)
-				@settingsSecurity(v)
-				@section("server", "This server", "", cleanupButton()) {
-					<div class="space-y-6">
-						<div class="box">
-							<div class="box-body">
-								<div hx-get="/usage?target=host&range=24h" hx-trigger="load" hx-swap="outerHTML">
-									@skeleton(1, true)
+				if v.Admin {
+					@settingsSecurity(v)
+					@section("server", "This server", "", cleanupButton()) {
+						<div class="space-y-6">
+							<div class="box">
+								<div class="box-body">
+									<div hx-get="/usage?target=host&range=24h" hx-trigger="load" hx-swap="outerHTML">
+										@skeleton(1, true)
+									</div>
+								</div>
+							</div>
+							if len(v.Usage) > 0 {
+								<div class="box overflow-x-auto">
+									<table class="table">
+										<thead>
+											<tr><th>Using it now</th><th class="num">CPU</th><th class="num">Memory</th></tr>
+										</thead>
+										<tbody>
+											for _, u := range v.Usage {
+												<tr>
+													<td>
+														if u.Link != "" {
+															<a href={ templ.SafeURL(u.Link) } class="mono">{ u.Name }</a>
+														} else {
+															<span class="mono">{ u.Name }</span>
+														}
+													</td>
+													<td class="num muted">{ u.CPU }</td>
+													<td class={ "num", templ.KV("text-danger", u.MemPct >= 90), templ.KV("muted", u.MemPct < 90) }>{ u.Memory }</td>
+												</tr>
+											}
+										</tbody>
+									</table>
+								</div>
+							}
+							<div class="box">
+								<div class="box-row">
+									<span class="row-main">
+										@ic("hard-drive", "icon-muted")
+										<span class={ templ.KV("text-danger", v.DiskLow) }>
+											{ diskText(v.Disk, v.DiskLow) }
+										</span>
+									</span>
+								</div>
+								<div class="box-body">
+									<p class="field-hint">
+										Every day hakobu deletes build cache unused for a week and images of deleted apps; each app keeps only its live image and one for rollback.
+										if v.LastCleanup != "" {
+											Last run { v.LastCleanup }.
+										}
+									</p>
 								</div>
 							</div>
 						</div>
-						if len(v.Usage) > 0 {
-							<div class="box overflow-x-auto">
-								<table class="table">
-									<thead>
-										<tr><th>Using it now</th><th class="num">CPU</th><th class="num">Memory</th></tr>
-									</thead>
-									<tbody>
-										for _, u := range v.Usage {
-											<tr>
-												<td>
-													if u.Link != "" {
-														<a href={ templ.SafeURL(u.Link) } class="mono">{ u.Name }</a>
-													} else {
-														<span class="mono">{ u.Name }</span>
-													}
-												</td>
-												<td class="num muted">{ u.CPU }</td>
-												<td class={ "num", templ.KV("text-danger", u.MemPct >= 90), templ.KV("muted", u.MemPct < 90) }>{ u.Memory }</td>
-											</tr>
-										}
-									</tbody>
-								</table>
-							</div>
-						}
-						<div class="box">
-							<div class="box-row">
-								<span class="row-main">
-									@ic("hard-drive", "icon-muted")
-									<span class={ templ.KV("text-danger", v.DiskLow) }>
-										{ diskText(v.Disk, v.DiskLow) }
-									</span>
-								</span>
-							</div>
-							<div class="box-body">
-								<p class="field-hint">
-									Every day hakobu deletes build cache unused for a week and images of deleted apps; each app keeps only its live image and one for rollback.
-									if v.LastCleanup != "" {
-										Last run { v.LastCleanup }.
-									}
-								</p>
-							</div>
-						</div>
-					</div>
+					}
 				}
 			</div>
 		</div>
@@ -710,19 +732,95 @@ func clientProjects(c ops.ClientAccount) string {
 	return strings.Join(c.Projects, ", ")
 }
 
+templ settingsUsers(v settingsPage) {
+	@section("users", "Users", "Who can sign in. Each user sees only their own projects, servers and Cloudflare accounts, and deploys on this server and their own; you keep the panel's settings. Someone joins with an invite link: it works once, within a week.", inviteButton()) {
+		<div class="space-y-6">
+			<div id="invite-link"></div>
+			<div class="box">
+				for _, u := range v.Users {
+					<div class="box-row">
+						<span class="row-main">
+							@ic("github", "icon-muted")
+							<span class="min-w-0">
+								<a href={ templ.SafeURL("https://github.com/" + u.GitHubLogin) } target="_blank" rel="noopener" class="row-title block mono">{ u.GitHubLogin }</a>
+								<span class="row-meta block">
+									if u.Admin == 1 {
+										{ "admin · " }
+									}
+									{ "joined " }
+									@timeAgo(u.CreatedAt)
+								</span>
+							</span>
+						</span>
+						if u.Admin != 1 {
+							<button
+								class="btn btn-sm btn-danger"
+								hx-delete={ "/settings/users/" + itoa(u.ID) }
+								hx-confirm="They're signed out at once and can't sign in again without a new invite."
+								data-confirm-title={ "Remove " + u.GitHubLogin + "?" }
+								data-confirm-action="Remove"
+							>Remove</button>
+						}
+					</div>
+				}
+				for _, inv := range v.Invites {
+					<div class="box-row">
+						<span class="row-main">
+							@ic("clock", "icon-muted")
+							<span class="min-w-0">
+								<span class="row-title block muted">Invite not used yet</span>
+								<span class="row-meta block">{ "works until " + inv.ExpiresAt }</span>
+							</span>
+						</span>
+						<button
+							class="btn btn-sm"
+							hx-delete={ "/settings/invites/" + inv.SecretHash }
+							hx-confirm="The link stops working."
+							data-confirm-title="Revoke the invite?"
+							data-confirm-action="Revoke"
+						>Revoke</button>
+					</div>
+				}
+			</div>
+		</div>
+	}
+}
+
+templ inviteButton() {
+	<button class="btn btn-sm" hx-post="/settings/invites" hx-target="#invite-link" hx-swap="innerHTML">
+		@ic("plus")
+		Invite
+	</button>
+}
+
+templ inviteLink(link string) {
+	<div class="box">
+		<div class="box-header">Invite link</div>
+		<div class="box-body space-y-3">
+			<p>Send it to the person you invite. They open it and sign in with GitHub; it works once, within a week. Anyone who gets it can join, so send it privately.</p>
+			<div class="flex items-start gap-2">
+				@console(link, "")
+				@copyButton(link)
+			</div>
+		</div>
+	</div>
+}
+
 templ settingsAIApps(v settingsPage) {
 	@section("ai-apps", "AI apps", "Claude can look at your apps, their deploys, logs and errors, and deploy or roll back if you allow it, through hakobu's MCP server. You approve each app with a GitHub sign-in.", nil) {
 		<div class="box">
 			<div class="box-body space-y-3">
 				<div class="kv">
 					<span class="kv-key">MCP server</span>
-					<span class="flex items-center gap-1 min-w-0"><span class="mono truncate">{ "https://" + v.PublicHost + "/mcp" }</span>
+					<span class="flex items-center gap-1 min-w-0">
+						<span class="mono truncate">{ "https://" + v.PublicHost + "/mcp" }</span>
 						@copyButton("https://" + v.PublicHost + "/mcp")
 					</span>
 					<span class="kv-key">claude.ai</span>
 					<span>Settings → Connectors → Add custom connector, with the address above. Also the desktop and mobile apps.</span>
 					<span class="kv-key">Claude Code</span>
-					<span class="flex items-center gap-1 min-w-0"><span class="mono truncate">{ "claude mcp add --transport http hakobu https://" + v.PublicHost + "/mcp" }</span>
+					<span class="flex items-center gap-1 min-w-0">
+						<span class="mono truncate">{ "claude mcp add --transport http hakobu https://" + v.PublicHost + "/mcp" }</span>
 						@copyButton("claude mcp add --transport http hakobu https://" + v.PublicHost + "/mcp")
 					</span>
 				</div>

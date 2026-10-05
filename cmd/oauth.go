@@ -136,7 +136,7 @@ func registerOAuthRoutes(mux *http.ServeMux, s *store.Store) {
 		if !ok {
 			return
 		}
-		if !freshOwnerSession(w, r, s) {
+		if _, ok := freshSession(w, r, s); !ok {
 			return
 		}
 		redirect, _ := url.Parse(ar.RedirectURI)
@@ -152,25 +152,24 @@ func registerOAuthRoutes(mux *http.ServeMux, s *store.Store) {
 	mux.HandleFunc("POST /oauth/authorize", func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, 16<<10) // read before the session is checked
 		ar, ok := parseAuthorizeRequest(w, r, s)
-		if !ok || !freshOwnerSession(w, r, s) {
+		if !ok {
+			return
+		}
+		user, ok := freshSession(w, r, s)
+		if !ok {
 			return
 		}
 		if r.FormValue("approve") == "" {
-			ar.fail(w, r, "access_denied", "the owner declined")
+			ar.fail(w, r, "access_denied", "the user declined")
 			return
 		}
 		scopes := []string{scopeRead}
 		if slices.Contains(ar.Scopes, scopeDeploy) && r.FormValue("deploy") != "" {
 			scopes = append(scopes, scopeDeploy)
 		}
-		owner, err := s.Owner(r.Context())
-		if err != nil {
-			fail(w, err)
-			return
-		}
 		grant, err := s.CreateOAuthGrant(r.Context(), store.CreateOAuthGrantParams{
 			ClientID: ar.Client.ID, ClientName: ar.Client.Name, RedirectURI: ar.RedirectURI,
-			Scope: strings.Join(scopes, " "), GitHubID: owner.GitHubID,
+			Scope: strings.Join(scopes, " "), GitHubID: user.GitHubID,
 		})
 		if err != nil {
 			fail(w, err)
@@ -339,12 +338,12 @@ func (ar authorizeRequest) fail(w http.ResponseWriter, r *http.Request, code, de
 	ar.redirect(w, r, url.Values{"error": {code}, "error_description": {description}})
 }
 
-// freshOwnerSession lets through the owner signed in within keyFreshFor:
-// tokens leave the server, so like the master key they're handed out right
-// after a GitHub sign-in. Anyone else is sent to sign in, and back here.
-func freshOwnerSession(w http.ResponseWriter, r *http.Request, s *store.Store) bool {
-	if signedIn, ok := ownerSession(r, s); ok && time.Since(signedIn) <= keyFreshFor {
-		return true
+// freshSession lets through a user signed in within keyFreshFor: tokens
+// leave the server, so like the master key they're handed out right after
+// a GitHub sign-in. Anyone else is sent to sign in, and back here.
+func freshSession(w http.ResponseWriter, r *http.Request, s *store.Store) (store.User, bool) {
+	if sess, ok := userSession(r, s); ok && time.Since(sess.SignedIn) <= keyFreshFor {
+		return sess.User, true
 	}
 	query := r.URL.RawQuery
 	if r.Method == http.MethodPost {
@@ -353,11 +352,11 @@ func freshOwnerSession(w http.ResponseWriter, r *http.Request, s *store.Store) b
 	after := oauthAfterPrefix + base64.RawURLEncoding.EncodeToString([]byte(query))
 	if len(after) > 3000 {
 		http.Error(w, "authorization request too long", http.StatusBadRequest)
-		return false
+		return store.User{}, false
 	}
 	setCookie(w, afterCookie, after, 600)
 	http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
-	return false
+	return store.User{}, false
 }
 
 // oauthAfterPrefix marks an afterCookie that returns to /oauth/authorize

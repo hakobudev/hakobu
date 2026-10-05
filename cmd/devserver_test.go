@@ -35,7 +35,8 @@ func TestDevServer(t *testing.T) {
 	s, err := store.Open(config.DatabaseFile)
 	must(err)
 	ctx := context.Background()
-	must(s.SetOwner(ctx, store.SetOwnerParams{GitHubID: 42, GitHubLogin: "x0ryz"}))
+	_, err = s.CreateUser(ctx, store.CreateUserParams{GitHubID: 42, GitHubLogin: "x0ryz", Admin: 1})
+	must(err)
 	must(s.NewSession(ctx, "dev", 42, 24*3600*1e9))
 
 	for _, p := range []string{"acme", "shop"} {

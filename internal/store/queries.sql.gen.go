@@ -101,12 +101,45 @@ func (q *Queries) AppsUsingStorage(ctx context.Context, linkedStorage string) ([
 	return items, nil
 }
 
+const countCloudflareAccountsOf = `-- name: CountCloudflareAccountsOf :one
+SELECT COUNT(*) FROM cloudflare_accounts WHERE user_id = ?
+`
+
+func (q *Queries) CountCloudflareAccountsOf(ctx context.Context, userID int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countCloudflareAccountsOf, userID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countNodesOf = `-- name: CountNodesOf :one
+SELECT COUNT(*) FROM nodes WHERE user_id = ?
+`
+
+func (q *Queries) CountNodesOf(ctx context.Context, userID int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countNodesOf, userID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countOAuthClients = `-- name: CountOAuthClients :one
 SELECT COUNT(*) FROM oauth_clients
 `
 
 func (q *Queries) CountOAuthClients(ctx context.Context) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countOAuthClients)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countUsers = `-- name: CountUsers :one
+SELECT COUNT(*) FROM users
+`
+
+func (q *Queries) CountUsers(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countUsers)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -175,17 +208,23 @@ func (q *Queries) CreateBackup(ctx context.Context, arg CreateBackupParams) (int
 }
 
 const createCloudflareAccount = `-- name: CreateCloudflareAccount :one
-INSERT INTO cloudflare_accounts (name, api_token, account_id) VALUES (?, ?, ?) RETURNING id
+INSERT INTO cloudflare_accounts (name, api_token, account_id, user_id) VALUES (?, ?, ?, ?) RETURNING id
 `
 
 type CreateCloudflareAccountParams struct {
 	Name      string
 	ApiToken  secret.String
 	AccountID string
+	UserID    int64
 }
 
 func (q *Queries) CreateCloudflareAccount(ctx context.Context, arg CreateCloudflareAccountParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, createCloudflareAccount, arg.Name, arg.ApiToken, arg.AccountID)
+	row := q.db.QueryRowContext(ctx, createCloudflareAccount,
+		arg.Name,
+		arg.ApiToken,
+		arg.AccountID,
+		arg.UserID,
+	)
 	var id int64
 	err := row.Scan(&id)
 	return id, err
@@ -233,18 +272,39 @@ func (q *Queries) CreateDeployLog(ctx context.Context, arg CreateDeployLogParams
 	return id, err
 }
 
+const createInvite = `-- name: CreateInvite :exec
+INSERT INTO invites (secret_hash, created_by, expires_at) VALUES (?, ?, ?)
+`
+
+type CreateInviteParams struct {
+	SecretHash string
+	CreatedBy  int64
+	ExpiresAt  string
+}
+
+func (q *Queries) CreateInvite(ctx context.Context, arg CreateInviteParams) error {
+	_, err := q.db.ExecContext(ctx, createInvite, arg.SecretHash, arg.CreatedBy, arg.ExpiresAt)
+	return err
+}
+
 const createNode = `-- name: CreateNode :exec
-INSERT INTO nodes (name, join_secret_hash, join_expires) VALUES (?, ?, ?)
+INSERT INTO nodes (name, join_secret_hash, join_expires, user_id) VALUES (?, ?, ?, ?)
 `
 
 type CreateNodeParams struct {
 	Name           string
 	JoinSecretHash string
 	JoinExpires    string
+	UserID         int64
 }
 
 func (q *Queries) CreateNode(ctx context.Context, arg CreateNodeParams) error {
-	_, err := q.db.ExecContext(ctx, createNode, arg.Name, arg.JoinSecretHash, arg.JoinExpires)
+	_, err := q.db.ExecContext(ctx, createNode,
+		arg.Name,
+		arg.JoinSecretHash,
+		arg.JoinExpires,
+		arg.UserID,
+	)
 	return err
 }
 
@@ -400,6 +460,37 @@ func (q *Queries) CreateStorage(ctx context.Context, arg CreateStorageParams) er
 	return err
 }
 
+const createUser = `-- name: CreateUser :one
+INSERT INTO users (github_id, github_login, admin) VALUES (?, ?, ?) RETURNING id
+`
+
+type CreateUserParams struct {
+	GitHubID    int64
+	GitHubLogin string
+	Admin       int64
+}
+
+func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, createUser, arg.GitHubID, arg.GitHubLogin, arg.Admin)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const createUserProject = `-- name: CreateUserProject :exec
+INSERT INTO projects (name, user_id) VALUES (?, ?)
+`
+
+type CreateUserProjectParams struct {
+	Name   string
+	UserID int64
+}
+
+func (q *Queries) CreateUserProject(ctx context.Context, arg CreateUserProjectParams) error {
+	_, err := q.db.ExecContext(ctx, createUserProject, arg.Name, arg.UserID)
+	return err
+}
+
 const createVolumeBackup = `-- name: CreateVolumeBackup :one
 INSERT INTO volume_backups (app_name, volume, object_key, parts, size_bytes, sha256, file_key, account_id, bucket) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
 `
@@ -505,12 +596,30 @@ func (q *Queries) DeleteDeployLogsOfApp(ctx context.Context, appName string) err
 	return err
 }
 
+const deleteExpiredInvites = `-- name: DeleteExpiredInvites :exec
+DELETE FROM invites WHERE expires_at <= ?
+`
+
+func (q *Queries) DeleteExpiredInvites(ctx context.Context, expiresAt string) error {
+	_, err := q.db.ExecContext(ctx, deleteExpiredInvites, expiresAt)
+	return err
+}
+
 const deleteExpiredSessions = `-- name: DeleteExpiredSessions :exec
 DELETE FROM sessions WHERE expires_at < ?
 `
 
 func (q *Queries) DeleteExpiredSessions(ctx context.Context, expiresAt string) error {
 	_, err := q.db.ExecContext(ctx, deleteExpiredSessions, expiresAt)
+	return err
+}
+
+const deleteInvite = `-- name: DeleteInvite :exec
+DELETE FROM invites WHERE secret_hash = ?
+`
+
+func (q *Queries) DeleteInvite(ctx context.Context, secretHash string) error {
+	_, err := q.db.ExecContext(ctx, deleteInvite, secretHash)
 	return err
 }
 
@@ -538,6 +647,15 @@ DELETE FROM oauth_grants WHERE id = ?
 
 func (q *Queries) DeleteOAuthGrant(ctx context.Context, id int64) error {
 	_, err := q.db.ExecContext(ctx, deleteOAuthGrant, id)
+	return err
+}
+
+const deleteOAuthGrantsOf = `-- name: DeleteOAuthGrantsOf :exec
+DELETE FROM oauth_grants WHERE github_id = ?
+`
+
+func (q *Queries) DeleteOAuthGrantsOf(ctx context.Context, githubID int64) error {
+	_, err := q.db.ExecContext(ctx, deleteOAuthGrantsOf, githubID)
 	return err
 }
 
@@ -606,12 +724,30 @@ func (q *Queries) DeleteSession(ctx context.Context, id string) error {
 	return err
 }
 
+const deleteSessionsOf = `-- name: DeleteSessionsOf :exec
+DELETE FROM sessions WHERE github_id = ?
+`
+
+func (q *Queries) DeleteSessionsOf(ctx context.Context, githubID int64) error {
+	_, err := q.db.ExecContext(ctx, deleteSessionsOf, githubID)
+	return err
+}
+
 const deleteStorage = `-- name: DeleteStorage :exec
 DELETE FROM storages WHERE name = ?
 `
 
 func (q *Queries) DeleteStorage(ctx context.Context, name string) error {
 	_, err := q.db.ExecContext(ctx, deleteStorage, name)
+	return err
+}
+
+const deleteUser = `-- name: DeleteUser :exec
+DELETE FROM users WHERE id = ? AND admin = 0
+`
+
+func (q *Queries) DeleteUser(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteUser, id)
 	return err
 }
 
@@ -686,6 +822,24 @@ DELETE FROM workers WHERE app_name = ?
 func (q *Queries) DeleteWorker(ctx context.Context, appName string) error {
 	_, err := q.db.ExecContext(ctx, deleteWorker, appName)
 	return err
+}
+
+const getAdmin = `-- name: GetAdmin :one
+SELECT id, github_id, github_login, github_email, admin, created_at FROM users WHERE admin = 1 ORDER BY id LIMIT 1
+`
+
+func (q *Queries) GetAdmin(ctx context.Context) (User, error) {
+	row := q.db.QueryRowContext(ctx, getAdmin)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.GitHubID,
+		&i.GitHubLogin,
+		&i.GitHubEmail,
+		&i.Admin,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const getApp = `-- name: GetApp :one
@@ -847,7 +1001,7 @@ func (q *Queries) GetCloudflare(ctx context.Context) (Cloudflare, error) {
 }
 
 const getCloudflareAccount = `-- name: GetCloudflareAccount :one
-SELECT id, name, api_token, account_id, tunnel_id, tunnel_token, backup_bucket FROM cloudflare_accounts WHERE id = ?
+SELECT id, name, api_token, account_id, tunnel_id, tunnel_token, backup_bucket, user_id FROM cloudflare_accounts WHERE id = ?
 `
 
 func (q *Queries) GetCloudflareAccount(ctx context.Context, id int64) (CloudflareAccount, error) {
@@ -861,12 +1015,13 @@ func (q *Queries) GetCloudflareAccount(ctx context.Context, id int64) (Cloudflar
 		&i.TunnelID,
 		&i.TunnelToken,
 		&i.BackupBucket,
+		&i.UserID,
 	)
 	return i, err
 }
 
 const getCloudflareAccountByAccountID = `-- name: GetCloudflareAccountByAccountID :one
-SELECT id, name, api_token, account_id, tunnel_id, tunnel_token, backup_bucket FROM cloudflare_accounts WHERE account_id = ?
+SELECT id, name, api_token, account_id, tunnel_id, tunnel_token, backup_bucket, user_id FROM cloudflare_accounts WHERE account_id = ?
 `
 
 func (q *Queries) GetCloudflareAccountByAccountID(ctx context.Context, accountID string) (CloudflareAccount, error) {
@@ -880,12 +1035,13 @@ func (q *Queries) GetCloudflareAccountByAccountID(ctx context.Context, accountID
 		&i.TunnelID,
 		&i.TunnelToken,
 		&i.BackupBucket,
+		&i.UserID,
 	)
 	return i, err
 }
 
 const getCloudflareAccountByName = `-- name: GetCloudflareAccountByName :one
-SELECT id, name, api_token, account_id, tunnel_id, tunnel_token, backup_bucket FROM cloudflare_accounts WHERE name = ?
+SELECT id, name, api_token, account_id, tunnel_id, tunnel_token, backup_bucket, user_id FROM cloudflare_accounts WHERE name = ?
 `
 
 func (q *Queries) GetCloudflareAccountByName(ctx context.Context, name string) (CloudflareAccount, error) {
@@ -899,6 +1055,7 @@ func (q *Queries) GetCloudflareAccountByName(ctx context.Context, name string) (
 		&i.TunnelID,
 		&i.TunnelToken,
 		&i.BackupBucket,
+		&i.UserID,
 	)
 	return i, err
 }
@@ -973,7 +1130,7 @@ func (q *Queries) GetLinkKey(ctx context.Context) (secret.String, error) {
 }
 
 const getNode = `-- name: GetNode :one
-SELECT id, name, public_key, join_secret_hash, join_expires, version, last_seen, created_at FROM nodes WHERE id = ?
+SELECT id, name, public_key, join_secret_hash, join_expires, version, last_seen, created_at, user_id FROM nodes WHERE id = ?
 `
 
 func (q *Queries) GetNode(ctx context.Context, id int64) (Node, error) {
@@ -988,12 +1145,13 @@ func (q *Queries) GetNode(ctx context.Context, id int64) (Node, error) {
 		&i.Version,
 		&i.LastSeen,
 		&i.CreatedAt,
+		&i.UserID,
 	)
 	return i, err
 }
 
 const getNodeByJoinSecret = `-- name: GetNodeByJoinSecret :one
-SELECT id, name, public_key, join_secret_hash, join_expires, version, last_seen, created_at FROM nodes WHERE join_secret_hash = ? AND join_secret_hash != ''
+SELECT id, name, public_key, join_secret_hash, join_expires, version, last_seen, created_at, user_id FROM nodes WHERE join_secret_hash = ? AND join_secret_hash != ''
 `
 
 func (q *Queries) GetNodeByJoinSecret(ctx context.Context, joinSecretHash string) (Node, error) {
@@ -1008,12 +1166,13 @@ func (q *Queries) GetNodeByJoinSecret(ctx context.Context, joinSecretHash string
 		&i.Version,
 		&i.LastSeen,
 		&i.CreatedAt,
+		&i.UserID,
 	)
 	return i, err
 }
 
 const getNodeByKey = `-- name: GetNodeByKey :one
-SELECT id, name, public_key, join_secret_hash, join_expires, version, last_seen, created_at FROM nodes WHERE public_key = ? AND public_key != ''
+SELECT id, name, public_key, join_secret_hash, join_expires, version, last_seen, created_at, user_id FROM nodes WHERE public_key = ? AND public_key != ''
 `
 
 func (q *Queries) GetNodeByKey(ctx context.Context, publicKey string) (Node, error) {
@@ -1028,12 +1187,13 @@ func (q *Queries) GetNodeByKey(ctx context.Context, publicKey string) (Node, err
 		&i.Version,
 		&i.LastSeen,
 		&i.CreatedAt,
+		&i.UserID,
 	)
 	return i, err
 }
 
 const getNodeByName = `-- name: GetNodeByName :one
-SELECT id, name, public_key, join_secret_hash, join_expires, version, last_seen, created_at FROM nodes WHERE name = ?
+SELECT id, name, public_key, join_secret_hash, join_expires, version, last_seen, created_at, user_id FROM nodes WHERE name = ?
 `
 
 func (q *Queries) GetNodeByName(ctx context.Context, name string) (Node, error) {
@@ -1048,6 +1208,7 @@ func (q *Queries) GetNodeByName(ctx context.Context, name string) (Node, error) 
 		&i.Version,
 		&i.LastSeen,
 		&i.CreatedAt,
+		&i.UserID,
 	)
 	return i, err
 }
@@ -1127,25 +1288,8 @@ func (q *Queries) GetOAuthToken(ctx context.Context, id string) (OAuthToken, err
 	return i, err
 }
 
-const getOwner = `-- name: GetOwner :one
-SELECT github_id, github_login, github_email FROM owner WHERE id = 1
-`
-
-type GetOwnerRow struct {
-	GitHubID    int64
-	GitHubLogin string
-	GitHubEmail string
-}
-
-func (q *Queries) GetOwner(ctx context.Context) (GetOwnerRow, error) {
-	row := q.db.QueryRowContext(ctx, getOwner)
-	var i GetOwnerRow
-	err := row.Scan(&i.GitHubID, &i.GitHubLogin, &i.GitHubEmail)
-	return i, err
-}
-
 const getProject = `-- name: GetProject :one
-SELECT id, name, shared_env, cloudflare_account_id, node_id FROM projects WHERE name = ?
+SELECT id, name, shared_env, cloudflare_account_id, node_id, user_id FROM projects WHERE name = ?
 `
 
 func (q *Queries) GetProject(ctx context.Context, name string) (Project, error) {
@@ -1157,12 +1301,13 @@ func (q *Queries) GetProject(ctx context.Context, name string) (Project, error) 
 		&i.SharedEnv,
 		&i.CloudflareAccountID,
 		&i.NodeID,
+		&i.UserID,
 	)
 	return i, err
 }
 
 const getProjectByID = `-- name: GetProjectByID :one
-SELECT id, name, shared_env, cloudflare_account_id, node_id FROM projects WHERE id = ?
+SELECT id, name, shared_env, cloudflare_account_id, node_id, user_id FROM projects WHERE id = ?
 `
 
 func (q *Queries) GetProjectByID(ctx context.Context, id int64) (Project, error) {
@@ -1174,6 +1319,7 @@ func (q *Queries) GetProjectByID(ctx context.Context, id int64) (Project, error)
 		&i.SharedEnv,
 		&i.CloudflareAccountID,
 		&i.NodeID,
+		&i.UserID,
 	)
 	return i, err
 }
@@ -1233,6 +1379,44 @@ func (q *Queries) GetStorage(ctx context.Context, name string) (Storage, error) 
 		&i.SecretAccessKey,
 		&i.Bucket,
 		&i.Region,
+	)
+	return i, err
+}
+
+const getUser = `-- name: GetUser :one
+SELECT id, github_id, github_login, github_email, admin, created_at FROM users WHERE id = ?
+`
+
+func (q *Queries) GetUser(ctx context.Context, id int64) (User, error) {
+	row := q.db.QueryRowContext(ctx, getUser, id)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.GitHubID,
+		&i.GitHubLogin,
+		&i.GitHubEmail,
+		&i.Admin,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getUserByGitHubID = `-- name: GetUserByGitHubID :one
+
+SELECT id, github_id, github_login, github_email, admin, created_at FROM users WHERE github_id = ?
+`
+
+// Users and invites
+func (q *Queries) GetUserByGitHubID(ctx context.Context, githubID int64) (User, error) {
+	row := q.db.QueryRowContext(ctx, getUserByGitHubID, githubID)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.GitHubID,
+		&i.GitHubLogin,
+		&i.GitHubEmail,
+		&i.Admin,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -1667,7 +1851,7 @@ func (q *Queries) ListBackups(ctx context.Context, arg ListBackupsParams) ([]Bac
 
 const listCloudflareAccounts = `-- name: ListCloudflareAccounts :many
 
-SELECT id, name, api_token, account_id, tunnel_id, tunnel_token, backup_bucket FROM cloudflare_accounts ORDER BY name
+SELECT id, name, api_token, account_id, tunnel_id, tunnel_token, backup_bucket, user_id FROM cloudflare_accounts ORDER BY name
 `
 
 // Clients' Cloudflare accounts
@@ -1688,6 +1872,7 @@ func (q *Queries) ListCloudflareAccounts(ctx context.Context) ([]CloudflareAccou
 			&i.TunnelID,
 			&i.TunnelToken,
 			&i.BackupBucket,
+			&i.UserID,
 		); err != nil {
 			return nil, err
 		}
@@ -1853,9 +2038,36 @@ func (q *Queries) ListDeploySummaries(ctx context.Context, arg ListDeploySummari
 	return items, nil
 }
 
+const listInvites = `-- name: ListInvites :many
+SELECT secret_hash, created_by, expires_at FROM invites WHERE expires_at > ? ORDER BY expires_at
+`
+
+func (q *Queries) ListInvites(ctx context.Context, expiresAt string) ([]Invite, error) {
+	rows, err := q.db.QueryContext(ctx, listInvites, expiresAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Invite
+	for rows.Next() {
+		var i Invite
+		if err := rows.Scan(&i.SecretHash, &i.CreatedBy, &i.ExpiresAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listNodes = `-- name: ListNodes :many
 
-SELECT id, name, public_key, join_secret_hash, join_expires, version, last_seen, created_at FROM nodes ORDER BY name
+SELECT id, name, public_key, join_secret_hash, join_expires, version, last_seen, created_at, user_id FROM nodes ORDER BY name
 `
 
 // Nodes
@@ -1877,6 +2089,7 @@ func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
 			&i.Version,
 			&i.LastSeen,
 			&i.CreatedAt,
+			&i.UserID,
 		); err != nil {
 			return nil, err
 		}
@@ -1958,7 +2171,7 @@ func (q *Queries) ListPendingPromotions(ctx context.Context) ([]string, error) {
 }
 
 const listProjects = `-- name: ListProjects :many
-SELECT id, name, shared_env, cloudflare_account_id, node_id FROM projects ORDER BY name
+SELECT id, name, shared_env, cloudflare_account_id, node_id, user_id FROM projects ORDER BY name
 `
 
 func (q *Queries) ListProjects(ctx context.Context) ([]Project, error) {
@@ -1976,6 +2189,41 @@ func (q *Queries) ListProjects(ctx context.Context) ([]Project, error) {
 			&i.SharedEnv,
 			&i.CloudflareAccountID,
 			&i.NodeID,
+			&i.UserID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProjectsOf = `-- name: ListProjectsOf :many
+SELECT id, name, shared_env, cloudflare_account_id, node_id, user_id FROM projects WHERE user_id = ? ORDER BY name
+`
+
+func (q *Queries) ListProjectsOf(ctx context.Context, userID int64) ([]Project, error) {
+	rows, err := q.db.QueryContext(ctx, listProjectsOf, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Project
+	for rows.Next() {
+		var i Project
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.SharedEnv,
+			&i.CloudflareAccountID,
+			&i.NodeID,
+			&i.UserID,
 		); err != nil {
 			return nil, err
 		}
@@ -2164,6 +2412,40 @@ func (q *Queries) ListStoragesByProject(ctx context.Context, projectID int64) ([
 			&i.SecretAccessKey,
 			&i.Bucket,
 			&i.Region,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUsers = `-- name: ListUsers :many
+SELECT id, github_id, github_login, github_email, admin, created_at FROM users ORDER BY id
+`
+
+func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
+	rows, err := q.db.QueryContext(ctx, listUsers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []User
+	for rows.Next() {
+		var i User
+		if err := rows.Scan(
+			&i.ID,
+			&i.GitHubID,
+			&i.GitHubLogin,
+			&i.GitHubEmail,
+			&i.Admin,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -2418,7 +2700,7 @@ type SaveGitHubAppParams struct {
 	ClientSecret  secret.String
 }
 
-// GitHub App and the owner
+// GitHub App
 func (q *Queries) SaveGitHubApp(ctx context.Context, arg SaveGitHubAppParams) error {
 	_, err := q.db.ExecContext(ctx, saveGitHubApp,
 		arg.AppID,
@@ -2820,38 +3102,6 @@ func (q *Queries) SetNodeJoin(ctx context.Context, arg SetNodeJoinParams) error 
 	return err
 }
 
-const setOwner = `-- name: SetOwner :exec
-INSERT INTO owner (id, github_id, github_login) VALUES (1, ?, ?)
-`
-
-type SetOwnerParams struct {
-	GitHubID    int64
-	GitHubLogin string
-}
-
-func (q *Queries) SetOwner(ctx context.Context, arg SetOwnerParams) error {
-	_, err := q.db.ExecContext(ctx, setOwner, arg.GitHubID, arg.GitHubLogin)
-	return err
-}
-
-const setOwnerEmail = `-- name: SetOwnerEmail :exec
-UPDATE owner SET github_email = ? WHERE id = 1
-`
-
-func (q *Queries) SetOwnerEmail(ctx context.Context, githubEmail string) error {
-	_, err := q.db.ExecContext(ctx, setOwnerEmail, githubEmail)
-	return err
-}
-
-const setOwnerLogin = `-- name: SetOwnerLogin :exec
-UPDATE owner SET github_login = ? WHERE id = 1
-`
-
-func (q *Queries) SetOwnerLogin(ctx context.Context, githubLogin string) error {
-	_, err := q.db.ExecContext(ctx, setOwnerLogin, githubLogin)
-	return err
-}
-
 const setProjectCloudflareAccount = `-- name: SetProjectCloudflareAccount :exec
 UPDATE projects SET cloudflare_account_id = ? WHERE id = ?
 `
@@ -2956,6 +3206,34 @@ func (q *Queries) SetTunnelToken(ctx context.Context, tunnelToken secret.String)
 	return err
 }
 
+const setUserEmail = `-- name: SetUserEmail :exec
+UPDATE users SET github_email = ? WHERE id = ?
+`
+
+type SetUserEmailParams struct {
+	GitHubEmail string
+	ID          int64
+}
+
+func (q *Queries) SetUserEmail(ctx context.Context, arg SetUserEmailParams) error {
+	_, err := q.db.ExecContext(ctx, setUserEmail, arg.GitHubEmail, arg.ID)
+	return err
+}
+
+const setUserLogin = `-- name: SetUserLogin :exec
+UPDATE users SET github_login = ? WHERE id = ?
+`
+
+type SetUserLoginParams struct {
+	GitHubLogin string
+	ID          int64
+}
+
+func (q *Queries) SetUserLogin(ctx context.Context, arg SetUserLoginParams) error {
+	_, err := q.db.ExecContext(ctx, setUserLogin, arg.GitHubLogin, arg.ID)
+	return err
+}
+
 const setVolumeBackupVerified = `-- name: SetVolumeBackupVerified :exec
 UPDATE volume_backups SET verified_at = ?, verify_error = ?, files = ? WHERE id = ?
 `
@@ -2975,6 +3253,22 @@ func (q *Queries) SetVolumeBackupVerified(ctx context.Context, arg SetVolumeBack
 		arg.ID,
 	)
 	return err
+}
+
+const takeInvite = `-- name: TakeInvite :one
+DELETE FROM invites WHERE secret_hash = ? AND expires_at > ? RETURNING created_by
+`
+
+type TakeInviteParams struct {
+	SecretHash string
+	ExpiresAt  string
+}
+
+func (q *Queries) TakeInvite(ctx context.Context, arg TakeInviteParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, takeInvite, arg.SecretHash, arg.ExpiresAt)
+	var created_by int64
+	err := row.Scan(&created_by)
+	return created_by, err
 }
 
 const touchOAuthGrant = `-- name: TouchOAuthGrant :exec

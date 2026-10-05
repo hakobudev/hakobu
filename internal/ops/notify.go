@@ -105,7 +105,7 @@ func NotifyChoices(s *store.Store) (to, from []NotifyChoice, why []string, err e
 		return nil, nil, nil, tokenHint(err)
 	}
 	github := ""
-	if o, err := s.GetOwner(ctx()); err == nil {
+	if o, err := s.Admin(ctx()); err == nil {
 		github = o.GitHubEmail
 	}
 	for _, d := range dests {

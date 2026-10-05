@@ -191,7 +191,7 @@ func listenSocket(dir, name string) (net.Listener, error) {
 // signed in; only the holder of the setup link can connect GitHub and claim
 // the panel.
 func ensureSetupToken(s *store.Store) (string, error) {
-	if owner, err := s.Owner(context.Background()); err != nil || owner.GitHubID != 0 {
+	if admin, err := s.Admin(context.Background()); err != nil || admin.GitHubID != 0 {
 		return "", err
 	}
 	token := config.SetupToken()
