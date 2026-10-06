@@ -142,6 +142,9 @@ type ClientAccount struct {
 	R2URL     string // where the client turns R2 on
 	OAuth     bool   // connected with "Connect with Cloudflare"
 	R2Token   bool   // an OAuth account has its R2 token for backups
+	// SharesWith are the other accounts connected with the same sign-in or
+	// user's token.
+	SharesWith []string
 }
 
 // CheckClientsR2 tells which clients haven't turned R2 on (R2Off).
@@ -164,6 +167,11 @@ func ClientAccounts(s *store.Store) ([]ClientAccount, error) {
 	for i, a := range rows {
 		out[i] = ClientAccount{ID: a.ID, UserID: a.UserID, Name: a.Name, AccountID: a.AccountID, OAuth: a.RefreshToken != "", R2Token: a.R2Token != ""}
 		out[i].Projects, _ = s.ProjectsInCloudflareAccount(ctx(), sql.NullInt64{Int64: a.ID, Valid: true})
+		for _, b := range rows {
+			if a.Signin != "" && b.Signin == a.Signin && b.ID != a.ID {
+				out[i].SharesWith = append(out[i].SharesWith, b.Name)
+			}
+		}
 	}
 	return out, nil
 }
@@ -172,6 +180,13 @@ func ClientAccounts(s *store.Store) ([]ClientAccount, error) {
 func ClientTokenURL(name string) string {
 	host, _ := os.Hostname()
 	return cloudflare.ClientTokenTemplateURL("hakobu " + strings.Split(host, ".")[0] + " " + name)
+}
+
+// UserTokenURL opens the form for a token of the user's own for all the
+// accounts they're a member of, clients' that invited them included.
+func UserTokenURL() string {
+	host, _ := os.Hostname()
+	return cloudflare.UserTokenTemplateURL("hakobu " + strings.Split(host, ".")[0])
 }
 
 // R2TokenURL is ClientTokenURL for an OAuth account's R2 token.
@@ -194,6 +209,55 @@ func checkClientToken(token string) (string, error) {
 		}
 	}
 	return account, nil
+}
+
+// AddAccountToken connects the account the token is for, as name (made of
+// the account's if ""); a user's token for several accounts instead
+// returns the ID to pick them under (Pending, ConnectAccounts), as they
+// then share it.
+func AddAccountToken(s *store.Store, userID int64, name, token string) (pick string, err error) {
+	token = strings.TrimSpace(token)
+	accounts, err := cloudflare.Client{Token: token}.Accounts()
+	if err != nil {
+		return "", fmt.Errorf("the token doesn't work: %w", err)
+	}
+	switch len(accounts) {
+	case 0:
+		return "", errors.New("the token sees no domains: give it Zone Read and DNS Edit for the domains hakobu should use")
+	case 1:
+		if name == "" {
+			name = suggestAccountName(s, accounts[0].Name, nil)
+		}
+		return "", AddClientAccount(s, userID, name, token)
+	}
+	return pending(userID, cloudflare.Token{AccessToken: token}, accounts, "")
+}
+
+// OtherAccounts are the accounts the token of the user's account name
+// reaches, to connect more of them with it (Pending, ConnectAccounts): a
+// client that invited the user since, say.
+func OtherAccounts(s *store.Store, userID int64, name string) (pick string, err error) {
+	row, err := s.GetCloudflareAccountByName(ctx(), name)
+	if err != nil || row.UserID != userID {
+		return "", fmt.Errorf("Cloudflare account %q not found", name)
+	}
+	if row.RefreshToken != "" {
+		return "", errors.New("connect more accounts of a sign-in with Connect with Cloudflare")
+	}
+	accounts, err := cloudflare.Client{Token: string(row.ApiToken)}.Accounts()
+	if err != nil {
+		return "", fmt.Errorf("the token doesn't work: %w", err)
+	}
+	signin := row.Signin
+	if signin == "" {
+		if signin, err = RandomHex(16); err != nil {
+			return "", err
+		}
+		if err := s.SetCloudflareAccountSignin(ctx(), store.SetCloudflareAccountSigninParams{Signin: signin, ID: row.ID}); err != nil {
+			return "", err
+		}
+	}
+	return pending(userID, cloudflare.Token{AccessToken: string(row.ApiToken)}, accounts, signin)
 }
 
 // AddClientAccount connects a client's Cloudflare account with the token
@@ -261,6 +325,9 @@ func ReplaceClientToken(s *store.Store, name, token string) error {
 		return fmt.Errorf("client %q not found", name)
 	}
 	token = strings.TrimSpace(token)
+	if row.Signin != "" && row.RefreshToken == "" {
+		return replaceSharedToken(s, row, token)
+	}
 	account, err := checkClientToken(token)
 	if err != nil {
 		return err
@@ -271,6 +338,33 @@ func ReplaceClientToken(s *store.Store, name, token string) error {
 	// An API token in place of OAuth ends the refreshing and takes the
 	// account out of its sign-in; its own S3 keys then serve the backups.
 	return s.SetCloudflareAccountOAuth(ctx(), store.SetCloudflareAccountOAuthParams{ApiToken: secret.String(token), ID: row.ID})
+}
+
+// replaceSharedToken puts a user's new token in place of the one the
+// accounts of row's group share; it must reach them all.
+func replaceSharedToken(s *store.Store, row store.CloudflareAccount, token string) error {
+	accounts, err := cloudflare.Client{Token: token}.Accounts()
+	if err != nil {
+		return fmt.Errorf("the token doesn't work: %w", err)
+	}
+	reaches := map[string]bool{}
+	for _, a := range accounts {
+		reaches[a.ID] = true
+	}
+	rows, err := s.ListCloudflareAccounts(ctx())
+	if err != nil {
+		return err
+	}
+	var missing []string
+	for _, r := range rows {
+		if r.Signin == row.Signin && !reaches[r.AccountID] {
+			missing = append(missing, r.Name)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("the token doesn't reach %s, which share the old one: make it for all of them", strings.Join(missing, ", "))
+	}
+	return s.SetCloudflareSignIn(ctx(), store.SetCloudflareSignInParams{ApiToken: secret.String(token), Signin: row.Signin})
 }
 
 // RemoveClientAccount disconnects a client's account that no project uses

@@ -400,6 +400,9 @@ INSERT INTO cloudflare_accounts (name, api_token, refresh_token, token_expires, 
 -- name: SetCloudflareAccountOAuth :exec
 UPDATE cloudflare_accounts SET api_token = ?, refresh_token = ?, token_expires = ?, signin = ? WHERE id = ?;
 
+-- name: SetCloudflareAccountSignin :exec
+UPDATE cloudflare_accounts SET signin = ? WHERE id = ?;
+
 -- name: SetCloudflareSignIn :exec
 UPDATE cloudflare_accounts SET api_token = ?, refresh_token = ?, token_expires = ? WHERE signin = ? AND signin != '';
 

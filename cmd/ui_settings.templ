@@ -32,6 +32,7 @@ type settingsPage struct {
 	Token                        []cloudflare.Permission
 	Clients                      []ops.ClientAccount
 	ClientTokenURL               string
+	UserTokenURL                 string // a token of the user's for all their accounts
 	R2Off                        bool   // R2 isn't on in the panel's account
 	R2URL                        string // where it's turned on
 	Servers                      []ops.Server
@@ -740,6 +741,12 @@ templ settingsClients(v settingsPage) {
 									<span class="kv-key">Account ID</span>
 									<span class="mono">{ c.AccountID }</span>
 								</div>
+								if len(c.SharesWith) > 0 {
+									<div class="kv">
+										<span class="kv-key">Shares its token with</span>
+										<span>{ strings.Join(c.SharesWith, ", ") }</span>
+									</div>
+								}
 								if c.OAuth {
 									<div class="kv">
 										<span class="kv-key">Connected</span>
@@ -762,6 +769,8 @@ templ settingsClients(v settingsPage) {
 								<form hx-post={ "/settings/clients/" + c.Name + "/token" } class="space-y-2">
 									if c.OAuth {
 										<p class="field-hint">Or connect it with an API token instead of the sign-in (its own keys then serve backups).</p>
+									} else if len(c.SharesWith) > 0 {
+										<p class="field-hint">A new token for all the accounts that share this one. Then delete the old one in Cloudflare.</p>
 									} else {
 										<p class="field-hint">A new token for the same account. Then delete the old one in Cloudflare.</p>
 									}
@@ -770,6 +779,15 @@ templ settingsClients(v settingsPage) {
 										@submit("Replace token", false)
 									</div>
 								</form>
+								if !c.OAuth {
+									<div class="flex items-center justify-between gap-3">
+										<p class="field-hint">A token of yours reaches every account you're a member of: connect another with it, a client's that invited you since, say.</p>
+										<button class="btn" hx-post={ "/settings/clients/" + c.Name + "/more" }>
+											@ic("plus")
+											Other accounts
+										</button>
+									</div>
+								}
 								<div class="flex items-center justify-between gap-3">
 									<p class="field-hint">
 										if len(c.Projects) > 0 {
@@ -805,9 +823,9 @@ templ settingsClients(v settingsPage) {
 						</a>
 						<p class="field-hint">Sign in to Cloudflare and pick the account: nothing to copy. Or with an API token:</p>
 					}
-					<p class="field-hint">Open <a href={ templ.SafeURL(v.ClientTokenURL) } target="_blank" rel="noopener">this link</a> signed in to the Cloudflare account (or send it to a client), select <span class="strong">Continue to summary</span> → <span class="strong">Create Token</span>, and paste the token here. It needs Zone Read, DNS Edit, Cloudflare Tunnel Edit and Workers R2 Storage Edit, and must be made in that account (account-owned).</p>
-					@field("Name", "Lowercase letters, digits and dashes, e.g. your name or the client's; shown in project settings.") {
-						<input name="name" required pattern="[a-z][a-z0-9\-]{0,39}" placeholder="e.g. acme" class="input mono"/>
+					<p class="field-hint">With <span class="strong">one token of yours</span>: <a href={ templ.SafeURL(v.UserTokenURL) } target="_blank" rel="noopener">this link</a> makes it in your profile for every account you're a member of, so a client only invites you to their Cloudflare account (Manage Account → Members); then you pick the accounts to connect. Or with <span class="strong">a token of the account's own</span>, made in it by you or the client: <a href={ templ.SafeURL(v.ClientTokenURL) } target="_blank" rel="noopener">this link</a>. Either way select <span class="strong">Continue to summary</span> → <span class="strong">Create Token</span> and paste it here. It needs Zone Read, DNS Edit, Cloudflare Tunnel Edit and Workers R2 Storage Edit.</p>
+					@field("Name", "For a token of one account: lowercase letters, digits and dashes, e.g. the client's; shown in project settings. Left empty, it's made of the account's name.") {
+						<input name="name" pattern="[a-z][a-z0-9\-]{0,39}" placeholder="e.g. acme" class="input mono"/>
 					}
 					@field("API token", "") {
 						<input name="token" type="password" required autocomplete="off" class="input mono"/>

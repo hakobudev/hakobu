@@ -51,6 +51,12 @@ var fakeTokens = map[string][]map[string]any{
 		{"id": "z-new", "name": "newco.com", "account": map[string]string{"id": "new-acc", "name": "New Co"}},
 		{"id": "z-other", "name": "other.com", "account": map[string]string{"id": "other-acc", "name": "Other"}},
 	},
+	// A user's token for the accounts they're a member of.
+	"user-tok": {
+		{"id": "z-acme", "name": "acme.com", "account": map[string]string{"id": "acme-acc", "name": "Acme"}},
+		{"id": "z-new", "name": "newco.com", "account": map[string]string{"id": "new-acc", "name": "New Co"}},
+		{"id": "z-other", "name": "other.com", "account": map[string]string{"id": "other-acc", "name": "Other"}},
+	},
 	"multi-tok": {
 		{"id": "z-acme", "name": "acme.com", "account": map[string]string{"id": "acme-acc"}},
 		{"id": "z-other", "name": "other.com", "account": map[string]string{"id": "other-acc"}},
@@ -566,14 +572,14 @@ func TestConnectWithCloudflare(t *testing.T) {
 		t.Errorf("choices %+v", choices)
 	}
 	both := []OAuthPick{{Account: "new-acc", Name: "newco"}, {Account: "other-acc", Name: "other"}}
-	if err := ConnectOAuthAccounts(s, 1, id, both); err == nil {
+	if err := ConnectAccounts(s, 1, id, both); err == nil {
 		t.Error("another user connected the accounts")
 	}
-	if err := ConnectOAuthAccounts(s, 0, id, []OAuthPick{{Account: "acme-acc", Name: "x"}}); err == nil {
+	if err := ConnectAccounts(s, 0, id, []OAuthPick{{Account: "acme-acc", Name: "x"}}); err == nil {
 		t.Error("connected an account the sign-in doesn't reach")
 	}
 	// One sign-in connects both accounts, which share its tokens.
-	if err := ConnectOAuthAccounts(s, 0, id, both); err != nil {
+	if err := ConnectAccounts(s, 0, id, both); err != nil {
 		t.Fatal(err)
 	}
 	row, err := s.GetCloudflareAccountByName(ctx(), "newco")
@@ -681,5 +687,98 @@ func TestEnsureTokenRelay(t *testing.T) {
 	}
 	if len(calls) != 3 || !strings.Contains(meta, `"type":"secret_text"`) || !strings.Contains(meta, `"text":"cid"`) {
 		t.Errorf("calls %v, metadata %s", calls, meta)
+	}
+}
+
+// One token of a user's connects the accounts they pick of those it
+// reaches; they share it, take more of its accounts later, and change it
+// together.
+func TestUserTokenConnectsSeveralAccounts(t *testing.T) {
+	newFakeAccounts(t)
+	s, _, _ := accountsStore(t)
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll("data", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.SetPublicHost("panel.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { fakeTokens["user-tok"] = fakeTokens["user-tok"][:3]; delete(fakeTokens, "user-tok-2") })
+
+	id, err := AddAccountToken(s, 0, "", "user-tok")
+	if err != nil || id == "" {
+		t.Fatalf("AddAccountToken: %q, %v", id, err)
+	}
+	if _, err := Pending(s, 1, id); err == nil {
+		t.Error("another user saw the token's accounts")
+	}
+	choices, err := Pending(s, 0, id)
+	if err != nil || len(choices) != 3 || choices[0].Taken != "connected as acme" || choices[1].Name != "new-co" || choices[2].Name != "other" {
+		t.Fatalf("choices %+v, %v", choices, err)
+	}
+	if err := ConnectAccounts(s, 0, id, []OAuthPick{{Account: "new-acc", Name: "newco"}}); err != nil {
+		t.Fatal(err)
+	}
+	newco, _ := s.GetCloudflareAccountByName(ctx(), "newco")
+	if newco.ApiToken != "user-tok" || newco.RefreshToken != "" || newco.TokenExpires != "" || newco.Signin == "" || newco.TunnelID == "" {
+		t.Fatalf("newco %+v", newco)
+	}
+
+	// A client invites the user later: the same token reaches them.
+	fakeTokens["user-tok"] = append(fakeTokens["user-tok"], map[string]any{"id": "z-late", "name": "late.com", "account": map[string]string{"id": "late-acc", "name": "Late"}})
+	more, err := OtherAccounts(s, 0, "newco")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OtherAccounts(s, 1, "newco"); err == nil {
+		t.Error("another user listed the token's accounts")
+	}
+	choices, _ = Pending(s, 0, more)
+	if len(choices) != 4 || choices[2].Taken != "connected as newco" || choices[1].Name != "late" {
+		t.Fatalf("choices %+v", choices)
+	}
+	if err := ConnectAccounts(s, 0, more, []OAuthPick{{Account: "late-acc", Name: "late"}, {Account: "other-acc", Name: "other"}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"late", "other"} {
+		if a, _ := s.GetCloudflareAccountByName(ctx(), name); a.Signin != newco.Signin || a.ApiToken != "user-tok" {
+			t.Errorf("%s not in the token's group: %+v", name, a)
+		}
+	}
+	list, _ := ClientAccounts(s)
+	for _, c := range list {
+		if c.Name == "other" && fmt.Sprint(c.SharesWith) != "[late newco]" {
+			t.Errorf("other shares with %v", c.SharesWith)
+		}
+		if c.Name == "acme" && len(c.SharesWith) != 0 {
+			t.Errorf("acme shares with %v", c.SharesWith)
+		}
+	}
+
+	// A new token replaces the old one for all of them, if it reaches them.
+	if err := ReplaceClientToken(s, "newco", "acme-tok"); err == nil || !strings.Contains(err.Error(), "late, newco, other") {
+		t.Errorf("a token missing the group's accounts: %v", err)
+	}
+	fakeTokens["user-tok-2"] = fakeTokens["user-tok"]
+	if err := ReplaceClientToken(s, "late", "user-tok-2"); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"newco", "late", "other"} {
+		if a, _ := s.GetCloudflareAccountByName(ctx(), name); a.ApiToken != "user-tok-2" {
+			t.Errorf("%s kept the old token", name)
+		}
+	}
+	if a, _ := s.GetCloudflareAccountByName(ctx(), "acme"); a.ApiToken != "acme-tok" {
+		t.Errorf("acme's own token changed: %q", a.ApiToken)
+	}
+
+	// A token of one account is connected right away, named after it.
+	fakeTokens["solo-tok"] = []map[string]any{{"id": "z-solo", "name": "solo.com", "account": map[string]string{"id": "solo-acc", "name": "Solo Ltd"}}}
+	t.Cleanup(func() { delete(fakeTokens, "solo-tok") })
+	if id, err := AddAccountToken(s, 0, "", "solo-tok"); err != nil || id != "" {
+		t.Fatalf("one account's token: %q, %v", id, err)
+	}
+	if a, err := s.GetCloudflareAccountByName(ctx(), "solo-ltd"); err != nil || a.Signin != "" {
+		t.Errorf("solo %+v, %v", a, err)
 	}
 }

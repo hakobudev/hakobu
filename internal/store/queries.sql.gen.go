@@ -3253,6 +3253,20 @@ func (q *Queries) SetCloudflareAccountR2Token(ctx context.Context, arg SetCloudf
 	return err
 }
 
+const setCloudflareAccountSignin = `-- name: SetCloudflareAccountSignin :exec
+UPDATE cloudflare_accounts SET signin = ? WHERE id = ?
+`
+
+type SetCloudflareAccountSigninParams struct {
+	Signin string
+	ID     int64
+}
+
+func (q *Queries) SetCloudflareAccountSignin(ctx context.Context, arg SetCloudflareAccountSigninParams) error {
+	_, err := q.db.ExecContext(ctx, setCloudflareAccountSignin, arg.Signin, arg.ID)
+	return err
+}
+
 const setCloudflareAccountTunnel = `-- name: SetCloudflareAccountTunnel :exec
 UPDATE cloudflare_accounts SET tunnel_id = ?, tunnel_token = ? WHERE id = ?
 `

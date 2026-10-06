@@ -209,12 +209,22 @@ templ invitePage(v invitePageData) {
 	}
 }
 
-// cloudflarePick is the page after "Connect with Cloudflare": the accounts
-// the user allowed on Cloudflare's consent page, each to connect under a
-// name, or saying why it can't be.
+// cloudflarePick is the page after "Connect with Cloudflare", the accounts
+// the user allowed on Cloudflare's consent page, or after a user's token
+// for several accounts, which the user picks from (Pick): each to connect
+// under a name, or saying why it can't be.
 type cloudflarePick struct {
 	ID      string
 	Choices []ops.OAuthChoice
+	Pick    bool
+}
+
+func pickHint(pick bool) string {
+	names := " Their domains become available to your projects; hakobu creates a tunnel in each. Names are lowercase letters, digits and dashes, shown in project settings."
+	if pick {
+		return "The accounts this token reaches: tick the ones to connect; they share the token." + names
+	}
+	return "The ones you allowed on Cloudflare." + names
 }
 
 func (v cloudflarePick) anyFree() bool {
@@ -229,21 +239,28 @@ func (v cloudflarePick) anyFree() bool {
 templ cloudflarePickPage(v cloudflarePick) {
 	@centered("Connect Cloudflare") {
 		@signinMark("Connect Cloudflare", "")
-		<form class="box" hx-post={ "/cloudflare/connect/" + v.ID }>
+		<form class="box" hx-post={ "/cloudflare/accounts/" + v.ID }>
 			<div class="box-body space-y-4">
-				@field("Accounts", "The ones you allowed on Cloudflare. Their domains become available to your projects; hakobu creates a tunnel in each. Names are lowercase letters, digits and dashes, shown in project settings.") {
+				@field("Accounts", pickHint(v.Pick)) {
 					for _, c := range v.Choices {
-						<div>
-							<span class="check-label">{ c.Account.Name }</span>
-							<br/>
-							<span class="field-hint mono">{ strings.Join(c.Zones, ", ") }</span>
-							if c.Taken != "" {
-								<br/>
-								<span class="field-hint">{ c.Taken }</span>
-							} else {
-								<input type="hidden" name="account" value={ c.ID }/>
-								<input name={ "name-" + c.ID } value={ c.Name } aria-label={ "Name in hakobu for " + c.Account.Name } required pattern="[a-z][a-z0-9\-]{0,39}" class="input mono mt-2"/>
+						<div class="check">
+							if v.Pick && c.Taken == "" {
+								<input type="checkbox" name="account" value={ c.ID } id={ "acc-" + c.ID } checked/>
 							}
+							<span class="flex-1">
+								<label for={ "acc-" + c.ID } class="check-label">{ c.Account.Name }</label>
+								<br/>
+								<span class="field-hint mono">{ strings.Join(c.Zones, ", ") }</span>
+								if c.Taken != "" {
+									<br/>
+									<span class="field-hint">{ c.Taken }</span>
+								} else {
+									if !v.Pick {
+										<input type="hidden" name="account" value={ c.ID }/>
+									}
+									<input name={ "name-" + c.ID } value={ c.Name } aria-label={ "Name in hakobu for " + c.Account.Name } required pattern="[a-z][a-z0-9\-]{0,39}" class="input mono mt-2"/>
+								}
+							</span>
 						</div>
 					}
 				}

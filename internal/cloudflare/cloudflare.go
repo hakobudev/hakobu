@@ -103,6 +103,17 @@ func R2TokenTemplateURL(name string) string {
 }
 
 func templateURL(name string, permissions []struct{ Key, Type string }) string {
+	return "https://dash.cloudflare.com/?to=/:account/api-tokens&permissionGroupKeys=" + permissionKeys(permissions) + "&name=" + tokenName(name)
+}
+
+// UserTokenTemplateURL opens the form for a new token of the user's own
+// with what hakobu needs in a client's account, for every account the user
+// is a member of: one a client invites them to is in it from then on.
+func UserTokenTemplateURL(name string) string {
+	return "https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=" + permissionKeys(clientTokenPermissions) + "&accountId=*&zoneId=all&name=" + tokenName(name)
+}
+
+func permissionKeys(permissions []struct{ Key, Type string }) string {
 	perms, _ := json.Marshal(func() []map[string]string {
 		var out []map[string]string
 		for _, p := range permissions {
@@ -110,9 +121,10 @@ func templateURL(name string, permissions []struct{ Key, Type string }) string {
 		}
 		return out
 	}())
-	return "https://dash.cloudflare.com/?to=/:account/api-tokens&permissionGroupKeys=" +
-		url.QueryEscape(string(perms)) + "&name=" + strings.ReplaceAll(url.QueryEscape(name), "+", "%20")
+	return url.QueryEscape(string(perms))
 }
+
+func tokenName(name string) string { return strings.ReplaceAll(url.QueryEscape(name), "+", "%20") }
 
 // CheckToken tells what the token can't do of what hakobu needs, as
 // advice for the owner; it only reads, so DNS editing and R2 show up when

@@ -192,9 +192,13 @@ R2 token, which the account's settings link to.
 ### Other Cloudflare accounts
 
 One server can host projects for several clients, each keeping their own Cloudflare account.
-Under **Settings → Cloudflare accounts**, send the client the token link: they create an account-owned
-token in their account (Zone Read, DNS Edit, Cloudflare Tunnel Edit, Workers R2 Storage Edit)
-and give it to you. hakobu creates a tunnel in their account; a project assigned to the
+The simplest way in: the client invites you to their account (Manage Account → Members), and
+one token of yours reaches it. Under **Settings → Cloudflare accounts**, the first link makes that
+token in your profile for every account you're a member of (Zone Read, DNS Edit, Cloudflare
+Tunnel Edit, Workers R2 Storage Edit); paste it and tick the accounts to connect. They share the
+token: a client who invites you later is one **Other accounts** away, a new token replaces it for
+all of them, and a client who removes you takes hakobu's access with you. Or the client creates
+an account-owned token in their account with the second link and gives it to you. hakobu creates a tunnel in their account; a project assigned to the
 client (project **Settings**) gets its domains, R2 storages and database and volume backups
 there. The panel, email and the watchdog stay in your account.
 

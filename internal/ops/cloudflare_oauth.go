@@ -30,9 +30,9 @@ func CloudflareOAuth() bool { return config.CloudflareClientID != "" }
 
 func cloudflareRedirect() string { return "https://" + config.PublicHost() + "/cloudflare/callback" }
 
-// oauthLogins are sign-ins under way, by state, and sign-ins done whose
-// account is still to pick, by a random ID; each for one user, for ten
-// minutes.
+// oauthLogins are sign-ins under way, by state, and accounts reached by a
+// sign-in or an API token that are still to connect, by a random ID; each
+// for one user, for ten minutes.
 var oauthLogins = struct {
 	sync.Mutex
 	started map[string]oauthStart
@@ -45,11 +45,44 @@ type oauthStart struct {
 	at       time.Time
 }
 
+// oauthDone is what a sign-in or a user's API token reached: the accounts
+// to connect with its token (one with no RefreshToken is an API token),
+// joining the accounts of signin.
 type oauthDone struct {
 	user     int64
 	token    cloudflare.Token
 	accounts []cloudflare.Account
+	signin   string
 	at       time.Time
+}
+
+// pending keeps what a sign-in or token reached for the user to pick from,
+// under the ID returned; the accounts it connects share signin, the ID if
+// "".
+func pending(user int64, t cloudflare.Token, accounts []cloudflare.Account, signin string) (string, error) {
+	id, err := RandomHex(16)
+	if err != nil {
+		return "", err
+	}
+	if signin == "" {
+		signin = id
+	}
+	oauthLogins.Lock()
+	defer oauthLogins.Unlock()
+	expireOAuthLogins(time.Now())
+	oauthLogins.done[id] = oauthDone{user: user, token: t, accounts: accounts, signin: signin, at: time.Now()}
+	return id, nil
+}
+
+// Pending is what the user's sign-in or token id reached, to pick from.
+func Pending(s *store.Store, user int64, id string) ([]OAuthChoice, error) {
+	oauthLogins.Lock()
+	done, ok := oauthLogins.done[id]
+	oauthLogins.Unlock()
+	if !ok || done.user != user || time.Since(done.at) > oauthLoginTTL {
+		return nil, errors.New("this expired or isn't yours: start again from Settings → Cloudflare accounts")
+	}
+	return OAuthChoices(s, user, done.accounts), nil
 }
 
 const oauthLoginTTL = 10 * time.Minute
@@ -107,14 +140,8 @@ func FinishCloudflareOAuth(user int64, state, code string) (string, []cloudflare
 	if len(accounts) == 0 {
 		return "", nil, errors.New("hakobu sees no domains in that Cloudflare account: add one there first")
 	}
-	id, err := RandomHex(16)
-	if err != nil {
-		return "", nil, err
-	}
-	oauthLogins.Lock()
-	defer oauthLogins.Unlock()
-	oauthLogins.done[id] = oauthDone{user: user, token: t, accounts: accounts, at: time.Now()}
-	return id, accounts, nil
+	id, err := pending(user, t, accounts, "")
+	return id, accounts, err
 }
 
 // OAuthChoice is an account a sign-in reached, with the name it would be
@@ -152,10 +179,10 @@ func OAuthChoices(s *store.Store, user int64, accounts []cloudflare.Account) []O
 // OAuthPick is an account to connect from a sign-in, and its name.
 type OAuthPick struct{ Account, Name string }
 
-// ConnectOAuthAccounts connects the accounts picked from the sign-in id,
-// each under its name and with its tunnel, sharing the sign-in's tokens.
-// Those that fail are told in the error; the others stay connected.
-func ConnectOAuthAccounts(s *store.Store, user int64, id string, picks []OAuthPick) error {
+// ConnectAccounts connects the accounts picked from what the sign-in or
+// token id reached, each under its name and with its tunnel, sharing the
+// token. Those that fail are told in the error; the others stay connected.
+func ConnectAccounts(s *store.Store, user int64, id string, picks []OAuthPick) error {
 	if len(picks) == 0 {
 		return errors.New("pick at least one account")
 	}
@@ -167,7 +194,7 @@ func ConnectOAuthAccounts(s *store.Store, user int64, id string, picks []OAuthPi
 	}
 	var failed []string
 	for _, p := range picks {
-		if err := connectOAuthAccount(s, user, id, done, p); err != nil {
+		if err := connectPicked(s, user, done, p); err != nil {
 			failed = append(failed, p.Name+": "+err.Error())
 		}
 	}
@@ -180,9 +207,9 @@ func ConnectOAuthAccounts(s *store.Store, user int64, id string, picks []OAuthPi
 	return nil
 }
 
-// connectOAuthAccount connects one account the sign-in reached; the
-// sign-in's id groups the accounts that share its tokens.
-func connectOAuthAccount(s *store.Store, user int64, signin string, done oauthDone, p OAuthPick) error {
+// connectPicked connects one account the sign-in or token reached, in its
+// group of accounts sharing the token.
+func connectPicked(s *store.Store, user int64, done oauthDone, p OAuthPick) error {
 	if err := checkName("client", p.Name); err != nil {
 		return err
 	}
@@ -194,10 +221,14 @@ func connectOAuthAccount(s *store.Store, user int64, signin string, done oauthDo
 		return errors.New("that account isn't one this sign-in reaches")
 	}
 	t := done.token
+	expires := ""
+	if t.RefreshToken != "" {
+		expires = t.ExpiresAt.UTC().Format(time.RFC3339)
+	}
 	return connectAccount(s, user, p.Name, p.Account, cloudflare.Client{Token: t.AccessToken, AccountID: p.Account}, func() (int64, error) {
 		return s.CreateOAuthCloudflareAccount(ctx(), store.CreateOAuthCloudflareAccountParams{
 			Name: p.Name, ApiToken: secret.String(t.AccessToken), RefreshToken: secret.String(t.RefreshToken),
-			TokenExpires: t.ExpiresAt.UTC().Format(time.RFC3339), Signin: signin, AccountID: p.Account, UserID: user,
+			TokenExpires: expires, Signin: done.signin, AccountID: p.Account, UserID: user,
 		})
 	})
 }
