@@ -15,13 +15,14 @@ import (
 
 // UpdateInfo is what Settings shows about updates.
 type UpdateInfo struct {
-	Current   string
-	Latest    string // "" if GitHub couldn't be asked
-	Available bool   // Latest is newer than Current
-	Updater   bool   // the Update button works on this server
-	Requested bool   // an update or rollback asked for, not picked up yet
-	Last      update.Status
-	HasLast   bool
+	Current    string
+	Latest     string // "" if GitHub couldn't be asked
+	Available  bool   // Latest is newer than Current
+	FromSource bool   // Current is no release: none is offered
+	Updater    bool   // the Update button works on this server
+	Requested  bool   // an update or rollback asked for, not picked up yet
+	Last       update.Status
+	HasLast    bool
 
 	// Roll back: the version before the last update, when there is one
 	// and this server picks up the request.
@@ -93,7 +94,10 @@ func latestChecked() string {
 // Updates describes the running version and the latest release.
 func Updates(current string) UpdateInfo {
 	info := UpdateInfo{Current: update.Tag(current), Latest: latestRelease(), CheckedAt: latestChecked()}
-	info.Available = info.Latest != "" && update.Newer(info.Latest, current)
+	// A build from source may have a newer database schema than any
+	// release, which then wouldn't start on it: the panel offers it none.
+	info.FromSource = current != "" && !update.IsRelease(current)
+	info.Available = !info.FromSource && info.Latest != "" && update.Newer(info.Latest, current)
 	info.Updater = update.UnitsInstalled("hakobu-update.path")
 	for _, f := range []string{update.RequestFile, update.RollbackRequestFile} {
 		if _, err := os.Stat(f); err == nil {

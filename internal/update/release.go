@@ -63,6 +63,12 @@ func Tag(version string) string {
 	return version
 }
 
+// IsRelease tells whether version is a release's, not a build from source.
+func IsRelease(version string) bool {
+	_, ok := parseTag(version)
+	return ok
+}
+
 var tagPattern = regexp.MustCompile(`^v(\d+)\.(\d+)\.(\d+)$`)
 
 // Newer reports whether tag is a later release than current; a current
