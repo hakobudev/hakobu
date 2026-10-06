@@ -136,7 +136,7 @@ templ homePage(projects []homeProject, lacking []cloudflare.Permission, expiring
 					if len(where.Clients) > 0 {
 						@field("Cloudflare account", "Where its domains, R2 storages and backups are.") {
 							<select name="client" class="input">
-								<option value="">The panel's account</option>
+								<option value="">{ where.PanelAccount }</option>
 								for _, c := range where.Clients {
 									<option value={ c }>{ c }</option>
 								}
@@ -158,6 +158,7 @@ templ homePage(projects []homeProject, lacking []cloudflare.Permission, expiring
 type projectPlaces struct {
 	Servers, Clients []string
 	PanelOnly        bool
+	PanelAccount     string // how the panel's account is offered
 }
 
 // placeSelect picks one of the user's own servers or Cloudflare accounts,
@@ -168,7 +169,7 @@ templ placeSelect(name string, options []string) {
 			if name == "server" {
 				None yet: add one in <a href="/settings#servers">Settings → Servers</a>.
 			} else {
-				None yet: connect one in <a href="/settings#clients">Settings → Cloudflare accounts</a>.
+				None yet: connect one in <a href="/settings#cloudflare">Settings → Cloudflare</a>.
 			}
 		</p>
 		<input type="hidden" name={ name } value=""/>

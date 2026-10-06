@@ -173,14 +173,14 @@ only updates them; to move one to rootless Docker, install hakobu on a clean ser
 A project can live in another Cloudflare account than the panel's: yours, or a client's, who
 keeps it. Clients invite you to theirs (Manage Account → Members); the token you gave the
 installer then reaches them all. When you first sign in, hakobu checks it can do what it needs
-in each of its accounts and connects them, listed under **Settings → Cloudflare accounts** with
+in each of its accounts and connects them, listed under **Settings → Cloudflare** with
 the panel's own. It keeps up every ten minutes: a client who invites you later
 shows up by itself, one who removes you goes (or, while a project still uses their account,
 you get an email). To leave an account out, leave it out of the token. **Settings → Cloudflare
 token → Replace token** swaps it for the panel and all of them.
 
 Other users of the panel connect their accounts the same way, with a token of their own made
-with the link under **Settings → Cloudflare accounts** (Zone Read, DNS Edit, Cloudflare Tunnel
+with the link under **Settings → Cloudflare** (Zone Read, DNS Edit, Cloudflare Tunnel
 Edit, Workers R2 Storage Edit).
 
 Nothing is made in an account until a project there needs it: with the first domain of a
@@ -224,7 +224,7 @@ Environment=HAKOBU_PANEL_ONLY=1
 ```
 
 Then every project runs on a server of its owner's (Settings → Servers) and in a
-Cloudflare account of theirs (Settings → Cloudflare accounts), with its domains, storages
+Cloudflare account of theirs (Settings → Cloudflare), with its domains, storages
 and backups there; the panel's server and account serve only the panel.
 
 ## Using it

@@ -221,7 +221,7 @@ func syncTokenGroup(s *store.Store, group string) {
 	if err != nil {
 		panellog.Error("the Cloudflare token of", who, "doesn't work:", err)
 		problem(s, key, notifyAgain, "Your Cloudflare token stopped working",
-			"hakobu can't use the token of your Cloudflare accounts ("+who+"): "+err.Error()+"\n\nGive it a new one: Settings → Cloudflare accounts → Replace token.\n\n"+panelURL("/settings#clients"))
+			"hakobu can't use the token of your Cloudflare accounts ("+who+"): "+err.Error()+"\n\nGive it a new one: Settings → Cloudflare → Replace token.\n\n"+panelURL("/settings#cloudflare"))
 		return
 	}
 	solved(s, key, "Your Cloudflare token works again", "hakobu can use it again.")
@@ -241,7 +241,7 @@ func syncTokenGroup(s *store.Store, group string) {
 		lost := "cloudflare-lost:" + r.AccountID
 		if projects, _ := s.ProjectsInCloudflareAccount(ctx(), sql.NullInt64{Int64: r.ID, Valid: true}); len(projects) > 0 {
 			problem(s, lost, notifyAgain, "hakobu lost Cloudflare account "+r.Title,
-				"Your token no longer reaches Cloudflare account "+r.Title+" ("+r.Domains+"), which "+strings.Join(projects, ", ")+" use: its owner may have removed you from it. Their sites keep working, but hakobu can't change their domains or back them up there.\n\n"+panelURL("/settings#clients"))
+				"Your token no longer reaches Cloudflare account "+r.Title+" ("+r.Domains+"), which "+strings.Join(projects, ", ")+" use: its owner may have removed you from it. Their sites keep working, but hakobu can't change their domains or back them up there.\n\n"+panelURL("/settings#cloudflare"))
 			continue
 		}
 		if err := RemoveClientAccount(s, r.Name); err != nil {

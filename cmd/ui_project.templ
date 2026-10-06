@@ -8,6 +8,7 @@ type projectView struct {
 	Project          store.Project
 	Tab              string // "", "variables" or "settings"
 	PanelOnly        bool   // the panel's own server and account aren't offered
+	PanelAccount     string // how the panel's account is offered
 	Apps             []appView
 	Workers          map[string]workerCard
 	LastDeploy       map[string]store.DeployLog
@@ -582,10 +583,10 @@ templ projectSettings(v projectView) {
 		<form class="box mb-6" hx-post={ "/projects/" + v.Project.Name + "/account" }>
 			<div class="box-header">Cloudflare account</div>
 			<div class="box-body space-y-3">
-				<p class="field-hint">Where the project's domains, R2 storages and backups are: the panel's, or another one (Settings → Cloudflare accounts). Apps must be private to move; storages made before stay where they are.</p>
+				<p class="field-hint">Where the project's domains, R2 storages and backups are: the panel's, or another one (Settings → Cloudflare). Apps must be private to move; storages made before stay where they are.</p>
 				<select name="client" class="input">
 					if !v.PanelOnly {
-						<option value="" selected?={ v.Client == "" }>The panel's account</option>
+						<option value="" selected?={ v.Client == "" }>{ v.PanelAccount }</option>
 					}
 					for _, c := range v.Clients {
 						<option value={ c } selected?={ v.Client == c }>{ c }</option>

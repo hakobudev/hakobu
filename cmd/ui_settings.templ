@@ -81,23 +81,17 @@ templ settingsView(v settingsPage) {
 						Notifications
 					</a>
 				}
-				if v.Admin && v.Token != nil {
+				<a href="#servers" class="subnav-item">
+					@ic("server", "icon-muted")
+					Servers
+				</a>
+				if v.CloudflareConnected {
 					<a href="#cloudflare" class="subnav-item">
 						@ic("cloud", "icon-muted")
 						Cloudflare
 						if len(cloudflare.Lacking(v.Token)) > 0 {
 							<span class="subnav-count"><span class="dot dot-attention"></span></span>
 						}
-					</a>
-				}
-				<a href="#servers" class="subnav-item">
-					@ic("server", "icon-muted")
-					Servers
-				</a>
-				if v.CloudflareConnected {
-					<a href="#clients" class="subnav-item">
-						@ic("cloud", "icon-muted")
-						Cloudflare accounts
 					</a>
 				}
 				<a href="#ai-apps" class="subnav-item">
@@ -197,9 +191,6 @@ templ settingsView(v settingsPage) {
 						</div>
 					}
 					@settingsUsers(v)
-					if v.Token != nil {
-						@settingsToken(v)
-					}
 				}
 				if !v.Admin {
 					@section("notifications", "Notifications", "An email when something in your projects needs you: a deploy after a push failed, an app crashed, stopped answering or ran out of memory, a backup failed. Each problem is mailed once, again only if it's still there hours later, and once more when it's gone.", nil) {
@@ -581,46 +572,61 @@ templ settingsWatchdog(w ops.WatchdogInfo) {
 					{ w.Err }
 				}
 			} else if !w.On && !w.TurnedOff {
-				<p class="field-hint">Waiting for hakobu's token to get Workers Scripts Edit and Workers KV Storage Edit: see <a href="#cloudflare">Cloudflare token</a>.</p>
+				<p class="field-hint">Waiting for hakobu's token to get Workers Scripts Edit and Workers KV Storage Edit: see <a href="#cloudflare">Cloudflare</a>.</p>
 			}
 		</div>
 	</div>
 }
 
+// settingsToken is the panel's token: what it can do, and its Replace
+// token, which once it's the admin's replaces it for their accounts too.
 templ settingsToken(v settingsPage) {
-	@section("cloudflare", "Cloudflare token", "What hakobu's API token can do, checked every hour; a newer hakobu may need more than an older token has.", nil) {
-		<div class="box">
-			for _, p := range v.Token {
-				<div class="box-row">
-					<span class="row-main">
-						if p.Missing {
-							@ic("circle-x", "text-danger")
-						} else if p.Unknown {
-							@ic("info", "icon-muted")
-						} else {
-							@ic("circle-check", "text-success")
-						}
-						<span class={ templ.KV("text-danger", p.Missing) }>{ p.Name }</span>
-					</span>
-					<span class="row-meta">
-						{ p.For }
-						if p.Unknown {
-							· couldn't check
-						}
-					</span>
-				</div>
+	<div class="box">
+		<div class="box-header">
+			if v.OwnsPanelToken {
+				Your token
+			} else {
+				The panel's token
 			}
-			<form hx-post="/settings/cloudflare/token">
-				<div class="box-body">
-					<p class="field-hint">To replace it, open <a href={ templ.SafeURL(v.TokenURL) } target="_blank" rel="noopener">this link</a> (the permissions are filled in), select <span class="strong">Continue to summary</span> → <span class="strong">Create Token</span>, and paste it here. It must reach this panel's Cloudflare account and every account your projects are in. Then delete the old token in Cloudflare.</p>
-					<input name="token" type="password" required autocomplete="off" placeholder="New API token" class="input mono"/>
-				</div>
-				@boxFooter("") {
-					@submit("Replace token", false)
-				}
-			</form>
 		</div>
-	}
+		<div class="box-body">
+			<p class="field-hint">
+				if v.OwnsPanelToken {
+					The token you gave hakobu when installing it: it reaches the accounts above, kept up to date every ten minutes. A client who invites you to their account (Manage Account → Members) shows up, one who removes you goes; to leave an account out, leave it out of the token.
+				}
+				What it can do, checked every hour; a newer hakobu may need more than an older token has.
+			</p>
+		</div>
+		for _, p := range v.Token {
+			<div class="box-row">
+				<span class="row-main">
+					if p.Missing {
+						@ic("circle-x", "text-danger")
+					} else if p.Unknown {
+						@ic("info", "icon-muted")
+					} else {
+						@ic("circle-check", "text-success")
+					}
+					<span class={ templ.KV("text-danger", p.Missing) }>{ p.Name }</span>
+				</span>
+				<span class="row-meta">
+					{ p.For }
+					if p.Unknown {
+						· couldn't check
+					}
+				</span>
+			</div>
+		}
+		<form hx-post="/settings/cloudflare/token">
+			<div class="box-body">
+				<p class="field-hint">To replace it, open <a href={ templ.SafeURL(v.TokenURL) } target="_blank" rel="noopener">this link</a> (the permissions are filled in), select <span class="strong">Continue to summary</span> → <span class="strong">Create Token</span>, and paste it here. It must reach this panel's Cloudflare account and every account your projects are in. Then delete the old token in Cloudflare.</p>
+				<input name="token" type="password" required autocomplete="off" placeholder="New API token" class="input mono"/>
+			</div>
+			@boxFooter("") {
+				@submit("Replace token", false)
+			}
+		</form>
+	</div>
 }
 
 templ settingsServers(v settingsPage) {
@@ -716,7 +722,7 @@ templ joinCommand(name, command string) {
 }
 
 templ settingsClients(v settingsPage) {
-	@section("clients", "Cloudflare accounts", "Your Cloudflare accounts and your clients': a project in one gets its domains, R2 storages and backups there. Each owner keeps their account; hakobu works in it with one token of yours.", nil) {
+	@section("cloudflare", "Cloudflare", "Your Cloudflare accounts and your clients': a project in one gets its domains, R2 storages and backups there. Each owner keeps their account; hakobu works in it with one token of yours.", nil) {
 		<div class="space-y-6">
 			if len(v.Clients) > 0 {
 				<div class="box">
@@ -755,14 +761,10 @@ templ settingsClients(v settingsPage) {
 					}
 				</div>
 			}
-			if v.OwnsPanelToken {
-				<div class="box">
-					<div class="box-header">Your token</div>
-					<div class="box-body">
-						<p class="field-hint">These are the accounts the token you gave hakobu when installing it reaches, kept up to date every ten minutes: a client who invites you to their account (Manage Account → Members) shows up here, one who removes you goes. To leave an account out, leave it out of the token. To replace it, see <a href="#cloudflare">Cloudflare token</a>.</p>
-					</div>
-				</div>
-			} else if hasOwnAccounts(v.Clients) {
+			if v.Token != nil {
+				@settingsToken(v)
+			}
+			if !v.OwnsPanelToken && hasOwnAccounts(v.Clients) {
 				<form class="box" hx-post="/settings/clients/token">
 					<div class="box-header">Your token</div>
 					<div class="box-body space-y-4">
@@ -775,7 +777,7 @@ templ settingsClients(v settingsPage) {
 						@submit("Replace token", false)
 					}
 				</form>
-			} else {
+			} else if !v.OwnsPanelToken {
 				<form class="box" hx-post="/settings/clients">
 					<div class="box-header">Connect Cloudflare</div>
 					<div class="box-body space-y-4">

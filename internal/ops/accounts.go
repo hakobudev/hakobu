@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/x0ryz/hakobu/internal/cloudflare"
 	"github.com/x0ryz/hakobu/internal/config"
@@ -173,6 +175,31 @@ func PanelClientAccount(s *store.Store, userID int64) (ClientAccount, error) {
 	}
 	out.Projects, _ = s.UserProjectsInPanelAccount(ctx(), userID)
 	return out, nil
+}
+
+var panelTitle struct {
+	sync.Mutex
+	title string
+	at    time.Time
+}
+
+// PanelAccountLabel names the panel's account where a project's account is
+// picked: what Cloudflare calls it, asked at most every ten minutes.
+func PanelAccountLabel(s *store.Store) string {
+	panelTitle.Lock()
+	defer panelTitle.Unlock()
+	if time.Since(panelTitle.at) > 10*time.Minute {
+		panelTitle.at = time.Now()
+		if a, err := panelAccount(s); err == nil {
+			if zones, err := a.Client.Zones(); err == nil && len(zones) > 0 {
+				panelTitle.title = zones[0].Account.Name
+			}
+		}
+	}
+	if panelTitle.title == "" {
+		return "The panel's account"
+	}
+	return panelTitle.title + " (this panel's)"
 }
 
 // OwnsPanelToken tells whether the panel's token is the user's too.

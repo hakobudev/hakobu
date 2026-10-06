@@ -402,6 +402,9 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			v.Watchdog = ops.Watchdog(s).On
 			v.Server, v.Servers = ops.ProjectServerName(s, p), joinedServers(s, requestUser(r))
 			v.PanelOnly = config.PanelOnly
+			if !v.PanelOnly {
+				v.PanelAccount = ops.PanelAccountLabel(s)
+			}
 			if clients, err := ops.ClientAccounts(s); err == nil {
 				for _, c := range clients {
 					if c.UserID != p.UserID {
@@ -1555,6 +1558,9 @@ var validGitHubLogin = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9]|-[A-Za-z0-
 
 func placesOf(s *store.Store, u store.User) projectPlaces {
 	where := projectPlaces{Servers: joinedServers(s, u), PanelOnly: config.PanelOnly}
+	if !config.PanelOnly {
+		where.PanelAccount = ops.PanelAccountLabel(s)
+	}
 	clients, _ := ops.ClientAccounts(s)
 	for _, c := range clients {
 		if c.UserID == u.ID {

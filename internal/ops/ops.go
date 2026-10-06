@@ -52,7 +52,7 @@ func CreateProject(s *store.Store, userID int64, name string) error {
 
 // errPanelOnly is what a panel-only panel says to a project that would use
 // its own server or Cloudflare account.
-var errPanelOnly = errors.New("this panel runs no apps of its own: a project runs on a server of yours (Settings → Servers), in a Cloudflare account of yours (Settings → Cloudflare accounts)")
+var errPanelOnly = errors.New("this panel runs no apps of its own: a project runs on a server of yours (Settings → Servers), in a Cloudflare account of yours (Settings → Cloudflare)")
 
 // CreateProjectOn creates a project of user's on a server of theirs (""
 // for the panel's), in a Cloudflare account of theirs ("" for the panel's).
