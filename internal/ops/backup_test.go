@@ -19,7 +19,6 @@ import (
 
 	"github.com/x0ryz/hakobu/internal/cloudflare"
 	"github.com/x0ryz/hakobu/internal/s3"
-	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store"
 )
 
@@ -218,7 +217,7 @@ func TestR2Backups(t *testing.T) {
 	// A node gets URLs for one part each, signed with the token's S3 keys
 	// (which the fake checks), to put a new backup and to get one back.
 	up, err := newUpload(s, backupTarget{}, "other/2.dump.enc")
-	if err != nil || up.FileKey == "" || up.PartSize != backupPartSize {
+	if err != nil || up.FileKey != "" || up.PartSize != backupPartSize {
 		t.Fatalf("upload %+v, %v", up, err)
 	}
 	put, _ := up.URL(0)
@@ -229,8 +228,8 @@ func TestR2Backups(t *testing.T) {
 	if string(objects["other/2.dump.enc/000"]) != "sealed bytes" {
 		t.Errorf("objects %v", objects)
 	}
-	dl, err := dbBackupDownload(s, store.Backup{ObjectKey: "other/2.dump.enc", Parts: 1, SHA256: "sum", FileKey: secret.String(up.FileKey)})
-	if err != nil || dl.Parts != 1 || dl.SHA256 != "sum" || dl.FileKey != up.FileKey {
+	dl, err := dbBackupDownload(s, store.Backup{ObjectKey: "other/2.dump.enc", Parts: 1, SHA256: "sum", KeyFingerprint: "fp"})
+	if err != nil || dl.Parts != 1 || dl.SHA256 != "sum" || dl.FileKey != "" || dl.KeyFingerprint != "fp" {
 		t.Fatalf("download %+v, %v", dl, err)
 	}
 	get, _ := dl.URL(0)

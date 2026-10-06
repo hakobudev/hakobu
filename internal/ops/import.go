@@ -11,6 +11,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/x0ryz/hakobu/internal/panellog"
 	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store"
 )
@@ -20,6 +21,10 @@ import (
 // moving a database in is restoring that backup: Check tries it in a
 // scratch database, Restore puts it in place. It takes pg_dump's custom
 // format (pg_dump -Fc) only, for the reason in internal/backup.
+//
+// The panel can't seal it with the key of the database's server, which it
+// never has: it uploads it sealed with a key of its own, and the server
+// opens that and seals it again as a backup of its own (Reseal).
 func ImportDump(s *store.Store, dbName string, dump io.Reader) (id int64, err error) {
 	d, err := s.GetDatabase(ctx(), dbName)
 	if err != nil {
@@ -30,6 +35,10 @@ func ImportDump(s *store.Store, dbName string, dump io.Reader) (id int64, err er
 		return 0, errors.New("not a pg_dump custom-format dump: make it with pg_dump -Fc")
 	}
 	target, err := projectBackupTarget(s, d.ProjectID)
+	if err != nil {
+		return 0, err
+	}
+	n, err := databaseNode(s, d)
 	if err != nil {
 		return 0, err
 	}
@@ -61,13 +70,33 @@ func ImportDump(s *store.Store, dbName string, dump io.Reader) (id int64, err er
 	if err != nil {
 		return 0, err
 	}
-	key := fmt.Sprintf("%s/%s-import.dump.enc", d.Name, time.Now().UTC().Format("20060102-150405"))
-	parts, err := uploadParts(s, target, key, f, info.Size())
+	stamp := time.Now().UTC().Format("20060102-150405")
+	sent := fmt.Sprintf("uploads/%s/%s-import.enc", d.Name, stamp)
+	parts, err := uploadParts(s, target, sent, f, info.Size())
+	if err != nil {
+		return 0, err
+	}
+	defer func() {
+		if err := deleteParts(s, target, sent, int64(parts)); err != nil {
+			panellog.Warn("the uploaded dump of", d.Name, "stays in the bucket at", sent+":", err)
+		}
+	}()
+	dl, err := backupDownload(s, target, sent, int64(parts), hex.EncodeToString(sum.Sum(nil)), "")
+	if err != nil {
+		return 0, err
+	}
+	dl.FileKey = fileKey
+	key := fmt.Sprintf("%s/%s-import.dump.enc", d.Name, stamp)
+	up, err := newUpload(s, target, key)
+	if err != nil {
+		return 0, err
+	}
+	obj, err := n.Reseal(ctx(), dl, up)
 	if err != nil {
 		return 0, err
 	}
 	return s.CreateBackup(ctx(), store.CreateBackupParams{
-		Database: d.Name, ObjectKey: key, Parts: int64(parts), SizeBytes: info.Size(), SHA256: hex.EncodeToString(sum.Sum(nil)), FileKey: secret.String(fileKey),
+		Database: d.Name, ObjectKey: key, Parts: int64(obj.Parts), SizeBytes: obj.Size, SHA256: obj.SHA256, KeyFingerprint: obj.KeyFingerprint,
 		AccountID: target.AccountID, Bucket: target.Bucket,
 	})
 }

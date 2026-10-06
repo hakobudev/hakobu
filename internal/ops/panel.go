@@ -230,6 +230,9 @@ type KeyFile struct {
 	Bucket     string
 	PublicHost string
 	AppsDomain string
+	// OldKeys are the keyring's: master keys from before a rotation, which
+	// still open older backups.
+	OldKeys []string
 }
 
 var keyFileFields = []struct {
@@ -249,7 +252,7 @@ func CurrentKeyFile(s *store.Store) (KeyFile, error) {
 	if err != nil {
 		return KeyFile{}, err
 	}
-	kf := KeyFile{Key: key, PublicHost: config.PublicHost(), AppsDomain: config.AppsDomain()}
+	kf := KeyFile{Key: key, PublicHost: config.PublicHost(), AppsDomain: config.AppsDomain(), OldKeys: secret.ExportKeyring()}
 	if cf, err := s.GetCloudflare(ctx()); err == nil {
 		kf.AccountID, kf.Bucket = cf.AccountID, cf.BackupBucket
 	}
@@ -264,6 +267,9 @@ func (k KeyFile) Marshal() []byte {
 	b.WriteString("#   CLOUDFLARE_API_TOKEN=... hakobu restore --key this-file\n")
 	for _, f := range keyFileFields {
 		fmt.Fprintf(&b, "%s=%s\n", f.name, *f.get(&k))
+	}
+	for _, old := range k.OldKeys {
+		fmt.Fprintf(&b, "%s=%s\n", secret.OldKeyField, old)
 	}
 	return b.Bytes()
 }
@@ -281,6 +287,9 @@ func ParseKeyFile(r io.Reader) (KeyFile, error) {
 			if f.name == name {
 				*f.get(&k) = value
 			}
+		}
+		if name == secret.OldKeyField {
+			k.OldKeys = append(k.OldKeys, value)
 		}
 	}
 	if err := sc.Err(); err != nil {
@@ -343,6 +352,12 @@ func RestorePanel(c cloudflare.Client, kf KeyFile, dbPath, keyPath, at string) (
 	}()
 	if err := secret.LoadKey(keyPath); err != nil {
 		return time.Time{}, err
+	}
+	// Older backups of the projects here open with the old keys.
+	if len(kf.OldKeys) > 0 {
+		if _, err := secret.ImportKeys(secret.KeyringDir(keyPath), strings.Join(kf.OldKeys, "\n")); err != nil {
+			return time.Time{}, fmt.Errorf("the key file's old keys: %w", err)
+		}
 	}
 	body := &partsReader{parts: pick.parts, open: func(i int) (io.ReadCloser, error) {
 		return c.GetObject(kf.AccountID, kf.Bucket, partKey(pick.key, i))

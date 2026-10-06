@@ -15,8 +15,8 @@ hakobu rebuilds and rolls out the new version with zero downtime.
 - **Resource limits**: memory and CPU caps per app and worker; out-of-memory kills show up on the app page.
 - **Databases** live in one shared Postgres container, each with its own role. Backups are one click in
   Settings: hakobu creates a private R2 bucket in your Cloudflare account and backs up every database daily,
-  sealed with the master key (each backup with a key of its own, kept in the panel's database, so backups made
-  before **Replace all secrets** still restore).
+  sealed by the server the database runs on with that server's own key, which the panel never has (a key
+  that's replaced, by **Replace all secrets** say, stays in the server's keyring, so older backups still restore).
   No S3 keys exist for it (hakobu writes with its Cloudflare token), and the bucket's lock keeps each backup
   for 7 days even from a bug in hakobu. It doesn't stop someone who has taken over the server: the token
   can change the lock. Each backup's SHA-256 is kept and checked before a restore; each is test-restored
@@ -31,7 +31,8 @@ hakobu rebuilds and rolls out the new version with zero downtime.
   container and sends app traffic straight to the app's container, so restarting or upgrading hakobu doesn't take apps down.
 - **Secrets encrypted at rest**: variables, database passwords, storage keys and tokens, but also build logs, worker
   commands and your apps' errors and logs, are encrypted in the SQLite database with a key in `key/master.key`, kept
-  apart from `data/`; the database snapshots kept for Rollback and every backup in R2 are sealed with it too. Keep a copy of the key
+  apart from `data/`; the database snapshots kept for Rollback and the backups of this server's databases and volumes are
+  sealed with it too (another server's, with its own: see [Other servers](#other-servers)). Keep a copy of the key
   wherever you keep a copy of `data/`: without it nothing secret can be read, and hakobu refuses to start rather than make a new key over data it can't read.
 - **Keeps the disk in check**: each app keeps only its live image and one for rollback; unused build cache is dropped daily.
 - Single Go binary + SQLite. Needs only Docker, which the installer sets up rootless.

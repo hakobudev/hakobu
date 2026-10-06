@@ -81,7 +81,7 @@ func putVolumeFile(s *store.Store, app store.App, volume, name, src string, targ
 		fmt.Fprintln(out, "the volume is empty yet: nothing to back up")
 	}
 	key := fmt.Sprintf("uploads/%s_%s/%s.enc", app.Name, volume, time.Now().UTC().Format("20060102-150405"))
-	up, err := newUpload(s, target, key)
+	up, err := newPanelUpload(s, target, key)
 	if err != nil {
 		return err
 	}
@@ -103,10 +103,11 @@ func putVolumeFile(s *store.Store, app store.App, volume, name, src string, targ
 			panellog.Warn("the uploaded copy of", name, "stays in the bucket at", key+":", err)
 		}
 	}()
-	dl, err := backupDownload(s, target, key, int64(obj.Parts), obj.SHA256, up.FileKey)
+	dl, err := backupDownload(s, target, key, int64(obj.Parts), obj.SHA256, "")
 	if err != nil {
 		return err
 	}
+	dl.FileKey = up.FileKey
 	defer restartWorker(s, app, out)
 	return AppNode(s, app).PutVolumeFile(ctx(), liveSpec(app), volume, name, dl, out)
 }

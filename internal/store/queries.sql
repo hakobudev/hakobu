@@ -204,7 +204,7 @@ DELETE FROM storages WHERE name = ?;
 -- Backups
 
 -- name: CreateBackup :one
-INSERT INTO backups (database, object_key, parts, size_bytes, sha256, file_key, account_id, bucket) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id;
+INSERT INTO backups (database, object_key, parts, size_bytes, sha256, key_fingerprint, account_id, bucket) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id;
 
 -- name: GetBackup :one
 SELECT * FROM backups WHERE id = ?;
@@ -225,7 +225,7 @@ DELETE FROM backups WHERE id = ?;
 DELETE FROM backups WHERE database = ?;
 
 -- name: CreateVolumeBackup :one
-INSERT INTO volume_backups (app_name, volume, object_key, parts, size_bytes, sha256, file_key, account_id, bucket) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id;
+INSERT INTO volume_backups (app_name, volume, object_key, parts, size_bytes, sha256, key_fingerprint, account_id, bucket) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id;
 
 -- name: GetVolumeBackup :one
 SELECT * FROM volume_backups WHERE id = ?;

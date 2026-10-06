@@ -405,17 +405,28 @@ func (f *Fake) SetPassword(ctx context.Context, d node.DBSpec) error {
 // Backups: the content goes to Bucket, unsealed, under the path of its
 // first part's URL; a download checks it against its SHA-256.
 
-func (f *Fake) upload(up node.Upload, content string) (node.Uploaded, error) {
-	if up.FileKey == "" {
-		return node.Uploaded{}, errors.New("no key to seal the backup with")
+// fakeKey is the fingerprint of a fake node's own key when Keys says none.
+const fakeKey = "fake-node-key"
+
+func (f *Fake) ownKey() string {
+	if k := f.Keys.Current(); k != "" {
+		return k
 	}
+	return fakeKey
+}
+
+func (f *Fake) upload(up node.Upload, content string) (node.Uploaded, error) {
 	u, err := up.URL(0)
 	if err != nil {
 		return node.Uploaded{}, err
 	}
 	f.Bucket[objectPath(u)] = content
 	sum := sha256.Sum256([]byte(content))
-	return node.Uploaded{Parts: 1, Size: int64(len(content)), SHA256: hex.EncodeToString(sum[:])}, nil
+	done := node.Uploaded{Parts: 1, Size: int64(len(content)), SHA256: hex.EncodeToString(sum[:])}
+	if up.FileKey == "" {
+		done.KeyFingerprint = f.ownKey()
+	}
+	return done, nil
 }
 
 func (f *Fake) download(dl node.Download) (string, error) {
@@ -430,7 +441,23 @@ func (f *Fake) download(dl node.Download) (string, error) {
 	if sum := sha256.Sum256([]byte(content)); hex.EncodeToString(sum[:]) != dl.SHA256 {
 		return "", errors.New("the backup in the bucket doesn't match the one hakobu made (SHA-256 differs), not restoring it")
 	}
+	if dl.FileKey == "" && dl.KeyFingerprint != f.ownKey() && !slices.Contains(f.Keys.Fingerprints, dl.KeyFingerprint) {
+		return "", fmt.Errorf("it's sealed with key %s, which this server doesn't have", dl.KeyFingerprint)
+	}
 	return content, nil
+}
+
+func (f *Fake) Reseal(ctx context.Context, dl node.Download, up node.Upload) (node.Uploaded, error) {
+	unlock, err := f.call("Reseal")
+	defer unlock()
+	if err != nil {
+		return node.Uploaded{}, err
+	}
+	content, err := f.download(dl)
+	if err != nil {
+		return node.Uploaded{}, err
+	}
+	return f.upload(up, content)
 }
 
 func objectPath(rawURL string) string {

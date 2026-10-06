@@ -73,6 +73,9 @@ type Node interface {
 	BackupVolume(ctx context.Context, app, name string, up Upload) (Uploaded, error)
 	RestoreVolume(ctx context.Context, app AppSpec, name string, dl Download, out io.Writer) error
 	VerifyVolumeBackup(ctx context.Context, dl Download) (files int, err error)
+	// Reseal makes a file the panel sent (a dump moved in) a backup of the
+	// node's: opened with its FileKey, sealed with the node's own key.
+	Reseal(ctx context.Context, dl Download, up Upload) (Uploaded, error)
 	// PutVolumeFile writes a file uploaded to the panel (a sealed object
 	// like a backup) into the volume at name, with the app stopped.
 	PutVolumeFile(ctx context.Context, app AppSpec, volume, name string, dl Download, out io.Writer) error

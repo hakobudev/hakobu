@@ -105,6 +105,20 @@ func Fingerprints() []string {
 	return out
 }
 
+// OldKeyField is a keyring key in a panel's key file.
+const OldKeyField = "HAKOBU_OLD_KEY"
+
+// ExportKeyring is the keyring's keys, base64, for a panel's key file.
+func ExportKeyring() []string {
+	mu.RLock()
+	defer mu.RUnlock()
+	out := make([]string, len(keyring))
+	for i, k := range keyring {
+		out[i] = base64.StdEncoding.EncodeToString(k.raw)
+	}
+	return out
+}
+
 // keysHeader starts a file from ExportKeys.
 const keysHeader = "# hakobu server keys: they open this server's backups. Keep this file off the server.\n"
 
@@ -134,9 +148,15 @@ func ImportKeys(dir, file string) ([]string, error) {
 	found := 0
 	for _, line := range strings.Split(file, "\n") {
 		line = strings.TrimSpace(line)
-		line = strings.TrimPrefix(line, envKey+"=")
-		if line == "" || strings.HasPrefix(line, "#") || strings.Contains(line, "=") && !strings.HasSuffix(line, "=") {
-			continue // a comment, or another setting of a panel's key file
+		if name, value, ok := strings.Cut(line, "="); ok && strings.HasPrefix(name, "HAKOBU_") {
+			// A panel's key file: its keys, not its other settings.
+			if name != envKey && name != OldKeyField {
+				continue
+			}
+			line = value
+		}
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
 		}
 		raw, err := decodeKey(line, "a key in the file")
 		if err != nil {

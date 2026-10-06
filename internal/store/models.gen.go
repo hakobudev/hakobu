@@ -74,19 +74,19 @@ type AppRoute struct {
 }
 
 type Backup struct {
-	ID          int64
-	Database    string
-	AccountID   string
-	Bucket      string
-	ObjectKey   string
-	Parts       int64
-	SizeBytes   int64
-	SHA256      string
-	FileKey     secret.String
-	CreatedAt   string
-	VerifiedAt  string
-	VerifyError string
-	Tables      int64
+	ID             int64
+	Database       string
+	AccountID      string
+	Bucket         string
+	ObjectKey      string
+	Parts          int64
+	SizeBytes      int64
+	SHA256         string
+	KeyFingerprint string
+	CreatedAt      string
+	VerifiedAt     string
+	VerifyError    string
+	Tables         int64
 }
 
 type Cloudflare struct {
@@ -266,20 +266,20 @@ type Volume struct {
 }
 
 type VolumeBackup struct {
-	ID          int64
-	AppName     string
-	Volume      string
-	AccountID   string
-	Bucket      string
-	ObjectKey   string
-	Parts       int64
-	SizeBytes   int64
-	SHA256      string
-	FileKey     secret.String
-	CreatedAt   string
-	VerifiedAt  string
-	VerifyError string
-	Files       int64
+	ID             int64
+	AppName        string
+	Volume         string
+	AccountID      string
+	Bucket         string
+	ObjectKey      string
+	Parts          int64
+	SizeBytes      int64
+	SHA256         string
+	KeyFingerprint string
+	CreatedAt      string
+	VerifiedAt     string
+	VerifyError    string
+	Files          int64
 }
 
 type Watchdog struct {

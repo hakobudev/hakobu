@@ -9,7 +9,6 @@ import (
 	"github.com/x0ryz/hakobu/internal/config"
 	"github.com/x0ryz/hakobu/internal/node"
 	"github.com/x0ryz/hakobu/internal/panellog"
-	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store"
 )
 
@@ -73,14 +72,14 @@ func backupVolumeHeld(s *store.Store, a store.App, volume string) (int64, error)
 		return 0, err
 	}
 	return s.CreateVolumeBackup(ctx(), store.CreateVolumeBackupParams{
-		AppName: app, Volume: volume, ObjectKey: key, Parts: int64(obj.Parts), SizeBytes: obj.Size, SHA256: obj.SHA256, FileKey: secret.String(up.FileKey),
+		AppName: app, Volume: volume, ObjectKey: key, Parts: int64(obj.Parts), SizeBytes: obj.Size, SHA256: obj.SHA256, KeyFingerprint: obj.KeyFingerprint,
 		AccountID: target.AccountID, Bucket: target.Bucket,
 	})
 }
 
 // volumeBackupDownload is backupDownload for a volume backup.
 func volumeBackupDownload(s *store.Store, b store.VolumeBackup) (node.Download, error) {
-	return backupDownload(s, backupTarget{b.AccountID, b.Bucket}, b.ObjectKey, b.Parts, b.SHA256, string(b.FileKey))
+	return backupDownload(s, backupTarget{b.AccountID, b.Bucket}, b.ObjectKey, b.Parts, b.SHA256, b.KeyFingerprint)
 }
 
 // VerifyVolumeBackup downloads a backup and reads the whole tar in it; the

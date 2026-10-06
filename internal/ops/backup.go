@@ -342,7 +342,7 @@ func BackupDatabase(s *store.Store, dbName string) (id int64, err error) {
 		return 0, err
 	}
 	return s.CreateBackup(ctx(), store.CreateBackupParams{
-		Database: d.Name, ObjectKey: key, Parts: int64(obj.Parts), SizeBytes: obj.Size, SHA256: obj.SHA256, FileKey: secret.String(up.FileKey),
+		Database: d.Name, ObjectKey: key, Parts: int64(obj.Parts), SizeBytes: obj.Size, SHA256: obj.SHA256, KeyFingerprint: obj.KeyFingerprint,
 		AccountID: target.AccountID, Bucket: target.Bucket,
 	})
 }
@@ -353,30 +353,38 @@ func BackupDatabase(s *store.Store, dbName string) (id int64, err error) {
 // account, so they never leave the panel.
 const urlTTL = time.Hour
 
-// newUpload is a new backup at key in t's bucket: its own key, and URLs
-// to put its parts.
+// newUpload is a new backup at key in t's bucket: URLs to put its parts,
+// which its node seals with its own key.
 func newUpload(s *store.Store, t backupTarget, key string) (node.Upload, error) {
-	fileKey, err := secret.NewFileKey()
-	if err != nil {
-		return node.Upload{}, err
-	}
 	sign, err := presigner(s, t, http.MethodPut)
 	if err != nil {
 		return node.Upload{}, err
 	}
-	return node.Upload{FileKey: fileKey, PartSize: backupPartSize, URL: func(part int) (string, error) {
+	return node.Upload{PartSize: backupPartSize, URL: func(part int) (string, error) {
 		return sign(partKey(key, part))
 	}}, nil
 }
 
+// newPanelUpload is newUpload for a file the panel sends a node through
+// the bucket, sealed with a key of its own that the panel hands the node
+// along with the file; it's deleted once the node has it.
+func newPanelUpload(s *store.Store, t backupTarget, key string) (node.Upload, error) {
+	up, err := newUpload(s, t, key)
+	if err != nil {
+		return up, err
+	}
+	up.FileKey, err = secret.NewFileKey()
+	return up, err
+}
+
 // backupDownload is a backup's parts in t's bucket, for its node to
-// download, check and open.
-func backupDownload(s *store.Store, t backupTarget, key string, parts int64, sha, fileKey string) (node.Download, error) {
+// download, check and open with its key, keyFingerprint.
+func backupDownload(s *store.Store, t backupTarget, key string, parts int64, sha, keyFingerprint string) (node.Download, error) {
 	sign, err := presigner(s, t, http.MethodGet)
 	if err != nil {
 		return node.Download{}, err
 	}
-	return node.Download{FileKey: fileKey, SHA256: sha, Parts: int(parts), URL: func(part int) (string, error) {
+	return node.Download{KeyFingerprint: keyFingerprint, SHA256: sha, Parts: int(parts), URL: func(part int) (string, error) {
 		return sign(partKey(key, part))
 	}}, nil
 }
@@ -425,7 +433,7 @@ func r2Credentials(c cloudflare.Client) (keyID, secretKey string, err error) {
 
 // dbBackupDownload is backupDownload for a database backup.
 func dbBackupDownload(s *store.Store, b store.Backup) (node.Download, error) {
-	return backupDownload(s, backupTarget{b.AccountID, b.Bucket}, b.ObjectKey, b.Parts, b.SHA256, string(b.FileKey))
+	return backupDownload(s, backupTarget{b.AccountID, b.Bucket}, b.ObjectKey, b.Parts, b.SHA256, b.KeyFingerprint)
 }
 
 // uploadParts uploads size bytes of r as key/000, key/001, ...

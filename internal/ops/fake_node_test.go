@@ -180,7 +180,8 @@ func waitJob(t *testing.T, app string) {
 }
 
 // A database's and a volume's backup go from their node to R2 and back:
-// the panel only signs URLs and keeps each backup's key and SHA-256.
+// the panel only signs URLs and keeps each backup's SHA-256 and the
+// fingerprint of the node's key that sealed it.
 func TestBackupsGoBetweenTheNodeAndR2(t *testing.T) {
 	s, f := fakeNode(t)
 	fakeR2(t)
@@ -198,7 +199,7 @@ func TestBackupsGoBetweenTheNodeAndR2(t *testing.T) {
 	must(err)
 	b, err := s.GetBackup(ctx(), id)
 	must(err)
-	if b.FileKey == "" || b.SHA256 == "" || b.AccountID != "acc" || b.Bucket != "hakobu-backups-1" {
+	if b.KeyFingerprint == "" || b.SHA256 == "" || b.AccountID != "acc" || b.Bucket != "hakobu-backups-1" {
 		t.Errorf("backup %+v", b)
 	}
 	if tables, err := verify(s, b); err != nil || tables != 1 {

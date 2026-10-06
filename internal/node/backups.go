@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"slices"
 
 	"github.com/x0ryz/hakobu/internal/backup"
 	"github.com/x0ryz/hakobu/internal/config"
@@ -18,14 +19,17 @@ import (
 	"github.com/x0ryz/hakobu/internal/secret"
 )
 
-// Backups of databases and volumes go from the node straight to R2. The
-// panel gives the node, for each backup, the key to seal it with and
-// presigned URLs for its parts, made with credentials that never leave
-// the panel: a URL lets the node write or read that part alone, for an
-// hour. The panel keeps the key, the SHA-256 and the parts' count.
+// Backups of databases and volumes go from the node straight to R2,
+// sealed with the node's own key (keys.go), which the panel never has. The
+// panel gives the node presigned URLs for each backup's parts, made with
+// credentials that never leave the panel: a URL lets the node write or
+// read that part alone, for an hour. The panel keeps the SHA-256, the
+// parts' count and the key's fingerprint.
 
-// Upload is where a backup goes: sealed with FileKey (secret.NewFileKey),
-// in parts of at most PartSize, part i to URL(i), a presigned PUT.
+// Upload is where a backup goes: in parts of at most PartSize, part i to
+// URL(i), a presigned PUT. It's sealed with the node's own key, or with
+// FileKey (secret.NewFileKey) when the panel sends a file to a node this
+// way and keeps the key until the node has it (UploadSealed).
 type Upload struct {
 	FileKey  string
 	PartSize int64
@@ -37,16 +41,20 @@ type Uploaded struct {
 	Parts  int
 	Size   int64  // of the sealed file
 	SHA256 string // of the sealed file, checked before it's restored
+	// KeyFingerprint names the node's key that sealed it, "" for FileKey.
+	KeyFingerprint string
 }
 
 // Download is an uploaded backup: Parts parts, part i at URL(i), a
-// presigned GET. FileKey "" is a dump from before backups were sealed,
-// read as it is.
+// presigned GET. It opens with the node's keys, or with FileKey for a file
+// the panel sent; KeyFingerprint names the key it needs, for saying which
+// one a node lacks.
 type Download struct {
-	FileKey string
-	SHA256  string
-	Parts   int
-	URL     func(part int) (string, error) `json:"-"`
+	FileKey        string
+	KeyFingerprint string
+	SHA256         string
+	Parts          int
+	URL            func(part int) (string, error) `json:"-"`
 }
 
 // tmpDir holds backups on their way; it's on the data disk rather than
@@ -186,12 +194,27 @@ func (Local) VerifyVolumeBackup(ctx context.Context, dl Download) (files int, er
 	}
 }
 
+func (Local) Reseal(ctx context.Context, dl Download, up Upload) (Uploaded, error) {
+	if dl.FileKey == "" || up.FileKey != "" {
+		return Uploaded{}, errors.New("reseal takes a file sealed with a key of its own, for the node's key")
+	}
+	body, err := download(ctx, dl)
+	if err != nil {
+		return Uploaded{}, err
+	}
+	defer body.Close()
+	return uploadSealed(ctx, up, func(w io.Writer) error {
+		_, err := io.Copy(w, body)
+		return err
+	})
+}
+
 // uploadSealed seals what write produces into a temporary file (an upload
 // needs its size up front) and uploads it in parts. A backup in the bucket
 // is no use to whoever gets at the bucket without its key.
 func uploadSealed(ctx context.Context, up Upload, write func(io.Writer) error) (Uploaded, error) {
-	if up.FileKey == "" || up.PartSize <= 0 {
-		return Uploaded{}, errors.New("a backup needs a key and a part size")
+	if up.PartSize <= 0 {
+		return Uploaded{}, errors.New("a backup needs a part size")
 	}
 	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
 		return Uploaded{}, err
@@ -203,7 +226,15 @@ func uploadSealed(ctx context.Context, up Upload, write func(io.Writer) error) (
 	defer os.Remove(f.Name())
 	defer f.Close()
 	sum := sha256.New()
-	w, err := secret.NewFileWriterWithKey(io.MultiWriter(f, sum), up.FileKey)
+	var w io.WriteCloser
+	fingerprint := ""
+	if up.FileKey != "" {
+		w, err = secret.NewFileWriterWithKey(io.MultiWriter(f, sum), up.FileKey)
+	} else {
+		// The file's key is in its header, sealed with the node's.
+		w, _, err = secret.NewFileWriterKey(io.MultiWriter(f, sum))
+		fingerprint = secret.Fingerprint()
+	}
 	if err != nil {
 		return Uploaded{}, err
 	}
@@ -217,7 +248,7 @@ func uploadSealed(ctx context.Context, up Upload, write func(io.Writer) error) (
 	if err != nil {
 		return Uploaded{}, err
 	}
-	u := Uploaded{Size: info.Size(), SHA256: hex.EncodeToString(sum.Sum(nil))}
+	u := Uploaded{Size: info.Size(), SHA256: hex.EncodeToString(sum.Sum(nil)), KeyFingerprint: fingerprint}
 	for offset := int64(0); offset < u.Size || u.Parts == 0; offset += up.PartSize {
 		n := min(up.PartSize, u.Size-offset)
 		if err := putPart(ctx, up, u.Parts, io.NewSectionReader(f, offset, n), n); err != nil {
@@ -294,11 +325,14 @@ func download(ctx context.Context, dl Download) (io.ReadCloser, error) {
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		return fail(err)
 	}
-	var r io.Reader = f
+	var r io.Reader
 	if dl.FileKey != "" {
-		if r, err = secret.NewFileReaderKey(f, dl.FileKey); err != nil {
-			return fail(err)
-		}
+		r, err = secret.NewFileReaderKey(f, dl.FileKey)
+	} else if r, err = secret.NewFileReader(f); err != nil && dl.KeyFingerprint != "" && !slices.Contains(secret.Fingerprints(), dl.KeyFingerprint) {
+		err = fmt.Errorf("it's sealed with key %s, which this server doesn't have: import the keys of the server that made it (hakobu key import), then restart hakobu here", dl.KeyFingerprint)
+	}
+	if err != nil {
+		return fail(err)
 	}
 	return tempReader{r, f}, nil
 }

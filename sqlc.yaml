@@ -71,10 +71,6 @@ sql:
             go_type: {import: github.com/x0ryz/hakobu/internal/secret, type: String}
           - column: deploy_logs.output
             go_type: {import: github.com/x0ryz/hakobu/internal/secret, type: String}
-          - column: backups.file_key
-            go_type: {import: github.com/x0ryz/hakobu/internal/secret, type: String}
-          - column: volume_backups.file_key
-            go_type: {import: github.com/x0ryz/hakobu/internal/secret, type: String}
   # Telemetry lives in its own database, which isn't backed up.
   - engine: sqlite
     schema: internal/store/telemetry/migrations

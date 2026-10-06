@@ -247,9 +247,10 @@ CREATE TABLE storages (
 
 -- A backup is the files <object_key>/000, /001, ... in bucket of the
 -- Cloudflare account account_id (one upload is capped at 300 MB), sealed
--- with file_key (secret.NewFileWriterKey). The check restores it into a
--- scratch database: verified_at '' means not checked yet, verify_error ''
--- means it restored.
+-- by its server with the server's own key, which hakobu never has: only
+-- its fingerprint, key_fingerprint. The check restores it into a scratch
+-- database: verified_at '' means not checked yet, verify_error '' means it
+-- restored.
 CREATE TABLE backups (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	database TEXT NOT NULL,
@@ -261,7 +262,7 @@ CREATE TABLE backups (
 	-- of the whole sealed file, checked before it's restored: the bucket
 	-- is outside this server, and a restore runs whatever the dump says
 	sha256 TEXT NOT NULL,
-	file_key TEXT NOT NULL DEFAULT '',
+	key_fingerprint TEXT NOT NULL,
 	created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
 	verified_at TEXT NOT NULL DEFAULT '',
 	verify_error TEXT NOT NULL DEFAULT '',
@@ -280,7 +281,7 @@ CREATE TABLE volume_backups (
 	parts INTEGER NOT NULL,
 	size_bytes INTEGER NOT NULL DEFAULT 0,
 	sha256 TEXT NOT NULL,
-	file_key TEXT NOT NULL,
+	key_fingerprint TEXT NOT NULL,
 	created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
 	verified_at TEXT NOT NULL DEFAULT '',
 	verify_error TEXT NOT NULL DEFAULT '',

@@ -47,11 +47,14 @@ func bucket(t *testing.T) (objects map[string][]byte, urls func(key string) func
 
 func TestBackupsGoUpSealedInParts(t *testing.T) {
 	t.Chdir(t.TempDir()) // for tmpDir
+	if err := secret.LoadKey(filepath.Join(t.TempDir(), "master.key")); err != nil {
+		t.Fatal(err)
+	}
 	objects, urls := bucket(t)
 	ctx := context.Background()
-	key, _ := secret.NewFileKey()
 	dump := strings.Repeat("password=hunter2 ", 50)
-	up := Upload{FileKey: key, PartSize: 100, URL: urls("main/1")}
+	// Sealed with the node's own key, which the panel never has.
+	up := Upload{PartSize: 100, URL: urls("main/1")}
 	got, err := uploadSealed(ctx, up, func(w io.Writer) error {
 		_, err := io.WriteString(w, dump)
 		return err
@@ -59,7 +62,7 @@ func TestBackupsGoUpSealedInParts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Parts != int((got.Size+99)/100) || got.Parts < 2 || len(objects) != got.Parts {
+	if got.Parts != int((got.Size+99)/100) || got.Parts < 2 || len(objects) != got.Parts || got.KeyFingerprint != secret.Fingerprint() {
 		t.Fatalf("uploaded %+v, objects %d", got, len(objects))
 	}
 	for k, v := range objects {
@@ -67,7 +70,7 @@ func TestBackupsGoUpSealedInParts(t *testing.T) {
 			t.Errorf("%s holds the dump in the clear", k)
 		}
 	}
-	dl := Download{FileKey: key, SHA256: got.SHA256, Parts: got.Parts, URL: urls("main/1")}
+	dl := Download{KeyFingerprint: got.KeyFingerprint, SHA256: got.SHA256, Parts: got.Parts, URL: urls("main/1")}
 	if body, err := download(ctx, dl); err != nil {
 		t.Errorf("downloading an intact backup: %v", err)
 	} else {
@@ -87,25 +90,41 @@ func TestBackupsGoUpSealedInParts(t *testing.T) {
 		}
 	}
 
-	// A dump from before backups were sealed is read as it is.
+	// Nothing unsealed is restored.
 	objects["/old/1/000"] = []byte("plain dump")
 	sum := sha256.Sum256([]byte("plain dump"))
-	if body, err := download(ctx, Download{SHA256: hex.EncodeToString(sum[:]), Parts: 1, URL: urls("old/1")}); err != nil {
-		t.Errorf("an unsealed dump: %v", err)
-	} else {
-		b, _ := io.ReadAll(body)
+	if body, err := download(ctx, Download{SHA256: hex.EncodeToString(sum[:]), Parts: 1, URL: urls("old/1")}); err == nil {
 		body.Close()
-		if string(b) != "plain dump" {
-			t.Errorf("an unsealed dump read back %q", b)
+		t.Error("an unsealed dump was read")
+	}
+
+	// A file the panel sends comes sealed with a key of its own.
+	key, _ := secret.NewFileKey()
+	sent, err := uploadSealed(ctx, Upload{FileKey: key, PartSize: 1 << 20, URL: urls("sent")}, func(w io.Writer) error {
+		_, err := io.WriteString(w, "a file")
+		return err
+	})
+	if err != nil || sent.KeyFingerprint != "" {
+		t.Fatalf("sent %+v, %v", sent, err)
+	}
+	if body, err := download(ctx, Download{FileKey: key, SHA256: sent.SHA256, Parts: 1, URL: urls("sent")}); err != nil {
+		t.Errorf("a file the panel sent: %v", err)
+	} else {
+		body.Close()
+	}
+
+	// A backup of another server's says which key to import.
+	other := Download{KeyFingerprint: "0123456789abcdef", SHA256: sent.SHA256, Parts: 1, URL: urls("sent")}
+	if body, err := download(ctx, other); err == nil || !strings.Contains(err.Error(), "hakobu key import") {
+		t.Errorf("another server's backup: %v", err)
+		if body != nil {
+			body.Close()
 		}
 	}
 
 	// An empty dump is a sealed file too, in one part.
-	if got, err := uploadSealed(ctx, Upload{FileKey: key, PartSize: 1 << 20, URL: urls("empty")}, func(io.Writer) error { return nil }); err != nil || got.Parts != 1 {
+	if got, err := uploadSealed(ctx, Upload{PartSize: 1 << 20, URL: urls("empty")}, func(io.Writer) error { return nil }); err != nil || got.Parts != 1 {
 		t.Errorf("empty dump: %+v, %v", got, err)
-	}
-	if _, err := uploadSealed(ctx, Upload{PartSize: 100, URL: urls("nokey")}, func(io.Writer) error { return nil }); err == nil {
-		t.Error("uploaded a backup without a key to seal it with")
 	}
 	if left, _ := filepath.Glob(filepath.Join(tmpDir, "*")); len(left) != 0 {
 		t.Errorf("temporary files left: %v", left)

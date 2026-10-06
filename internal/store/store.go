@@ -109,9 +109,6 @@ var secretColumns = map[string][]string{
 	"link_key":            {"private_key"},
 	"server_tunnels":      {"tunnel_token"},
 	"sealed_vars":         {"value"},
-	// The keys of backups in the bucket (secret.NewFileWriterKey).
-	"backups":        {"file_key"},
-	"volume_backups": {"file_key"},
 	// Build output: scripts print secrets now and then.
 	"deploy_logs": {"output"},
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -54,8 +55,9 @@ func TestPanelBackupAndRestore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	kf.OldKeys = []string{"b2xkIGtleSBvZiBhIHJvdGF0aW9uIDMyIGJ5dGVzIS4="}
 	parsed, err := ParseKeyFile(bytes.NewReader(kf.Marshal()))
-	if err != nil || parsed != kf || kf.Bucket == "" || kf.PublicHost != "panel.example.com" {
+	if err != nil || !reflect.DeepEqual(parsed, kf) || kf.Bucket == "" || kf.PublicHost != "panel.example.com" {
 		t.Fatalf("key file round trip: %+v, %v (want %+v)", parsed, err, kf)
 	}
 
