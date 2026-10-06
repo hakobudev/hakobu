@@ -43,10 +43,8 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if setupReconnect || !ops.CloudflareConnected(s) {
-		if err := connectCloudflare(s); err != nil {
-			return err
-		}
+	if err := ensureCloudflare(s); err != nil {
+		return err
 	}
 	if setupDomain != "" {
 		return movePanel(s)
@@ -120,6 +118,20 @@ func movePanel(s *store.Store) error {
 		}
 	}
 	return nil
+}
+
+// ensureCloudflare asks for a token when there is none, when told to, or
+// when the saved one stopped working: a rerun of the installer after a
+// setup that failed on a deleted token would otherwise keep using it.
+func ensureCloudflare(s *store.Store) error {
+	if !setupReconnect && ops.CloudflareConnected(s) {
+		_, err := ops.Zones(s)
+		if err == nil {
+			return nil
+		}
+		fmt.Println("The saved Cloudflare token doesn't work:", err)
+	}
+	return connectCloudflare(s)
 }
 
 // connectCloudflare asks for an API token, through the dashboard form for
