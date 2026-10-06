@@ -86,8 +86,8 @@ func StartCloudflareOAuth(user int64) (string, error) {
 }
 
 // FinishCloudflareOAuth trades the code Cloudflare sent back for tokens;
-// the user then picks one of the accounts they reach, under the ID
-// returned (ConnectOAuthAccount).
+// the user then picks which of the accounts they reach to connect, under
+// the ID returned (ConnectOAuthAccounts).
 func FinishCloudflareOAuth(user int64, state, code string) (string, []cloudflare.Account, error) {
 	oauthLogins.Lock()
 	start, ok := oauthLogins.started[state]
@@ -117,11 +117,47 @@ func FinishCloudflareOAuth(user int64, state, code string) (string, []cloudflare
 	return id, accounts, nil
 }
 
-// ConnectOAuthAccount connects account, one the sign-in id reached, as
-// name, and creates its tunnel.
-func ConnectOAuthAccount(s *store.Store, user int64, id, account, name string) error {
-	if err := checkName("client", name); err != nil {
-		return err
+// OAuthChoice is an account a sign-in reached, with the name it would be
+// connected as, or why it can't be.
+type OAuthChoice struct {
+	cloudflare.Account
+	Name  string
+	Taken string // "" if it can be connected
+}
+
+// OAuthChoices are the accounts to offer after a sign-in: each with a name
+// of its own, and those that can't be connected (the panel's, or already
+// connected) saying why.
+func OAuthChoices(s *store.Store, user int64, accounts []cloudflare.Account) []OAuthChoice {
+	panel, _ := panelAccount(s)
+	names := map[string]bool{}
+	out := make([]OAuthChoice, len(accounts))
+	for i, a := range accounts {
+		out[i].Account = a
+		switch other, err := s.GetCloudflareAccountByAccountID(ctx(), a.ID); {
+		case panel.AccountID == a.ID:
+			out[i].Taken = "the panel's own account"
+		case err == nil && other.UserID == user:
+			out[i].Taken = "connected as " + other.Name
+		case err == nil:
+			out[i].Taken = "connected by someone else"
+		default:
+			out[i].Name = suggestAccountName(s, a.Name, names)
+			names[out[i].Name] = true
+		}
+	}
+	return out
+}
+
+// OAuthPick is an account to connect from a sign-in, and its name.
+type OAuthPick struct{ Account, Name string }
+
+// ConnectOAuthAccounts connects the accounts picked from the sign-in id,
+// each under its name and with its tunnel, sharing the sign-in's tokens.
+// Those that fail are told in the error; the others stay connected.
+func ConnectOAuthAccounts(s *store.Store, user int64, id string, picks []OAuthPick) error {
+	if len(picks) == 0 {
+		return errors.New("pick at least one account")
 	}
 	oauthLogins.Lock()
 	done, ok := oauthLogins.done[id]
@@ -129,30 +165,46 @@ func ConnectOAuthAccount(s *store.Store, user int64, id, account, name string) e
 	if !ok || done.user != user || time.Since(done.at) > oauthLoginTTL {
 		return errors.New("this sign-in expired or isn't yours: start it again from Settings → Cloudflare accounts")
 	}
+	var failed []string
+	for _, p := range picks {
+		if err := connectOAuthAccount(s, user, id, done, p); err != nil {
+			failed = append(failed, p.Name+": "+err.Error())
+		}
+	}
+	if len(failed) > 0 {
+		return errors.New(strings.Join(failed, "; "))
+	}
+	oauthLogins.Lock()
+	delete(oauthLogins.done, id)
+	oauthLogins.Unlock()
+	return nil
+}
+
+// connectOAuthAccount connects one account the sign-in reached; the
+// sign-in's id groups the accounts that share its tokens.
+func connectOAuthAccount(s *store.Store, user int64, signin string, done oauthDone, p OAuthPick) error {
+	if err := checkName("client", p.Name); err != nil {
+		return err
+	}
 	found := false
 	for _, a := range done.accounts {
-		found = found || a.ID == account
+		found = found || a.ID == p.Account
 	}
 	if !found {
 		return errors.New("that account isn't one this sign-in reaches")
 	}
 	t := done.token
-	err := connectAccount(s, user, name, account, cloudflare.Client{Token: t.AccessToken, AccountID: account}, func() (int64, error) {
+	return connectAccount(s, user, p.Name, p.Account, cloudflare.Client{Token: t.AccessToken, AccountID: p.Account}, func() (int64, error) {
 		return s.CreateOAuthCloudflareAccount(ctx(), store.CreateOAuthCloudflareAccountParams{
-			Name: name, ApiToken: secret.String(t.AccessToken), RefreshToken: secret.String(t.RefreshToken),
-			TokenExpires: t.ExpiresAt.UTC().Format(time.RFC3339), AccountID: account, UserID: user,
+			Name: p.Name, ApiToken: secret.String(t.AccessToken), RefreshToken: secret.String(t.RefreshToken),
+			TokenExpires: t.ExpiresAt.UTC().Format(time.RFC3339), Signin: signin, AccountID: p.Account, UserID: user,
 		})
 	})
-	if err == nil {
-		oauthLogins.Lock()
-		delete(oauthLogins.done, id)
-		oauthLogins.Unlock()
-	}
-	return err
 }
 
-// SuggestAccountName makes a client name of a Cloudflare account's name.
-func SuggestAccountName(s *store.Store, accountName string) string {
+// suggestAccountName makes a client name of a Cloudflare account's name,
+// one neither connected nor in taken.
+func suggestAccountName(s *store.Store, accountName string, taken map[string]bool) string {
 	name := strings.Trim(regexp.MustCompile(`[^a-z0-9]+`).ReplaceAllString(strings.ToLower(accountName), "-"), "-")
 	name = strings.TrimSuffix(name, "-s-account")
 	if name == "" || name[0] < 'a' || name[0] > 'z' {
@@ -163,7 +215,7 @@ func SuggestAccountName(s *store.Store, accountName string) string {
 	}
 	base := name
 	for i := 2; ; i++ {
-		if _, err := s.GetCloudflareAccountByName(ctx(), name); err != nil {
+		if _, err := s.GetCloudflareAccountByName(ctx(), name); err != nil && !taken[name] {
 			return name
 		}
 		name = fmt.Sprintf("%s-%d", base, i)
@@ -178,8 +230,10 @@ var oauthRefresh sync.Mutex
 const refreshBefore = 30 * time.Minute
 
 // freshToken is the account's token, for an OAuth one renewed first when
-// it runs out within refreshBefore. A renewal that fails leaves the old
-// token, good till it runs out, and tells the account's owner.
+// it runs out within refreshBefore. The accounts of one sign-in share its
+// tokens and are renewed together: a refresh token works only once. A
+// renewal that fails leaves the old token, good till it runs out, and
+// tells the accounts' owner.
 func freshToken(s *store.Store, a store.CloudflareAccount) string {
 	if a.RefreshToken == "" {
 		return string(a.ApiToken)
@@ -193,38 +247,67 @@ func freshToken(s *store.Store, a store.CloudflareAccount) string {
 	if err == nil && time.Until(exp) > refreshBefore {
 		return string(a.ApiToken)
 	}
+	key, names := signInOf(s, a)
 	t, err := cloudflare.Refresh(config.CloudflareClientID, string(a.RefreshToken))
 	if err != nil {
 		left := "it has run out"
 		if until := time.Until(exp); until > 0 {
 			left = fmt.Sprintf("the current one works for %s more", until.Round(time.Minute))
 		}
-		panellog.Error("renewing the Cloudflare sign-in of", a.Name+":", err)
-		problem(s, "cloudflare:"+a.Name, notifyAgain, "Cloudflare account "+a.Name+" can't renew its sign-in",
-			"hakobu couldn't renew its access to Cloudflare account "+a.Name+"; "+left+". It keeps trying every few minutes.\n\n"+
+		panellog.Error("renewing the Cloudflare sign-in of", names+":", err)
+		problem(s, key, notifyAgain, "Cloudflare account "+names+" can't renew its sign-in",
+			"hakobu couldn't renew its access to Cloudflare account "+names+"; "+left+". It keeps trying every few minutes.\n\n"+
 				err.Error()+"\n\nIf it keeps failing, connect the account with an API token instead, which never needs renewing: Settings → Cloudflare accounts → "+a.Name+" → Replace token.\n\n"+panelURL("/settings#clients"))
 		return string(a.ApiToken)
 	}
-	if err := s.SetCloudflareAccountOAuth(ctx(), store.SetCloudflareAccountOAuthParams{
-		ApiToken: secret.String(t.AccessToken), RefreshToken: secret.String(t.RefreshToken),
-		TokenExpires: t.ExpiresAt.UTC().Format(time.RFC3339), ID: a.ID,
-	}); err != nil {
-		panellog.Error("saving the renewed Cloudflare sign-in of", a.Name+":", err)
+	tokens := secret.String(t.AccessToken)
+	refresh := secret.String(t.RefreshToken)
+	expires := t.ExpiresAt.UTC().Format(time.RFC3339)
+	if a.Signin != "" {
+		err = s.SetCloudflareSignIn(ctx(), store.SetCloudflareSignInParams{ApiToken: tokens, RefreshToken: refresh, TokenExpires: expires, Signin: a.Signin})
+	} else {
+		err = s.SetCloudflareAccountOAuth(ctx(), store.SetCloudflareAccountOAuthParams{ApiToken: tokens, RefreshToken: refresh, TokenExpires: expires, ID: a.ID})
 	}
-	solved(s, "cloudflare:"+a.Name, "Cloudflare account "+a.Name+" renews its sign-in again", "hakobu renewed its access to Cloudflare account "+a.Name+".")
+	if err != nil {
+		panellog.Error("saving the renewed Cloudflare sign-in of", names+":", err)
+	}
+	solved(s, key, "Cloudflare account "+names+" renews its sign-in again", "hakobu renewed its access to Cloudflare account "+names+".")
 	return t.AccessToken
+}
+
+// signInOf is the problem key of the account's sign-in and the names of
+// the accounts sharing it, for telling the owner once for all of them.
+func signInOf(s *store.Store, a store.CloudflareAccount) (key, names string) {
+	if a.Signin == "" {
+		return "cloudflare:" + a.Name, a.Name
+	}
+	var all []string
+	if rows, err := s.ListCloudflareAccounts(ctx()); err == nil {
+		for _, r := range rows {
+			if r.Signin == a.Signin {
+				all = append(all, r.Name)
+			}
+		}
+	}
+	if len(all) == 0 {
+		all = []string{a.Name}
+	}
+	return "cloudflare-signin:" + a.Signin, strings.Join(all, ", ")
 }
 
 // RenewCloudflareSignIns keeps the OAuth accounts' tokens fresh, every
 // interval, whether they're used or not, so a renewal that fails is
-// retried long before the token runs out.
+// retried long before the token runs out; once per sign-in.
 func RenewCloudflareSignIns(s *store.Store, interval time.Duration) {
 	for {
 		if rows, err := s.ListCloudflareAccounts(ctx()); err == nil {
+			seen := map[string]bool{}
 			for _, a := range rows {
-				if a.RefreshToken != "" {
-					freshToken(s, a)
+				if a.RefreshToken == "" || (a.Signin != "" && seen[a.Signin]) {
+					continue
 				}
+				seen[a.Signin] = true
+				freshToken(s, a)
 			}
 		}
 		time.Sleep(interval)

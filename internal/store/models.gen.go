@@ -112,6 +112,7 @@ type CloudflareAccount struct {
 	RefreshToken secret.String
 	TokenExpires string
 	R2Token      secret.String
+	Signin       string
 }
 
 type Database struct {

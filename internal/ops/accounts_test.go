@@ -503,7 +503,8 @@ func TestAppRoutes(t *testing.T) {
 }
 
 // "Connect with Cloudflare": the panel trades the code itself, the user
-// picks the account, and the token is refreshed before it runs out.
+// picks the accounts, and their shared token is refreshed before it runs
+// out.
 func TestConnectWithCloudflare(t *testing.T) {
 	f := newFakeAccounts(t)
 	s, _, _ := accountsStore(t)
@@ -560,21 +561,34 @@ func TestConnectWithCloudflare(t *testing.T) {
 	if len(accounts) != 2 || accounts[0].Name != "New Co" || strings.Join(accounts[0].Zones, ",") != "newco.com" {
 		t.Errorf("accounts %+v", accounts)
 	}
-	if got := SuggestAccountName(s, "New Co"); got != "new-co" {
-		t.Errorf("suggested %q", got)
+	choices := OAuthChoices(s, 0, accounts)
+	if len(choices) != 2 || choices[0].Name != "new-co" || choices[1].Name != "other" || choices[0].Taken != "" || choices[1].Taken != "" {
+		t.Errorf("choices %+v", choices)
 	}
-	if err := ConnectOAuthAccount(s, 1, id, "new-acc", "newco"); err == nil {
-		t.Error("another user connected the account")
+	both := []OAuthPick{{Account: "new-acc", Name: "newco"}, {Account: "other-acc", Name: "other"}}
+	if err := ConnectOAuthAccounts(s, 1, id, both); err == nil {
+		t.Error("another user connected the accounts")
 	}
-	if err := ConnectOAuthAccount(s, 0, id, "acme-acc", "x"); err == nil {
+	if err := ConnectOAuthAccounts(s, 0, id, []OAuthPick{{Account: "acme-acc", Name: "x"}}); err == nil {
 		t.Error("connected an account the sign-in doesn't reach")
 	}
-	if err := ConnectOAuthAccount(s, 0, id, "new-acc", "newco"); err != nil {
+	// One sign-in connects both accounts, which share its tokens.
+	if err := ConnectOAuthAccounts(s, 0, id, both); err != nil {
 		t.Fatal(err)
 	}
 	row, err := s.GetCloudflareAccountByName(ctx(), "newco")
-	if err != nil || row.RefreshToken != "rt-1" || row.TunnelID == "" || f.created == 0 {
+	if err != nil || row.RefreshToken != "rt-1" || row.TunnelID == "" || f.created < 2 {
 		t.Fatalf("account %+v, %v", row, err)
+	}
+	other, err := s.GetCloudflareAccountByName(ctx(), "other")
+	if err != nil || other.Signin == "" || other.Signin != row.Signin || other.TunnelID == "" {
+		t.Fatalf("accounts don't share the sign-in: %+v %+v, %v", row, other, err)
+	}
+	if c := OAuthChoices(s, 0, accounts); c[0].Taken != "connected as newco" || c[1].Taken != "connected as other" {
+		t.Errorf("choices after connecting %+v", c)
+	}
+	if c := OAuthChoices(s, 1, accounts); c[0].Taken != "connected by someone else" {
+		t.Errorf("another user's choices %+v", c)
 	}
 
 	// Its backups need an R2 token: a sign-in has no S3 keys.
@@ -582,8 +596,9 @@ func TestConnectWithCloudflare(t *testing.T) {
 		t.Errorf("s3Client without an R2 token: %v", err)
 	}
 
-	// Close to running out, the token is refreshed and kept.
-	if err := s.SetCloudflareAccountOAuth(ctx(), store.SetCloudflareAccountOAuthParams{ApiToken: row.ApiToken, RefreshToken: row.RefreshToken, TokenExpires: time.Now().Add(time.Minute).UTC().Format(time.RFC3339), ID: row.ID}); err != nil {
+	// Close to running out, the token is refreshed once for both accounts:
+	// Cloudflare takes each refresh token only once.
+	if err := s.SetCloudflareSignIn(ctx(), store.SetCloudflareSignInParams{ApiToken: row.ApiToken, RefreshToken: row.RefreshToken, TokenExpires: time.Now().Add(time.Minute).UTC().Format(time.RFC3339), Signin: row.Signin}); err != nil {
 		t.Fatal(err)
 	}
 	row, _ = s.GetCloudflareAccountByName(ctx(), "newco")
@@ -596,6 +611,29 @@ func TestConnectWithCloudflare(t *testing.T) {
 	}
 	if a := clientAccount(s, row); a.Client.Token != "oauth-at-2" || grants[len(grants)-1] != "refresh_token" || len(grants) != 2 {
 		t.Errorf("a fresh token was refreshed again: %v", grants)
+	}
+	other, _ = s.GetCloudflareAccountByName(ctx(), "other")
+	if a := clientAccount(s, other); a.Client.Token != "oauth-at-2" || len(grants) != 2 {
+		t.Errorf("the other account of the sign-in: token %q, grants %v", a.Client.Token, grants)
+	}
+
+	// An API token in its place takes an account out of the sign-in.
+	if err := ReplaceClientToken(s, "other", "multi-tok"); err == nil {
+		t.Error("took a token of several accounts")
+	}
+	fakeTokens["other-tok"] = []map[string]any{{"id": "z-other", "name": "other.com", "account": map[string]string{"id": "other-acc"}}}
+	t.Cleanup(func() { delete(fakeTokens, "other-tok") })
+	if err := ReplaceClientToken(s, "other", "other-tok"); err != nil {
+		t.Fatal(err)
+	}
+	if other, _ = s.GetCloudflareAccountByName(ctx(), "other"); other.Signin != "" || other.RefreshToken != "" {
+		t.Errorf("still in the sign-in: %+v", other)
+	}
+	if err := s.SetCloudflareSignIn(ctx(), store.SetCloudflareSignInParams{ApiToken: "oauth-at-3", Signin: row.Signin}); err != nil {
+		t.Fatal(err)
+	}
+	if other, _ = s.GetCloudflareAccountByName(ctx(), "other"); other.ApiToken != "other-tok" {
+		t.Errorf("the sign-in's renewal reached an account with an API token: %q", other.ApiToken)
 	}
 }
 

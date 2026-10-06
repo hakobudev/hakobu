@@ -179,7 +179,8 @@ with nothing to copy: create an OAuth client in Cloudflare (Manage Account → O
 the redirect URI `https://<panel address>/cloudflare/callback` and the scopes `zone.read dns.write
 argotunnel.write workers-r2.write offline_access`, make it public, and set its ID in the panel's
 environment (`Environment=HAKOBU_CF_CLIENT_ID=…`, as for panel-only). Settings → Cloudflare accounts
-then shows **Connect with Cloudflare**. The panel trades the code and renews the access itself,
+then shows **Connect with Cloudflare**. One sign-in reaches every account you're a member of, a
+client's that invited you included: tick the ones to connect, and they share that sign-in. The panel trades the code and renews the access itself,
 every few minutes. Cloudflare's sign-in turns some server networks away (Hetzner's always), so
 when it challenges the panel, the panel asks again through a small Worker of its own
 (`hakobu-token-relay-…`, deployed in the panel's Cloudflare account at each start with a new

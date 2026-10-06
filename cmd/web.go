@@ -1016,7 +1016,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 	})
 
 	// "Connect with Cloudflare": off to Cloudflare to allow the panel in,
-	// back with a code, then the user picks the account and its name.
+	// back with a code, then the user picks the accounts and their names.
 	handle("GET /cloudflare/connect", func(w http.ResponseWriter, r *http.Request) {
 		u, err := ops.StartCloudflareOAuth(requestUser(r).ID)
 		if err != nil {
@@ -1038,11 +1038,18 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			renderPage(w, r, oauthErrorPage(err.Error()))
 			return
 		}
-		renderPage(w, r, cloudflarePickPage(cloudflarePick{ID: id, Accounts: accounts, Name: ops.SuggestAccountName(s, accounts[0].Name)}))
+		renderPage(w, r, cloudflarePickPage(cloudflarePick{ID: id, Choices: ops.OAuthChoices(s, requestUser(r).ID, accounts)}))
 	})
 
 	action("POST /cloudflare/connect/{id}", func(r *http.Request) (string, error) {
-		return "/settings#clients", ops.ConnectOAuthAccount(s, requestUser(r).ID, r.PathValue("id"), r.FormValue("account"), strings.TrimSpace(r.FormValue("name")))
+		if err := r.ParseForm(); err != nil {
+			return "", err
+		}
+		var picks []ops.OAuthPick
+		for _, account := range r.PostForm["account"] {
+			picks = append(picks, ops.OAuthPick{Account: account, Name: strings.TrimSpace(r.PostFormValue("name-" + account))})
+		}
+		return "/settings#clients", ops.ConnectOAuthAccounts(s, requestUser(r).ID, r.PathValue("id"), picks)
 	})
 
 	action("POST /settings/clients/{c}/r2-token", func(r *http.Request) (string, error) {

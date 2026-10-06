@@ -268,8 +268,8 @@ func ReplaceClientToken(s *store.Store, name, token string) error {
 	if account != row.AccountID {
 		return fmt.Errorf("the token is for another Cloudflare account than client %s's", name)
 	}
-	// An API token in place of OAuth ends the refreshing; its own S3 keys
-	// then serve the backups.
+	// An API token in place of OAuth ends the refreshing and takes the
+	// account out of its sign-in; its own S3 keys then serve the backups.
 	return s.SetCloudflareAccountOAuth(ctx(), store.SetCloudflareAccountOAuthParams{ApiToken: secret.String(token), ID: row.ID})
 }
 

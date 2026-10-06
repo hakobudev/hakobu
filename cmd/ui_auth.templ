@@ -3,7 +3,7 @@ package cmd
 import (
 	"strings"
 
-	"github.com/x0ryz/hakobu/internal/cloudflare"
+	"github.com/x0ryz/hakobu/internal/ops"
 )
 
 // Pages before or around signing in: one box in the middle of the page.
@@ -210,11 +210,10 @@ templ invitePage(v invitePageData) {
 }
 
 // cloudflarePick is the page after "Connect with Cloudflare": which of the
-// accounts the sign-in reached to connect, and under what name.
+// accounts the sign-in reached to connect, and under what names.
 type cloudflarePick struct {
-	ID       string
-	Accounts []cloudflare.Account
-	Name     string
+	ID      string
+	Choices []ops.OAuthChoice
 }
 
 templ cloudflarePickPage(v cloudflarePick) {
@@ -222,20 +221,23 @@ templ cloudflarePickPage(v cloudflarePick) {
 		@signinMark("Connect Cloudflare", "")
 		<form class="box" hx-post={ "/cloudflare/connect/" + v.ID }>
 			<div class="box-body space-y-4">
-				@field("Account", "Its domains become available to your projects; hakobu creates a tunnel in it.") {
-					for i, a := range v.Accounts {
-						<label class="check">
-							<input type="radio" name="account" value={ a.ID } checked?={ i == 0 } required/>
-							<span>
-								<span class="check-label">{ a.Name }</span>
+				@field("Accounts", "Their domains become available to your projects; hakobu creates a tunnel in each. Names are lowercase letters, digits and dashes, shown in project settings.") {
+					for _, c := range v.Choices {
+						<div class="check">
+							<input type="checkbox" name="account" value={ c.ID } id={ "acc-" + c.ID } checked?={ c.Taken == "" } disabled?={ c.Taken != "" }/>
+							<span class="flex-1">
+								<label for={ "acc-" + c.ID } class="check-label">{ c.Account.Name }</label>
 								<br/>
-								<span class="field-hint mono">{ strings.Join(a.Zones, ", ") }</span>
+								<span class="field-hint mono">{ strings.Join(c.Zones, ", ") }</span>
+								if c.Taken != "" {
+									<br/>
+									<span class="field-hint">{ c.Taken }</span>
+								} else {
+									<input name={ "name-" + c.ID } value={ c.Name } aria-label={ "Name in hakobu for " + c.Account.Name } required pattern="[a-z][a-z0-9\-]{0,39}" class="input mono mt-2"/>
+								}
 							</span>
-						</label>
+						</div>
 					}
-				}
-				@field("Name in hakobu", "Lowercase letters, digits and dashes; shown in project settings.") {
-					<input name="name" value={ v.Name } required pattern="[a-z][a-z0-9\-]{0,39}" class="input mono"/>
 				}
 				<button class="btn btn-primary btn-block">
 					@ic("loader-circle", "btn-spinner")

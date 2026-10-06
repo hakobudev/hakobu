@@ -395,10 +395,13 @@ SELECT * FROM cloudflare_accounts WHERE account_id = ?;
 INSERT INTO cloudflare_accounts (name, api_token, account_id, user_id) VALUES (?, ?, ?, ?) RETURNING id;
 
 -- name: CreateOAuthCloudflareAccount :one
-INSERT INTO cloudflare_accounts (name, api_token, refresh_token, token_expires, account_id, user_id) VALUES (?, ?, ?, ?, ?, ?) RETURNING id;
+INSERT INTO cloudflare_accounts (name, api_token, refresh_token, token_expires, signin, account_id, user_id) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id;
 
 -- name: SetCloudflareAccountOAuth :exec
-UPDATE cloudflare_accounts SET api_token = ?, refresh_token = ?, token_expires = ? WHERE id = ?;
+UPDATE cloudflare_accounts SET api_token = ?, refresh_token = ?, token_expires = ?, signin = ? WHERE id = ?;
+
+-- name: SetCloudflareSignIn :exec
+UPDATE cloudflare_accounts SET api_token = ?, refresh_token = ?, token_expires = ? WHERE signin = ? AND signin != '';
 
 -- name: SetCloudflareAccountR2Token :exec
 UPDATE cloudflare_accounts SET r2_token = ? WHERE id = ?;
