@@ -213,6 +213,17 @@ from that server straight to R2 through URLs the panel signs for each part. A se
 nothing of the panel's: not its master key or tokens, and for builds a GitHub token for
 the one repository.
 
+Each server has keys of its own, which the panel never sees. Keep a copy away from the
+server: the panel asks for it (Settings → Servers, and by email) until you run, on the server,
+
+```bash
+cd /opt/hakobu && sudo ./hakobu key export > ~/hakobu-$(hostname).key
+```
+
+A new server takes a lost one's keys with `HAKOBU_NODE_KEYS=<that file>` next to the join
+command, or later with `sudo ./hakobu key import <file>` and a restart. A key that's
+replaced stays in the server's keyring, so what it sealed still opens.
+
 ### A panel for others: panel-only
 
 A panel shared with people whose apps you don't want on your server, a hosted one say,

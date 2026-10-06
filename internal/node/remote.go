@@ -404,6 +404,11 @@ func (r *Remote) Disk(ctx context.Context) (used, total uint64, err error) {
 	return used, total, err
 }
 
+func (r *Remote) KeyState(ctx context.Context) (k KeyState, err error) {
+	err = r.call(ctx, "KeyState", nil, nil, nil, &k)
+	return k, err
+}
+
 func (r *Remote) Cleanup(ctx context.Context, c CleanupSpec) (freed int64, images int, err error) {
 	err = r.call(ctx, "Cleanup", nil, nil, []any{c}, &freed, &images)
 	return freed, images, err

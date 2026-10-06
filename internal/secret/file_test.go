@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -139,10 +140,61 @@ func TestSealedFileSurvivesRotation(t *testing.T) {
 	if got, err := open(after); err != nil || !bytes.Equal(got, plain) {
 		t.Errorf("rewrapped file: %v %q", err, got)
 	}
-	// A file not rewrapped is sealed with a key that no longer exists.
+	// A file not rewrapped (a backup under the bucket's lock) still opens
+	// with the retired key, kept in the keyring.
 	stale, _ := os.ReadFile(other)
-	if _, err := open(stale); err == nil {
-		t.Error("a file sealed with the retired key still opened")
+	if got, err := open(stale); err != nil || !bytes.Equal(got, plain) {
+		t.Errorf("a file sealed with the retired key: %v %q", err, got)
+	}
+	if _, err := os.Stat(KeyringDir(keyPath)); err != nil {
+		t.Errorf("the retired key isn't in the keyring: %v", err)
+	}
+}
+
+// A server's keys go out in one file and open its backups on another.
+func TestExportImportKeys(t *testing.T) {
+	testKey(t)
+	plain := []byte("pg_dump output")
+	sealed := seal(t, plain)
+	file, err := ExportKeys()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fps := Fingerprints()
+
+	// Another server: its own key alone doesn't open the backup.
+	mu.Lock()
+	savedKeys, savedRing := keys, keyring
+	keyring = nil
+	mu.Unlock()
+	t.Cleanup(func() { mu.Lock(); keys, keyring = savedKeys, savedRing; mu.Unlock() })
+	other := filepath.Join(t.TempDir(), "master.key")
+	mu.Lock()
+	keys = nil
+	mu.Unlock()
+	if err := LoadKey(other); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := open(sealed); err == nil {
+		t.Fatal("another server's key opened the backup")
+	}
+	added, err := ImportKeys(KeyringDir(other), file)
+	if err != nil || len(added) != len(fps) {
+		t.Fatalf("imported %v, %v; want %v", added, err, fps)
+	}
+	if got, err := open(sealed); err != nil || !bytes.Equal(got, plain) {
+		t.Errorf("after the import: %v %q", err, got)
+	}
+	if again, err := ImportKeys(KeyringDir(other), file); err != nil || len(again) != 0 {
+		t.Errorf("importing again: %v, %v", again, err)
+	}
+	// A panel's master key file works too; a file without keys doesn't.
+	if _, err := ImportKeys(KeyringDir(other), "# hakobu\nHAKOBU_BUCKET=b\n"); err == nil {
+		t.Error("a file without keys imported")
+	}
+	panelKey := strings.TrimSpace(strings.Split(file, "\n")[1])
+	if _, err := ImportKeys(KeyringDir(other), "HAKOBU_BUCKET=b\nHAKOBU_MASTER_KEY="+panelKey+"\n"); err != nil {
+		t.Errorf("a panel's key file: %v", err)
 	}
 }
 
@@ -168,8 +220,9 @@ func TestSealedFileOwnKeyOutlivesRotation(t *testing.T) {
 	if err := FinishRotation(keyPath); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := open(sealed); err == nil {
-		t.Error("the header opened with a retired master key")
+	// The retired key, kept in the keyring, opens the header too.
+	if got, err := open(sealed); err != nil || !bytes.Equal(got, plain) {
+		t.Errorf("by its header: %v %q", err, got)
 	}
 	r, err := NewFileReaderKey(bytes.NewReader(sealed), fileKey)
 	if err != nil {

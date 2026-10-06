@@ -31,6 +31,9 @@ var (
 const (
 	DatabaseFile  = "data/hakobu.db"
 	MasterKeyFile = "key/master.key"
+	// KeyExportedFile holds the fingerprint of the master key the owner
+	// last downloaded or exported, so a server can tell they have a copy.
+	KeyExportedFile = "data/key_downloaded"
 )
 
 const (

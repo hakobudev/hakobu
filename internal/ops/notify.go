@@ -521,6 +521,12 @@ func alertOwner(s *store.Store, key string) (user int64, ok bool) {
 		} else {
 			return 0, false // the panel's own backup
 		}
+	case "serverkey": // serverkey:<server>, its key not exported
+		n, err := s.GetNodeByName(ctx(), rest)
+		if err != nil {
+			return 0, false
+		}
+		return n.UserID, true
 	case "cloudflare": // cloudflare:<account>, a sign-in that can't renew
 		a, err := s.GetCloudflareAccountByName(ctx(), rest)
 		if err != nil {
@@ -608,6 +614,7 @@ func CheckForOwner(s *store.Store) {
 	} else {
 		solved(s, "disk", "The server's disk has room again", "Disk: "+disk+".")
 	}
+	checkServerKeys(s)
 	if BackupBucket(s) != "" && panelBackedUp() && !KeyDownloaded() {
 		problem(s, "key", 7*24*time.Hour, "Download the panel's master key",
 			"The panel is backed up, but you have no copy of its current master key, and without it the backups can't be restored. Download it and keep it away from the server: "+panelURL("/settings/master-key"))

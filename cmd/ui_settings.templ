@@ -84,6 +84,9 @@ templ settingsView(v settingsPage) {
 				<a href="#servers" class="subnav-item">
 					@ic("server", "icon-muted")
 					Servers
+					if keysUnsaved(v.Servers) {
+						<span class="subnav-count"><span class="dot dot-attention"></span></span>
+					}
 				</a>
 				if v.CloudflareConnected {
 					<a href="#cloudflare" class="subnav-item">
@@ -647,6 +650,9 @@ templ settingsServers(v settingsPage) {
 								</span>
 							</span>
 							<span class="row-meta flex items-center gap-2">
+								if sv.KeyKnown && !sv.Key.Exported {
+									<span class="badge badge-attention">key not saved</span>
+								}
 								if !sv.Joined {
 									<button class="btn btn-sm" hx-post="/settings/servers" hx-vals={ `{"name":"` + sv.Name + `"}` } hx-target="#join-command" hx-swap="innerHTML">New token</button>
 								}
@@ -661,6 +667,15 @@ templ settingsServers(v settingsPage) {
 								</button>
 							</span>
 						</div>
+						if sv.KeyKnown && !sv.Key.Exported {
+							<div class="box-body">
+								<p class="field-hint">{ sv.Name } seals its backups with its own key, which hakobu never sees: without a copy of it they can't be restored if the server is lost. On the server, run this and keep the file away from it:</p>
+								<div class="flex items-center gap-2 mt-2">
+									<code class="mono small">{ ops.KeyExportCommand(sv.Name) }</code>
+									@copyButton(ops.KeyExportCommand(sv.Name))
+								</div>
+							</div>
+						}
 					}
 				</div>
 			}
@@ -802,6 +817,16 @@ func accountTitle(c ops.ClientAccount) string {
 		return c.Title
 	}
 	return c.Name
+}
+
+// keysUnsaved tells whether the owner has no copy of a server's key.
+func keysUnsaved(servers []ops.Server) bool {
+	for _, sv := range servers {
+		if sv.KeyKnown && !sv.Key.Exported {
+			return true
+		}
+	}
+	return false
 }
 
 // hasOwnAccounts tells whether the user connected accounts of their own,

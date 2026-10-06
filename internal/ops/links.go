@@ -298,6 +298,10 @@ type Server struct {
 	Connected bool
 	Version   string
 	LastSeen  string // when it last connected or went, "" if never
+	// Its keys, once it has told them: Key.Exported says the owner has a
+	// copy of the current one (KeyExportCommand).
+	Key      node.KeyState
+	KeyKnown bool
 }
 
 func Servers(s *store.Store) ([]Server, error) {
@@ -311,6 +315,7 @@ func Servers(s *store.Store) ([]Server, error) {
 		if c, ok := links.get(n.Name); ok {
 			out[i].Connected, out[i].Version = true, c.version
 		}
+		out[i].Key, out[i].KeyKnown = knownServerKeys(n.Name)
 	}
 	return out, nil
 }
@@ -334,6 +339,7 @@ func serverConnected(s *store.Store, name string, n node.Node, watching context.
 		return
 	}
 	sv := server{ID: row.ID, Name: name}
+	noteServerKeys(name, n)
 	for _, t := range tunnelsOn(s, sv) {
 		if err := startTunnel(s, t); err != nil {
 			panellog.Errorf("%s: %v", t.label(), err)

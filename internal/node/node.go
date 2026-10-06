@@ -97,6 +97,8 @@ type Node interface {
 	Cleanup(ctx context.Context, c CleanupSpec) (freed int64, images int, err error)
 	WatchDeaths(ctx context.Context, fn func(container, app string, d Death)) error
 	CheckHealth(ctx context.Context, app AppSpec, port int64) (ok bool, why string, checked bool)
+	// KeyState is what the panel may know of the node's keys (keys.go).
+	KeyState(ctx context.Context) (KeyState, error)
 
 	// Networks and shared containers (networks.go). tunnels is every
 	// tunnel the node runs, as it should be.

@@ -43,6 +43,7 @@ type Fake struct {
 	Tunnels    map[string]node.TunnelSpec       // container → spec
 	Edges      map[string][]string              // container → projects whose edge network it's on
 	Networks   map[string]bool                  // projects with networks
+	Keys       node.KeyState                    // what KeyState tells
 }
 
 var _ node.Node = (*Fake)(nil)
@@ -653,6 +654,12 @@ func (f *Fake) Disk(ctx context.Context) (uint64, uint64, error) {
 	unlock, err := f.call("Disk")
 	defer unlock()
 	return 0, 0, err
+}
+
+func (f *Fake) KeyState(ctx context.Context) (node.KeyState, error) {
+	unlock, err := f.call("KeyState")
+	defer unlock()
+	return f.Keys, err
 }
 
 func (f *Fake) Cleanup(ctx context.Context, c node.CleanupSpec) (int64, int, error) {

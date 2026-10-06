@@ -143,3 +143,43 @@ func TestServerAway(t *testing.T) {
 		t.Error("moved to an unknown server")
 	}
 }
+
+// The panel learns whether the owner has a copy of a server's key, and
+// asks them until they do; it never gets the key.
+func TestServerKeyNotSaved(t *testing.T) {
+	newFakeAccounts(t)
+	s, _, _ := accountsStore(t)
+	old := async
+	async = func(func()) {} // no mail goes out here
+	t.Cleanup(func() { async = old })
+	if err := s.SaveNotify(ctx(), store.SaveNotifyParams{Email: "panel@example.org", SenderName: "alerts", SenderDomain: "example.com", ZoneID: "z1"}); err != nil {
+		t.Fatal(err)
+	}
+	f := nodetest.New()
+	f.Keys = node.KeyState{Fingerprints: []string{"aaaa", "bbbb"}}
+	joinServer(t, s, "box", f)
+	mailed := func() bool {
+		problems.Lock()
+		defer problems.Unlock()
+		_, ok := problems.mailed["serverkey:box"]
+		return ok
+	}
+
+	checkServerKeys(s)
+	servers, _ := Servers(s)
+	if len(servers) != 1 || !servers[0].KeyKnown || servers[0].Key.Exported || servers[0].Key.Current() != "aaaa" {
+		t.Fatalf("servers %+v", servers)
+	}
+	if !mailed() {
+		t.Error("the owner wasn't asked for a copy of the key")
+	}
+
+	f.Keys.Exported = true
+	checkServerKeys(s)
+	if servers, _ := Servers(s); !servers[0].Key.Exported {
+		t.Error("the export didn't reach the panel")
+	}
+	if mailed() {
+		t.Error("still asking after the export")
+	}
+}

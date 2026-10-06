@@ -295,15 +295,13 @@ func ParseKeyFile(r io.Reader) (KeyFile, error) {
 // KeyDownloaded reports whether the owner has downloaded the key secrets
 // are encrypted with now; after a rotation it's a new one.
 func KeyDownloaded() bool {
-	b, err := os.ReadFile(keyDownloadedFile)
+	b, err := os.ReadFile(config.KeyExportedFile)
 	return err == nil && strings.TrimSpace(string(b)) == secret.Fingerprint() && secret.Fingerprint() != ""
 }
 
-const keyDownloadedFile = "data/key_downloaded"
-
 // MarkKeyDownloaded remembers which key the owner has downloaded.
 func MarkKeyDownloaded() error {
-	return os.WriteFile(keyDownloadedFile, []byte(secret.Fingerprint()+"\n"), 0o600)
+	return os.WriteFile(config.KeyExportedFile, []byte(secret.Fingerprint()+"\n"), 0o600)
 }
 
 // RestorePanel puts the newest panel backup (or the one made at, in

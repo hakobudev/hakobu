@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 )
@@ -131,9 +132,20 @@ func FinishRotation(path string) error {
 	if len(keys) != 2 {
 		return errors.New("secret: no key rotation in progress")
 	}
+	// The old key still opens what can't be rewrapped (backups under the
+	// bucket's lock): it's kept in the keyring before it's replaced.
+	old := keys[1]
+	dir := KeyringDir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	if err := writeKey(filepath.Join(dir, fingerprintOf(old.raw)+".key"), old.raw); err != nil && !errors.Is(err, os.ErrExist) {
+		return err
+	}
 	if err := os.Rename(path+".new", path); err != nil {
 		return err
 	}
+	keyring = append(keyring, old)
 	return setKeys([][]byte{keys[0].raw})
 }
 
@@ -247,7 +259,7 @@ func Decrypt(stored string) (string, error) {
 	if !IsEncrypted(stored) {
 		return "", errors.New("secret: value isn't encrypted")
 	}
-	ks, err := loadedKeys()
+	ks, err := openingKeys()
 	if err != nil {
 		return "", err
 	}

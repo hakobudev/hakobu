@@ -22,7 +22,9 @@
 #             signed, checked against its checksum only),
 #           HAKOBU_PANEL=https://<panel> HAKOBU_JOIN_TOKEN=<token> (make this server
 #             one of that panel's servers instead of a panel: the command comes from
-#             the panel's Settings → Servers; no Cloudflare or GitHub here)
+#             the panel's Settings → Servers; no Cloudflare or GitHub here),
+#           HAKOBU_NODE_KEYS=<file> (with HAKOBU_PANEL: the keys of a lost server, from
+#             its `hakobu key export`, so this one restores its backups)
 #
 # Later updates: Settings → Updates in the panel, or sudo /opt/hakobu/hakobu update.
 set -euo pipefail
@@ -326,6 +328,10 @@ if [ "$ROLE" = node ]; then
   # The dialer runs the binary installed just now.
   as_docker systemctl --user restart hakobu-dialer
   (cd /opt/hakobu && runuser -u hakobu -- env HOME=/home/hakobu DOCKER_HOST="unix://$SOCK_DIR/docker.sock" HAKOBU_DIALER_SOCKET="$SOCK_DIR/dialer.sock" ./hakobu node join "$HAKOBU_PANEL" "$HAKOBU_JOIN_TOKEN")
+  if [ -n "${HAKOBU_NODE_KEYS:-}" ]; then
+    echo "==> adding the keys of $HAKOBU_NODE_KEYS"
+    (cd /opt/hakobu && runuser -u hakobu -- ./hakobu key import -) < "$HAKOBU_NODE_KEYS"
+  fi
 elif [ -n "$ROOTFUL" ]; then
   echo "==> connecting Cloudflare"
   # stdin is the script itself under curl | bash, so setup talks to the terminal.
@@ -427,6 +433,11 @@ if [ "$ROLE" = node ]; then
   echo
   echo "Done. This server joined the panel at $HAKOBU_PANEL and keeps connected to it:"
   echo "it shows as connected in the panel's Settings → Servers, and new projects can run on it."
+  echo
+  echo "It seals its backups with its own key, which the panel never sees. Keep a copy away from"
+  echo "this server, or its backups can't be restored if it's lost:"
+  echo
+  echo "  cd /opt/hakobu && sudo ./hakobu key export > ~/hakobu-$(hostname).key"
   echo
   exit 0
 fi

@@ -64,6 +64,9 @@ func OpenWithKey(path, keyPath string) (*Store, error) {
 	if err := secret.LoadKey(s.keyPath); err != nil {
 		return nil, fmt.Errorf("master key: %w", err)
 	}
+	if err := secret.LoadKeyring(secret.KeyringDir(s.keyPath)); err != nil {
+		return nil, fmt.Errorf("keyring: %w", err)
+	}
 	if secret.Rotating() { // cut short last time
 		if err := s.finishRotation(); err != nil {
 			return nil, fmt.Errorf("finishing the master key rotation: %w", err)

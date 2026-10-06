@@ -144,13 +144,17 @@ func loadNode() (nodeConfig, ed25519.PrivateKey, error) {
 }
 
 // prepareNode readies what the node's work needs: its data directory and
-// its own master key, which seals the database snapshots kept here (the
-// panel never reads them; backups are sealed with keys the panel gives).
+// its own master key, which seals the database snapshots kept here, with
+// the keyring of keys that open older ones (secret.LoadKeyring). The panel
+// never reads them.
 func prepareNode() error {
 	if err := config.PrepareDataDir(); err != nil {
 		return err
 	}
-	return secret.LoadKey(config.MasterKeyFile)
+	if err := secret.LoadKey(config.MasterKeyFile); err != nil {
+		return err
+	}
+	return secret.LoadKeyring(secret.KeyringDir(config.MasterKeyFile))
 }
 
 // runNode keeps the node linked to the panel, serving its calls, until
