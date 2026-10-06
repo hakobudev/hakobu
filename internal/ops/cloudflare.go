@@ -316,29 +316,34 @@ func TunnelReady(s *store.Store) bool {
 }
 
 // ConnectCloudflare checks token and saves it, returning the domains it
-// sees; the tunnel and the panel's record keep working with a new token of
-// the same account.
+// sees; the tunnel and the panel's record keep working with a new token
+// that reaches the same account. It's the installer's own token, so it may
+// reach their other accounts too: those the admin connects with it
+// (AdoptPanelToken).
 func ConnectCloudflare(s *store.Store, token string) ([]cloudflare.Zone, error) {
 	token = strings.TrimSpace(token)
 	zones, err := cloudflare.Client{Token: token}.CheckToken()
 	if err != nil {
 		return nil, err
 	}
-	if cf, err := s.GetCloudflare(ctx()); err == nil && cf.AccountID != "" {
+	cf, err := s.GetCloudflare(ctx())
+	if err == nil && cf.AccountID != "" {
 		same := false
 		for _, z := range zones {
 			same = same || z.Account.ID == cf.AccountID
 		}
 		if !same {
-			return nil, fmt.Errorf("the token is for another Cloudflare account than the one hakobu's tunnel is in")
+			return nil, fmt.Errorf("the token doesn't reach the Cloudflare account hakobu's tunnel is in")
 		}
 	}
-	for _, z := range zones {
-		if client, err := s.GetCloudflareAccountByAccountID(ctx(), z.Account.ID); err == nil {
-			return nil, fmt.Errorf("the token sees Cloudflare account %s, connected by a user: the panel's token must be for its own account alone", client.Title)
-		}
+	if err := s.SaveCloudflareToken(ctx(), secret.String(token)); err != nil {
+		return nil, err
 	}
-	return zones, s.SaveCloudflareToken(ctx(), secret.String(token))
+	// The admin's other accounts share it.
+	if cf.TokenGroup != "" {
+		return zones, s.SetTokenGroupToken(ctx(), store.SetTokenGroupTokenParams{ApiToken: secret.String(token), TokenGroup: cf.TokenGroup})
+	}
+	return zones, nil
 }
 
 // cfClient returns an API client with the saved token.

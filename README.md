@@ -45,19 +45,22 @@ The server needs no public IP or open ports: everything goes through a Cloudflar
 curl -fsSL https://hakobu.dev/install.sh | sudo bash
 ```
 
-1. The installer shows a Cloudflare link to a new API token with hakobu's permissions
-   filled in: read your domains, manage their DNS records, create a tunnel, keep
+1. The installer shows a Cloudflare link to a new API token of yours with hakobu's
+   permissions filled in: read your domains, manage their DNS records, create a tunnel, keep
    database backups in R2, email you when something needs you and run a Worker that
-   watches the panel from outside. Select **Continue to summary** → **Create Token**, copy the
+   watches the panel from outside. It's for every account you're a member of: the panel's,
+   and your clients' (see [below](#your-cloudflare-accounts-and-your-clients)), so it's the
+   only token you give hakobu. Select **Continue to summary** → **Create Token**, copy the
    token and paste it into the terminal (it isn't echoed). Or set `CLOUDFLARE_API_TOKEN`
-   before running the installer. Under **Zone Resources** you can pick just the domains
-   hakobu should use instead of all of them: whoever takes over the server gets the
+   before running the installer. Under **Account Resources** and **Zone Resources** you can
+   narrow it to the accounts and domains hakobu should use: whoever takes over the server gets the
    token, and with it the DNS of every domain it covers. **Client IP Address Filtering**
    makes a copy of the token that leaks elsewhere useless: list both of the server's
    addresses, the IPv6 one as its `/64`, since the server reaches Cloudflare over IPv6
    when it has it.
 2. Pick one of your domains from the list and the panel's subdomain (default `hakobu`).
-   Hakobu creates the tunnel and a DNS record for the panel.
+   Hakobu creates the tunnel and a DNS record for the panel, in that domain's account: the
+   panel's account.
 3. Open the printed link, `https://hakobu.example.com/setup?token=…`, click
    **Connect GitHub** (this registers a GitHub App for your panel; under it you can put
    the app on an organization and name it, as people see that name when they sign in),
@@ -168,14 +171,17 @@ only updates them; to move one to rootless Docker, install hakobu on a clean ser
 ### Your Cloudflare accounts and your clients'
 
 A project can live in another Cloudflare account than the panel's: yours, or a client's, who
-keeps it. Clients invite you to theirs (Manage Account → Members); one token of yours then
-reaches them all. Under **Settings → Cloudflare accounts**, the link makes that token in your
-Cloudflare profile, for every account you're a member of (Zone Read, DNS Edit, Cloudflare
-Tunnel Edit, Workers R2 Storage Edit). Paste it: hakobu checks it can do what it needs in each
-account, and connects them all. It keeps up every ten minutes: a client who invites you later
+keeps it. Clients invite you to theirs (Manage Account → Members); the token you gave the
+installer then reaches them all. When you first sign in, hakobu checks it can do what it needs
+in each of its accounts and connects them, listed under **Settings → Cloudflare accounts** with
+the panel's own. It keeps up every ten minutes: a client who invites you later
 shows up by itself, one who removes you goes (or, while a project still uses their account,
-you get an email). To leave an account out, leave it out of the token. **Replace token** swaps
-it for all of them.
+you get an email). To leave an account out, leave it out of the token. **Settings → Cloudflare
+token → Replace token** swaps it for the panel and all of them.
+
+Other users of the panel connect their accounts the same way, with a token of their own made
+with the link under **Settings → Cloudflare accounts** (Zone Read, DNS Edit, Cloudflare Tunnel
+Edit, Workers R2 Storage Edit).
 
 Nothing is made in an account until a project there needs it: with the first domain of a
 project in it on a server, hakobu creates a tunnel there, which only that account's projects on

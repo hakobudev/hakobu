@@ -128,6 +128,7 @@ type ClientAccount struct {
 	R2URL     string // where the client turns R2 on
 	Title     string // what Cloudflare calls it
 	Domains   string
+	Panel     bool // the panel's own (PanelClientAccount)
 }
 
 // CheckClientsR2 tells which clients haven't turned R2 on (R2Off).
@@ -152,6 +153,32 @@ func ClientAccounts(s *store.Store) ([]ClientAccount, error) {
 		out[i].Projects, _ = s.ProjectsInCloudflareAccount(ctx(), sql.NullInt64{Int64: a.ID, Valid: true})
 	}
 	return out, nil
+}
+
+// PanelClientAccount is the panel's account as a user's list of accounts
+// shows it, with their projects in it.
+func PanelClientAccount(s *store.Store, userID int64) (ClientAccount, error) {
+	a, err := panelAccount(s)
+	if err != nil {
+		return ClientAccount{}, err
+	}
+	out := ClientAccount{AccountID: a.AccountID, Panel: true}
+	if zones, err := a.Client.Zones(); err == nil && len(zones) > 0 {
+		out.Title = zones[0].Account.Name
+		names := make([]string, len(zones))
+		for i, z := range zones {
+			names[i] = z.Name
+		}
+		out.Domains = strings.Join(names, ", ")
+	}
+	out.Projects, _ = s.UserProjectsInPanelAccount(ctx(), userID)
+	return out, nil
+}
+
+// OwnsPanelToken tells whether the panel's token is the user's too.
+func OwnsPanelToken(s *store.Store, userID int64) bool {
+	cf, err := s.GetCloudflare(ctx())
+	return err == nil && cf.TokenGroup != "" && cf.UserID == userID
 }
 
 // UserTokenURL opens the form for a token of the user's own for all the

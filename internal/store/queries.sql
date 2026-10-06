@@ -368,6 +368,9 @@ SELECT * FROM cloudflare WHERE id = 1;
 INSERT INTO cloudflare (id, api_token) VALUES (1, ?)
 ON CONFLICT(id) DO UPDATE SET api_token = excluded.api_token;
 
+-- name: SetCloudflareOwner :exec
+UPDATE cloudflare SET user_id = ?, token_group = ? WHERE id = 1;
+
 -- name: SetBackupBucket :exec
 UPDATE cloudflare SET backup_bucket = ? WHERE id = 1;
 
@@ -411,6 +414,9 @@ DELETE FROM cloudflare_accounts WHERE id = ?;
 
 -- name: ProjectsInCloudflareAccount :many
 SELECT name FROM projects WHERE cloudflare_account_id = ? ORDER BY name;
+
+-- name: UserProjectsInPanelAccount :many
+SELECT name FROM projects WHERE cloudflare_account_id IS NULL AND user_id = ? ORDER BY name;
 
 -- name: SetProjectCloudflareAccount :exec
 UPDATE projects SET cloudflare_account_id = ? WHERE id = ?;

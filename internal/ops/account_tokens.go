@@ -22,6 +22,41 @@ import (
 // connected, one the user lost is forgotten while no project uses it.
 // Nothing is made in an account until a project there needs it.
 
+// The panel's own token is the installer's, made the same way: the first
+// admin gets it as theirs when they first sign in (AdoptPanelToken), so
+// one token connects the panel's account and their clients'.
+
+// AdoptPanelToken makes the panel's token the user's, connecting the other
+// accounts it reaches; once, for the first admin. It doesn't fail the
+// sign-in: what goes wrong is in the panel log, and the admin can paste
+// the token again under Cloudflare token.
+func AdoptPanelToken(s *store.Store, userID int64) {
+	cf, err := s.GetCloudflare(ctx())
+	if err != nil || cf.TokenGroup != "" {
+		return
+	}
+	group, err := RandomHex(16)
+	if err == nil {
+		err = s.SetCloudflareOwner(ctx(), store.SetCloudflareOwnerParams{UserID: userID, TokenGroup: group})
+	}
+	if err != nil {
+		panellog.Error("making the panel's Cloudflare token the admin's:", err)
+		return
+	}
+	accounts, err := checkAccountToken(string(cf.ApiToken))
+	if err != nil {
+		panellog.Warn("the panel's Cloudflare token connects no other accounts:", err)
+		return
+	}
+	for _, a := range accounts {
+		if why, err := addTokenAccount(s, userID, string(cf.ApiToken), group, a); err != nil {
+			panellog.Error("connecting Cloudflare account", accountTitle(a)+":", err)
+		} else if why == "" {
+			panellog.Info("connected Cloudflare account", accountTitle(a)+" with the panel's token")
+		}
+	}
+}
+
 // AddAccountToken connects every account the token reaches that isn't
 // connected yet. A user has one token: one who has it already replaces it
 // (ReplaceAccountToken).
@@ -114,6 +149,10 @@ func SyncAccountTokens(s *store.Store) {
 		return
 	}
 	seen := map[string]bool{}
+	if cf, err := s.GetCloudflare(ctx()); err == nil && cf.TokenGroup != "" {
+		seen[cf.TokenGroup] = true
+		syncTokenGroup(s, cf.TokenGroup)
+	}
 	for _, r := range rows {
 		if !seen[r.TokenGroup] {
 			seen[r.TokenGroup] = true
@@ -132,6 +171,9 @@ func WatchCloudflareAccounts(s *store.Store, interval time.Duration) {
 
 // userTokenGroup is the group of the user's token, if they have one.
 func userTokenGroup(s *store.Store, userID int64) (string, bool) {
+	if cf, err := s.GetCloudflare(ctx()); err == nil && cf.TokenGroup != "" && cf.UserID == userID {
+		return cf.TokenGroup, true
+	}
 	rows, err := s.ListCloudflareAccounts(ctx())
 	if err != nil {
 		return "", false
@@ -159,16 +201,23 @@ func tokenGroup(s *store.Store, group string) []store.CloudflareAccount {
 
 func syncTokenGroup(s *store.Store, group string) {
 	rows := tokenGroup(s, group)
-	if len(rows) == 0 {
+	var token string
+	var userID int64
+	var titles []string
+	if cf, err := s.GetCloudflare(ctx()); err == nil && cf.TokenGroup == group {
+		// The panel's token problem is told by its own check.
+		token, userID = string(cf.ApiToken), cf.UserID
+	} else if len(rows) > 0 {
+		token, userID = string(rows[0].ApiToken), rows[0].UserID
+	} else {
 		return
 	}
-	titles := make([]string, len(rows))
-	for i, r := range rows {
-		titles[i] = r.Title
+	for _, r := range rows {
+		titles = append(titles, r.Title)
 	}
 	who := strings.Join(titles, ", ")
 	key := "cloudflare-token:" + group
-	accounts, err := cloudflare.Client{Token: string(rows[0].ApiToken)}.Accounts()
+	accounts, err := cloudflare.Client{Token: token}.Accounts()
 	if err != nil {
 		panellog.Error("the Cloudflare token of", who, "doesn't work:", err)
 		problem(s, key, notifyAgain, "Your Cloudflare token stopped working",
@@ -202,7 +251,7 @@ func syncTokenGroup(s *store.Store, group string) {
 		}
 	}
 	for _, a := range reaches {
-		if why, err := addTokenAccount(s, rows[0].UserID, string(rows[0].ApiToken), group, a); err != nil {
+		if why, err := addTokenAccount(s, userID, token, group, a); err != nil {
 			panellog.Error("connecting Cloudflare account", accountTitle(a)+":", err)
 		} else if why == "" {
 			panellog.Info("connected Cloudflare account", accountTitle(a)+", which the token reaches now")
@@ -239,7 +288,12 @@ func ReplaceAccountToken(s *store.Store, userID int64, token string) error {
 	if len(missing) > 0 {
 		return fmt.Errorf("the token doesn't reach %s, which projects use: make it for all accounts", strings.Join(missing, ", "))
 	}
-	if err := s.SetTokenGroupToken(ctx(), store.SetTokenGroupTokenParams{ApiToken: secret.String(token), TokenGroup: group}); err != nil {
+	if cf, err := s.GetCloudflare(ctx()); err == nil && cf.TokenGroup == group {
+		// It's the panel's too: that saves it for the whole group.
+		if err := replacePanelToken(s, token); err != nil {
+			return err
+		}
+	} else if err := s.SetTokenGroupToken(ctx(), store.SetTokenGroupTokenParams{ApiToken: secret.String(token), TokenGroup: group}); err != nil {
 		return err
 	}
 	syncTokenGroup(s, group)

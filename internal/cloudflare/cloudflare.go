@@ -85,21 +85,24 @@ var tokenPermissions = []struct{ Key, Type string }{
 // domains and their DNS records, a tunnel, and R2 for storages and backups.
 var clientTokenPermissions = tokenPermissions[:4]
 
-// TokenTemplateURL opens the dashboard's form for a new account-owned API
-// token with hakobu's permissions filled in; name is the token's name.
+// TokenTemplateURL opens the form for a new token of the installer's own
+// with all hakobu's permissions, for every account they're a member of:
+// the panel's, and their clients' for their projects. name is the token's
+// name.
 func TokenTemplateURL(name string) string {
 	return templateURL(name, tokenPermissions)
 }
 
-func templateURL(name string, permissions []struct{ Key, Type string }) string {
-	return "https://dash.cloudflare.com/?to=/:account/api-tokens&permissionGroupKeys=" + permissionKeys(permissions) + "&name=" + tokenName(name)
+// UserTokenTemplateURL is the same for another user of the panel, with
+// what hakobu needs in the accounts of their projects alone.
+func UserTokenTemplateURL(name string) string {
+	return templateURL(name, clientTokenPermissions)
 }
 
-// UserTokenTemplateURL opens the form for a new token of the user's own
-// with what hakobu needs in a client's account, for every account the user
-// is a member of: one a client invites them to is in it from then on.
-func UserTokenTemplateURL(name string) string {
-	return "https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=" + permissionKeys(clientTokenPermissions) + "&accountId=*&zoneId=all&name=" + tokenName(name)
+// templateURL is for a token of the user's own (in their profile), not an
+// account's: one a client invites them to is in it from then on.
+func templateURL(name string, permissions []struct{ Key, Type string }) string {
+	return "https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=" + permissionKeys(permissions) + "&accountId=*&zoneId=all&name=" + tokenName(name)
 }
 
 func permissionKeys(permissions []struct{ Key, Type string }) string {
@@ -298,10 +301,16 @@ type Zone struct {
 }
 
 func (c Client) Zones() ([]Zone, error) {
+	// A user's token reaches the zones of every account they're in: an
+	// account's client sees its own.
+	only := ""
+	if c.AccountID != "" {
+		only = "&account.id=" + url.QueryEscape(c.AccountID)
+	}
 	var zones []Zone
 	for page := 1; ; page++ {
 		var list []Zone
-		if err := c.call("GET", fmt.Sprintf("/zones?per_page=50&status=active&page=%d", page), nil, &list); err != nil {
+		if err := c.call("GET", fmt.Sprintf("/zones?per_page=50&status=active&page=%d%s", page, only), nil, &list); err != nil {
 			return nil, err
 		}
 		zones = append(zones, list...)

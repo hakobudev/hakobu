@@ -54,9 +54,17 @@ func canRunWatchdog(perms []cloudflare.Permission) bool {
 	return true
 }
 
-// ReplaceCloudflareToken takes a new token for the same account, then sets
-// up again what the old one couldn't.
+// ReplaceCloudflareToken takes a new token that reaches the same account,
+// then sets up again what the old one couldn't. Once it's the admin's, it
+// must reach their accounts with projects too (ReplaceAccountToken).
 func ReplaceCloudflareToken(s *store.Store, token string) error {
+	if cf, err := s.GetCloudflare(ctx()); err == nil && cf.TokenGroup != "" {
+		return ReplaceAccountToken(s, cf.UserID, token)
+	}
+	return replacePanelToken(s, token)
+}
+
+func replacePanelToken(s *store.Store, token string) error {
 	if _, err := ConnectCloudflare(s, token); err != nil {
 		return err
 	}

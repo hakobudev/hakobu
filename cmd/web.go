@@ -925,6 +925,14 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 		}
 		if v.CloudflareConnected {
 			v.Token = ops.TokenPermissions(s, false)
+			// Projects may go to the panel's account, but not in panel-only
+			// mode; there only the admin sees it.
+			if !config.PanelOnly || v.Admin {
+				if panel, err := ops.PanelClientAccount(s, user.ID); err == nil {
+					v.Clients = append(v.Clients, panel)
+				}
+			}
+			v.OwnsPanelToken = ops.OwnsPanelToken(s, user.ID)
 			clients, _ := ops.ClientAccounts(s)
 			for _, c := range clients {
 				if c.UserID == user.ID {
@@ -1286,6 +1294,7 @@ func registerAuthRoutes(mux *http.ServeMux, s *store.Store) {
 				return
 			}
 			if isAdmin {
+				go ops.AdoptPanelToken(s, id)
 				if err := config.ClearSetupToken(); err != nil {
 					panellog.Error("failed to remove the setup token:", err)
 				}

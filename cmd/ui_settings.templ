@@ -31,6 +31,7 @@ type settingsPage struct {
 	Token                        []cloudflare.Permission
 	Clients                      []ops.ClientAccount
 	UserTokenURL                 string // a token of the user's for all their accounts
+	OwnsPanelToken               bool   // the panel's token is the user's too
 	R2Off                        bool   // R2 isn't on in the panel's account
 	R2URL                        string // where it's turned on
 	Servers                      []ops.Server
@@ -355,6 +356,8 @@ templ settingsUpdate(u ops.UpdateInfo) {
 				<div>
 					if u.Available {
 						<p>This is hakobu <span class="mono">{ u.Current }</span>; <a href={ templ.SafeURL("https://github.com/x0ryz/hakobu/releases/tag/" + u.Latest) } target="_blank" rel="noopener" class="mono">{ u.Latest }</a> is out.</p>
+					} else if u.FromSource {
+						<p>This is hakobu <span class="mono">{ u.Current }</span>, built from source: the panel offers it no release, as one may not open a database a newer build made.</p>
 					} else if u.Latest != "" {
 						<p>This is hakobu <span class="mono">{ u.Current }</span>, the latest release.</p>
 					} else {
@@ -609,7 +612,7 @@ templ settingsToken(v settingsPage) {
 			}
 			<form hx-post="/settings/cloudflare/token">
 				<div class="box-body">
-					<p class="field-hint">To replace it, open <a href={ templ.SafeURL(v.TokenURL) } target="_blank" rel="noopener">this link</a> (the permissions are filled in), select <span class="strong">Continue to summary</span> → <span class="strong">Create Token</span>, and paste it here. It must be for the same Cloudflare account. Then delete the old token in Cloudflare.</p>
+					<p class="field-hint">To replace it, open <a href={ templ.SafeURL(v.TokenURL) } target="_blank" rel="noopener">this link</a> (the permissions are filled in), select <span class="strong">Continue to summary</span> → <span class="strong">Create Token</span>, and paste it here. It must reach this panel's Cloudflare account and every account your projects are in. Then delete the old token in Cloudflare.</p>
 					<input name="token" type="password" required autocomplete="off" placeholder="New API token" class="input mono"/>
 				</div>
 				@boxFooter("") {
@@ -726,6 +729,9 @@ templ settingsClients(v settingsPage) {
 									<span class="row-meta mono">{ c.Domains }</span>
 								</span>
 								<span class="row-meta">
+									if c.Panel {
+										<span class="badge">this panel's</span>
+									}
 									if c.R2Off {
 										<span class="badge badge-attention">R2 off</span>
 									}
@@ -748,6 +754,15 @@ templ settingsClients(v settingsPage) {
 						</details>
 					}
 				</div>
+			}
+			if v.OwnsPanelToken {
+				<div class="box">
+					<div class="box-header">Your token</div>
+					<div class="box-body">
+						<p class="field-hint">These are the accounts the token you gave hakobu when installing it reaches, kept up to date every ten minutes: a client who invites you to their account (Manage Account → Members) shows up here, one who removes you goes. To leave an account out, leave it out of the token. To replace it, see <a href="#cloudflare">Cloudflare token</a>.</p>
+					</div>
+				</div>
+			} else if hasOwnAccounts(v.Clients) {
 				<form class="box" hx-post="/settings/clients/token">
 					<div class="box-header">Your token</div>
 					<div class="box-body space-y-4">
@@ -785,6 +800,17 @@ func accountTitle(c ops.ClientAccount) string {
 		return c.Title
 	}
 	return c.Name
+}
+
+// hasOwnAccounts tells whether the user connected accounts of their own,
+// besides the panel's.
+func hasOwnAccounts(clients []ops.ClientAccount) bool {
+	for _, c := range clients {
+		if !c.Panel {
+			return true
+		}
+	}
+	return false
 }
 
 func clientProjects(c ops.ClientAccount) string {

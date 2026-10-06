@@ -65,8 +65,16 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	zone := zones[0]
 	if len(zones) > 1 {
 		fmt.Println("\nWhich domain should hakobu use?")
+		accounts := map[string]bool{}
+		for _, z := range zones {
+			accounts[z.Account.ID] = true
+		}
 		for i, z := range zones {
-			fmt.Printf("  %d) %s\n", i+1, z.Name)
+			if len(accounts) > 1 { // the panel's account is the domain's
+				fmt.Printf("  %d) %s (%s)\n", i+1, z.Name, z.Account.Name)
+			} else {
+				fmt.Printf("  %d) %s\n", i+1, z.Name)
+			}
 		}
 		for {
 			fmt.Printf("Choice [1-%d]: ", len(zones))
@@ -144,8 +152,9 @@ func connectCloudflare(s *store.Store) error {
 	host, _ := os.Hostname()
 	fmt.Println("\nOpen this link, select Continue to summary and Create Token (the permissions are filled in):")
 	fmt.Println("\n  " + cloudflare.TokenTemplateURL("hakobu "+strings.Split(host, ".")[0]))
-	fmt.Println("\nUnder Zone Resources, pick only the domains hakobu should use: the token can")
-	fmt.Println("change the DNS of every domain it covers.")
+	fmt.Println("\nIt's a token of yours for every Cloudflare account you're a member of: the panel's,")
+	fmt.Println("and your clients' that invited you, for your projects in them. Under Account and Zone")
+	fmt.Println("Resources you can narrow it: the token can change the DNS of every domain it covers.")
 	fmt.Println("\nCopy the token Cloudflare shows and paste it here (it isn't echoed).")
 	for attempt := 0; ; attempt++ {
 		fmt.Print("API token: ")

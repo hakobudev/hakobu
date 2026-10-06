@@ -98,6 +98,8 @@ type Cloudflare struct {
 	PanelZoneID   string
 	PanelRecordID string
 	BackupBucket  string
+	UserID        int64
+	TokenGroup    string
 }
 
 type CloudflareAccount struct {

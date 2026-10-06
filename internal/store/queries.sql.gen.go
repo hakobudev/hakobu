@@ -1024,7 +1024,7 @@ func (q *Queries) GetBackup(ctx context.Context, id int64) (Backup, error) {
 
 const getCloudflare = `-- name: GetCloudflare :one
 
-SELECT id, api_token, account_id, tunnel_id, tunnel_token, panel_zone_id, panel_record_id, backup_bucket FROM cloudflare WHERE id = 1
+SELECT id, api_token, account_id, tunnel_id, tunnel_token, panel_zone_id, panel_record_id, backup_bucket, user_id, token_group FROM cloudflare WHERE id = 1
 `
 
 // Cloudflare
@@ -1040,6 +1040,8 @@ func (q *Queries) GetCloudflare(ctx context.Context) (Cloudflare, error) {
 		&i.PanelZoneID,
 		&i.PanelRecordID,
 		&i.BackupBucket,
+		&i.UserID,
+		&i.TokenGroup,
 	)
 	return i, err
 }
@@ -3219,6 +3221,20 @@ func (q *Queries) SetCloudflareAccountTunnel(ctx context.Context, arg SetCloudfl
 	return err
 }
 
+const setCloudflareOwner = `-- name: SetCloudflareOwner :exec
+UPDATE cloudflare SET user_id = ?, token_group = ? WHERE id = 1
+`
+
+type SetCloudflareOwnerParams struct {
+	UserID     int64
+	TokenGroup string
+}
+
+func (q *Queries) SetCloudflareOwner(ctx context.Context, arg SetCloudflareOwnerParams) error {
+	_, err := q.db.ExecContext(ctx, setCloudflareOwner, arg.UserID, arg.TokenGroup)
+	return err
+}
+
 const setDatabasePassword = `-- name: SetDatabasePassword :exec
 UPDATE databases SET db_password = ? WHERE name = ?
 `
@@ -3522,6 +3538,33 @@ func (q *Queries) UseOAuthToken(ctx context.Context, arg UseOAuthTokenParams) (i
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const userProjectsInPanelAccount = `-- name: UserProjectsInPanelAccount :many
+SELECT name FROM projects WHERE cloudflare_account_id IS NULL AND user_id = ? ORDER BY name
+`
+
+func (q *Queries) UserProjectsInPanelAccount(ctx context.Context, userID int64) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, userProjectsInPanelAccount, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		items = append(items, name)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const watchdogTurnedOff = `-- name: WatchdogTurnedOff :one

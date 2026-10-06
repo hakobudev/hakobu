@@ -17,7 +17,7 @@ func TestTokenTemplateURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if u.Host != "dash.cloudflare.com" || u.Query().Get("to") != "/:account/api-tokens" || u.Query().Get("name") != "hakobu box" {
+	if u.Host != "dash.cloudflare.com" || u.Path != "/profile/api-tokens" || u.Query().Get("accountId") != "*" || u.Query().Get("name") != "hakobu box" {
 		t.Errorf("template URL = %s", u)
 	}
 	var perms []struct{ Key, Type string }

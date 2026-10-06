@@ -60,7 +60,11 @@ CREATE TABLE cloudflare (
 	tunnel_token TEXT NOT NULL DEFAULT '',
 	panel_zone_id TEXT NOT NULL DEFAULT '',
 	panel_record_id TEXT NOT NULL DEFAULT '',
-	backup_bucket TEXT NOT NULL DEFAULT ''
+	backup_bucket TEXT NOT NULL DEFAULT '',
+	-- The first admin's from their first sign-in: the token is theirs for
+	-- their other accounts too, which share token_group with it.
+	user_id INTEGER NOT NULL DEFAULT 0,
+	token_group TEXT NOT NULL DEFAULT ''
 );
 
 -- Users' Cloudflare accounts: a project in one gets its domains, storages

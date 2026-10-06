@@ -87,7 +87,13 @@ func newFakeAccounts(t *testing.T) *fakeAccounts {
 		route := r.Method + " " + r.URL.Path
 		switch {
 		case route == "GET /zones":
-			ok(zones)
+			var in []map[string]any
+			for _, z := range zones {
+				if id := r.URL.Query().Get("account.id"); id == "" || z["account"].(map[string]string)["id"] == id {
+					in = append(in, z)
+				}
+			}
+			ok(in)
 		case strings.HasSuffix(route, "/tokens/verify"):
 			ok(map[string]string{"status": "active"})
 		case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/cfd_tunnel"):
@@ -97,6 +103,9 @@ func newFakeAccounts(t *testing.T) *fakeAccounts {
 			fmt.Fprint(w, `{"success":false,"errors":[{"code":10000,"message":"Authentication error"}]}`)
 		case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/r2/buckets"):
 			ok([]any{})
+		case r.Method == "GET" && (strings.HasSuffix(r.URL.Path, "/workers/scripts") || strings.HasSuffix(r.URL.Path, "/email/routing/addresses") ||
+			strings.HasSuffix(r.URL.Path, "/storage/kv/namespaces") || strings.HasSuffix(r.URL.Path, "/d1/database")):
+			ok([]any{}) // the token's permissions checked
 		case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/cfd_tunnel"):
 			f.created++
 			ok(map[string]string{"id": fmt.Sprintf("t-new-%d", f.created)})
@@ -624,5 +633,72 @@ func TestClientTunnelOnFirstDomain(t *testing.T) {
 	}
 	if f.created-len(f.deleted) != before+1 {
 		t.Errorf("a second domain made another tunnel")
+	}
+}
+
+// The installer's token is the panel's and, from the first admin's
+// sign-in, theirs: it connects their other accounts, keeps up with them,
+// and is replaced for all of them at once.
+func TestPanelTokenIsTheAdmins(t *testing.T) {
+	newFakeAccounts(t)
+	s, _, _ := accountsStore(t)
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll("data", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	panelZone := fakeTokens["panel-tok"][0]
+	newco := fakeTokens["user-tok"][1]
+	late := map[string]any{"id": "z-late", "name": "late.com", "account": map[string]string{"id": "late-acc", "name": "Late"}}
+	fakeTokens["admin-tok"] = []map[string]any{panelZone, newco}
+	t.Cleanup(func() { delete(fakeTokens, "admin-tok"); delete(fakeTokens, "admin-tok-2") })
+	if _, err := ConnectCloudflare(s, "admin-tok"); err != nil {
+		t.Fatal(err)
+	}
+	// The panel's domains are its account's alone.
+	if zones, err := Zones(s); err != nil || len(zones) != 1 || zones[0].Name != "panel.com" {
+		t.Errorf("panel's zones %v, %v", zones, err)
+	}
+
+	AdoptPanelToken(s, 1)
+	cf, _ := s.GetCloudflare(ctx())
+	row, err := s.GetCloudflareAccountByName(ctx(), "newco")
+	if err != nil || cf.UserID != 1 || cf.TokenGroup == "" || row.TokenGroup != cf.TokenGroup || row.UserID != 1 || row.ApiToken != "admin-tok" {
+		t.Fatalf("panel %d/%q, newco %+v, %v", cf.UserID, cf.TokenGroup, row, err)
+	}
+	if _, err := s.GetCloudflareAccountByAccountID(ctx(), "acc"); err == nil {
+		t.Error("the panel's account was connected as a client's")
+	}
+	if !OwnsPanelToken(s, 1) || OwnsPanelToken(s, 2) {
+		t.Error("OwnsPanelToken")
+	}
+	AdoptPanelToken(s, 2) // only the first admin's
+	if cf, _ := s.GetCloudflare(ctx()); cf.UserID != 1 {
+		t.Errorf("panel's token went to user %d", cf.UserID)
+	}
+
+	// A client invites the admin.
+	fakeTokens["admin-tok"] = []map[string]any{panelZone, newco, late}
+	SyncAccountTokens(s)
+	if r, err := s.GetCloudflareAccountByName(ctx(), "late"); err != nil || r.TokenGroup != cf.TokenGroup {
+		t.Fatalf("late %+v, %v", r, err)
+	}
+
+	// Pasting it as the admin's own token replaces the panel's too, and
+	// it must reach the panel's account.
+	fakeTokens["admin-tok-2"] = []map[string]any{newco, late}
+	if err := AddAccountToken(s, 1, "admin-tok-2"); err == nil || !strings.Contains(err.Error(), "hakobu's tunnel") {
+		t.Errorf("a token without the panel's account: %v", err)
+	}
+	fakeTokens["admin-tok-2"] = []map[string]any{panelZone, newco, late}
+	if err := ReplaceCloudflareToken(s, "admin-tok-2"); err != nil {
+		t.Fatal(err)
+	}
+	if cf, _ := s.GetCloudflare(ctx()); cf.ApiToken != "admin-tok-2" {
+		t.Errorf("panel kept %q", cf.ApiToken)
+	}
+	for _, name := range []string{"newco", "late"} {
+		if a, _ := s.GetCloudflareAccountByName(ctx(), name); a.ApiToken != "admin-tok-2" {
+			t.Errorf("%s kept the old token", name)
+		}
 	}
 }
