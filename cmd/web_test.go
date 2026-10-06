@@ -133,6 +133,9 @@ func TestPagesRender(t *testing.T) {
 		{Account: cloudflare.Account{ID: "o", Name: "Other", Zones: []string{"other.com"}}, Name: "other"},
 		{Account: cloudflare.Account{ID: "p", Name: "Panel", Zones: []string{"panel.com"}}, Taken: "the panel's own account"},
 	}})
+	pages["cloudflare pick, nothing new"] = cloudflarePickPage(cloudflarePick{ID: "x", Choices: []ops.OAuthChoice{
+		{Account: cloudflare.Account{ID: "k", Name: "Kasl", Zones: []string{"kaslauto.com"}}, Taken: "connected as kasl"},
+	}})
 	pages["switch projects"] = switchProjects([]store.Project{project, {Name: "b"}}, "demo")
 	pages["switch resources"] = switchResources("demo", []store.App{app.App, {Name: "x", BuildStrategy: "dockerfile"}}, []store.Database{db}, storages, "web")
 	pages["storage"] = storageView(storagePage{Storage: storages[0], Project: project, UsedBy: []string{"web"}})
