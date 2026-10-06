@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"compress/gzip"
+	"context"
 	"crypto/subtle"
 	"fmt"
 	"io"
@@ -14,17 +15,11 @@ import (
 	"github.com/x0ryz/hakobu/internal/ingest"
 	"github.com/x0ryz/hakobu/internal/ops"
 	"github.com/x0ryz/hakobu/internal/panellog"
-	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store"
-	"github.com/x0ryz/hakobu/internal/store/teldb"
 )
 
 // maxEnvelopeBytes caps the decompressed size, guarding against gzip bombs.
 const maxEnvelopeBytes = 10 << 20
-
-// maxEventsPerEnvelope caps the rows one envelope can add: SDKs batch at
-// most 100 log records, and each record is a row of its own.
-const maxEventsPerEnvelope = 1000
 
 var sentryKeyPattern = regexp.MustCompile(`sentry_key=([a-zA-Z0-9]+)`)
 
@@ -100,17 +95,21 @@ func (l *limiter) allow(key string) bool {
 	return true
 }
 
+// ingestApp is an app as the ingest endpoint knows it: its name and the
+// key of its DSN.
+type ingestApp struct{ Name, Key string }
+
 // ingestHandler accepts Sentry envelopes at POST /api/{app_id}/envelope/,
-// the DSN every app gets as SENTRY_DSN; errors, structured logs and traces
-// are stored, other items dropped. It's served both on the panel and, for
-// the apps on this server, on the ingest socket (ingest_relay.go), with
-// the same rate limits.
-func ingestHandler(s *store.Store) http.HandlerFunc {
+// the DSN every app gets as SENTRY_DSN, for the app find knows by its ID,
+// and has keep store them where the app's telemetry is kept. It's served
+// on the panel, publicly and for the apps on its server (ingest_relay.go),
+// and on every other server for its own apps, with the same rate limits.
+func ingestHandler(find func(ctx context.Context, id int64) (ingestApp, bool), keep func(ctx context.Context, app string, body []byte) error) http.HandlerFunc {
 	lim := newLimiter()
 	return func(w http.ResponseWriter, r *http.Request) {
 		appID, _ := strconv.ParseInt(r.PathValue("app_id"), 10, 64)
-		app, err := s.GetAppByID(r.Context(), appID)
-		if err != nil || app.SentryKey == "" || subtle.ConstantTimeCompare([]byte(app.SentryKey), []byte(sentryKey(r))) != 1 {
+		app, ok := find(r.Context(), appID)
+		if !ok || app.Key == "" || subtle.ConstantTimeCompare([]byte(app.Key), []byte(sentryKey(r))) != 1 {
 			http.Error(w, "invalid dsn", http.StatusUnauthorized)
 			return
 		}
@@ -134,37 +133,29 @@ func ingestHandler(s *store.Store) http.HandlerFunc {
 			http.Error(w, "rate limited", http.StatusTooManyRequests)
 			return
 		}
-
-		saved := 0
-		save := func(kind string, sum ingest.Summary, payload []byte) {
-			if saved++; saved > maxEventsPerEnvelope {
-				return
-			}
-			if err := s.Tel.CreateTelemetryEvent(r.Context(), teldb.CreateTelemetryEventParams{AppName: app.Name, Kind: kind, Level: sum.Level, Message: secret.String(sum.Message), Payload: secret.String(payload), TraceID: sum.TraceID}); err != nil {
-				panellog.Error("ingest: failed to store event:", err)
-			}
+		if err := keep(r.Context(), app.Name, body); err != nil {
+			panellog.Error("ingest: failed to keep an envelope of", app.Name+":", err)
+			http.Error(w, "not kept", http.StatusServiceUnavailable)
+			return
 		}
-		for _, item := range items {
-			switch item.Type {
-			case "event":
-				save("error", ingest.ExtractEventSummary(item), item.Payload)
-			case "log":
-				for _, entry := range ingest.ExtractLogEntries(item) {
-					save("log", entry.Summary, entry.Payload)
-				}
-			case "transaction":
-				if tx, ok := ingest.ExtractTransaction(item); ok {
-					if err := ops.RecordTransaction(s, app.Name, tx, item.Payload); err != nil {
-						panellog.Error("ingest: failed to store a trace:", err)
-					}
-				}
-			}
-		}
-
 		id, _ := ops.RandomHex(16)
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{"id":"%s"}`, id)
 	}
+}
+
+// panelIngest is ingestHandler on the panel: it knows every app, and keeps
+// what they send where their telemetry is (ops.StoreEnvelope).
+func panelIngest(s *store.Store) http.HandlerFunc {
+	return ingestHandler(func(ctx context.Context, id int64) (ingestApp, bool) {
+		app, err := s.GetAppByID(ctx, id)
+		if err != nil {
+			return ingestApp{}, false
+		}
+		return ingestApp{app.Name, string(app.SentryKey)}, true
+	}, func(_ context.Context, app string, body []byte) error {
+		return ops.StoreEnvelope(s, app, body)
+	})
 }
 
 // limitKey is the rate limit an envelope counts against: the app's own,

@@ -6,70 +6,13 @@ import (
 	"time"
 
 	"github.com/x0ryz/hakobu/internal/ingest"
-	"github.com/x0ryz/hakobu/internal/secret"
+	"github.com/x0ryz/hakobu/internal/node"
 	"github.com/x0ryz/hakobu/internal/store"
 	"github.com/x0ryz/hakobu/internal/store/teldb"
 )
 
-// Apps whose Sentry SDK traces requests (traces_sample_rate) send each one
-// as a transaction. hakobu counts them all by route and hour, and keeps the
-// slow and failed ones whole for a week (migration 003_traces.sql).
-
-// slowTrace is how long a request takes to be kept whole.
-const slowTrace = time.Second
-
-// maxRoutesPerHour caps the routes counted for an app in an hour: names
-// that still carry IDs mustn't grow the table without end. The rest count
-// as otherRoute.
-const (
-	maxRoutesPerHour = 500
-	otherRoute       = "(other routes)"
-)
-
-// bucketBounds are the upper bounds in milliseconds of the histogram's
-// buckets but the last, which has none.
-var bucketBounds = [...]int64{10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000}
-
-func bucketOf(ms int64) int64 {
-	for i, b := range bucketBounds {
-		if ms < b {
-			return int64(i)
-		}
-	}
-	return int64(len(bucketBounds))
-}
-
-// RecordTransaction counts a transaction of app and keeps it whole if it
-// was slow or failed.
-func RecordTransaction(s *store.Store, app string, tx ingest.Transaction, payload []byte) error {
-	now := time.Now()
-	hour := now.Truncate(time.Hour).Unix()
-	name := tx.Name
-	if known, err := s.Tel.HasTraceRoute(ctx(), teldb.HasTraceRouteParams{AppName: app, Hour: hour, Name: name}); err == nil && !known {
-		if n, err := s.Tel.CountTraceRoutes(ctx(), teldb.CountTraceRoutesParams{AppName: app, Hour: hour}); err == nil && n >= maxRoutesPerHour {
-			name = otherRoute
-		}
-	}
-	ms := tx.Duration.Milliseconds()
-	var failed int64
-	if tx.Failed() {
-		failed = 1
-	}
-	if err := s.Tel.CountTrace(ctx(), teldb.CountTraceParams{AppName: app, Name: name, Hour: hour, Errors: failed, Ms: ms, Bucket: bucketOf(ms)}); err != nil {
-		return err
-	}
-	if !tx.Failed() && tx.Duration < slowTrace {
-		return nil
-	}
-	slow := ""
-	if span, ok := tx.Slowest(); ok {
-		slow = fmt.Sprintf("%s %s (%d ms)", span.Op, span.Description, span.Duration.Milliseconds())
-	}
-	return s.Tel.CreateTrace(ctx(), teldb.CreateTraceParams{
-		AppName: app, TraceID: tx.TraceID, Name: tx.Name, Status: tx.Status, HttpStatus: int64(tx.HTTPStatus),
-		DurationMs: ms, SlowSpan: secret.String(slow), Payload: secret.String(payload), CreatedAt: now.Unix(),
-	})
-}
+// Apps' traces are counted and kept on their server (node.Telemetry);
+// these read them.
 
 // RouteStats is how a route of an app did over a span.
 type RouteStats struct {
@@ -92,13 +35,17 @@ func (r RouteStats) ErrorPct() float64 {
 // RoutesOf sums an app's routes over the span, the ones that took the
 // most time in all first.
 func RoutesOf(s *store.Store, app string, span time.Duration) ([]RouteStats, error) {
-	rows, err := s.Tel.ListTraceRoutes(ctx(), teldb.ListTraceRoutesParams{AppName: app, Hour: time.Now().Add(-span).Truncate(time.Hour).Unix()})
+	t, err := appTelemetry(s, app)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := t.TraceRoutes(ctx(), app, time.Now().Add(-span).Truncate(time.Hour).Unix())
 	if err != nil {
 		return nil, err
 	}
 	type sum struct {
 		count, errors, total int64
-		buckets              [len(bucketBounds) + 1]int64
+		buckets              [len(node.BucketBounds) + 1]int64
 	}
 	byName := map[string]*sum{}
 	for _, r := range rows {
@@ -143,15 +90,15 @@ func percentile(buckets []int64, count int64, q float64) (ms int64, over bool) {
 			seen += float64(n)
 			continue
 		}
-		if i == len(bucketBounds) {
-			return bucketBounds[len(bucketBounds)-1], true
+		if i == len(node.BucketBounds) {
+			return node.BucketBounds[len(node.BucketBounds)-1], true
 		}
 		lower := int64(0)
 		if i > 0 {
-			lower = bucketBounds[i-1]
+			lower = node.BucketBounds[i-1]
 		}
 		frac := (rank - seen) / float64(n)
-		return lower + int64(frac*float64(bucketBounds[i]-lower)), false
+		return lower + int64(frac*float64(node.BucketBounds[i]-lower)), false
 	}
 	return 0, false
 }
@@ -173,7 +120,11 @@ type WaterfallRow struct {
 
 // TraceOf reads a kept trace of app and lays it out.
 func TraceOf(s *store.Store, app string, id int64) (Waterfall, error) {
-	t, err := s.Tel.GetTrace(ctx(), teldb.GetTraceParams{ID: id, AppName: app})
+	keeper, err := appTelemetry(s, app)
+	if err != nil {
+		return Waterfall{}, err
+	}
+	t, err := keeper.AppTrace(ctx(), app, id)
 	if err != nil {
 		return Waterfall{}, fmt.Errorf("no trace %d of %s (traces are kept for a week)", id, app)
 	}

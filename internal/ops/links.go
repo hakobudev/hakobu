@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -190,7 +191,7 @@ var linkWork sync.WaitGroup
 // LinkServer takes nodes' connections at link.Path. ingest takes the
 // errors, logs and traces a server's apps send (POST
 // /api/{app_id}/envelope/), passed on by the server over its link.
-func LinkServer(s *store.Store, version string, ingest http.Handler) (http.Handler, error) {
+func LinkServer(s *store.Store, version string) (http.Handler, error) {
 	key, err := linkKey(s)
 	if err != nil {
 		return nil, err
@@ -212,7 +213,7 @@ func LinkServer(s *store.Store, version string, ingest http.Handler) (http.Handl
 				old.session.Close() // the node came back on a new connection
 			}
 			panellog.Info("server", name, "connected, hakobu", v)
-			go func() { _ = http.Serve(sess, fromServer(s, name, r, ingest)) }()
+			go func() { _ = http.Serve(sess, fromServer(s, name, r)) }()
 			watching, stopWatching := context.WithCancel(context.Background())
 			linkWork.Add(1)
 			go func() {
@@ -378,19 +379,25 @@ func serverConnected(s *store.Store, name string, n node.Node, watching context.
 	}
 }
 
+// IngestApp is what a server learns of an app of its own to take its
+// envelopes: its name and the key of its DSN.
+type IngestApp struct{ Name, Key string }
+
 // fromServer answers what a server asks of the panel over its link: the
-// URLs of its backups' parts, and its apps' envelopes, taken only for
-// apps that run on it: a server can't write into another's apps.
-func fromServer(s *store.Store, name string, r *node.Remote, ingest http.Handler) http.Handler {
+// URLs of its backups' parts, and the DSN keys of its apps, told only for
+// apps that run on it: a server can't take another's apps' envelopes.
+func fromServer(s *store.Store, name string, r *node.Remote) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("POST /callback/{id}", r.Handler())
-	mux.HandleFunc("POST /api/{app_id}/envelope/", func(w http.ResponseWriter, req *http.Request) {
+	mux.HandleFunc("GET /ingest/apps/{app_id}", func(w http.ResponseWriter, req *http.Request) {
 		id, _ := strconv.ParseInt(req.PathValue("app_id"), 10, 64)
-		if !appOnServer(s, id, name) {
-			http.Error(w, "not an app of this server", http.StatusForbidden)
+		app, err := s.GetAppByID(ctx(), id)
+		if err != nil || !appOnServer(s, id, name) {
+			http.Error(w, "not an app of this server", http.StatusNotFound)
 			return
 		}
-		ingest.ServeHTTP(w, req)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(IngestApp{app.Name, string(app.SentryKey)})
 	})
 	return mux
 }

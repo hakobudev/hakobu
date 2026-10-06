@@ -31,7 +31,6 @@ import (
 	"github.com/x0ryz/hakobu/internal/panellog"
 	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store"
-	"github.com/x0ryz/hakobu/internal/store/teldb"
 )
 
 // iconSprite holds the panel's icons and logos as SVG symbols, put once on
@@ -609,7 +608,9 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			case "errors":
 				p.Logs = r.URL.Query().Get("logs") != ""
 				var err error
-				if p.Events, err = ops.AppEvents(s, app.Name, p.Logs, 50); err != nil {
+				if p.Events, err = ops.AppEvents(s, app.Name, p.Logs, 50); errors.Is(err, node.ErrUnreachable) {
+					p.Away = err.Error()
+				} else if err != nil {
 					fail(w, err)
 					return
 				}
@@ -619,11 +620,12 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 					p.Range = "24h"
 				}
 				var err error
-				if p.Routes, err = ops.RoutesOf(s, app.Name, ops.MetricRanges[p.Range]); err != nil {
-					fail(w, err)
-					return
+				if p.Routes, err = ops.RoutesOf(s, app.Name, ops.MetricRanges[p.Range]); err == nil {
+					p.Traces, err = ops.AppTraces(s, app.Name, 50)
 				}
-				if p.Traces, err = s.Tel.ListTraces(r.Context(), teldb.ListTracesParams{AppName: app.Name, Limit: 50}); err != nil {
+				if errors.Is(err, node.ErrUnreachable) {
+					p.Away = err.Error()
+				} else if err != nil {
 					fail(w, err)
 					return
 				}
@@ -837,7 +839,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 	// From an error to the trace of the request it happened in, if kept.
 	handle("GET /apps/{a}/traces/by-trace/{trace}", func(w http.ResponseWriter, r *http.Request) {
 		app := r.PathValue("a")
-		id, err := s.Tel.TraceByTraceID(r.Context(), teldb.TraceByTraceIDParams{AppName: app, TraceID: r.PathValue("trace")})
+		id, err := ops.TraceByID(s, app, r.PathValue("trace"))
 		if err != nil {
 			http.Error(w, "That request's trace wasn't kept: only slow and failed ones are, for a week, and only when the SDK traces requests (traces_sample_rate).", http.StatusNotFound)
 			return

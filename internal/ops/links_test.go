@@ -2,13 +2,15 @@ package ops
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/x0ryz/hakobu/internal/secret"
+	"github.com/x0ryz/hakobu/internal/store/teldb"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -26,7 +28,7 @@ func TestServerJoinsAndServes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := LinkServer(s, "v1", http.NotFoundHandler())
+	h, err := LinkServer(s, "v1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,17 +124,14 @@ func waitServer(t *testing.T, name string) node.Node {
 	return nil
 }
 
-// A server passes on its apps' envelopes over its link, and only theirs.
-func TestServerSendsItsAppsEnvelopes(t *testing.T) {
+// A server learns the DSN keys of its own apps over its link, and only
+// theirs; what they send is kept on it, not on the panel.
+func TestServerKeepsItsAppsTelemetry(t *testing.T) {
 	s, err := store.Open(filepath.Join(t.TempDir(), "hakobu.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var got []string
-	ingest := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		got = append(got, r.PathValue("app_id")+" "+r.Header.Get("X-Sentry-Auth"))
-	})
-	h, err := LinkServer(s, "v1", ingest)
+	h, err := LinkServer(s, "v1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +145,13 @@ func TestServerSendsItsAppsEnvelopes(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer sess.Close()
-	go func() { _ = node.Serve(sess, nodetest.New(), sess.Open) }()
+	far := nodetest.New()
+	farTel, err := store.OpenNodeTelemetry(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	far.Tel = farTel.Q
+	go func() { _ = node.Serve(sess, far, sess.Open) }()
 	waitServer(t, "far")
 
 	for _, p := range []string{"there", "here"} {
@@ -161,28 +166,50 @@ func TestServerSendsItsAppsEnvelopes(t *testing.T) {
 		if err := s.CreateApp(ctx(), store.CreateAppParams{ProjectID: pr.ID, Name: p + "-app", BuildStrategy: "dockerfile"}); err != nil {
 			t.Fatal(err)
 		}
+		if err := s.SetAppSentryKey(ctx(), store.SetAppSentryKeyParams{Name: p + "-app", SentryKey: secret.String(p + "-key")}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	there, _ := s.GetApp(ctx(), "there-app")
 	here, _ := s.GetApp(ctx(), "here-app")
 	toPanel := &http.Client{Transport: &http.Transport{DialContext: func(context.Context, string, string) (net.Conn, error) { return sess.Open() }}}
-	post := func(id int64) int {
-		req, _ := http.NewRequest(http.MethodPost, fmt.Sprintf("http://panel/api/%d/envelope/", id), strings.NewReader("{}"))
-		req.Header.Set("X-Sentry-Auth", "Sentry sentry_key=k")
-		resp, err := toPanel.Do(req)
+	ask := func(id int64) (IngestApp, int) {
+		resp, err := toPanel.Get(fmt.Sprintf("http://panel/ingest/apps/%d", id))
 		if err != nil {
 			t.Fatal(err)
 		}
-		resp.Body.Close()
-		return resp.StatusCode
+		defer resp.Body.Close()
+		var a IngestApp
+		_ = json.NewDecoder(resp.Body).Decode(&a)
+		return a, resp.StatusCode
 	}
-	if code := post(there.ID); code != http.StatusOK {
-		t.Errorf("its own app's envelope: %d", code)
+	if a, code := ask(there.ID); code != http.StatusOK || a != (IngestApp{"there-app", "there-key"}) {
+		t.Errorf("its own app: %d %+v", code, a)
 	}
-	if code := post(here.ID); code != http.StatusForbidden {
-		t.Errorf("another server's app's envelope: %d", code)
+	if a, code := ask(here.ID); code != http.StatusNotFound || a.Key != "" {
+		t.Errorf("another server's app: %d %+v", code, a)
 	}
-	if fmt.Sprint(got) != fmt.Sprintf("[%d Sentry sentry_key=k]", there.ID) {
-		t.Errorf("ingested %v", got)
+
+	envelope := []byte(`{"event_id":"9ec79c33ec9942ab8353589fcb2e04dc"}
+{"type":"event"}
+{"event_id":"9ec79c33ec9942ab8353589fcb2e04dc","level":"error","message":"boom"}
+`)
+	for _, app := range []string{"there-app", "here-app"} {
+		if err := StoreEnvelope(s, app, envelope); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if events, err := AppEvents(s, "there-app", true, 10); err != nil || len(events) != 1 {
+		t.Errorf("there-app's events: %+v, %v", events, err)
+	}
+	if kept, _ := s.Tel.ListTelemetryEvents(ctx(), teldb.ListTelemetryEventsParams{AppName: "there-app", Limit: 10}); len(kept) != 0 {
+		t.Errorf("the panel kept there-app's events: %+v", kept)
+	}
+	if kept, _ := farTel.Q.ListTelemetryEvents(ctx(), teldb.ListTelemetryEventsParams{AppName: "here-app", Limit: 10}); len(kept) != 0 {
+		t.Errorf("the server kept here-app's events: %+v", kept)
+	}
+	if events, _ := AppEvents(s, "here-app", true, 10); len(events) != 1 {
+		t.Errorf("here-app's events: %+v", events)
 	}
 }
 
@@ -197,7 +224,7 @@ func TestServersFollowThePanel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := LinkServer(s, "v1", http.NotFoundHandler())
+	h, err := LinkServer(s, "v1")
 	if err != nil {
 		t.Fatal(err)
 	}

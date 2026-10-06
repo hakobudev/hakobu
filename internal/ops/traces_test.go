@@ -2,6 +2,7 @@ package ops
 
 import (
 	"fmt"
+	"github.com/x0ryz/hakobu/internal/node"
 	"testing"
 	"time"
 
@@ -17,7 +18,7 @@ func TestTracesCountedAndSlowOnesKept(t *testing.T) {
 	}
 	record := func(tx ingest.Transaction) {
 		t.Helper()
-		if err := RecordTransaction(s, "web", tx, []byte(`{}`)); err != nil {
+		if err := node.RecordTransaction(ctx(), s.Tel, "web", tx, []byte(`{}`)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -54,8 +55,8 @@ func TestTracesCountedAndSlowOnesKept(t *testing.T) {
 
 func TestRoutesCappedPerHour(t *testing.T) {
 	s := notifyStore(t)
-	for i := range maxRoutesPerHour + 3 {
-		if err := RecordTransaction(s, "web", ingest.Transaction{Name: fmt.Sprintf("/r%d", i), Status: "ok"}, nil); err != nil {
+	for i := range node.MaxRoutesPerHour + 3 {
+		if err := node.RecordTransaction(ctx(), s.Tel, "web", ingest.Transaction{Name: fmt.Sprintf("/r%d", i), Status: "ok"}, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -63,12 +64,12 @@ func TestRoutesCappedPerHour(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(routes) != maxRoutesPerHour+1 {
-		t.Errorf("%d routes, want %d and %q", len(routes), maxRoutesPerHour, otherRoute)
+	if len(routes) != node.MaxRoutesPerHour+1 {
+		t.Errorf("%d routes, want %d and %q", len(routes), node.MaxRoutesPerHour, node.OtherRoute)
 	}
 	for _, r := range routes {
-		if r.Name == otherRoute && r.Count != 3 {
-			t.Errorf("%q counts %d", otherRoute, r.Count)
+		if r.Name == node.OtherRoute && r.Count != 3 {
+			t.Errorf("%q counts %d", node.OtherRoute, r.Count)
 		}
 	}
 }

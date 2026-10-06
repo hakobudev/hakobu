@@ -13,6 +13,8 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
+
+	"github.com/x0ryz/hakobu/internal/store/teldb"
 )
 
 // Remote is a node on another server as the panel calls it, over the
@@ -407,6 +409,55 @@ func (r *Remote) Readings(ctx context.Context, containers map[string]bool) (rd R
 func (r *Remote) Disk(ctx context.Context) (used, total uint64, err error) {
 	err = r.call(ctx, "Disk", nil, nil, nil, &used, &total)
 	return used, total, err
+}
+
+// Telemetry.
+
+func (r *Remote) AppEvents(ctx context.Context, app string, logs bool, limit int64) (e []teldb.TelemetryEvent, err error) {
+	err = r.call(ctx, "AppEvents", nil, nil, []any{app, logs, limit}, &e)
+	return e, err
+}
+
+func (r *Remote) AppEvent(ctx context.Context, app string, id int64) (e teldb.TelemetryEvent, err error) {
+	err = r.call(ctx, "AppEvent", nil, nil, []any{app, id}, &e)
+	return e, err
+}
+
+func (r *Remote) AddAppEvent(ctx context.Context, e teldb.CreateTelemetryEventParams) error {
+	return r.call(ctx, "AddAppEvent", nil, nil, []any{e})
+}
+
+func (r *Remote) LastAppEvent(ctx context.Context, app, kind string) (at string, err error) {
+	err = r.call(ctx, "LastAppEvent", nil, nil, []any{app, kind}, &at)
+	return at, err
+}
+
+func (r *Remote) AppTraces(ctx context.Context, app string, limit int64) (t []teldb.ListTracesRow, err error) {
+	err = r.call(ctx, "AppTraces", nil, nil, []any{app, limit}, &t)
+	return t, err
+}
+
+func (r *Remote) AppTrace(ctx context.Context, app string, id int64) (t teldb.Trace, err error) {
+	err = r.call(ctx, "AppTrace", nil, nil, []any{app, id}, &t)
+	return t, err
+}
+
+func (r *Remote) TraceByID(ctx context.Context, app, traceID string) (id int64, err error) {
+	err = r.call(ctx, "TraceByID", nil, nil, []any{app, traceID}, &id)
+	return id, err
+}
+
+func (r *Remote) TraceRoutes(ctx context.Context, app string, since int64) (t []teldb.TraceRoute, err error) {
+	err = r.call(ctx, "TraceRoutes", nil, nil, []any{app, since}, &t)
+	return t, err
+}
+
+func (r *Remote) DropTelemetry(ctx context.Context, app string) error {
+	return r.call(ctx, "DropTelemetry", nil, nil, []any{app})
+}
+
+func (r *Remote) StoreEnvelope(ctx context.Context, app string, body []byte) error {
+	return r.call(ctx, "StoreEnvelope", nil, nil, []any{app, body})
 }
 
 func (r *Remote) KeyState(ctx context.Context) (k KeyState, err error) {

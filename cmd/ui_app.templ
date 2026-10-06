@@ -27,6 +27,7 @@ type appPage struct {
 	Range   string                    // performance
 	Routes  []ops.RouteStats
 	Traces  []teldb.ListTracesRow
+	Away    string // errors, performance: why the app's server can't tell them now
 
 	Effective     []ops.EnvVar // variables
 	EnvError      string
@@ -489,6 +490,11 @@ templ appErrors(p appPage) {
 			@segmented([]segment{{Label: "Problems", Href: p.path("errors"), Current: !p.Logs}, {Label: "With logs", Href: p.path("errors") + "?logs=1", Current: p.Logs}})
 		</div>
 		<p class="field-hint mb-4">Errors and logs sent by a Sentry SDK using the injected <span class="mono">SENTRY_DSN</span>, and crashes, out-of-memory kills and failed health checks of the app and its worker.</p>
+		if p.Away != "" {
+			@flash("warn") {
+				{ p.Away }
+			}
+		}
 		<div class="box">
 			if len(p.Events) == 0 {
 				if p.Logs {
@@ -530,6 +536,11 @@ templ appPerformance(p appPage) {
 			@segmented([]segment{{Label: "24h", Href: p.path("performance"), Current: p.Range == "24h"}, {Label: "7d", Href: p.path("performance") + "?range=7d", Current: p.Range == "7d"}})
 			<span class="muted small">Traced by a Sentry SDK using the injected <span class="mono">SENTRY_DSN</span></span>
 		</div>
+		if p.Away != "" {
+			@flash("warn") {
+				{ p.Away }
+			}
+		}
 		if len(p.Routes) == 0 {
 			<div class="box">
 				<div class="blankslate">

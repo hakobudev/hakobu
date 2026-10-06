@@ -20,6 +20,9 @@ import (
 type State = deploy.State
 
 type Node interface {
+	// Apps' errors, logs and traces (telemetry.go).
+	TelemetryKeeper
+
 	// State is the container's state; Status is "not found" for one that
 	// doesn't exist and "unknown" when Docker doesn't answer.
 	State(ctx context.Context, container string) State

@@ -1,14 +1,12 @@
 package cmd
 
 import (
-	"bytes"
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"os"
@@ -27,6 +25,7 @@ import (
 	"github.com/x0ryz/hakobu/internal/node"
 	"github.com/x0ryz/hakobu/internal/ops"
 	"github.com/x0ryz/hakobu/internal/secret"
+	"github.com/x0ryz/hakobu/internal/store"
 	"github.com/x0ryz/hakobu/internal/update"
 )
 
@@ -192,17 +191,32 @@ func runNode(ctx context.Context, cfg nodeConfig, key ed25519.PrivateKey) error 
 		defer mu.Unlock()
 		return cfg.Panel
 	}
-	// The apps' errors and traces come in through the ingest relay, a
-	// container the panel starts here, and go on to the panel over the
-	// link while there is one.
+	// The apps' errors, logs and traces come in through the ingest relay,
+	// a container the panel starts here, and are kept here, in this
+	// server's telemetry.db, sealed with its key: the panel reads them over
+	// the link. It tells the apps' DSN keys (panelApps).
+	tel, err := store.OpenNodeTelemetry("data")
+	if err != nil {
+		return err
+	}
+	node.Tel = tel.Q
+	go func() {
+		for ; ; time.Sleep(time.Hour) {
+			if err := tel.Prune(context.Background(), config.RetentionDays); err != nil {
+				fmt.Println("pruning old telemetry:", err)
+			}
+		}
+	}()
 	var toPanel atomic.Pointer[http.Client]
-	spool := newIngestSpool(ingestSpoolDir)
+	apps := &panelApps{toPanel: &toPanel, known: map[int64]knownApp{}}
 	ingestSock, err := listenSocket(ops.IngestSocketDir, filepath.Base(ops.IngestSocket()))
 	if err != nil {
 		return err
 	}
 	go func() {
-		srv := &http.Server{Handler: forwardIngest(&toPanel, spool), ReadTimeout: config.ReadTimeout, WriteTimeout: config.ReadTimeout}
+		mux := http.NewServeMux()
+		mux.HandleFunc("POST /api/{app_id}/envelope/", ingestHandler(apps.find, node.Telemetry{Q: tel.Q}.StoreEnvelope))
+		srv := &http.Server{Handler: mux, ReadTimeout: config.ReadTimeout, WriteTimeout: config.ReadTimeout}
 		_ = srv.Serve(ingestSock)
 	}()
 	for wait := time.Second; ctx.Err() == nil; {
@@ -231,16 +245,6 @@ func runNode(ctx context.Context, cfg nodeConfig, key ed25519.PrivateKey) error 
 		}}
 		toPanel.Store(linked)
 		go func() {
-			n, err := spool.drain(linked)
-			if n > 0 || err != nil {
-				fmt.Printf("sent the panel %d envelopes kept while it was away", n)
-				if err != nil {
-					fmt.Printf(" (the rest wait: %v)", err)
-				}
-				fmt.Println()
-			}
-		}()
-		go func() {
 			select {
 			case <-ctx.Done():
 				sess.Close()
@@ -257,57 +261,52 @@ func runNode(ctx context.Context, cfg nodeConfig, key ed25519.PrivateKey) error 
 	return nil
 }
 
-// forwardIngest passes the envelopes the ingest relay brings on to the
-// panel over the link; while the panel is out of reach they're kept in
-// spool, sent on when the node is linked again.
-func forwardIngest(toPanel *atomic.Pointer[http.Client], spool *ingestSpool) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(io.LimitReader(r.Body, maxEnvelopeBytes+1))
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		if len(body) > maxEnvelopeBytes {
-			http.Error(w, "envelope too large", http.StatusRequestEntityTooLarge)
-			return
-		}
-		keep := func(why string) {
-			if err := spool.put(r.URL.RequestURI(), r.Header, body); err != nil {
-				fmt.Println("an envelope is lost:", why+", and keeping it failed:", err)
-				http.Error(w, why, http.StatusServiceUnavailable)
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = io.WriteString(w, "{}")
-		}
-		c := toPanel.Load()
-		if c == nil {
-			keep("not connected to the panel")
-			return
-		}
-		req, err := http.NewRequestWithContext(r.Context(), r.Method, "http://panel"+r.URL.RequestURI(), bytes.NewReader(body))
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		for _, h := range ingestHeaders {
-			if v := r.Header.Get(h); v != "" {
-				req.Header.Set(h, v)
-			}
-		}
-		resp, err := c.Do(req)
-		if err != nil {
-			keep("the panel isn't reachable")
-			return
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode >= 500 {
-			keep("the panel answered " + resp.Status)
-			return
-		}
-		w.WriteHeader(resp.StatusCode)
-		_, _ = io.Copy(w, io.LimitReader(resp.Body, 64<<10))
-	})
+// panelApps knows this server's apps for its ingest endpoint by asking the
+// panel over the link, which tells only its own apps' keys; each answer is
+// kept a minute, and while the panel is away.
+type panelApps struct {
+	toPanel *atomic.Pointer[http.Client]
+	mu      sync.Mutex
+	known   map[int64]knownApp
+}
+
+type knownApp struct {
+	app ingestApp
+	at  time.Time
+}
+
+func (p *panelApps) find(ctx context.Context, id int64) (ingestApp, bool) {
+	p.mu.Lock()
+	k, ok := p.known[id]
+	p.mu.Unlock()
+	c := p.toPanel.Load()
+	if ok && time.Since(k.at) < time.Minute || c == nil {
+		return k.app, ok
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("http://panel/ingest/apps/%d", id), nil)
+	if err != nil {
+		return k.app, ok
+	}
+	resp, err := c.Do(req)
+	if err != nil {
+		return k.app, ok
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		p.mu.Lock()
+		delete(p.known, id)
+		p.mu.Unlock()
+		return ingestApp{}, false
+	}
+	var a ops.IngestApp
+	if resp.StatusCode != http.StatusOK || json.NewDecoder(resp.Body).Decode(&a) != nil {
+		return k.app, ok
+	}
+	app := ingestApp{a.Name, a.Key}
+	p.mu.Lock()
+	p.known[id] = knownApp{app, time.Now()}
+	p.mu.Unlock()
+	return app, true
 }
 
 // noteLinked marks the link up (an update waits for it, see

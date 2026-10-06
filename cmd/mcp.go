@@ -316,7 +316,7 @@ func newMCPServer(s *store.Store) *mcp.Server {
 			for _, r := range routes[:min(len(routes), 50)] {
 				out.Routes = append(out.Routes, mcpRoute{Name: r.Name, Count: r.Count, P50: r.P50Ms, P95: r.P95Ms, P95Over: r.P95Over, Avg: r.AvgMs, FailedPct: math.Round(r.ErrorPct()*10) / 10})
 			}
-			kept, err := s.Tel.ListTraces(ctx, teldb.ListTracesParams{AppName: app.Name, Limit: 20})
+			kept, err := ops.AppTraces(s, app.Name, 20)
 			if err != nil {
 				return nil, out, err
 			}
@@ -376,7 +376,7 @@ func newMCPServer(s *store.Store) *mcp.Server {
 			App string `json:"app" jsonschema:"the app's name"`
 			ID  int64  `json:"id" jsonschema:"the error's id from list_errors"`
 		}) (*mcp.CallToolResult, mcpError, error) {
-			e, err := s.Tel.GetTelemetryEvent(ctx, teldb.GetTelemetryEventParams{ID: in.ID, AppName: in.App})
+			e, err := ops.AppEvent(s, in.App, in.ID)
 			if err != nil {
 				return nil, mcpError{}, fmt.Errorf("no error %d of %s", in.ID, in.App)
 			}

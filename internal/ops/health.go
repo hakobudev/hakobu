@@ -87,7 +87,7 @@ func noteHealth(s *store.Store, app string, ok bool, why string) {
 }
 
 func recordHealth(s *store.Store, app, level, message string) {
-	if err := s.Tel.CreateTelemetryEvent(ctx(), teldb.CreateTelemetryEventParams{
+	if err := addAppEvent(s, teldb.CreateTelemetryEventParams{
 		AppName: app, Kind: "health", Level: level, Message: secret.String(message),
 	}); err != nil {
 		panellog.Error("failed to record the health of", app+":", err)
@@ -107,14 +107,4 @@ func forgetHealth(apps []store.App) {
 			delete(failedChecks.n, name)
 		}
 	}
-}
-
-// AppEvents lists an app's telemetry, newest first: with logs, or only
-// what went wrong (errors, crashes, out-of-memory kills, health checks),
-// which an app's logs would otherwise bury.
-func AppEvents(s *store.Store, app string, logs bool, limit int64) ([]teldb.TelemetryEvent, error) {
-	if logs {
-		return s.Tel.ListTelemetryEvents(ctx(), teldb.ListTelemetryEventsParams{AppName: app, Limit: limit})
-	}
-	return s.Tel.ListProblems(ctx(), teldb.ListProblemsParams{AppName: app, Limit: limit})
 }

@@ -24,7 +24,9 @@ hakobu rebuilds and rolls out the new version with zero downtime.
 - **Storages** for your apps' files: an R2 bucket hakobu creates in your Cloudflare account (you give it the keys of
   a token for that bucket alone; hakobu checks they can't reach the backups), or any S3-compatible bucket.
 - **Variables**: shared per project and per service; linked databases/storages inject `DATABASE_URL`, `POSTGRES_*`, `S3_*`.
-- **Logs**: build/deploy logs, container output, and errors via an auto-injected `SENTRY_DSN`.
+- **Logs**: build/deploy logs, container output, and errors, logs and traces via an auto-injected `SENTRY_DSN`,
+  kept on the server the app runs on (another server's in its own `telemetry.db`, sealed with its key): the panel reads
+  them while that server is connected and keeps none.
 - **Claude can run it**: an MCP server at `https://<panel>/mcp` lets Claude (claude.ai, the desktop and mobile apps, Claude Code) read apps, deploys, logs and errors, and deploy or roll back if you allow it.
 - **Sign-in with GitHub only**, for the owner: the GitHub account that claimed the panel with the setup link.
 - **Cloudflare Tunnel**: panel and apps on your domain with HTTPS, no open ports. cloudflared runs in its own

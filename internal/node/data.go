@@ -310,6 +310,12 @@ func (n Local) RemoveApp(ctx context.Context, app string, volumes []string) erro
 	}
 	os.RemoveAll(WorkDir(app))
 	os.Remove(SnapshotOf(app).path())
+	// On another server than the panel's, the app's telemetry is here.
+	if Tel != nil {
+		if err := (Telemetry{Tel}).DropTelemetry(ctx, app); err != nil {
+			return err
+		}
+	}
 	for _, v := range volumes {
 		if err := n.RemoveVolume(ctx, app, v); err != nil {
 			return err

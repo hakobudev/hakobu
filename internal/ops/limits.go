@@ -72,7 +72,7 @@ func recordDeath(s *store.Store, sv server, container, appName string, d node.De
 	default:
 		return
 	}
-	if err := s.Tel.CreateTelemetryEvent(ctx(), teldb.CreateTelemetryEventParams{
+	if err := addAppEvent(s, teldb.CreateTelemetryEventParams{
 		AppName: app.Name, Kind: kind, Level: "fatal", Message: secret.String(message),
 	}); err != nil {
 		panellog.Error("failed to record that", container, "stopped:", err)
@@ -87,6 +87,10 @@ func recordDeath(s *store.Store, sv server, container, appName string, d node.De
 // LastOOM is when the app or its worker last ran out of memory, "" if not
 // within the retention period.
 func LastOOM(s *store.Store, app string) string {
-	at, _ := s.Tel.LastTelemetryOfKind(ctx(), teldb.LastTelemetryOfKindParams{AppName: app, Kind: "oom"})
+	t, err := appTelemetry(s, app)
+	if err != nil {
+		return ""
+	}
+	at, _ := t.LastAppEvent(ctx(), app, "oom")
 	return at
 }

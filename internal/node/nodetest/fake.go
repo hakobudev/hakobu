@@ -17,6 +17,7 @@ import (
 	"sync"
 
 	"github.com/x0ryz/hakobu/internal/node"
+	"github.com/x0ryz/hakobu/internal/store/teldb"
 )
 
 // Fake is a node whose containers, builds, databases, dumps and volumes are
@@ -44,6 +45,7 @@ type Fake struct {
 	Edges      map[string][]string              // container → projects whose edge network it's on
 	Networks   map[string]bool                  // projects with networks
 	Keys       node.KeyState                    // what KeyState tells
+	Tel        *teldb.Queries                   // where its apps' telemetry goes
 }
 
 var _ node.Node = (*Fake)(nil)
@@ -681,6 +683,53 @@ func (f *Fake) Disk(ctx context.Context) (uint64, uint64, error) {
 	unlock, err := f.call("Disk")
 	defer unlock()
 	return 0, 0, err
+}
+
+// Telemetry goes to Tel, a real telemetry.db (the panel's in most tests).
+
+func (f *Fake) AppEvents(ctx context.Context, app string, logs bool, limit int64) ([]teldb.TelemetryEvent, error) {
+	return node.Telemetry{Q: f.Tel}.AppEvents(ctx, app, logs, limit)
+}
+
+func (f *Fake) AppEvent(ctx context.Context, app string, id int64) (teldb.TelemetryEvent, error) {
+	return node.Telemetry{Q: f.Tel}.AppEvent(ctx, app, id)
+}
+
+func (f *Fake) AddAppEvent(ctx context.Context, e teldb.CreateTelemetryEventParams) error {
+	return node.Telemetry{Q: f.Tel}.AddAppEvent(ctx, e)
+}
+
+func (f *Fake) LastAppEvent(ctx context.Context, app, kind string) (string, error) {
+	return node.Telemetry{Q: f.Tel}.LastAppEvent(ctx, app, kind)
+}
+
+func (f *Fake) AppTraces(ctx context.Context, app string, limit int64) ([]teldb.ListTracesRow, error) {
+	return node.Telemetry{Q: f.Tel}.AppTraces(ctx, app, limit)
+}
+
+func (f *Fake) AppTrace(ctx context.Context, app string, id int64) (teldb.Trace, error) {
+	return node.Telemetry{Q: f.Tel}.AppTrace(ctx, app, id)
+}
+
+func (f *Fake) TraceByID(ctx context.Context, app, traceID string) (int64, error) {
+	return node.Telemetry{Q: f.Tel}.TraceByID(ctx, app, traceID)
+}
+
+func (f *Fake) TraceRoutes(ctx context.Context, app string, since int64) ([]teldb.TraceRoute, error) {
+	return node.Telemetry{Q: f.Tel}.TraceRoutes(ctx, app, since)
+}
+
+func (f *Fake) DropTelemetry(ctx context.Context, app string) error {
+	return node.Telemetry{Q: f.Tel}.DropTelemetry(ctx, app)
+}
+
+func (f *Fake) StoreEnvelope(ctx context.Context, app string, body []byte) error {
+	unlock, err := f.call("StoreEnvelope")
+	defer unlock()
+	if err != nil {
+		return err
+	}
+	return node.Telemetry{Q: f.Tel}.StoreEnvelope(ctx, app, body)
 }
 
 func (f *Fake) KeyState(ctx context.Context) (node.KeyState, error) {

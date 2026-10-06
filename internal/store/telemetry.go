@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/x0ryz/hakobu/internal/panellog"
+	"github.com/x0ryz/hakobu/internal/store/teldb"
 )
 
 // The apps' telemetry lives in telemetry.db next to the panel's database:
@@ -121,26 +122,53 @@ func (s *Store) deleteTelemetryOf(ctx context.Context, app string) error {
 // pruneTelemetry deletes logs older than retentionDays and other telemetry
 // older than eventRetention, and gives the space back.
 func (s *Store) pruneTelemetry(ctx context.Context, retentionDays int) error {
-	if err := s.Tel.PruneLogs(ctx, timestamp(time.Now().AddDate(0, 0, -retentionDays))); err != nil {
+	return pruneTel(ctx, s.Tel, s.telDB, retentionDays)
+}
+
+func pruneTel(ctx context.Context, q *teldb.Queries, db *sql.DB, retentionDays int) error {
+	if err := q.PruneLogs(ctx, timestamp(time.Now().AddDate(0, 0, -retentionDays))); err != nil {
 		return err
 	}
-	if err := s.Tel.PruneEvents(ctx, timestamp(time.Now().Add(-eventRetention))); err != nil {
+	if err := q.PruneEvents(ctx, timestamp(time.Now().Add(-eventRetention))); err != nil {
 		return err
 	}
-	if err := s.Tel.PrunePanelLog(ctx, timestamp(time.Now().Add(-eventRetention))); err != nil {
+	if err := q.PrunePanelLog(ctx, timestamp(time.Now().Add(-eventRetention))); err != nil {
 		return err
 	}
 	traceCutoff := time.Now().Add(-traceRetention).Unix()
-	if err := s.Tel.PruneTraces(ctx, traceCutoff); err != nil {
+	if err := q.PruneTraces(ctx, traceCutoff); err != nil {
 		return err
 	}
-	if err := s.Tel.PruneTraceRoutes(ctx, traceCutoff); err != nil {
+	if err := q.PruneTraceRoutes(ctx, traceCutoff); err != nil {
 		return err
 	}
 	// The rings overwrite their own slots; this drops targets gone for good.
-	if err := s.Tel.PruneSamples(ctx, time.Now().Add(-eventRetention).Unix()); err != nil {
+	if err := q.PruneSamples(ctx, time.Now().Add(-eventRetention).Unix()); err != nil {
 		return err
 	}
-	_, err := s.telDB.ExecContext(ctx, `PRAGMA incremental_vacuum`)
+	_, err := db.ExecContext(ctx, `PRAGMA incremental_vacuum`)
 	return err
+}
+
+// NodeTelemetry is the telemetry.db of a server other than the panel's:
+// its apps' errors, logs and traces, sealed with its own master key, which
+// the panel reads over the link and never keeps.
+type NodeTelemetry struct {
+	Q  *teldb.Queries
+	db *sql.DB
+}
+
+// OpenNodeTelemetry opens the server's telemetry.db in dir, with its
+// master key loaded.
+func OpenNodeTelemetry(dir string) (*NodeTelemetry, error) {
+	db, err := openTelemetry(dir, false)
+	if err != nil {
+		return nil, err
+	}
+	return &NodeTelemetry{Q: teldb.New(db), db: db}, nil
+}
+
+// Prune is PruneOldData's for a server's telemetry.
+func (t *NodeTelemetry) Prune(ctx context.Context, retentionDays int) error {
+	return pruneTel(ctx, t.Q, t.db, retentionDays)
 }
