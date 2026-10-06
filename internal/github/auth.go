@@ -288,8 +288,11 @@ func BuildManifest(publicHost, name string) ([]byte, error) {
 		"callback_urls":   []string{base + "/auth/callback"},
 		// Public so that users invited to the panel can install it on
 		// their own accounts; each sees only their installation's repos.
-		"public":              true,
-		"default_permissions": map[string]string{"contents": "read", "metadata": "read", "email_addresses": "read"},
+		"public": true,
+		// No email_addresses: GitHub refuses a manifest asking for it
+		// ("Default permission records resource is not included in the
+		// list"), so sign-in falls back to the public address.
+		"default_permissions": map[string]string{"contents": "read", "metadata": "read"},
 		"default_events":      []string{"push"},
 	})
 }
@@ -371,8 +374,9 @@ func SignIn(clientID, clientSecret, code, redirectURI string) (User, error) {
 	if user.ID == 0 {
 		return User{}, fmt.Errorf("github returned no user ID")
 	}
-	// The primary address, if the App may read the user's addresses (Apps
-	// registered before it asked can't); otherwise the public one stays.
+	// The primary address, if the App may read the user's addresses (only
+	// one given Email addresses by hand on GitHub can); otherwise the public
+	// one stays.
 	var emails []struct {
 		Email             string `json:"email"`
 		Primary, Verified bool
