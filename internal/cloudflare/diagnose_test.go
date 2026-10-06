@@ -40,6 +40,31 @@ func TestRefusedTokenSaysWhy(t *testing.T) {
 	}
 }
 
+// Without its account, an account's token can't be checked: the user's
+// verify calls every such token invalid, which isn't that it's gone.
+func TestAccountTokenWithoutAccountIsNotGone(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/user/tokens/verify" {
+			fmt.Fprint(w, `{"success":false,"errors":[{"code":1000,"message":"Invalid API Token"}]}`)
+			return
+		}
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, `{"success":false,"errors":[{"code":10000,"message":"Authentication error"}]}`)
+	}))
+	defer srv.Close()
+	old := APIURL
+	APIURL = srv.URL
+	defer func() { APIURL = old }()
+
+	err := Client{Token: "cfat_tok"}.call("POST", "/accounts/acc/cfd_tunnel", map[string]string{}, nil)
+	if err == nil || strings.Contains(err.Error(), "doesn't exist any more") {
+		t.Errorf("%v, want no diagnosis", err)
+	}
+	if err := (Client{Token: "tok"}).call("GET", "/zones", nil, nil); err == nil || !strings.Contains(err.Error(), "doesn't exist any more") {
+		t.Errorf("a user's token: %v, want it gone", err)
+	}
+}
+
 // R2's S3 keys of a token: its ID, from its account or else the user,
 // and the SHA-256 of its value.
 func TestR2Credentials(t *testing.T) {

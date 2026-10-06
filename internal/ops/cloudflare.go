@@ -357,6 +357,7 @@ func SetupTunnel(s *store.Store, zoneID, sub string) (string, error) {
 	if zone.ID == "" {
 		return "", fmt.Errorf("domain not found in the connected Cloudflare account")
 	}
+	c.AccountID = zone.Account.ID // none saved yet: for diagnosing a refusal
 	sub = strings.Trim(strings.ToLower(strings.TrimSpace(sub)), ".")
 	host := zone.Name
 	if sub != "" {

@@ -242,6 +242,10 @@ func (c Client) diagnose() string {
 	paths := []string{"/user/tokens/verify"}
 	if c.AccountID != "" {
 		paths = append([]string{"/accounts/" + c.AccountID + "/tokens/verify"}, paths...)
+	} else if strings.HasPrefix(c.Token, "cfat_") {
+		// An account's token, which the user's verify always calls
+		// invalid: without its account there is nothing to ask.
+		return ""
 	}
 	gone := false
 	for _, path := range paths {
