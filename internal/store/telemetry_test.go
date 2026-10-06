@@ -3,75 +3,13 @@ package store
 import (
 	"context"
 	"database/sql"
-	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
 	"testing"
-	"time"
 
 	"github.com/x0ryz/hakobu/internal/secret"
 	"github.com/x0ryz/hakobu/internal/store/teldb"
 )
-
-// A panel database from before telemetry.db hands its last month of
-// telemetry over, still readable, and drops it.
-func TestTelemetryMovesOut(t *testing.T) {
-	ctx := context.Background()
-	dir := t.TempDir()
-	path := filepath.Join(dir, "hakobu.db")
-	if _, err := Open(filepath.Join(t.TempDir(), "hakobu.db")); err != nil { // loads a master key
-		t.Fatal(err)
-	}
-	// A database at schema 7, which kept telemetry in the panel's database.
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	names, _ := fs.Glob(migrationFiles, "migrations/*.sql")
-	sort.Strings(names)
-	for _, name := range names[:7] {
-		body, _ := fs.ReadFile(migrationFiles, name)
-		if _, err := db.Exec(string(body)); err != nil {
-			t.Fatal(name, err)
-		}
-	}
-	if _, err := db.Exec(`PRAGMA user_version = 7`); err != nil {
-		t.Fatal(err)
-	}
-	enc := func(v string) string {
-		e, err := secret.Encrypt(v)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return e
-	}
-	for _, e := range []struct{ msg, at string }{
-		{"boom", timestamp(time.Now().Add(-time.Hour))},
-		{"ancient", timestamp(time.Now().AddDate(0, -2, 0))},
-	} {
-		if _, err := db.Exec(`INSERT INTO telemetry_events (app_name, kind, message, created_at) VALUES ('web', 'error', ?, ?)`, enc(e.msg), e.at); err != nil {
-			t.Fatal(err)
-		}
-	}
-	db.Close()
-
-	s, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	events, err := s.Tel.ListTelemetryEvents(ctx, teldb.ListTelemetryEventsParams{AppName: "web", Limit: 10})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(events) != 1 || events[0].Message != "boom" {
-		t.Errorf("moved %+v, want the recent error only", events)
-	}
-	var has bool
-	if err := s.db.QueryRow(`SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE name = 'telemetry_events')`).Scan(&has); err != nil || has {
-		t.Errorf("the panel's database still has telemetry_events (err %v)", err)
-	}
-}
 
 // A telemetry.db hakobu can't use is replaced: one from a newer hakobu, or
 // one sealed with a master key that's gone.

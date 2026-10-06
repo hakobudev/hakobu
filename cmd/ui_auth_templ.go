@@ -8,12 +8,6 @@ package cmd
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
-import (
-	"strings"
-
-	"github.com/x0ryz/hakobu/internal/ops"
-)
-
 // Pages before or around signing in: one box in the middle of the page.
 func centered(title string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
@@ -106,7 +100,7 @@ func signinMark(title, subtitle string) templ.Component {
 		var templ_7745c5c3_Var4 string
 		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(title)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 25, Col: 35}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 20, Col: 35}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 		if templ_7745c5c3_Err != nil {
@@ -124,7 +118,7 @@ func signinMark(title, subtitle string) templ.Component {
 			var templ_7745c5c3_Var5 string
 			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(subtitle)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 27, Col: 36}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 22, Col: 36}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 			if templ_7745c5c3_Err != nil {
@@ -200,7 +194,7 @@ func loginPage(connected bool, errMsg string) templ.Component {
 					var templ_7745c5c3_Var9 string
 					templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(errMsg)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 38, Col: 12}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 33, Col: 12}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 					if templ_7745c5c3_Err != nil {
@@ -323,7 +317,7 @@ func setupPage(v setupView) templ.Component {
 					var templ_7745c5c3_Var13 string
 					templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(v.Err)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 77, Col: 11}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 72, Col: 11}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 					if templ_7745c5c3_Err != nil {
@@ -348,7 +342,7 @@ func setupPage(v setupView) templ.Component {
 				var templ_7745c5c3_Var14 string
 				templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(v.Host)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 83, Col: 65}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 78, Col: 65}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 				if templ_7745c5c3_Err != nil {
@@ -361,7 +355,7 @@ func setupPage(v setupView) templ.Component {
 				var templ_7745c5c3_Var15 templ.SafeURL
 				templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(v.Action))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 84, Col: 57}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 79, Col: 57}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 				if templ_7745c5c3_Err != nil {
@@ -374,7 +368,7 @@ func setupPage(v setupView) templ.Component {
 				var templ_7745c5c3_Var16 string
 				templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.ResolveAttributeValue(v.Manifest)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 85, Col: 61}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 80, Col: 61}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var16)
 				if templ_7745c5c3_Err != nil {
@@ -387,7 +381,7 @@ func setupPage(v setupView) templ.Component {
 				var templ_7745c5c3_Var17 string
 				templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.ResolveAttributeValue(v.State)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 86, Col: 55}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 81, Col: 55}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var17)
 				if templ_7745c5c3_Err != nil {
@@ -405,7 +399,7 @@ func setupPage(v setupView) templ.Component {
 					var templ_7745c5c3_Var18 string
 					templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs("Create the GitHub App on " + v.Org)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 90, Col: 45}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 85, Col: 45}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 					if templ_7745c5c3_Err != nil {
@@ -450,7 +444,7 @@ func setupPage(v setupView) templ.Component {
 					var templ_7745c5c3_Var20 string
 					templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.ResolveAttributeValue(v.Org)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 100, Col: 39}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 95, Col: 39}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var20)
 					if templ_7745c5c3_Err != nil {
@@ -485,7 +479,7 @@ func setupPage(v setupView) templ.Component {
 					var templ_7745c5c3_Var22 string
 					templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.ResolveAttributeValue(v.Name)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 103, Col: 41}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 98, Col: 41}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var22)
 					if templ_7745c5c3_Err != nil {
@@ -602,7 +596,7 @@ func oauthConsentPage(v consentView) templ.Component {
 			var templ_7745c5c3_Var26 string
 			templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(v.PublicHost)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 132, Col: 60}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 127, Col: 60}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 			if templ_7745c5c3_Err != nil {
@@ -615,7 +609,7 @@ func oauthConsentPage(v consentView) templ.Component {
 			var templ_7745c5c3_Var27 string
 			templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs(v.RedirectHost)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 132, Col: 120}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 127, Col: 120}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
 			if templ_7745c5c3_Err != nil {
@@ -633,7 +627,7 @@ func oauthConsentPage(v consentView) templ.Component {
 				var templ_7745c5c3_Var28 string
 				templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.JoinStringErrs(v.Client.ID)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 134, Col: 92}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 129, Col: 92}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var28))
 				if templ_7745c5c3_Err != nil {
@@ -685,7 +679,7 @@ func oauthConsentPage(v consentView) templ.Component {
 			var templ_7745c5c3_Var30 string
 			templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.ResolveAttributeValue(v.Query)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 151, Col: 55}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 146, Col: 55}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var30)
 			if templ_7745c5c3_Err != nil {
@@ -791,7 +785,7 @@ func oauthErrorPage(msg string) templ.Component {
 				var templ_7745c5c3_Var35 string
 				templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.JoinStringErrs(msg)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 166, Col: 34}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 161, Col: 34}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var35))
 				if templ_7745c5c3_Err != nil {
@@ -900,7 +894,7 @@ func invitePage(v invitePageData) templ.Component {
 					var templ_7745c5c3_Var39 templ.SafeURL
 					templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL("https://github.com/" + v.By))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 189, Col: 60}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 184, Col: 60}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var39))
 					if templ_7745c5c3_Err != nil {
@@ -913,7 +907,7 @@ func invitePage(v invitePageData) templ.Component {
 					var templ_7745c5c3_Var40 string
 					templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.JoinStringErrs(v.By)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 189, Col: 120}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 184, Col: 120}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var40))
 					if templ_7745c5c3_Err != nil {
@@ -957,305 +951,6 @@ func invitePage(v invitePageData) templ.Component {
 			return nil
 		})
 		templ_7745c5c3_Err = centered("Invite").Render(templ.WithChildren(ctx, templ_7745c5c3_Var37), templ_7745c5c3_Buffer)
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		return nil
-	})
-}
-
-// cloudflarePick is the page after "Connect with Cloudflare", the accounts
-// the user allowed on Cloudflare's consent page, or after a user's token
-// for several accounts, which the user picks from (Pick): each to connect
-// under a name, or saying why it can't be.
-type cloudflarePick struct {
-	ID      string
-	Choices []ops.OAuthChoice
-	Pick    bool
-}
-
-func pickHint(pick bool) string {
-	names := " Their domains become available to your projects; hakobu creates a tunnel in each. Names are lowercase letters, digits and dashes, shown in project settings."
-	if pick {
-		return "The accounts this token reaches: tick the ones to connect; they share the token." + names
-	}
-	return "The ones you allowed on Cloudflare." + names
-}
-
-func (v cloudflarePick) anyFree() bool {
-	for _, c := range v.Choices {
-		if c.Taken == "" {
-			return true
-		}
-	}
-	return false
-}
-
-func cloudflarePickPage(v cloudflarePick) templ.Component {
-	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
-			return templ_7745c5c3_CtxErr
-		}
-		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-		if !templ_7745c5c3_IsBuffer {
-			defer func() {
-				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-				if templ_7745c5c3_Err == nil {
-					templ_7745c5c3_Err = templ_7745c5c3_BufErr
-				}
-			}()
-		}
-		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var41 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var41 == nil {
-			templ_7745c5c3_Var41 = templ.NopComponent
-		}
-		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Var42 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-			if !templ_7745c5c3_IsBuffer {
-				defer func() {
-					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-					if templ_7745c5c3_Err == nil {
-						templ_7745c5c3_Err = templ_7745c5c3_BufErr
-					}
-				}()
-			}
-			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = signinMark("Connect Cloudflare", "").Render(ctx, templ_7745c5c3_Buffer)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 62, " <form class=\"box\" hx-post=\"")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			var templ_7745c5c3_Var43 string
-			templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.ResolveAttributeValue("/cloudflare/accounts/" + v.ID)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 242, Col: 60}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var43)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 63, "\"><div class=\"box-body space-y-4\">")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Var44 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-				if !templ_7745c5c3_IsBuffer {
-					defer func() {
-						templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-						if templ_7745c5c3_Err == nil {
-							templ_7745c5c3_Err = templ_7745c5c3_BufErr
-						}
-					}()
-				}
-				ctx = templ.InitializeContext(ctx)
-				for _, c := range v.Choices {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 64, "<div class=\"check\">")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					if v.Pick && c.Taken == "" {
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 65, "<input type=\"checkbox\" name=\"account\" value=\"")
-						if templ_7745c5c3_Err != nil {
-							return templ_7745c5c3_Err
-						}
-						var templ_7745c5c3_Var45 string
-						templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.ResolveAttributeValue(c.ID)
-						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 248, Col: 58}
-						}
-						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var45)
-						if templ_7745c5c3_Err != nil {
-							return templ_7745c5c3_Err
-						}
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 66, "\" id=\"")
-						if templ_7745c5c3_Err != nil {
-							return templ_7745c5c3_Err
-						}
-						var templ_7745c5c3_Var46 string
-						templ_7745c5c3_Var46, templ_7745c5c3_Err = templ.ResolveAttributeValue("acc-" + c.ID)
-						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 248, Col: 79}
-						}
-						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var46)
-						if templ_7745c5c3_Err != nil {
-							return templ_7745c5c3_Err
-						}
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 67, "\" checked> ")
-						if templ_7745c5c3_Err != nil {
-							return templ_7745c5c3_Err
-						}
-					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 68, "<span class=\"flex-1\"><label for=\"")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					var templ_7745c5c3_Var47 string
-					templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.ResolveAttributeValue("acc-" + c.ID)
-					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 251, Col: 34}
-					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var47)
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 69, "\" class=\"check-label\">")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					var templ_7745c5c3_Var48 string
-					templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.JoinStringErrs(c.Account.Name)
-					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 251, Col: 73}
-					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var48))
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 70, "</label><br><span class=\"field-hint mono\">")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					var templ_7745c5c3_Var49 string
-					templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.JoinStringErrs(strings.Join(c.Zones, ", "))
-					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 253, Col: 67}
-					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var49))
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 71, "</span> ")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					if c.Taken != "" {
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 72, "<br><span class=\"field-hint\">")
-						if templ_7745c5c3_Err != nil {
-							return templ_7745c5c3_Err
-						}
-						var templ_7745c5c3_Var50 string
-						templ_7745c5c3_Var50, templ_7745c5c3_Err = templ.JoinStringErrs(c.Taken)
-						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 256, Col: 43}
-						}
-						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var50))
-						if templ_7745c5c3_Err != nil {
-							return templ_7745c5c3_Err
-						}
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 73, "</span>")
-						if templ_7745c5c3_Err != nil {
-							return templ_7745c5c3_Err
-						}
-					} else {
-						if !v.Pick {
-							templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 74, "<input type=\"hidden\" name=\"account\" value=\"")
-							if templ_7745c5c3_Err != nil {
-								return templ_7745c5c3_Err
-							}
-							var templ_7745c5c3_Var51 string
-							templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.ResolveAttributeValue(c.ID)
-							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 259, Col: 58}
-							}
-							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var51)
-							if templ_7745c5c3_Err != nil {
-								return templ_7745c5c3_Err
-							}
-							templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 75, "\">")
-							if templ_7745c5c3_Err != nil {
-								return templ_7745c5c3_Err
-							}
-						}
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 76, " <input name=\"")
-						if templ_7745c5c3_Err != nil {
-							return templ_7745c5c3_Err
-						}
-						var templ_7745c5c3_Var52 string
-						templ_7745c5c3_Var52, templ_7745c5c3_Err = templ.ResolveAttributeValue("name-" + c.ID)
-						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 261, Col: 37}
-						}
-						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var52)
-						if templ_7745c5c3_Err != nil {
-							return templ_7745c5c3_Err
-						}
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 77, "\" value=\"")
-						if templ_7745c5c3_Err != nil {
-							return templ_7745c5c3_Err
-						}
-						var templ_7745c5c3_Var53 string
-						templ_7745c5c3_Var53, templ_7745c5c3_Err = templ.ResolveAttributeValue(c.Name)
-						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 261, Col: 54}
-						}
-						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var53)
-						if templ_7745c5c3_Err != nil {
-							return templ_7745c5c3_Err
-						}
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 78, "\" aria-label=\"")
-						if templ_7745c5c3_Err != nil {
-							return templ_7745c5c3_Err
-						}
-						var templ_7745c5c3_Var54 string
-						templ_7745c5c3_Var54, templ_7745c5c3_Err = templ.ResolveAttributeValue("Name in hakobu for " + c.Account.Name)
-						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_auth.templ`, Line: 261, Col: 108}
-						}
-						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var54)
-						if templ_7745c5c3_Err != nil {
-							return templ_7745c5c3_Err
-						}
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 79, "\" required pattern=\"[a-z][a-z0-9\\-]{0,39}\" class=\"input mono mt-2\">")
-						if templ_7745c5c3_Err != nil {
-							return templ_7745c5c3_Err
-						}
-					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 80, "</span></div>")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-				}
-				return nil
-			})
-			templ_7745c5c3_Err = field("Accounts", pickHint(v.Pick)).Render(templ.WithChildren(ctx, templ_7745c5c3_Var44), templ_7745c5c3_Buffer)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			if v.anyFree() {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 81, "<button class=\"btn btn-primary btn-block\">")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = ic("loader-circle", "btn-spinner").Render(ctx, templ_7745c5c3_Buffer)
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 82, "Connect</button>")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-			} else {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 83, "<a href=\"/settings#clients\" class=\"btn btn-block\">Back to settings</a>")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 84, "</div></form>")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			return nil
-		})
-		templ_7745c5c3_Err = centered("Connect Cloudflare").Render(templ.WithChildren(ctx, templ_7745c5c3_Var42), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

@@ -81,36 +81,6 @@ func removeTelemetry(path string) {
 	}
 }
 
-// moveTelemetry copies the last month of telemetry from a panel database
-// that still has it (migration 008 then drops it) into an empty
-// telemetry.db; has reports that the panel's database had it. A hakobu
-// rolled back and upgraded again finds telemetry.db filled and drops what
-// the older one recorded in between.
-func moveTelemetry(db, telDB *sql.DB, telPath string) (has bool, err error) {
-	if err := db.QueryRow(`SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'telemetry_events')`).Scan(&has); err != nil || !has {
-		return false, err
-	}
-	var filled bool
-	if err := telDB.QueryRow(`SELECT EXISTS (SELECT 1 FROM telemetry_events)`).Scan(&filled); err != nil || filled {
-		return true, err
-	}
-	ctx := context.Background()
-	conn, err := db.Conn(ctx) // ATTACH holds for one connection only
-	if err != nil {
-		return true, err
-	}
-	defer conn.Close()
-	if _, err := conn.ExecContext(ctx, `ATTACH DATABASE ? AS tel`, telPath); err != nil {
-		return true, err
-	}
-	// conn goes back to the pool: leave it as it was.
-	defer func() { _, _ = conn.ExecContext(ctx, `DETACH DATABASE tel`) }()
-	_, err = conn.ExecContext(ctx, `INSERT INTO tel.telemetry_events (id, app_name, kind, level, message, payload, created_at)
-		SELECT id, app_name, kind, level, message, payload, created_at FROM telemetry_events WHERE created_at >= ?`,
-		timestamp(time.Now().Add(-eventRetention)))
-	return true, err
-}
-
 // reencryptTelemetry encrypts the telemetry with the current master key.
 func (s *Store) reencryptTelemetry() error {
 	tx, err := s.telDB.Begin()

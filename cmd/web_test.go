@@ -126,16 +126,9 @@ func TestPagesRender(t *testing.T) {
 	pages["project, R2 off"] = projectPage(projectView{Project: project, Client: "acme", R2Off: true, R2URL: "https://dash.cloudflare.com/a/r2/overview"})
 	pages["settings, R2 off"] = settingsView(settingsPage{CloudflareConnected: true, BackupBucket: "b", R2Off: true, R2URL: "https://dash.cloudflare.com/p/r2/overview",
 		Clients: []ops.ClientAccount{{Name: "acme", AccountID: "a", R2Off: true, R2URL: "https://dash.cloudflare.com/a/r2/overview"}}})
-	pages["settings, connect with Cloudflare"] = settingsView(settingsPage{CloudflareConnected: true, CloudflareOAuth: true,
-		Clients: []ops.ClientAccount{{Name: "newco", AccountID: "n", OAuth: true}, {Name: "other", AccountID: "o", OAuth: true, R2Token: true}}})
-	pages["cloudflare pick"] = cloudflarePickPage(cloudflarePick{ID: "x", Choices: []ops.OAuthChoice{
-		{Account: cloudflare.Account{ID: "n", Name: "New Co", Zones: []string{"newco.com", "newco.dev"}}, Name: "new-co"},
-		{Account: cloudflare.Account{ID: "o", Name: "Other", Zones: []string{"other.com"}}, Name: "other"},
-		{Account: cloudflare.Account{ID: "p", Name: "Panel", Zones: []string{"panel.com"}}, Taken: "the panel's own account"},
-	}})
-	pages["cloudflare pick, nothing new"] = cloudflarePickPage(cloudflarePick{ID: "x", Choices: []ops.OAuthChoice{
-		{Account: cloudflare.Account{ID: "k", Name: "Kasl", Zones: []string{"kaslauto.com"}}, Taken: "connected as kasl"},
-	}})
+	pages["settings, accounts"] = settingsView(settingsPage{CloudflareConnected: true, UserTokenURL: "https://dash.cloudflare.com/profile/api-tokens",
+		Clients: []ops.ClientAccount{{Name: "newco", Title: "New Co", Domains: "newco.com, newco.dev", AccountID: "n", Projects: []string{"shop"}}, {Name: "other", Title: "Other", Domains: "other.com", AccountID: "o"}}})
+	pages["settings, no accounts"] = settingsView(settingsPage{CloudflareConnected: true, UserTokenURL: "https://dash.cloudflare.com/profile/api-tokens"})
 	pages["switch projects"] = switchProjects([]store.Project{project, {Name: "b"}}, "demo")
 	pages["switch resources"] = switchResources("demo", []store.App{app.App, {Name: "x", BuildStrategy: "dockerfile"}}, []store.Database{db}, storages, "web")
 	pages["storage"] = storageView(storagePage{Storage: storages[0], Project: project, UsedBy: []string{"web"}})

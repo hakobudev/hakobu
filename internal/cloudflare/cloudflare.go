@@ -16,6 +16,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -88,18 +89,6 @@ var clientTokenPermissions = tokenPermissions[:4]
 // token with hakobu's permissions filled in; name is the token's name.
 func TokenTemplateURL(name string) string {
 	return templateURL(name, tokenPermissions)
-}
-
-// ClientTokenTemplateURL is TokenTemplateURL for a client's account, which
-// needs only domains, a tunnel and R2.
-func ClientTokenTemplateURL(name string) string {
-	return templateURL(name, clientTokenPermissions)
-}
-
-// R2TokenTemplateURL is TokenTemplateURL for R2 alone: the S3 keys of an
-// account connected with OAuth, whose token has none.
-func R2TokenTemplateURL(name string) string {
-	return templateURL(name, tokenPermissions[3:4])
 }
 
 func templateURL(name string, permissions []struct{ Key, Type string }) string {
@@ -465,4 +454,28 @@ func (c Client) tunnelAlive(accountID, tunnelID string) (name string, alive bool
 
 func (c Client) DeleteRecord(zoneID, recordID string) error {
 	return c.call("DELETE", "/zones/"+zoneID+"/dns_records/"+recordID, nil, nil)
+}
+
+// CanCreateTunnels makes a tunnel in the account and deletes it again:
+// listing tunnels works for tokens that can't make one, as one whose
+// account permissions were limited to a domain.
+func (c Client) CanCreateTunnels(accountID string) error {
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		return err
+	}
+	var t struct {
+		ID string `json:"id"`
+	}
+	if err := c.call("POST", "/accounts/"+accountID+"/cfd_tunnel", map[string]any{"name": "hakobu-check-" + hex.EncodeToString(b), "config_src": "cloudflare"}, &t); err != nil {
+		return err
+	}
+	return c.DeleteTunnel(accountID, t.ID)
+}
+
+// CanUseR2 asks R2 for the account's buckets; R2 not turned on yet is no
+// error, the panel asks the owner to turn it on when it's needed.
+func (c Client) CanUseR2(accountID string) error {
+	_, err := c.R2On(accountID)
+	return err
 }

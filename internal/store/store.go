@@ -54,19 +54,8 @@ func OpenWithKey(path, keyPath string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	moved := false
-	if !keyMissing {
-		if moved, err = moveTelemetry(db, telDB, filepath.Join(dir, telemetryFile)); err != nil {
-			return nil, fmt.Errorf("moving telemetry to %s: %w", telemetryFile, err)
-		}
-	}
 	if err := migrate(db); err != nil {
 		return nil, fmt.Errorf("migrate %s: %w", path, err)
-	}
-	if moved { // give back the space the telemetry took
-		if _, err := db.Exec(`VACUUM`); err != nil {
-			panellog.Error("failed to compact", path+":", err)
-		}
 	}
 	s := &Store{Queries: New(db), db: db, dir: dir, keyPath: keyPath, Tel: teldb.New(telDB), telDB: telDB}
 	if err := checkKeyNotLost(db, s.keyPath, keyMissing); err != nil {
@@ -113,7 +102,7 @@ var secretColumns = map[string][]string{
 	"storages":            {"secret_access_key"},
 	"github_app":          {"private_key", "webhook_secret", "client_secret"},
 	"cloudflare":          {"api_token", "tunnel_token"},
-	"cloudflare_accounts": {"api_token", "tunnel_token", "refresh_token", "r2_token"},
+	"cloudflare_accounts": {"api_token", "tunnel_token"},
 	"link_key":            {"private_key"},
 	"server_tunnels":      {"tunnel_token"},
 	"sealed_vars":         {"value"},

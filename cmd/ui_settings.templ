@@ -11,7 +11,6 @@ import (
 type settingsPage struct {
 	PublicHost, User, GitHubSlug string
 	GitHubAppPrivate             bool // nobody but its owner can sign in with it
-	CloudflareOAuth              bool // "Connect with Cloudflare" is on
 	PanelLog                     []ops.PanelLogLine
 	LogLevel                     string // the least level PanelLog shows: info, warn or error
 	PanelLogErrors               int64  // errors in the last day
@@ -31,7 +30,6 @@ type settingsPage struct {
 	TokenURL                     string
 	Token                        []cloudflare.Permission
 	Clients                      []ops.ClientAccount
-	ClientTokenURL               string
 	UserTokenURL                 string // a token of the user's for all their accounts
 	R2Off                        bool   // R2 isn't on in the panel's account
 	R2URL                        string // where it's turned on
@@ -715,7 +713,7 @@ templ joinCommand(name, command string) {
 }
 
 templ settingsClients(v settingsPage) {
-	@section("clients", "Cloudflare accounts", "Another Cloudflare account, yours or a client's: projects assigned to it get their domains, R2 storages and backups there, through a tunnel of its own. Its owner keeps the account; hakobu only gets a token for it.", nil) {
+	@section("clients", "Cloudflare accounts", "Your Cloudflare accounts and your clients': a project in one gets its domains, R2 storages and backups there. Each owner keeps their account; hakobu works in it with one token of yours.", nil) {
 		<div class="space-y-6">
 			if len(v.Clients) > 0 {
 				<div class="box">
@@ -723,8 +721,9 @@ templ settingsClients(v settingsPage) {
 						<details>
 							<summary class="box-row cursor-pointer">
 								<span class="row-main">
-									@ic("users", "icon-muted")
-									<span class="row-title">{ c.Name }</span>
+									@ic("cloud", "icon-muted")
+									<span class="row-title">{ accountTitle(c) }</span>
+									<span class="row-meta mono">{ c.Domains }</span>
 								</span>
 								<span class="row-meta">
 									if c.R2Off {
@@ -735,108 +734,57 @@ templ settingsClients(v settingsPage) {
 							</summary>
 							<div class="box-body space-y-4">
 								if c.R2Off {
-									@r2OffFlash("Cloudflare account "+c.Name, c.R2URL, "its owner")
+									@r2OffFlash("Cloudflare account "+accountTitle(c), c.R2URL, "its owner")
 								}
 								<div class="kv">
 									<span class="kv-key">Account ID</span>
 									<span class="mono">{ c.AccountID }</span>
 								</div>
-								if len(c.SharesWith) > 0 {
-									<div class="kv">
-										<span class="kv-key">Shares its token with</span>
-										<span>{ strings.Join(c.SharesWith, ", ") }</span>
-									</div>
-								}
-								if c.OAuth {
-									<div class="kv">
-										<span class="kv-key">Connected</span>
-										<span>with Cloudflare sign-in; hakobu renews its access itself</span>
-									</div>
-									<form hx-post={ "/settings/clients/" + c.Name + "/r2-token" } class="space-y-2">
-										if c.R2Token {
-											<p class="field-hint">Backups use its R2 token. To replace it, open <a href={ templ.SafeURL(ops.R2TokenURL(c.Name)) } target="_blank" rel="noopener">this link</a> in that account and paste the new one.</p>
-										} else {
-											@flash("warn") {
-												Backups of projects here need an R2 token too: a sign-in gives no keys for R2's S3 API. Open <a href={ templ.SafeURL(ops.R2TokenURL(c.Name)) } target="_blank" rel="noopener">this link</a> signed in to that account (Workers R2 Storage Edit is filled in), select <span class="strong">Continue to summary</span> → <span class="strong">Create Token</span>, and paste it here.
-											}
-										}
-										<div class="flex gap-2">
-											<input name="token" type="password" required autocomplete="off" placeholder="R2 API token" class="input mono"/>
-											@submit("Save R2 token", false)
-										</div>
-									</form>
-								}
-								<form hx-post={ "/settings/clients/" + c.Name + "/token" } class="space-y-2">
-									if c.OAuth {
-										<p class="field-hint">Or connect it with an API token instead of the sign-in (its own keys then serve backups).</p>
-									} else if len(c.SharesWith) > 0 {
-										<p class="field-hint">A new token for all the accounts that share this one. Then delete the old one in Cloudflare.</p>
-									} else {
-										<p class="field-hint">A new token for the same account. Then delete the old one in Cloudflare.</p>
-									}
-									<div class="flex gap-2">
-										<input name="token" type="password" required autocomplete="off" placeholder="New API token" class="input mono"/>
-										@submit("Replace token", false)
-									</div>
-								</form>
-								if !c.OAuth {
-									<div class="flex items-center justify-between gap-3">
-										<p class="field-hint">A token of yours reaches every account you're a member of: connect another with it, a client's that invited you since, say.</p>
-										<button class="btn" hx-post={ "/settings/clients/" + c.Name + "/more" }>
-											@ic("plus")
-											Other accounts
-										</button>
-									</div>
-								}
-								<div class="flex items-center justify-between gap-3">
-									<p class="field-hint">
-										if len(c.Projects) > 0 {
-											Move or delete its projects first.
-										} else {
-											Stops its tunnel. Buckets and backups in the account stay.
-										}
-									</p>
-									<button
-										class="btn btn-danger"
-										hx-delete={ "/settings/clients/" + c.Name }
-										hx-confirm={ "hakobu deletes the tunnel in " + c.Name + "'s account and forgets its token. Its buckets and backups stay in the account." }
-										data-confirm-title={ "Remove account " + c.Name + "?" }
-										data-confirm-action="Remove account"
-										disabled?={ len(c.Projects) > 0 }
-									>
-										@ic("trash-2")
-										Remove
-									</button>
+								<div class="kv">
+									<span class="kv-key">Domains</span>
+									<span class="mono">{ c.Domains }</span>
 								</div>
 							</div>
 						</details>
 					}
 				</div>
+				<form class="box" hx-post="/settings/clients/token">
+					<div class="box-header">Your token</div>
+					<div class="box-body space-y-4">
+						<p class="field-hint">These are the accounts your token reaches, kept up to date every ten minutes: a client who invites you to their account (Manage Account → Members) shows up here, one who removes you goes. To leave an account out, leave it out of the token. A new token, made with <a href={ templ.SafeURL(v.UserTokenURL) } target="_blank" rel="noopener">this link</a>, replaces it for all of them; then delete the old one in Cloudflare.</p>
+						@field("New token", "") {
+							<input name="token" type="password" required autocomplete="off" class="input mono"/>
+						}
+					</div>
+					@boxFooter("") {
+						@submit("Replace token", false)
+					}
+				</form>
+			} else {
+				<form class="box" hx-post="/settings/clients">
+					<div class="box-header">Connect Cloudflare</div>
+					<div class="box-body space-y-4">
+						<p class="field-hint"><a href={ templ.SafeURL(v.UserTokenURL) } target="_blank" rel="noopener">This link</a> makes a token in your Cloudflare profile with what hakobu needs: select <span class="strong">Continue to summary</span> → <span class="strong">Create Token</span> and paste it here. hakobu connects every account it reaches, yours and those of clients who invited you to theirs (Manage Account → Members), and keeps up as that changes.</p>
+						@field("Token", "") {
+							<input name="token" type="password" required autocomplete="off" class="input mono"/>
+						}
+					</div>
+					@boxFooter("Nothing is made in an account until a project there needs it.") {
+						@submit("Connect", true)
+					}
+				</form>
 			}
-			<form class="box" hx-post="/settings/clients">
-				<div class="box-header">Add an account</div>
-				<div class="box-body space-y-4">
-					if v.CloudflareOAuth {
-						<a href="/cloudflare/connect" class="btn btn-primary">
-							@ic("cloud")
-							Connect with Cloudflare
-						</a>
-						<p class="field-hint">Sign in to Cloudflare and pick the account: nothing to copy. Or with an API token:</p>
-					}
-					<p class="field-hint">With <span class="strong">one token of yours</span>: <a href={ templ.SafeURL(v.UserTokenURL) } target="_blank" rel="noopener">this link</a> makes it in your profile for every account you're a member of, so a client only invites you to their Cloudflare account (Manage Account → Members); then you pick the accounts to connect. Or with <span class="strong">a token of the account's own</span>, made in it by you or the client: <a href={ templ.SafeURL(v.ClientTokenURL) } target="_blank" rel="noopener">this link</a>. Either way select <span class="strong">Continue to summary</span> → <span class="strong">Create Token</span> and paste it here. It needs Zone Read, DNS Edit, Cloudflare Tunnel Edit and Workers R2 Storage Edit.</p>
-					@field("Name", "For a token of one account: lowercase letters, digits and dashes, e.g. the client's; shown in project settings. Left empty, it's made of the account's name.") {
-						<input name="name" pattern="[a-z][a-z0-9\-]{0,39}" placeholder="e.g. acme" class="input mono"/>
-					}
-					@field("API token", "") {
-						<input name="token" type="password" required autocomplete="off" class="input mono"/>
-					}
-				</div>
-				@boxFooter("hakobu creates a tunnel in the account.") {
-					@submit("Add account", true)
-				}
-			</form>
 		</div>
 	}
+}
+
+// accountTitle is what Cloudflare calls the account, or else hakobu's key
+// for it.
+func accountTitle(c ops.ClientAccount) string {
+	if c.Title != "" {
+		return c.Title
+	}
+	return c.Name
 }
 
 func clientProjects(c ops.ClientAccount) string {

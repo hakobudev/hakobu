@@ -391,11 +391,7 @@ func presigner(s *store.Store, t backupTarget, method string) (func(object strin
 	if err != nil {
 		return nil, err
 	}
-	c, err := a.s3Client()
-	if err != nil {
-		return nil, err
-	}
-	keyID, secretKey, err := r2Credentials(c)
+	keyID, secretKey, err := r2Credentials(a.Client)
 	if err != nil {
 		return nil, err
 	}

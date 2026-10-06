@@ -933,7 +933,6 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			}
 			ops.CheckClientsR2(s, v.Clients)
 			v.R2Off, v.R2URL = ops.PanelR2Off(s)
-			v.ClientTokenURL = ops.ClientTokenURL("client")
 			v.UserTokenURL = ops.UserTokenURL()
 		}
 		if usage, err := ops.CurrentUsage(s, user.ID); err == nil {
@@ -954,7 +953,6 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 		if app, err := s.GetGitHubApp(r.Context()); err == nil {
 			v.GitHubSlug = app.Slug
 		}
-		v.CloudflareOAuth = ops.CloudflareOAuth()
 		v.MyNotify = ops.UserNotifyOf(s, user)
 		if v.Admin {
 			v.LogLevel = r.URL.Query().Get("log")
@@ -1012,74 +1010,14 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 		return "", ops.RemoveServer(s, r.PathValue("name"))
 	})
 
-	// A token: its one account is connected right away; a user's token for
-	// several goes on to the page that picks them.
+	// A user's token connects every account it reaches, and keeps doing so
+	// as they change (ops.SyncAccountTokens).
 	action("POST /settings/clients", func(r *http.Request) (string, error) {
-		pick, err := ops.AddAccountToken(s, requestUser(r).ID, strings.TrimSpace(r.FormValue("name")), r.FormValue("token"))
-		if pick != "" {
-			return "/cloudflare/accounts/" + pick, err
-		}
-		return "", err
+		return "", ops.AddAccountToken(s, requestUser(r).ID, r.FormValue("token"))
 	})
 
-	action("POST /settings/clients/{c}/more", func(r *http.Request) (string, error) {
-		pick, err := ops.OtherAccounts(s, requestUser(r).ID, r.PathValue("c"))
-		return "/cloudflare/accounts/" + pick, err
-	})
-
-	handle("GET /cloudflare/accounts/{id}", func(w http.ResponseWriter, r *http.Request) {
-		choices, err := ops.Pending(s, requestUser(r).ID, r.PathValue("id"))
-		if err != nil {
-			renderPage(w, r, oauthErrorPage(err.Error()))
-			return
-		}
-		renderPage(w, r, cloudflarePickPage(cloudflarePick{ID: r.PathValue("id"), Choices: choices, Pick: true}))
-	})
-
-	action("POST /cloudflare/accounts/{id}", func(r *http.Request) (string, error) {
-		var picks []ops.OAuthPick
-		for _, account := range r.PostForm["account"] {
-			picks = append(picks, ops.OAuthPick{Account: account, Name: strings.TrimSpace(r.PostFormValue("name-" + account))})
-		}
-		return "/settings#clients", ops.ConnectAccounts(s, requestUser(r).ID, r.PathValue("id"), picks)
-	})
-
-	// "Connect with Cloudflare": off to Cloudflare to allow the panel in,
-	// back with a code, then the user names the accounts allowed.
-	handle("GET /cloudflare/connect", func(w http.ResponseWriter, r *http.Request) {
-		u, err := ops.StartCloudflareOAuth(requestUser(r).ID)
-		if err != nil {
-			renderPage(w, r, oauthErrorPage(err.Error()))
-			return
-		}
-		http.Redirect(w, r, u, http.StatusSeeOther)
-	})
-
-	handle("GET /cloudflare/callback", func(w http.ResponseWriter, r *http.Request) {
-		q := r.URL.Query()
-		if e := q.Get("error"); e != "" {
-			renderPage(w, r, oauthErrorPage("Cloudflare didn't connect the account: "+strings.TrimSpace(e+" "+q.Get("error_description"))))
-			return
-		}
-		id, accounts, err := ops.FinishCloudflareOAuth(requestUser(r).ID, q.Get("state"), q.Get("code"))
-		if err != nil {
-			panellog.Warn("connecting a Cloudflare account failed:", err)
-			renderPage(w, r, oauthErrorPage(err.Error()))
-			return
-		}
-		renderPage(w, r, cloudflarePickPage(cloudflarePick{ID: id, Choices: ops.OAuthChoices(s, requestUser(r).ID, accounts)}))
-	})
-
-	action("POST /settings/clients/{c}/r2-token", func(r *http.Request) (string, error) {
-		return "", ops.SetR2Token(s, r.PathValue("c"), r.FormValue("token"))
-	})
-
-	action("POST /settings/clients/{c}/token", func(r *http.Request) (string, error) {
-		return "", ops.ReplaceClientToken(s, r.PathValue("c"), r.FormValue("token"))
-	})
-
-	action("DELETE /settings/clients/{c}", func(r *http.Request) (string, error) {
-		return "", ops.RemoveClientAccount(s, r.PathValue("c"))
+	action("POST /settings/clients/token", func(r *http.Request) (string, error) {
+		return "", ops.ReplaceAccountToken(s, requestUser(r).ID, r.FormValue("token"))
 	})
 
 	action("POST /settings/backups", adminOnly(func(r *http.Request) (string, error) {

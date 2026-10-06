@@ -127,6 +127,9 @@ restarts. If the new version doesn't come up, the previous one is put back by it
 changed the panel's database also puts back the copy of the database made just before it
 (what changed in the panel since is lost; the newer database is kept beside it).
 
+A panel installed before v0.24.0 can't update to it or later: their databases have nothing in
+common. It refuses to start, and the update puts the old version back by itself. Install anew.
+
 Releases are signed with an Ed25519 key that never leaves the release workflow
 (`scripts/sign-release.sh`): hakobu and install.sh install a release only if its signature
 over `hakobu <version>` and its checksums is by that key, so neither a tampered download
@@ -162,49 +165,28 @@ server, and an escape can't read hakobu's data (its secrets and master key). Ser
 keep running as root under the system Docker (their databases live there) and the installer
 only updates them; to move one to rootless Docker, install hakobu on a clean server.
 
-### Why an API token, not "Sign in with Cloudflare"
+### Your Cloudflare accounts and your clients'
 
-Cloudflare's OAuth token endpoint sits behind the dashboard's bot protection, which
-challenges many server networks (Hetzner, DigitalOcean, VPNs; see
-[workers-sdk#11081](https://github.com/cloudflare/workers-sdk/issues/11081)). A server
-there can't trade the login code for tokens or refresh them, and doing it elsewhere would
-let a third party see your tokens. An API token goes straight from the dashboard to your
-server, never needs refreshing and works from any network. You can also limit it to the
-server's IP address in the dashboard (Client IP Address Filtering).
+A project can live in another Cloudflare account than the panel's: yours, or a client's, who
+keeps it. Clients invite you to theirs (Manage Account → Members); one token of yours then
+reaches them all. Under **Settings → Cloudflare accounts**, the link makes that token in your
+Cloudflare profile, for every account you're a member of (Zone Read, DNS Edit, Cloudflare
+Tunnel Edit, Workers R2 Storage Edit). Paste it: hakobu checks it can do what it needs in each
+account, and connects them all. It keeps up every ten minutes: a client who invites you later
+shows up by itself, one who removes you goes (or, while a project still uses their account,
+you get an email). To leave an account out, leave it out of the token. **Replace token** swaps
+it for all of them.
 
-### Connect with Cloudflare (OAuth)
+Nothing is made in an account until a project there needs it: with the first domain of a
+project in it on a server, hakobu creates a tunnel there, which only that account's projects on
+that server go through, with no way to the panel. Their domains, R2 storages and database and
+volume backups are in the account; the buckets stay when the account goes from hakobu.
 
-A panel shared with others can let each of them connect their Cloudflare account by signing in,
-with nothing to copy: create an OAuth client in Cloudflare (Manage Account → OAuth clients) with
-the redirect URI `https://<panel address>/cloudflare/callback` and the scopes `zone.read dns.write
-argotunnel.write workers-r2.write offline_access`, make it public, and set its ID in the panel's
-environment (`Environment=HAKOBU_CF_CLIENT_ID=…`, as for panel-only). Settings → Cloudflare accounts
-then shows **Connect with Cloudflare**. One sign-in reaches every account you're a member of, a
-client's that invited you included: tick the ones to connect, and they share that sign-in. The panel trades the code and renews the access itself,
-every few minutes. Cloudflare's sign-in turns some server networks away (Hetzner's always), so
-when it challenges the panel, the panel asks again through a small Worker of its own
-(`hakobu-token-relay-…`, deployed in the panel's Cloudflare account at each start with a new
-secret, needing Workers Scripts Edit like the watchdog): it runs inside Cloudflare, which isn't
-challenged, takes only the panel's requests for its client, and keeps nothing. Should that fail
-too, the account's owner is emailed, and an API token stays the fallback. A sign-in gives no keys for R2's S3 API, so backups in such an account also need an
-R2 token, which the account's settings link to.
-
-### Other Cloudflare accounts
-
-One server can host projects for several clients, each keeping their own Cloudflare account.
-The simplest way in: the client invites you to their account (Manage Account → Members), and
-one token of yours reaches it. Under **Settings → Cloudflare accounts**, the first link makes that
-token in your profile for every account you're a member of (Zone Read, DNS Edit, Cloudflare
-Tunnel Edit, Workers R2 Storage Edit); paste it and tick the accounts to connect. They share the
-token: a client who invites you later is one **Other accounts** away, a new token replaces it for
-all of them, and a client who removes you takes hakobu's access with you. Or the client creates
-an account-owned token in their account with the second link and gives it to you. hakobu creates a tunnel in their account; a project assigned to the
-client (project **Settings**) gets its domains, R2 storages and database and volume backups
-there. The panel, email and the watchdog stay in your account.
-
-A client's tunnel is theirs to edit, so its cloudflared has no way to the panel and joins
-only the networks of that client's projects. Removing a client deletes its tunnel; buckets
-and backups stay in their account.
+Why a token and not "Sign in with Cloudflare": a sign-in gives no keys for R2's S3 API, which
+backups go through, and Cloudflare's sign-in turns server networks away (Hetzner's always; see
+[workers-sdk#11081](https://github.com/cloudflare/workers-sdk/issues/11081)), so the panel
+couldn't keep it alive by itself. A token goes straight from the dashboard to your panel, never
+needs renewing and works from any network.
 
 ### Other servers
 

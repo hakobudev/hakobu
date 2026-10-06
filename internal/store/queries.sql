@@ -392,22 +392,13 @@ SELECT * FROM cloudflare_accounts WHERE name = ?;
 SELECT * FROM cloudflare_accounts WHERE account_id = ?;
 
 -- name: CreateCloudflareAccount :one
-INSERT INTO cloudflare_accounts (name, api_token, account_id, user_id) VALUES (?, ?, ?, ?) RETURNING id;
+INSERT INTO cloudflare_accounts (name, user_id, api_token, token_group, account_id, title, domains) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id;
 
--- name: CreateOAuthCloudflareAccount :one
-INSERT INTO cloudflare_accounts (name, api_token, refresh_token, token_expires, signin, account_id, user_id) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id;
+-- name: SetCloudflareAccountInfo :exec
+UPDATE cloudflare_accounts SET title = ?, domains = ? WHERE id = ?;
 
--- name: SetCloudflareAccountOAuth :exec
-UPDATE cloudflare_accounts SET api_token = ?, refresh_token = ?, token_expires = ?, signin = ? WHERE id = ?;
-
--- name: SetCloudflareAccountSignin :exec
-UPDATE cloudflare_accounts SET signin = ? WHERE id = ?;
-
--- name: SetCloudflareSignIn :exec
-UPDATE cloudflare_accounts SET api_token = ?, refresh_token = ?, token_expires = ? WHERE signin = ? AND signin != '';
-
--- name: SetCloudflareAccountR2Token :exec
-UPDATE cloudflare_accounts SET r2_token = ? WHERE id = ?;
+-- name: SetTokenGroupToken :exec
+UPDATE cloudflare_accounts SET api_token = ? WHERE token_group = ?;
 
 -- name: SetCloudflareAccountTunnel :exec
 UPDATE cloudflare_accounts SET tunnel_id = ?, tunnel_token = ? WHERE id = ?;

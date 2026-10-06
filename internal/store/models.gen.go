@@ -76,17 +76,17 @@ type AppRoute struct {
 type Backup struct {
 	ID          int64
 	Database    string
+	AccountID   string
+	Bucket      string
 	ObjectKey   string
 	Parts       int64
 	SizeBytes   int64
 	SHA256      string
+	FileKey     secret.String
 	CreatedAt   string
 	VerifiedAt  string
 	VerifyError string
 	Tables      int64
-	FileKey     secret.String
-	AccountID   string
-	Bucket      string
 }
 
 type Cloudflare struct {
@@ -103,16 +103,15 @@ type Cloudflare struct {
 type CloudflareAccount struct {
 	ID           int64
 	Name         string
+	UserID       int64
 	ApiToken     secret.String
+	TokenGroup   string
 	AccountID    string
+	Title        string
+	Domains      string
 	TunnelID     string
 	TunnelToken  secret.String
 	BackupBucket string
-	UserID       int64
-	RefreshToken secret.String
-	TokenExpires string
-	R2Token      secret.String
-	Signin       string
 }
 
 type Database struct {
@@ -155,23 +154,23 @@ type LinkKey struct {
 type Node struct {
 	ID             int64
 	Name           string
+	UserID         int64
 	PublicKey      string
 	JoinSecretHash string
 	JoinExpires    string
 	Version        string
 	LastSeen       string
 	CreatedAt      string
-	UserID         int64
 }
 
 type Notify struct {
 	ID           int64
 	Email        string
 	SenderDomain string
+	SenderName   string
 	ZoneID       string
 	AddedAddress int64
 	RoutedDomain string
-	SenderName   string
 }
 
 type OAuthClient struct {
@@ -208,10 +207,10 @@ type PendingPromotion struct {
 type Project struct {
 	ID                  int64
 	Name                string
+	UserID              int64
 	SharedEnv           secret.String
 	CloudflareAccountID sql.NullInt64
 	NodeID              sql.NullInt64
-	UserID              int64
 }
 
 type SealedVar struct {
@@ -254,8 +253,8 @@ type User struct {
 	GitHubLogin string
 	GitHubEmail string
 	Admin       int64
-	CreatedAt   string
 	NotifyEmail string
+	CreatedAt   string
 }
 
 type Volume struct {
@@ -268,6 +267,8 @@ type VolumeBackup struct {
 	ID          int64
 	AppName     string
 	Volume      string
+	AccountID   string
+	Bucket      string
 	ObjectKey   string
 	Parts       int64
 	SizeBytes   int64
@@ -277,17 +278,15 @@ type VolumeBackup struct {
 	VerifiedAt  string
 	VerifyError string
 	Files       int64
-	AccountID   string
-	Bucket      string
 }
 
 type Watchdog struct {
 	ID            int64
 	Script        string
 	KvNamespaceID string
-	CreatedAt     string
 	Targets       string
 	D1DatabaseID  string
+	CreatedAt     string
 }
 
 type WatchdogOff struct {

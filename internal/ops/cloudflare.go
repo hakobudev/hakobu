@@ -178,7 +178,7 @@ func tunnelSpecs(s *store.Store, sv server, skip string) ([]node.TunnelSpec, err
 }
 
 // tunnelFor is the tunnel of the project's account on its server, made
-// the first time on a server that joined.
+// the first time a project there needs it.
 func tunnelFor(s *store.Store, p store.Project) (tunnel, error) {
 	a, err := projectAccount(s, p)
 	if err != nil {
@@ -189,6 +189,9 @@ func tunnelFor(s *store.Store, p store.Project) (tunnel, error) {
 		return tunnel{}, err
 	}
 	if sv.ID == 0 {
+		if a.TunnelID == "" && !a.isPanel() {
+			return localClientTunnel(s, a)
+		}
 		if a.TunnelID == "" {
 			return tunnel{}, fmt.Errorf("%s has no tunnel yet", a.label())
 		}
@@ -221,6 +224,24 @@ func tunnelFor(s *store.Store, p store.Project) (tunnel, error) {
 	// Started now if the server is connected, else as it connects.
 	if err := startTunnel(s, t); err != nil {
 		panellog.Warnf("%s not started yet: %v", t.label(), err)
+	}
+	return t, nil
+}
+
+// localClientTunnel makes and starts the tunnel of a user's account on
+// the panel's server, for its first domain there.
+func localClientTunnel(s *store.Store, a cfAccount) (tunnel, error) {
+	host, _ := os.Hostname()
+	suffix, err := RandomHex(3)
+	if err != nil {
+		return tunnel{}, err
+	}
+	if a.TunnelID, err = createClientTunnel(s, &a, "hakobu-"+strings.Split(host, ".")[0]+"-"+a.Name+"-"+suffix); err != nil {
+		return tunnel{}, fmt.Errorf("creating the tunnel in %s: %w", a.label(), err)
+	}
+	t := localTunnel(a)
+	if err := startTunnel(s, t); err != nil {
+		return tunnel{}, fmt.Errorf("starting the %s: %w", t.label(), err)
 	}
 	return t, nil
 }
@@ -314,7 +335,7 @@ func ConnectCloudflare(s *store.Store, token string) ([]cloudflare.Zone, error) 
 	}
 	for _, z := range zones {
 		if client, err := s.GetCloudflareAccountByAccountID(ctx(), z.Account.ID); err == nil {
-			return nil, fmt.Errorf("the token sees the Cloudflare account of client %s: the panel's token must be for your own account alone", client.Name)
+			return nil, fmt.Errorf("the token sees Cloudflare account %s, connected by a user: the panel's token must be for its own account alone", client.Title)
 		}
 	}
 	return zones, s.SaveCloudflareToken(ctx(), secret.String(token))
