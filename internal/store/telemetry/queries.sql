@@ -1,17 +1,17 @@
 -- name: CreateTelemetryEvent :exec
-INSERT INTO telemetry_events (app_name, kind, level, message, payload, trace_id) VALUES (?, ?, ?, ?, ?, ?);
+INSERT INTO telemetry_events (app_id, kind, level, message, payload, trace_id) VALUES (?, ?, ?, ?, ?, ?);
 
 -- name: ListTelemetryEvents :many
-SELECT * FROM telemetry_events WHERE app_name = ? ORDER BY id DESC LIMIT ?;
+SELECT * FROM telemetry_events WHERE app_id = ? ORDER BY id DESC LIMIT ?;
 
 -- name: GetTelemetryEvent :one
-SELECT * FROM telemetry_events WHERE id = ? AND app_name = ?;
+SELECT * FROM telemetry_events WHERE id = ? AND app_id = ?;
 
 -- name: DeleteTelemetryOfApp :exec
-DELETE FROM telemetry_events WHERE app_name = ?;
+DELETE FROM telemetry_events WHERE app_id = ?;
 
 -- name: LastTelemetryOfKind :one
-SELECT created_at FROM telemetry_events WHERE app_name = ? AND kind = ? ORDER BY id DESC LIMIT 1;
+SELECT created_at FROM telemetry_events WHERE app_id = ? AND kind = ? ORDER BY id DESC LIMIT 1;
 
 -- name: PruneLogs :exec
 DELETE FROM telemetry_events WHERE kind = 'log' AND created_at < ?;
@@ -50,44 +50,44 @@ DELETE FROM samples WHERE target = ?;
 DELETE FROM samples WHERE ts < ?;
 
 -- name: CountTraceRoutes :one
-SELECT count(*) FROM trace_routes WHERE app_name = ? AND hour = ?;
+SELECT count(*) FROM trace_routes WHERE app_id = ? AND hour = ?;
 
 -- name: HasTraceRoute :one
-SELECT EXISTS (SELECT 1 FROM trace_routes WHERE app_name = ? AND hour = ? AND name = ?);
+SELECT EXISTS (SELECT 1 FROM trace_routes WHERE app_id = ? AND hour = ? AND name = ?);
 
 -- name: CountTrace :exec
-INSERT INTO trace_routes (app_name, name, hour, count, errors, total_ms, b0, b1, b2, b3, b4, b5, b6, b7, b8, b9, b10)
-VALUES (@app_name, @name, @hour, 1, @errors, @ms,
+INSERT INTO trace_routes (app_id, name, hour, count, errors, total_ms, b0, b1, b2, b3, b4, b5, b6, b7, b8, b9, b10)
+VALUES (@app_id, @name, @hour, 1, @errors, @ms,
 	@bucket = 0, @bucket = 1, @bucket = 2, @bucket = 3, @bucket = 4, @bucket = 5,
 	@bucket = 6, @bucket = 7, @bucket = 8, @bucket = 9, @bucket = 10)
-ON CONFLICT (app_name, hour, name) DO UPDATE SET
+ON CONFLICT (app_id, hour, name) DO UPDATE SET
 	count = count + 1, errors = errors + excluded.errors, total_ms = total_ms + excluded.total_ms,
 	b0 = b0 + excluded.b0, b1 = b1 + excluded.b1, b2 = b2 + excluded.b2, b3 = b3 + excluded.b3,
 	b4 = b4 + excluded.b4, b5 = b5 + excluded.b5, b6 = b6 + excluded.b6, b7 = b7 + excluded.b7,
 	b8 = b8 + excluded.b8, b9 = b9 + excluded.b9, b10 = b10 + excluded.b10;
 
 -- name: ListTraceRoutes :many
-SELECT * FROM trace_routes WHERE app_name = ? AND hour >= ?;
+SELECT * FROM trace_routes WHERE app_id = ? AND hour >= ?;
 
 -- name: CreateTrace :exec
-INSERT INTO traces (app_name, trace_id, name, status, http_status, duration_ms, slow_span, payload, created_at)
+INSERT INTO traces (app_id, trace_id, name, status, http_status, duration_ms, slow_span, payload, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: ListTraces :many
-SELECT id, app_name, trace_id, name, status, http_status, duration_ms, slow_span, created_at
-FROM traces WHERE app_name = ? ORDER BY id DESC LIMIT ?;
+SELECT id, app_id, trace_id, name, status, http_status, duration_ms, slow_span, created_at
+FROM traces WHERE app_id = ? ORDER BY id DESC LIMIT ?;
 
 -- name: GetTrace :one
-SELECT * FROM traces WHERE id = ? AND app_name = ?;
+SELECT * FROM traces WHERE id = ? AND app_id = ?;
 
 -- name: TraceByTraceID :one
-SELECT id FROM traces WHERE app_name = ? AND trace_id = ? ORDER BY id DESC LIMIT 1;
+SELECT id FROM traces WHERE app_id = ? AND trace_id = ? ORDER BY id DESC LIMIT 1;
 
 -- name: DeleteTracesOfApp :exec
-DELETE FROM traces WHERE app_name = ?;
+DELETE FROM traces WHERE app_id = ?;
 
 -- name: DeleteTraceRoutesOfApp :exec
-DELETE FROM trace_routes WHERE app_name = ?;
+DELETE FROM trace_routes WHERE app_id = ?;
 
 -- name: PruneTraces :exec
 DELETE FROM traces WHERE created_at < ?;
@@ -96,7 +96,7 @@ DELETE FROM traces WHERE created_at < ?;
 DELETE FROM trace_routes WHERE hour < ?;
 
 -- name: ListProblems :many
-SELECT * FROM telemetry_events WHERE app_name = ? AND kind != 'log' ORDER BY id DESC LIMIT ?;
+SELECT * FROM telemetry_events WHERE app_id = ? AND kind != 'log' ORDER BY id DESC LIMIT ?;
 
 -- name: AddPanelLog :exec
 INSERT INTO panel_log (level, message) VALUES (?, ?);

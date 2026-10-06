@@ -15,7 +15,9 @@ templ envEditor(name, value, suggestURL string) {
 
 // sealedVars lists the sealed variables of a project, app or worker. Their
 // values never reach the browser.
-templ sealedVars(scope, owner string, keys []string) {
+// base is where the scope's sealed variables are: a project's
+// /projects/{p}/sealed, an app's or its worker's .../apps/{a}/sealed/app.
+templ sealedVars(base string, keys []string) {
 	<div class="box">
 		<div class="box-header">
 			<span class="meta-item">
@@ -34,14 +36,14 @@ templ sealedVars(scope, owner string, keys []string) {
 				</div>
 				<button
 					class="btn btn-sm btn-invisible btn-danger"
-					hx-delete={ "/sealed/" + scope + "/" + owner + "/" + k }
+					hx-delete={ base + "/" + k }
 					hx-confirm={ "Remove sealed variable " + k + "? It's gone from the next deploy on." }
 					data-confirm-title="Remove sealed variable?"
 					data-confirm-action="Remove"
 				>Remove</button>
 			</div>
 		}
-		<form hx-post={ "/sealed/" + scope + "/" + owner } class="box-footer">
+		<form hx-post={ base } class="box-footer">
 			<input name="key" placeholder="KEY" required pattern="[A-Za-z_][A-Za-z0-9_]*" class="input input-sm mono w-40"/>
 			<input name="value" type="password" placeholder="value" required autocomplete="new-password" class="input input-sm mono flex-1 min-w-40"/>
 			<button class="btn btn-sm">
@@ -119,19 +121,19 @@ templ switchResources(project string, apps []store.App, dbs []store.Database, st
 	if len(apps) > 0 {
 		<div class="menu-heading">Apps</div>
 		for _, a := range apps {
-			@switchItem("/apps/"+a.Name, a.Name, appLogo(a), "box", a.Name == current)
+			@switchItem(appURL(a), a.Name, appLogo(a), "box", a.Name == current)
 		}
 	}
 	if len(dbs) > 0 {
 		<div class="menu-heading">Databases</div>
 		for _, d := range dbs {
-			@switchItem("/databases/"+d.Name, d.Name, "postgresql", "database", d.Name == current)
+			@switchItem(dbURL(project, d.Name), d.Name, "postgresql", "database", d.Name == current)
 		}
 	}
 	if len(storages) > 0 {
 		<div class="menu-heading">Storages</div>
 		for _, st := range storages {
-			@switchItem("/storages/"+st.Name, st.Name, storageLogo(st), "archive", st.Name == current)
+			@switchItem(storageURL(project, st.Name), st.Name, storageLogo(st), "archive", st.Name == current)
 		}
 	}
 	<div class="menu-sep"></div>

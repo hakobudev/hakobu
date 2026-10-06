@@ -37,11 +37,11 @@ func (q *Queries) CountPanelErrorsSince(ctx context.Context, createdAt string) (
 }
 
 const countTrace = `-- name: CountTrace :exec
-INSERT INTO trace_routes (app_name, name, hour, count, errors, total_ms, b0, b1, b2, b3, b4, b5, b6, b7, b8, b9, b10)
+INSERT INTO trace_routes (app_id, name, hour, count, errors, total_ms, b0, b1, b2, b3, b4, b5, b6, b7, b8, b9, b10)
 VALUES (?1, ?2, ?3, 1, ?4, ?5,
 	?6 = 0, ?6 = 1, ?6 = 2, ?6 = 3, ?6 = 4, ?6 = 5,
 	?6 = 6, ?6 = 7, ?6 = 8, ?6 = 9, ?6 = 10)
-ON CONFLICT (app_name, hour, name) DO UPDATE SET
+ON CONFLICT (app_id, hour, name) DO UPDATE SET
 	count = count + 1, errors = errors + excluded.errors, total_ms = total_ms + excluded.total_ms,
 	b0 = b0 + excluded.b0, b1 = b1 + excluded.b1, b2 = b2 + excluded.b2, b3 = b3 + excluded.b3,
 	b4 = b4 + excluded.b4, b5 = b5 + excluded.b5, b6 = b6 + excluded.b6, b7 = b7 + excluded.b7,
@@ -49,17 +49,17 @@ ON CONFLICT (app_name, hour, name) DO UPDATE SET
 `
 
 type CountTraceParams struct {
-	AppName string
-	Name    string
-	Hour    int64
-	Errors  int64
-	Ms      int64
-	Bucket  interface{}
+	AppID  int64
+	Name   string
+	Hour   int64
+	Errors int64
+	Ms     int64
+	Bucket interface{}
 }
 
 func (q *Queries) CountTrace(ctx context.Context, arg CountTraceParams) error {
 	_, err := q.db.ExecContext(ctx, countTrace,
-		arg.AppName,
+		arg.AppID,
 		arg.Name,
 		arg.Hour,
 		arg.Errors,
@@ -70,27 +70,27 @@ func (q *Queries) CountTrace(ctx context.Context, arg CountTraceParams) error {
 }
 
 const countTraceRoutes = `-- name: CountTraceRoutes :one
-SELECT count(*) FROM trace_routes WHERE app_name = ? AND hour = ?
+SELECT count(*) FROM trace_routes WHERE app_id = ? AND hour = ?
 `
 
 type CountTraceRoutesParams struct {
-	AppName string
-	Hour    int64
+	AppID int64
+	Hour  int64
 }
 
 func (q *Queries) CountTraceRoutes(ctx context.Context, arg CountTraceRoutesParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countTraceRoutes, arg.AppName, arg.Hour)
+	row := q.db.QueryRowContext(ctx, countTraceRoutes, arg.AppID, arg.Hour)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
 }
 
 const createTelemetryEvent = `-- name: CreateTelemetryEvent :exec
-INSERT INTO telemetry_events (app_name, kind, level, message, payload, trace_id) VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO telemetry_events (app_id, kind, level, message, payload, trace_id) VALUES (?, ?, ?, ?, ?, ?)
 `
 
 type CreateTelemetryEventParams struct {
-	AppName string
+	AppID   int64
 	Kind    string
 	Level   string
 	Message secret.String
@@ -100,7 +100,7 @@ type CreateTelemetryEventParams struct {
 
 func (q *Queries) CreateTelemetryEvent(ctx context.Context, arg CreateTelemetryEventParams) error {
 	_, err := q.db.ExecContext(ctx, createTelemetryEvent,
-		arg.AppName,
+		arg.AppID,
 		arg.Kind,
 		arg.Level,
 		arg.Message,
@@ -111,12 +111,12 @@ func (q *Queries) CreateTelemetryEvent(ctx context.Context, arg CreateTelemetryE
 }
 
 const createTrace = `-- name: CreateTrace :exec
-INSERT INTO traces (app_name, trace_id, name, status, http_status, duration_ms, slow_span, payload, created_at)
+INSERT INTO traces (app_id, trace_id, name, status, http_status, duration_ms, slow_span, payload, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type CreateTraceParams struct {
-	AppName    string
+	AppID      int64
 	TraceID    string
 	Name       string
 	Status     string
@@ -129,7 +129,7 @@ type CreateTraceParams struct {
 
 func (q *Queries) CreateTrace(ctx context.Context, arg CreateTraceParams) error {
 	_, err := q.db.ExecContext(ctx, createTrace,
-		arg.AppName,
+		arg.AppID,
 		arg.TraceID,
 		arg.Name,
 		arg.Status,
@@ -152,47 +152,47 @@ func (q *Queries) DeleteSamplesOf(ctx context.Context, target string) error {
 }
 
 const deleteTelemetryOfApp = `-- name: DeleteTelemetryOfApp :exec
-DELETE FROM telemetry_events WHERE app_name = ?
+DELETE FROM telemetry_events WHERE app_id = ?
 `
 
-func (q *Queries) DeleteTelemetryOfApp(ctx context.Context, appName string) error {
-	_, err := q.db.ExecContext(ctx, deleteTelemetryOfApp, appName)
+func (q *Queries) DeleteTelemetryOfApp(ctx context.Context, appID int64) error {
+	_, err := q.db.ExecContext(ctx, deleteTelemetryOfApp, appID)
 	return err
 }
 
 const deleteTraceRoutesOfApp = `-- name: DeleteTraceRoutesOfApp :exec
-DELETE FROM trace_routes WHERE app_name = ?
+DELETE FROM trace_routes WHERE app_id = ?
 `
 
-func (q *Queries) DeleteTraceRoutesOfApp(ctx context.Context, appName string) error {
-	_, err := q.db.ExecContext(ctx, deleteTraceRoutesOfApp, appName)
+func (q *Queries) DeleteTraceRoutesOfApp(ctx context.Context, appID int64) error {
+	_, err := q.db.ExecContext(ctx, deleteTraceRoutesOfApp, appID)
 	return err
 }
 
 const deleteTracesOfApp = `-- name: DeleteTracesOfApp :exec
-DELETE FROM traces WHERE app_name = ?
+DELETE FROM traces WHERE app_id = ?
 `
 
-func (q *Queries) DeleteTracesOfApp(ctx context.Context, appName string) error {
-	_, err := q.db.ExecContext(ctx, deleteTracesOfApp, appName)
+func (q *Queries) DeleteTracesOfApp(ctx context.Context, appID int64) error {
+	_, err := q.db.ExecContext(ctx, deleteTracesOfApp, appID)
 	return err
 }
 
 const getTelemetryEvent = `-- name: GetTelemetryEvent :one
-SELECT id, app_name, kind, level, message, payload, created_at, trace_id FROM telemetry_events WHERE id = ? AND app_name = ?
+SELECT id, app_id, kind, level, message, payload, created_at, trace_id FROM telemetry_events WHERE id = ? AND app_id = ?
 `
 
 type GetTelemetryEventParams struct {
-	ID      int64
-	AppName string
+	ID    int64
+	AppID int64
 }
 
 func (q *Queries) GetTelemetryEvent(ctx context.Context, arg GetTelemetryEventParams) (TelemetryEvent, error) {
-	row := q.db.QueryRowContext(ctx, getTelemetryEvent, arg.ID, arg.AppName)
+	row := q.db.QueryRowContext(ctx, getTelemetryEvent, arg.ID, arg.AppID)
 	var i TelemetryEvent
 	err := row.Scan(
 		&i.ID,
-		&i.AppName,
+		&i.AppID,
 		&i.Kind,
 		&i.Level,
 		&i.Message,
@@ -204,20 +204,20 @@ func (q *Queries) GetTelemetryEvent(ctx context.Context, arg GetTelemetryEventPa
 }
 
 const getTrace = `-- name: GetTrace :one
-SELECT id, app_name, trace_id, name, status, http_status, duration_ms, slow_span, payload, created_at FROM traces WHERE id = ? AND app_name = ?
+SELECT id, app_id, trace_id, name, status, http_status, duration_ms, slow_span, payload, created_at FROM traces WHERE id = ? AND app_id = ?
 `
 
 type GetTraceParams struct {
-	ID      int64
-	AppName string
+	ID    int64
+	AppID int64
 }
 
 func (q *Queries) GetTrace(ctx context.Context, arg GetTraceParams) (Trace, error) {
-	row := q.db.QueryRowContext(ctx, getTrace, arg.ID, arg.AppName)
+	row := q.db.QueryRowContext(ctx, getTrace, arg.ID, arg.AppID)
 	var i Trace
 	err := row.Scan(
 		&i.ID,
-		&i.AppName,
+		&i.AppID,
 		&i.TraceID,
 		&i.Name,
 		&i.Status,
@@ -231,33 +231,33 @@ func (q *Queries) GetTrace(ctx context.Context, arg GetTraceParams) (Trace, erro
 }
 
 const hasTraceRoute = `-- name: HasTraceRoute :one
-SELECT EXISTS (SELECT 1 FROM trace_routes WHERE app_name = ? AND hour = ? AND name = ?)
+SELECT EXISTS (SELECT 1 FROM trace_routes WHERE app_id = ? AND hour = ? AND name = ?)
 `
 
 type HasTraceRouteParams struct {
-	AppName string
-	Hour    int64
-	Name    string
+	AppID int64
+	Hour  int64
+	Name  string
 }
 
 func (q *Queries) HasTraceRoute(ctx context.Context, arg HasTraceRouteParams) (bool, error) {
-	row := q.db.QueryRowContext(ctx, hasTraceRoute, arg.AppName, arg.Hour, arg.Name)
+	row := q.db.QueryRowContext(ctx, hasTraceRoute, arg.AppID, arg.Hour, arg.Name)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
 }
 
 const lastTelemetryOfKind = `-- name: LastTelemetryOfKind :one
-SELECT created_at FROM telemetry_events WHERE app_name = ? AND kind = ? ORDER BY id DESC LIMIT 1
+SELECT created_at FROM telemetry_events WHERE app_id = ? AND kind = ? ORDER BY id DESC LIMIT 1
 `
 
 type LastTelemetryOfKindParams struct {
-	AppName string
-	Kind    string
+	AppID int64
+	Kind  string
 }
 
 func (q *Queries) LastTelemetryOfKind(ctx context.Context, arg LastTelemetryOfKindParams) (string, error) {
-	row := q.db.QueryRowContext(ctx, lastTelemetryOfKind, arg.AppName, arg.Kind)
+	row := q.db.QueryRowContext(ctx, lastTelemetryOfKind, arg.AppID, arg.Kind)
 	var created_at string
 	err := row.Scan(&created_at)
 	return created_at, err
@@ -351,16 +351,16 @@ func (q *Queries) ListPanelLog(ctx context.Context, arg ListPanelLogParams) ([]P
 }
 
 const listProblems = `-- name: ListProblems :many
-SELECT id, app_name, kind, level, message, payload, created_at, trace_id FROM telemetry_events WHERE app_name = ? AND kind != 'log' ORDER BY id DESC LIMIT ?
+SELECT id, app_id, kind, level, message, payload, created_at, trace_id FROM telemetry_events WHERE app_id = ? AND kind != 'log' ORDER BY id DESC LIMIT ?
 `
 
 type ListProblemsParams struct {
-	AppName string
-	Limit   int64
+	AppID int64
+	Limit int64
 }
 
 func (q *Queries) ListProblems(ctx context.Context, arg ListProblemsParams) ([]TelemetryEvent, error) {
-	rows, err := q.db.QueryContext(ctx, listProblems, arg.AppName, arg.Limit)
+	rows, err := q.db.QueryContext(ctx, listProblems, arg.AppID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -370,7 +370,7 @@ func (q *Queries) ListProblems(ctx context.Context, arg ListProblemsParams) ([]T
 		var i TelemetryEvent
 		if err := rows.Scan(
 			&i.ID,
-			&i.AppName,
+			&i.AppID,
 			&i.Kind,
 			&i.Level,
 			&i.Message,
@@ -443,16 +443,16 @@ func (q *Queries) ListSamples(ctx context.Context, arg ListSamplesParams) ([]Sam
 }
 
 const listTelemetryEvents = `-- name: ListTelemetryEvents :many
-SELECT id, app_name, kind, level, message, payload, created_at, trace_id FROM telemetry_events WHERE app_name = ? ORDER BY id DESC LIMIT ?
+SELECT id, app_id, kind, level, message, payload, created_at, trace_id FROM telemetry_events WHERE app_id = ? ORDER BY id DESC LIMIT ?
 `
 
 type ListTelemetryEventsParams struct {
-	AppName string
-	Limit   int64
+	AppID int64
+	Limit int64
 }
 
 func (q *Queries) ListTelemetryEvents(ctx context.Context, arg ListTelemetryEventsParams) ([]TelemetryEvent, error) {
-	rows, err := q.db.QueryContext(ctx, listTelemetryEvents, arg.AppName, arg.Limit)
+	rows, err := q.db.QueryContext(ctx, listTelemetryEvents, arg.AppID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -462,7 +462,7 @@ func (q *Queries) ListTelemetryEvents(ctx context.Context, arg ListTelemetryEven
 		var i TelemetryEvent
 		if err := rows.Scan(
 			&i.ID,
-			&i.AppName,
+			&i.AppID,
 			&i.Kind,
 			&i.Level,
 			&i.Message,
@@ -484,16 +484,16 @@ func (q *Queries) ListTelemetryEvents(ctx context.Context, arg ListTelemetryEven
 }
 
 const listTraceRoutes = `-- name: ListTraceRoutes :many
-SELECT app_name, name, hour, count, errors, total_ms, b0, b1, b2, b3, b4, b5, b6, b7, b8, b9, b10 FROM trace_routes WHERE app_name = ? AND hour >= ?
+SELECT app_id, name, hour, count, errors, total_ms, b0, b1, b2, b3, b4, b5, b6, b7, b8, b9, b10 FROM trace_routes WHERE app_id = ? AND hour >= ?
 `
 
 type ListTraceRoutesParams struct {
-	AppName string
-	Hour    int64
+	AppID int64
+	Hour  int64
 }
 
 func (q *Queries) ListTraceRoutes(ctx context.Context, arg ListTraceRoutesParams) ([]TraceRoute, error) {
-	rows, err := q.db.QueryContext(ctx, listTraceRoutes, arg.AppName, arg.Hour)
+	rows, err := q.db.QueryContext(ctx, listTraceRoutes, arg.AppID, arg.Hour)
 	if err != nil {
 		return nil, err
 	}
@@ -502,7 +502,7 @@ func (q *Queries) ListTraceRoutes(ctx context.Context, arg ListTraceRoutesParams
 	for rows.Next() {
 		var i TraceRoute
 		if err := rows.Scan(
-			&i.AppName,
+			&i.AppID,
 			&i.Name,
 			&i.Hour,
 			&i.Count,
@@ -534,18 +534,18 @@ func (q *Queries) ListTraceRoutes(ctx context.Context, arg ListTraceRoutesParams
 }
 
 const listTraces = `-- name: ListTraces :many
-SELECT id, app_name, trace_id, name, status, http_status, duration_ms, slow_span, created_at
-FROM traces WHERE app_name = ? ORDER BY id DESC LIMIT ?
+SELECT id, app_id, trace_id, name, status, http_status, duration_ms, slow_span, created_at
+FROM traces WHERE app_id = ? ORDER BY id DESC LIMIT ?
 `
 
 type ListTracesParams struct {
-	AppName string
-	Limit   int64
+	AppID int64
+	Limit int64
 }
 
 type ListTracesRow struct {
 	ID         int64
-	AppName    string
+	AppID      int64
 	TraceID    string
 	Name       string
 	Status     string
@@ -556,7 +556,7 @@ type ListTracesRow struct {
 }
 
 func (q *Queries) ListTraces(ctx context.Context, arg ListTracesParams) ([]ListTracesRow, error) {
-	rows, err := q.db.QueryContext(ctx, listTraces, arg.AppName, arg.Limit)
+	rows, err := q.db.QueryContext(ctx, listTraces, arg.AppID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -566,7 +566,7 @@ func (q *Queries) ListTraces(ctx context.Context, arg ListTracesParams) ([]ListT
 		var i ListTracesRow
 		if err := rows.Scan(
 			&i.ID,
-			&i.AppName,
+			&i.AppID,
 			&i.TraceID,
 			&i.Name,
 			&i.Status,
@@ -767,16 +767,16 @@ func (q *Queries) SummarizeSamples(ctx context.Context, arg SummarizeSamplesPara
 }
 
 const traceByTraceID = `-- name: TraceByTraceID :one
-SELECT id FROM traces WHERE app_name = ? AND trace_id = ? ORDER BY id DESC LIMIT 1
+SELECT id FROM traces WHERE app_id = ? AND trace_id = ? ORDER BY id DESC LIMIT 1
 `
 
 type TraceByTraceIDParams struct {
-	AppName string
+	AppID   int64
 	TraceID string
 }
 
 func (q *Queries) TraceByTraceID(ctx context.Context, arg TraceByTraceIDParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, traceByTraceID, arg.AppName, arg.TraceID)
+	row := q.db.QueryRowContext(ctx, traceByTraceID, arg.AppID, arg.TraceID)
 	var id int64
 	err := row.Scan(&id)
 	return id, err

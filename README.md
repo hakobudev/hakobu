@@ -267,8 +267,8 @@ the project's canvas draws an arrow for it:
 
 - `VITE_API_URL=${{api.URL}}`: its public address, `https://api.example.com`, for a browser;
   `${{api.HOST}}` is the host alone.
-- `API_URL=${{api.PRIVATE_URL}}`: `http://api.hakobu:8080`, inside the project, from a
-  server: quicker and never through Cloudflare.
+- `API_URL=${{api.PRIVATE_URL}}`: its address inside the project (`http://app-12.hakobu:8080`),
+  from a server: quicker and never through Cloudflare.
 
 An app can also serve a path of its address by another app of the project, like a proxy in
 front of both (app **Settings → Routes**): with `/api` → `api`, `shop.example.com/api/…`
@@ -281,8 +281,11 @@ A database from another host comes in as a backup of a hakobu database. With bac
 the panel's server:
 
 ```bash
-ssh old-host 'pg_dump -Fc -U postgres mydb' | sudo -u hakobu /opt/hakobu/hakobu database import mydb -
+ssh old-host 'pg_dump -Fc -U postgres mydb' | sudo -u hakobu /opt/hakobu/hakobu database import shop/mydb -
 ```
+
+naming the database by its project, `shop`; when several users have a project of that name,
+`--user <GitHub login>` says whose.
 
 Only pg_dump's custom format (`-Fc`) is taken. On the database's page, **Check** restores the
 dump into a scratch database and counts its tables; **Restore** replaces the database's data with

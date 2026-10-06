@@ -37,7 +37,7 @@ type Sample struct {
 
 type TelemetryEvent struct {
 	ID        int64
-	AppName   string
+	AppID     int64
 	Kind      string
 	Level     string
 	Message   secret.String
@@ -48,7 +48,7 @@ type TelemetryEvent struct {
 
 type Trace struct {
 	ID         int64
-	AppName    string
+	AppID      int64
 	TraceID    string
 	Name       string
 	Status     string
@@ -60,7 +60,7 @@ type Trace struct {
 }
 
 type TraceRoute struct {
-	AppName string
+	AppID   int64
 	Name    string
 	Hour    int64
 	Count   int64

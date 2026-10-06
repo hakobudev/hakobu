@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"database/sql"
 	"fmt"
 	"strings"
 
@@ -9,94 +10,93 @@ import (
 	"github.com/x0ryz/hakobu/internal/store"
 )
 
-// dbSpec is d as its node needs it.
+// dbSpec is d as its node needs it: in Postgres it's d.Key(), with a
+// role of that name.
 func dbSpec(d store.Database) node.DBSpec {
-	return node.DBSpec{Name: d.Name, User: d.User, Password: string(d.Password)}
+	return node.DBSpec{Name: d.Key(), User: d.Key(), Password: string(d.Password)}
 }
 
 // databaseNode is the node of the database's project.
 func databaseNode(s *store.Store, d store.Database) (node.Node, error) {
-	p, err := s.GetProjectByID(ctx(), d.ProjectID)
-	if err != nil {
-		return nil, err
-	}
-	return ProjectNode(s, p.Name), nil
+	return ProjectNode(s, d.ProjectID), nil
 }
 
 // SuggestDatabaseName is the name the "new database" field offers, and
 // takes when left empty (suggestName).
 func SuggestDatabaseName(s *store.Store, p store.Project) string {
 	return suggestName(p.Name, "db", validDBName, func(name string) bool {
-		_, err := s.GetDatabase(ctx(), name)
+		_, err := s.GetDatabase(ctx(), store.GetDatabaseParams{ProjectID: p.ID, Name: name})
 		return err == nil
 	})
 }
 
-func CreateDatabase(s *store.Store, projectName, name string) error {
+// CreateDatabase creates a database named name in the project.
+func CreateDatabase(s *store.Store, projectID int64, name string) (int64, error) {
 	if !validDBName.MatchString(name) {
-		return fmt.Errorf("invalid database name %q: use lowercase letters, digits, dashes and underscores, starting with a letter", name)
+		return 0, fmt.Errorf("invalid database name %q: use lowercase letters, digits, dashes and underscores, starting with a letter", name)
 	}
-	p, err := s.GetProject(ctx(), projectName)
-	if err != nil {
-		return fmt.Errorf("project %q not found: %w", projectName, err)
+	if _, err := s.GetProjectByID(ctx(), projectID); err != nil {
+		return 0, fmt.Errorf("project not found: %w", err)
 	}
-	if _, err := s.GetDatabase(ctx(), name); err == nil {
-		return fmt.Errorf("a database named %q already exists", name)
-	}
-	n := ProjectNode(s, projectName)
+	n := ProjectNode(s, projectID)
 	if err := n.EnsurePostgres(ctx()); err != nil {
-		return fmt.Errorf("failed to start postgres: %w", err)
+		return 0, fmt.Errorf("failed to start postgres: %w", err)
 	}
-	if err := ensureProjectNetworks(s, projectName); err != nil {
-		return err
+	if err := ensureProjectNetworks(s, projectID); err != nil {
+		return 0, err
 	}
 	password, err := RandomHex(16)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	d := store.Database{Name: name, User: name + "_user", Password: secret.String(password)}
-	if err := n.CreateDatabase(ctx(), dbSpec(d)); err != nil {
-		return err
+	// The record first: its ID names the database in Postgres.
+	id, err := s.CreateDatabase(ctx(), store.CreateDatabaseParams{ProjectID: projectID, Name: name, Password: secret.String(password)})
+	if err != nil {
+		return 0, taken(err, "a database named %q", name)
 	}
-	return s.CreateDatabase(ctx(), store.CreateDatabaseParams{ProjectID: p.ID, Name: d.Name, User: d.User, Password: d.Password})
+	d, err := s.GetDatabaseByID(ctx(), id)
+	if err == nil {
+		err = n.CreateDatabase(ctx(), dbSpec(d))
+	}
+	if err != nil {
+		_ = s.DeleteDatabase(ctx(), id)
+		return 0, err
+	}
+	return id, nil
 }
 
 // ensureInPostgres creates d, empty, with its role if Postgres lacks it, as
 // on a new server the panel was restored to.
 func ensureInPostgres(s *store.Store, d store.Database) error {
-	p, err := s.GetProjectByID(ctx(), d.ProjectID)
-	if err != nil {
-		return err
-	}
-	n := ProjectNode(s, p.Name)
+	n := ProjectNode(s, d.ProjectID)
 	if err := n.EnsurePostgres(ctx()); err != nil {
 		return fmt.Errorf("failed to start postgres: %w", err)
 	}
-	if err := ensureProjectNetworks(s, p.Name); err != nil {
+	if err := ensureProjectNetworks(s, d.ProjectID); err != nil {
 		return err
 	}
 	return n.EnsureDatabase(ctx(), dbSpec(d))
 }
 
-func DeleteDatabase(s *store.Store, name string) error {
-	d, err := s.GetDatabase(ctx(), name)
+func DeleteDatabase(s *store.Store, id int64) error {
+	d, err := s.GetDatabaseByID(ctx(), id)
 	if err != nil {
-		return fmt.Errorf("database %q not found: %w", name, err)
+		return fmt.Errorf("database not found: %w", err)
 	}
-	if err := reserveDB(name, "being deleted"); err != nil {
+	if err := reserveDB(dbJobKey(id), "being deleted"); err != nil {
 		return err
 	}
 	defer func() {
 		dbJobsMu.Lock()
-		delete(dbJobs, name)
+		delete(dbJobs, dbJobKey(id))
 		dbJobsMu.Unlock()
 	}()
-	linked, err := s.AppsUsingDatabase(ctx(), name)
+	linked, err := s.AppsUsingDatabase(ctx(), sql.NullInt64{Int64: id, Valid: true})
 	if err != nil {
 		return err
 	}
 	if len(linked) > 0 {
-		return fmt.Errorf("database %s is still used by %s — unlink it first", name, strings.Join(linked, ", "))
+		return fmt.Errorf("database %s is still used by %s — unlink it first", d.Name, strings.Join(linked, ", "))
 	}
 	n, err := databaseNode(s, d)
 	if err != nil {
@@ -105,12 +105,11 @@ func DeleteDatabase(s *store.Store, name string) error {
 	if err := n.DropDatabase(ctx(), dbSpec(d)); err != nil {
 		return err
 	}
-	// The files stay in the storage; a new database with the same name
-	// mustn't list (and rotate away) the old one's backups.
-	if err := s.DeleteBackupsOf(ctx(), name); err != nil {
+	// The files stay in the bucket, out of the panel's sight.
+	if err := s.DeleteBackupsOf(ctx(), id); err != nil {
 		return err
 	}
-	return s.DeleteDatabase(ctx(), name)
+	return s.DeleteDatabase(ctx(), id)
 }
 
 // DatabaseReady reports whether Postgres answers on the database's node.
@@ -121,11 +120,11 @@ func DatabaseReady(s *store.Store, d store.Database) bool {
 
 func DatabaseEnv(d store.Database) []string {
 	return []string{
-		"DATABASE_URL=" + fmt.Sprintf("postgres://%s:%s@%s:5432/%s", d.User, d.Password, node.PostgresContainer, d.Name),
+		"DATABASE_URL=" + fmt.Sprintf("postgres://%s:%s@%s:5432/%s", d.Key(), d.Password, node.PostgresContainer, d.Key()),
 		"POSTGRES_HOST=" + node.PostgresContainer,
 		"POSTGRES_PORT=5432",
-		"POSTGRES_DB=" + d.Name,
-		"POSTGRES_USER=" + d.User,
+		"POSTGRES_DB=" + d.Key(),
+		"POSTGRES_USER=" + d.Key(),
 		"POSTGRES_PASSWORD=" + string(d.Password),
 	}
 }

@@ -119,23 +119,24 @@ func TestCurrentUsageOfThePanelsServer(t *testing.T) {
 	s := notifyStore(t)
 	joinServer(t, s, "box", nil)
 	for project, user := range map[string]int64{"mine": 1, "theirs": 2, "far": 1} {
-		if err := s.CreateUserProject(ctx(), store.CreateUserProjectParams{Name: project, UserID: user}); err != nil {
+		if _, err := s.CreateProject(ctx(), store.CreateProjectParams{Name: project, UserID: user}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	box, _ := s.GetNodeByName(ctx(), "box")
-	far, _ := s.GetProject(ctx(), "far")
+	box, _ := s.GetNodeByName(ctx(), store.GetNodeByNameParams{Name: "box"})
+	far, _ := getProject(s, "far")
 	if err := s.SetProjectNode(ctx(), store.SetProjectNodeParams{NodeID: sql.NullInt64{Int64: box.ID, Valid: true}, ID: far.ID}); err != nil {
 		t.Fatal(err)
 	}
 	for app, project := range map[string]string{"web": "mine", "other": "theirs", "remote": "far"} {
-		p, _ := s.GetProject(ctx(), project)
-		if err := s.CreateApp(ctx(), store.CreateAppParams{ProjectID: p.ID, Name: app, BuildStrategy: "dockerfile"}); err != nil {
+		p, _ := getProject(s, project)
+		if err := createApp(s, store.CreateAppParams{ProjectID: p.ID, Name: app, BuildStrategy: "dockerfile"}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	now := time.Now().Truncate(time.Minute).Unix()
-	for _, target := range []string{HostTarget, "host:box", "service:postgres", "service:postgres:box", "app:web", "app:other", "worker:other", "app:remote"} {
+	app := func(name string) string { return AppTarget(appID(t, s, name)) }
+	for _, target := range []string{HostTarget, hostTarget(box.ID), "service:postgres", ServiceTarget("postgres", box.ID), app("web"), app("other"), WorkerTarget(appID(t, s, "other")), app("remote")} {
 		if err := putSample(s, minuteRes, now, teldb.Sample{Target: target, Cpu: 1, Mem: 100}); err != nil {
 			t.Fatal(err)
 		}
@@ -148,19 +149,19 @@ func TestCurrentUsageOfThePanelsServer(t *testing.T) {
 	for _, r := range rows {
 		got = append(got, fmt.Sprintf("%s %g", r.Target, r.Cpu))
 	}
-	if want := "host 1, app:web 1, others 2, service:postgres 1"; strings.Join(got, ", ") != want {
+	if want := "host 1, " + app("web") + " 1, others 2, service:postgres 1"; strings.Join(got, ", ") != want {
 		t.Errorf("usage = %s, want %s", strings.Join(got, ", "), want)
 	}
 	targets := containerTargets(s, server{ID: box.ID, Name: "box"})
-	web, _ := s.GetApp(ctx(), "web")
-	remote, _ := s.GetApp(ctx(), "remote")
-	if got := targets[node.PostgresContainer].name; got != "service:postgres:box" {
+	web, _ := getApp(s, "web")
+	remote, _ := getApp(s, "remote")
+	if got := targets[node.PostgresContainer].name; got != ServiceTarget("postgres", box.ID) {
 		t.Errorf("box's postgres is recorded as %q", got)
 	}
 	if _, ok := targets[web.ContainerName()]; ok {
 		t.Error("box is asked about an app of the panel's server")
 	}
-	if got := targets[remote.ContainerName()].name; got != "app:remote" {
+	if got := targets[remote.ContainerName()].name; got != AppTarget(remote.ID) {
 		t.Errorf("box's app is recorded as %q", got)
 	}
 }

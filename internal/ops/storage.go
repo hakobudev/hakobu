@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"database/sql"
 	"fmt"
 	"strings"
 
@@ -19,19 +20,20 @@ import (
 // Before keys are saved, hakobu checks they reach their bucket and not the
 // backups.
 
-func CreateStorage(s *store.Store, projectName string, st store.Storage) error {
-	p, err := s.GetProject(ctx(), projectName)
+// CreateStorage creates a storage in the project (st.ProjectID).
+func CreateStorage(s *store.Store, st store.Storage) (int64, error) {
+	p, err := s.GetProjectByID(ctx(), st.ProjectID)
 	if err != nil {
-		return fmt.Errorf("project %q not found: %w", projectName, err)
+		return 0, fmt.Errorf("project not found: %w", err)
 	}
 	if st.Name == "" {
 		st.Name = SuggestStorageName(s, p)
 	}
 	if err := checkName("storage", st.Name); err != nil {
-		return err
+		return 0, err
 	}
-	if _, err := s.GetStorage(ctx(), st.Name); err == nil {
-		return fmt.Errorf("a storage named %q already exists", st.Name)
+	if _, err := s.GetStorage(ctx(), store.GetStorageParams{ProjectID: p.ID, Name: st.Name}); err == nil {
+		return 0, fmt.Errorf("a storage named %q already exists", st.Name)
 	}
 	st.ProjectID = p.ID
 	if st.Region == "" {
@@ -40,26 +42,29 @@ func CreateStorage(s *store.Store, projectName string, st store.Storage) error {
 	switch st.Provider {
 	case "r2":
 		if err := createR2Bucket(s, p, &st); err != nil {
-			return err
+			return 0, err
 		}
 	case "s3":
 		if st.Endpoint == "" || st.Bucket == "" {
-			return fmt.Errorf("endpoint and bucket are required")
+			return 0, fmt.Errorf("endpoint and bucket are required")
 		}
 		if err := checkStorageKeys(s, st); err != nil {
-			return err
+			return 0, err
 		}
 	default:
-		return fmt.Errorf("unsupported storage provider %q", st.Provider)
+		return 0, fmt.Errorf("unsupported storage provider %q", st.Provider)
 	}
-	return s.CreateStorage(ctx(), store.CreateStorageParams(st))
+	return s.CreateStorage(ctx(), store.CreateStorageParams{
+		Name: st.Name, ProjectID: st.ProjectID, Provider: st.Provider, AccountID: st.AccountID, Endpoint: st.Endpoint,
+		AccessKeyID: st.AccessKeyID, SecretAccessKey: st.SecretAccessKey, Bucket: st.Bucket, Region: st.Region,
+	})
 }
 
 // SuggestStorageName is the name the "new storage" field offers, and
 // takes when left empty (suggestName).
 func SuggestStorageName(s *store.Store, p store.Project) string {
 	return suggestName(p.Name, "storage", validName, func(name string) bool {
-		_, err := s.GetStorage(ctx(), name)
+		_, err := s.GetStorage(ctx(), store.GetStorageParams{ProjectID: p.ID, Name: name})
 		return err == nil
 	})
 }
@@ -94,8 +99,8 @@ func createR2Bucket(s *store.Store, p store.Project, st *store.Storage) error {
 
 // SetStorageKeys gives a storage the keys its apps get, once they're known
 // to reach its bucket and not the backups.
-func SetStorageKeys(s *store.Store, name, accessKeyID, secretAccessKey string) error {
-	st, err := s.GetStorage(ctx(), name)
+func SetStorageKeys(s *store.Store, id int64, accessKeyID, secretAccessKey string) error {
+	st, err := s.GetStorageByID(ctx(), id)
 	if err != nil {
 		return err
 	}
@@ -103,7 +108,7 @@ func SetStorageKeys(s *store.Store, name, accessKeyID, secretAccessKey string) e
 	if err := checkStorageKeys(s, st); err != nil {
 		return err
 	}
-	return s.SetStorageKeys(ctx(), store.SetStorageKeysParams{Name: st.Name, AccessKeyID: st.AccessKeyID, SecretAccessKey: st.SecretAccessKey})
+	return s.SetStorageKeys(ctx(), store.SetStorageKeysParams{ID: st.ID, AccessKeyID: st.AccessKeyID, SecretAccessKey: st.SecretAccessKey})
 }
 
 // checkStorageKeys makes sure the storage's keys can list its bucket and,
@@ -129,16 +134,20 @@ func checkStorageKeys(s *store.Store, st store.Storage) error {
 	return nil
 }
 
-func DeleteStorage(s *store.Store, name string) error {
-	apps, err := s.AppsUsingStorage(ctx(), name)
+func DeleteStorage(s *store.Store, id int64) error {
+	st, err := s.GetStorageByID(ctx(), id)
+	if err != nil {
+		return err
+	}
+	apps, err := s.AppsUsingStorage(ctx(), sql.NullInt64{Int64: id, Valid: true})
 	if err != nil {
 		return err
 	}
 	if len(apps) > 0 {
-		return fmt.Errorf("storage %s is still used by %s — unlink it first", name, strings.Join(apps, ", "))
+		return fmt.Errorf("storage %s is still used by %s — unlink it first", st.Name, strings.Join(apps, ", "))
 	}
 	// The bucket and its files stay; delete them at the provider.
-	return s.DeleteStorage(ctx(), name)
+	return s.DeleteStorage(ctx(), id)
 }
 
 func storageEnv(st store.Storage) []string {

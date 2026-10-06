@@ -55,15 +55,15 @@ func TestCheckDomains(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.CreateProject(ctx(), "p"); err != nil {
+	if err := createProject(s, "p"); err != nil {
 		t.Fatal(err)
 	}
-	p, _ := s.GetProject(ctx(), "p")
+	p, _ := getProject(s, "p")
 	for name, domain := range map[string]string{"shop": "shop.example.co.uk", "blog": "www.other.dev", "quiet": ""} {
-		if err := s.CreateApp(ctx(), store.CreateAppParams{ProjectID: p.ID, Name: name, BuildStrategy: "dockerfile"}); err != nil {
+		if err := createApp(s, store.CreateAppParams{ProjectID: p.ID, Name: name, BuildStrategy: "dockerfile"}); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.SetAppDomain(ctx(), store.SetAppDomainParams{Name: name, Domain: domain}); err != nil {
+		if err := s.SetAppDomain(ctx(), store.SetAppDomainParams{ID: appID(t, s, name), Domain: domain}); err != nil {
 			t.Fatal(err)
 		}
 	}

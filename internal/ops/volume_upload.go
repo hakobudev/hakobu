@@ -37,14 +37,14 @@ func checkVolumeFile(name string) (string, error) {
 
 // StartVolumeUpload writes the file at src (removed when done) into the
 // app's volume at name, in the background.
-func StartVolumeUpload(s *store.Store, app, volume, name, src string) error {
+func StartVolumeUpload(s *store.Store, appID int64, volume, name, src string) error {
 	name, err := checkVolumeFile(name)
 	if err == nil {
-		err = hasVolume(s, app, volume)
+		err = hasVolume(s, appID, volume)
 	}
 	var a store.App
 	if err == nil {
-		a, err = s.GetApp(ctx(), app)
+		a, err = s.GetAppByID(ctx(), appID)
 	}
 	var target backupTarget
 	if err == nil {
@@ -54,13 +54,13 @@ func StartVolumeUpload(s *store.Store, app, volume, name, src string) error {
 		os.Remove(src)
 		return err
 	}
-	job := volumeJob(app, volume)
+	job := volumeJob(appID, volume)
 	what := "uploading " + name
 	if err := reserveDB(job, what); err != nil {
 		os.Remove(src)
 		return err
 	}
-	err = startJob(s, app, "upload to volume "+volume, func(a store.App, out io.Writer) error {
+	err = startJob(s, appID, "upload to volume "+volume, func(a store.App, out io.Writer) error {
 		err := putVolumeFile(s, a, volume, name, src, target, out)
 		finishDB(job, what, err)
 		return err
@@ -80,7 +80,7 @@ func putVolumeFile(s *store.Store, app store.App, volume, name, src string, targ
 	} else if id == 0 {
 		fmt.Fprintln(out, "the volume is empty yet: nothing to back up")
 	}
-	key := fmt.Sprintf("uploads/%s_%s/%s.enc", app.Name, volume, time.Now().UTC().Format("20060102-150405"))
+	key := fmt.Sprintf("uploads/%s_%s/%s.enc", app.Key(), volume, time.Now().UTC().Format("20060102-150405"))
 	up, err := newPanelUpload(s, target, key)
 	if err != nil {
 		return err

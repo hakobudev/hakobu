@@ -1,38 +1,40 @@
 -- Projects
 
--- name: CreateProject :exec
-INSERT INTO projects (name) VALUES (?);
+-- name: CreateProject :one
+INSERT INTO projects (name, user_id) VALUES (?, ?) RETURNING id;
 
 -- name: GetProject :one
-SELECT * FROM projects WHERE name = ?;
+-- A project by its name among its owner's.
+SELECT * FROM projects WHERE user_id = ? AND name = ?;
 
 -- name: GetProjectByID :one
 SELECT * FROM projects WHERE id = ?;
 
 -- name: ListProjects :many
-SELECT * FROM projects ORDER BY name;
-
--- name: CreateUserProject :exec
-INSERT INTO projects (name, user_id) VALUES (?, ?);
+SELECT * FROM projects ORDER BY name, id;
 
 -- name: ListProjectsOf :many
 SELECT * FROM projects WHERE user_id = ? ORDER BY name;
 
+-- name: RenameProject :exec
+UPDATE projects SET name = ? WHERE id = ?;
+
 -- name: SetProjectSharedEnv :exec
-UPDATE projects SET shared_env = ? WHERE name = ?;
+UPDATE projects SET shared_env = ? WHERE id = ?;
 
 -- name: DeleteProject :exec
-DELETE FROM projects WHERE name = ?;
+DELETE FROM projects WHERE id = ?;
 
 -- Apps
 
--- name: CreateApp :exec
+-- name: CreateApp :one
 -- The port is the next free one for the app's proxy, starting at 8081.
 INSERT INTO apps (project_id, name, repo, port, container_port, build_path, build_strategy)
-VALUES (?, ?, ?, (SELECT MAX(COALESCE(MAX(port), 8080), 8080) + 1 FROM apps), ?, ?, ?);
+VALUES (?, ?, ?, (SELECT MAX(COALESCE(MAX(port), 8080), 8080) + 1 FROM apps), ?, ?, ?) RETURNING id;
 
 -- name: GetApp :one
-SELECT * FROM app_view WHERE name = ?;
+-- An app by its name in its project.
+SELECT * FROM app_view WHERE project_id = ? AND name = ?;
 
 -- name: GetAppByID :one
 SELECT * FROM app_view WHERE id = ?;
@@ -41,7 +43,7 @@ SELECT * FROM app_view WHERE id = ?;
 SELECT * FROM app_view WHERE domain = ? AND domain != '';
 
 -- name: ListApps :many
-SELECT * FROM app_view ORDER BY name;
+SELECT * FROM app_view ORDER BY project_name, name;
 
 -- name: ListAppsByProject :many
 SELECT * FROM app_view WHERE project_id = ? ORDER BY name;
@@ -50,67 +52,70 @@ SELECT * FROM app_view WHERE project_id = ? ORDER BY name;
 SELECT * FROM app_view WHERE repo = ?;
 
 -- name: SetAppSettings :exec
-UPDATE apps SET container_port = ?, health_check_path = ? WHERE name = ?;
+UPDATE apps SET container_port = ?, health_check_path = ? WHERE id = ?;
 
 -- name: SetAppDomain :exec
-UPDATE apps SET domain = ?, dns_zone_id = ?, dns_record_id = ? WHERE name = ?;
+UPDATE apps SET domain = ?, dns_zone_id = ?, dns_record_id = ? WHERE id = ?;
 
 -- name: SetAppBuild :exec
-UPDATE apps SET build_path = ?, build_strategy = ?, start_command = ? WHERE name = ?;
+UPDATE apps SET build_path = ?, build_strategy = ?, start_command = ? WHERE id = ?;
 
 -- name: SetAppStack :exec
-UPDATE apps SET stack = ? WHERE name = ?;
+UPDATE apps SET stack = ? WHERE id = ?;
 
 -- name: SetAppLive :exec
-UPDATE apps SET active_slot = ?, live_port = ? WHERE name = ?;
+UPDATE apps SET active_slot = ?, live_port = ? WHERE id = ?;
 
 -- name: SetAppEnv :exec
-UPDATE apps SET env = ? WHERE name = ?;
+UPDATE apps SET env = ? WHERE id = ?;
 
 -- name: SetAppSentryKey :exec
-UPDATE apps SET sentry_key = ? WHERE name = ?;
+UPDATE apps SET sentry_key = ? WHERE id = ?;
 
 -- name: SetAppLinkedDB :exec
-UPDATE apps SET linked_db = ? WHERE name = ?;
+UPDATE apps SET linked_db_id = ? WHERE id = ?;
 
 -- name: SetAppLinkedStorage :exec
-UPDATE apps SET linked_storage = ? WHERE name = ?;
+UPDATE apps SET linked_storage_id = ? WHERE id = ?;
 
 -- name: AppsUsingDatabase :many
-SELECT name FROM apps WHERE linked_db = ? ORDER BY name;
+SELECT name FROM apps WHERE linked_db_id = ? ORDER BY name;
 
 -- name: AppsUsingStorage :many
-SELECT name FROM apps WHERE linked_storage = ? ORDER BY name;
+SELECT name FROM apps WHERE linked_storage_id = ? ORDER BY name;
+
+-- name: RenameApp :exec
+UPDATE apps SET name = ? WHERE id = ?;
 
 -- name: DeleteApp :exec
-DELETE FROM apps WHERE name = ?;
+DELETE FROM apps WHERE id = ?;
 
 -- name: SetAppShareVolumes :exec
-UPDATE apps SET share_volumes = ? WHERE name = ?;
+UPDATE apps SET share_volumes = ? WHERE id = ?;
 
 -- name: SetAppSnapshot :exec
-UPDATE apps SET snapshot_db = ?, snapshot_at = ? WHERE name = ?;
+UPDATE apps SET snapshot_db_id = ?, snapshot_at = ? WHERE id = ?;
 
 -- name: SetAppLimits :exec
-UPDATE apps SET memory_mb = ?, cpus = ? WHERE name = ?;
+UPDATE apps SET memory_mb = ?, cpus = ? WHERE id = ?;
 
 -- Sealed variables
 
 -- name: SetSealedVar :exec
-INSERT INTO sealed_vars (scope, owner, key, value) VALUES (?, ?, ?, ?)
-ON CONFLICT(scope, owner, key) DO UPDATE SET value = excluded.value;
+INSERT INTO sealed_vars (scope, owner_id, key, value) VALUES (?, ?, ?, ?)
+ON CONFLICT(scope, owner_id, key) DO UPDATE SET value = excluded.value;
 
 -- name: ListSealedVars :many
-SELECT * FROM sealed_vars WHERE scope = ? AND owner = ? ORDER BY key;
+SELECT * FROM sealed_vars WHERE scope = ? AND owner_id = ? ORDER BY key;
 
 -- name: ListAllSealedVars :many
-SELECT * FROM sealed_vars ORDER BY scope, owner, key;
+SELECT * FROM sealed_vars ORDER BY scope, owner_id, key;
 
 -- name: DeleteSealedVar :exec
-DELETE FROM sealed_vars WHERE scope = ? AND owner = ? AND key = ?;
+DELETE FROM sealed_vars WHERE scope = ? AND owner_id = ? AND key = ?;
 
 -- name: DeleteSealedVarsOf :exec
-DELETE FROM sealed_vars WHERE scope = ? AND owner = ?;
+DELETE FROM sealed_vars WHERE scope = ? AND owner_id = ?;
 
 -- name: DeleteAllSessions :exec
 DELETE FROM sessions;
@@ -118,102 +123,110 @@ DELETE FROM sessions;
 -- Volumes
 
 -- name: AddVolume :exec
-INSERT INTO volumes (app_name, name, mount_path) VALUES (?, ?, ?);
+INSERT INTO volumes (app_id, name, mount_path) VALUES (?, ?, ?);
 
 -- name: ListVolumes :many
-SELECT * FROM volumes WHERE app_name = ? ORDER BY name;
+SELECT * FROM volumes WHERE app_id = ? ORDER BY name;
 
 -- name: SetAppRoute :exec
-INSERT INTO app_routes (app_name, path, target) VALUES (?, ?, ?)
-ON CONFLICT(app_name, path) DO UPDATE SET target = excluded.target;
+INSERT INTO app_routes (app_id, path, target_id) VALUES (?, ?, ?)
+ON CONFLICT(app_id, path) DO UPDATE SET target_id = excluded.target_id;
 
 -- name: DeleteAppRoute :exec
-DELETE FROM app_routes WHERE app_name = ? AND path = ?;
+DELETE FROM app_routes WHERE app_id = ? AND path = ?;
 
 -- name: ListAppRoutes :many
-SELECT * FROM app_routes WHERE app_name = ? ORDER BY path;
+SELECT * FROM app_routes WHERE app_id = ? ORDER BY path;
 
 -- name: ListAllAppRoutes :many
-SELECT * FROM app_routes ORDER BY app_name, path;
+SELECT * FROM app_routes ORDER BY app_id, path;
 
 -- name: DeleteRoutesOfApp :exec
-DELETE FROM app_routes WHERE app_name = ?1 OR target = ?1;
+DELETE FROM app_routes WHERE app_id = ?1 OR target_id = ?1;
 
 -- name: ListAllVolumes :many
 SELECT * FROM volumes;
 
 -- name: DeleteVolume :exec
-DELETE FROM volumes WHERE app_name = ? AND name = ?;
+DELETE FROM volumes WHERE app_id = ? AND name = ?;
 
 -- name: DeleteVolumesOfApp :exec
-DELETE FROM volumes WHERE app_name = ?;
+DELETE FROM volumes WHERE app_id = ?;
 
 -- Workers
 
 -- name: SaveWorker :exec
-INSERT INTO workers (app_name, name, command, env) VALUES (?, ?, ?, ?)
-ON CONFLICT(app_name) DO UPDATE SET name = excluded.name, command = excluded.command, env = excluded.env;
+INSERT INTO workers (app_id, name, command, env) VALUES (?, ?, ?, ?)
+ON CONFLICT(app_id) DO UPDATE SET name = excluded.name, command = excluded.command, env = excluded.env;
 
 -- name: GetWorker :one
-SELECT * FROM workers WHERE app_name = ?;
+SELECT * FROM workers WHERE app_id = ?;
 
 -- name: DeleteWorker :exec
-DELETE FROM workers WHERE app_name = ?;
+DELETE FROM workers WHERE app_id = ?;
 
 -- Databases
 
--- name: CreateDatabase :exec
-INSERT INTO databases (name, project_id, db_user, db_password) VALUES (?, ?, ?, ?);
+-- name: CreateDatabase :one
+INSERT INTO databases (name, project_id, db_password) VALUES (?, ?, ?) RETURNING id;
 
 -- name: GetDatabase :one
-SELECT * FROM databases WHERE name = ?;
+-- A database by its name in its project.
+SELECT * FROM databases WHERE project_id = ? AND name = ?;
+
+-- name: GetDatabaseByID :one
+SELECT * FROM databases WHERE id = ?;
 
 -- name: ListDatabases :many
-SELECT * FROM databases ORDER BY name;
+SELECT * FROM databases ORDER BY id;
 
 -- name: ListDatabasesByProject :many
 SELECT * FROM databases WHERE project_id = ? ORDER BY name;
 
 -- name: SetDatabasePassword :exec
-UPDATE databases SET db_password = ? WHERE name = ?;
+UPDATE databases SET db_password = ? WHERE id = ?;
 
 -- name: DeleteDatabase :exec
-DELETE FROM databases WHERE name = ?;
+DELETE FROM databases WHERE id = ?;
 
 -- Storages
 
--- name: CreateStorage :exec
+-- name: CreateStorage :one
 INSERT INTO storages (name, project_id, provider, account_id, endpoint, access_key_id, secret_access_key, bucket, region)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id;
 
 -- name: GetStorage :one
-SELECT * FROM storages WHERE name = ?;
+-- A storage by its name in its project.
+SELECT * FROM storages WHERE project_id = ? AND name = ?;
+
+-- name: GetStorageByID :one
+SELECT * FROM storages WHERE id = ?;
 
 -- name: ListStoragesByProject :many
 SELECT * FROM storages WHERE project_id = ? ORDER BY name;
 
 -- name: SetStorageKeys :exec
-UPDATE storages SET access_key_id = ?, secret_access_key = ? WHERE name = ?;
+UPDATE storages SET access_key_id = ?, secret_access_key = ? WHERE id = ?;
 
 -- name: ListStorages :many
-SELECT * FROM storages ORDER BY name;
+SELECT * FROM storages ORDER BY id;
 
 -- name: DeleteStorage :exec
-DELETE FROM storages WHERE name = ?;
+DELETE FROM storages WHERE id = ?;
 
 -- Backups
 
 -- name: CreateBackup :one
-INSERT INTO backups (database, object_key, parts, size_bytes, sha256, key_fingerprint, account_id, bucket) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id;
+INSERT INTO backups (database_id, object_key, parts, size_bytes, sha256, key_fingerprint, account_id, bucket) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id;
 
 -- name: GetBackup :one
 SELECT * FROM backups WHERE id = ?;
 
 -- name: ListBackups :many
-SELECT * FROM backups WHERE database = ? ORDER BY id DESC LIMIT ?;
+SELECT * FROM backups WHERE database_id = ? ORDER BY id DESC LIMIT ?;
 
 -- name: ListAllBackups :many
-SELECT * FROM backups WHERE database = ? ORDER BY id DESC;
+SELECT * FROM backups WHERE database_id = ? ORDER BY id DESC;
 
 -- name: SetBackupVerified :exec
 UPDATE backups SET verified_at = ?, verify_error = ?, tables = ? WHERE id = ?;
@@ -222,19 +235,19 @@ UPDATE backups SET verified_at = ?, verify_error = ?, tables = ? WHERE id = ?;
 DELETE FROM backups WHERE id = ?;
 
 -- name: DeleteBackupsOf :exec
-DELETE FROM backups WHERE database = ?;
+DELETE FROM backups WHERE database_id = ?;
 
 -- name: CreateVolumeBackup :one
-INSERT INTO volume_backups (app_name, volume, object_key, parts, size_bytes, sha256, key_fingerprint, account_id, bucket) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id;
+INSERT INTO volume_backups (app_id, volume, object_key, parts, size_bytes, sha256, key_fingerprint, account_id, bucket) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id;
 
 -- name: GetVolumeBackup :one
 SELECT * FROM volume_backups WHERE id = ?;
 
 -- name: ListVolumeBackups :many
-SELECT * FROM volume_backups WHERE app_name = ? AND volume = ? ORDER BY id DESC LIMIT ?;
+SELECT * FROM volume_backups WHERE app_id = ? AND volume = ? ORDER BY id DESC LIMIT ?;
 
 -- name: ListAllVolumeBackups :many
-SELECT * FROM volume_backups WHERE app_name = ? AND volume = ? ORDER BY id DESC;
+SELECT * FROM volume_backups WHERE app_id = ? AND volume = ? ORDER BY id DESC;
 
 -- name: SetVolumeBackupVerified :exec
 UPDATE volume_backups SET verified_at = ?, verify_error = ?, files = ? WHERE id = ?;
@@ -243,10 +256,10 @@ UPDATE volume_backups SET verified_at = ?, verify_error = ?, files = ? WHERE id 
 DELETE FROM volume_backups WHERE id = ?;
 
 -- name: DeleteVolumeBackupsOf :exec
-DELETE FROM volume_backups WHERE app_name = ? AND volume = ?;
+DELETE FROM volume_backups WHERE app_id = ? AND volume = ?;
 
 -- name: DeleteVolumeBackupsOfApp :exec
-DELETE FROM volume_backups WHERE app_name = ?;
+DELETE FROM volume_backups WHERE app_id = ?;
 
 -- GitHub App
 
@@ -334,27 +347,27 @@ DELETE FROM sessions WHERE expires_at < ?;
 -- Deploy logs
 
 -- name: CreateDeployLog :one
-INSERT INTO deploy_logs (app_name, trigger_source, status) VALUES (?, ?, ?) RETURNING id;
+INSERT INTO deploy_logs (app_id, trigger_source, status) VALUES (?, ?, ?) RETURNING id;
 
 -- name: UpdateDeployLog :exec
 UPDATE deploy_logs SET status = ?, output = ? WHERE id = ?;
 
 -- name: ListDeployLogs :many
-SELECT * FROM deploy_logs WHERE app_name = ? ORDER BY id DESC LIMIT ?;
+SELECT * FROM deploy_logs WHERE app_id = ? ORDER BY id DESC LIMIT ?;
 
 -- ListDeploySummaries is ListDeployLogs without the output, which is
 -- large and decrypted on read.
 -- name: ListDeploySummaries :many
-SELECT id, app_name, trigger_source, status, created_at FROM deploy_logs WHERE app_name = ? ORDER BY id DESC LIMIT ?;
+SELECT id, app_id, trigger_source, status, created_at FROM deploy_logs WHERE app_id = ? ORDER BY id DESC LIMIT ?;
 
 -- name: GetDeployLog :one
-SELECT * FROM deploy_logs WHERE id = ? AND app_name = ?;
+SELECT * FROM deploy_logs WHERE id = ? AND app_id = ?;
 
 -- name: ListRunningDeployLogs :many
 SELECT id, output FROM deploy_logs WHERE status = 'running';
 
 -- name: DeleteDeployLogsOfApp :exec
-DELETE FROM deploy_logs WHERE app_name = ?;
+DELETE FROM deploy_logs WHERE app_id = ?;
 
 -- name: PruneDeployLogs :exec
 DELETE FROM deploy_logs WHERE created_at < ?;
@@ -529,13 +542,13 @@ DELETE FROM watchdog_off;
 -- Nodes
 
 -- name: ListNodes :many
-SELECT * FROM nodes ORDER BY name;
+SELECT * FROM nodes ORDER BY name, id;
 
 -- name: CountNodesOf :one
 SELECT COUNT(*) FROM nodes WHERE user_id = ?;
 
 -- name: GetNodeByName :one
-SELECT * FROM nodes WHERE name = ?;
+SELECT * FROM nodes WHERE user_id = ? AND name = ?;
 
 -- name: GetNodeByKey :one
 SELECT * FROM nodes WHERE public_key = ? AND public_key != '';
@@ -547,7 +560,7 @@ SELECT * FROM nodes WHERE join_secret_hash = ? AND join_secret_hash != '';
 INSERT INTO nodes (name, join_secret_hash, join_expires, user_id) VALUES (?, ?, ?, ?);
 
 -- name: SetNodeJoin :exec
-UPDATE nodes SET join_secret_hash = ?, join_expires = ? WHERE name = ?;
+UPDATE nodes SET join_secret_hash = ?, join_expires = ? WHERE id = ?;
 
 -- name: JoinNode :exec
 UPDATE nodes SET public_key = ?, join_secret_hash = '', join_expires = '' WHERE id = ?;
@@ -556,7 +569,7 @@ UPDATE nodes SET public_key = ?, join_secret_hash = '', join_expires = '' WHERE 
 UPDATE nodes SET version = ?, last_seen = ? WHERE id = ?;
 
 -- name: DeleteNode :exec
-DELETE FROM nodes WHERE name = ?;
+DELETE FROM nodes WHERE id = ?;
 
 -- name: GetLinkKey :one
 SELECT private_key FROM link_key WHERE id = 1;
@@ -591,10 +604,10 @@ UPDATE server_tunnels SET tunnel_token = ? WHERE id = ?;
 DELETE FROM server_tunnels WHERE id = ?;
 
 -- name: AddPendingPromotion :exec
-INSERT OR IGNORE INTO pending_promotions (app_name) VALUES (?);
+INSERT OR IGNORE INTO pending_promotions (app_id) VALUES (?);
 
 -- name: ListPendingPromotions :many
-SELECT app_name FROM pending_promotions ORDER BY app_name;
+SELECT app_id FROM pending_promotions ORDER BY app_id;
 
 -- name: DeletePendingPromotion :exec
-DELETE FROM pending_promotions WHERE app_name = ?;
+DELETE FROM pending_promotions WHERE app_id = ?;

@@ -39,15 +39,15 @@ func TestMCPSetup(t *testing.T) {
 		project, app, db string
 		user             int64
 	}{{"mine", "web", "", me}, {"other", "theirs", "theirdb", other}} {
-		if err := s.CreateUserProject(ctx, store.CreateUserProjectParams{Name: a.project, UserID: a.user}); err != nil {
+		p, err := s.CreateProject(ctx, store.CreateProjectParams{Name: a.project, UserID: a.user})
+		if err != nil {
 			t.Fatal(err)
 		}
-		p, _ := s.GetProject(ctx, a.project)
-		if err := s.CreateApp(ctx, store.CreateAppParams{ProjectID: p.ID, Name: a.app, BuildStrategy: "dockerfile"}); err != nil {
+		if _, err := s.CreateApp(ctx, store.CreateAppParams{ProjectID: p, Name: a.app, BuildStrategy: "dockerfile"}); err != nil {
 			t.Fatal(err)
 		}
 		if a.db != "" {
-			if err := s.CreateDatabase(ctx, store.CreateDatabaseParams{ProjectID: p.ID, Name: a.db, User: a.db + "_user", Password: "x"}); err != nil {
+			if _, err := s.CreateDatabase(ctx, store.CreateDatabaseParams{ProjectID: p, Name: a.db, Password: "x"}); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -96,22 +96,22 @@ func TestMCPSetup(t *testing.T) {
 		{"create_project", `{"name":"new","cloudflare_account":"theiracct"}`, `no Cloudflare account named \"theiracct\"`},
 		{"create_app", `{"project":"other","name":"x","repo":"o/r"}`, `no project named \"other\"`},
 		{"create_database", `{"project":"other","name":"d"}`, `no project named \"other\"`},
-		{"link_database", `{"app":"web","database":"theirdb"}`, `no database named \"theirdb\"`},
-		{"set_env", `{"app":"theirs","set":{"A":"1"}}`, `no app named \"theirs\"`},
-		{"add_volume", `{"app":"theirs","name":"data","mount_path":"/data"}`, `no app named \"theirs\"`},
-		{"set_route", `{"app":"theirs","path":"/api","target":"web"}`, `no app named \"theirs\"`},
-		{"set_route", `{"app":"web","path":"/api","target":"theirs"}`, `theirs isn't an app of project mine`},
+		{"link_database", `{"app":"mine/web","database":"theirdb"}`, `database \"theirdb\" not found in project mine`},
+		{"set_env", `{"app":"other/theirs","set":{"A":"1"}}`, `no app \"other/theirs\"`},
+		{"add_volume", `{"app":"other/theirs","name":"data","mount_path":"/data"}`, `no app \"other/theirs\"`},
+		{"set_route", `{"app":"other/theirs","path":"/api","target":"web"}`, `no app \"other/theirs\"`},
+		{"set_route", `{"app":"mine/web","path":"/api","target":"theirs"}`, `theirs isn't an app of project mine`},
 	} {
 		if out := call(deploy, c.tool, c.args); !strings.Contains(out, c.want) {
 			t.Errorf("%s %s: %s, want %s", c.tool, c.args, out, c.want)
 		}
 	}
-	if _, err := s.GetProject(ctx, "new"); err == nil {
+	if _, err := s.GetProject(ctx, store.GetProjectParams{UserID: me, Name: "new"}); err == nil {
 		t.Error("a project was made on someone else's server or account")
 	}
 
 	// A read-only connection changes nothing.
-	if out := call(read, "set_env", `{"app":"web","set":{"A":"1"}}`); !strings.Contains(out, "may only read") {
+	if out := call(read, "set_env", `{"app":"mine/web","set":{"A":"1"}}`); !strings.Contains(out, "may only read") {
 		t.Errorf("set_env with a read-only token: %s", out)
 	}
 
@@ -119,25 +119,27 @@ func TestMCPSetup(t *testing.T) {
 	if out := call(deploy, "list_projects", `{}`); !strings.Contains(out, `\"name\":\"mine\"`) || strings.Contains(out, "other") || strings.Contains(out, "theirsrv") {
 		t.Errorf("list_projects: %s", out)
 	}
-	if out := call(deploy, "set_env", `{"app":"web","set":{"DATABASE_PATH":"/data/app.db"}}`); !strings.Contains(out, "set 1") {
+	if out := call(deploy, "set_env", `{"app":"mine/web","set":{"DATABASE_PATH":"/data/app.db"}}`); !strings.Contains(out, "set 1") {
 		t.Errorf("set_env: %s", out)
 	}
-	if out := call(deploy, "add_volume", `{"app":"web","name":"data","mount_path":"/data"}`); !strings.Contains(out, "added volume data") {
+	if out := call(deploy, "add_volume", `{"app":"mine/web","name":"data","mount_path":"/data"}`); !strings.Contains(out, "added volume data") {
 		t.Errorf("add_volume: %s", out)
 	}
-	if app, _ := s.GetApp(ctx, "web"); string(app.Env) != "DATABASE_PATH=/data/app.db" {
-		t.Errorf("web's variables: %q", app.Env)
+	mine, _ := s.GetProject(ctx, store.GetProjectParams{UserID: me, Name: "mine"})
+	web, _ := s.GetApp(ctx, store.GetAppParams{ProjectID: mine.ID, Name: "web"})
+	if string(web.Env) != "DATABASE_PATH=/data/app.db" {
+		t.Errorf("web's variables: %q", web.Env)
 	}
-	if vols, _ := s.ListVolumes(ctx, "web"); len(vols) != 1 || vols[0].MountPath != "/data" {
+	if vols, _ := s.ListVolumes(ctx, web.ID); len(vols) != 1 || vols[0].MountPath != "/data" {
 		t.Errorf("web's volumes: %v", vols)
 	}
 	if out := call(deploy, "create_project", `{"name":"shop"}`); !strings.Contains(out, "created project shop") {
 		t.Errorf("create_project: %s", out)
 	}
-	if p, err := s.GetProject(ctx, "shop"); err != nil || p.UserID != me {
+	if p, err := s.GetProject(ctx, store.GetProjectParams{UserID: me, Name: "shop"}); err != nil || p.UserID != me {
 		t.Errorf("shop isn't the caller's: %+v %v", p, err)
 	}
-	if out := call(deploy, "get_app", `{"app":"web"}`); !strings.Contains(out, "https://hakobu.example.com/apps/web/variables") {
+	if out := call(deploy, "get_app", `{"app":"mine/web"}`); !strings.Contains(out, "https://hakobu.example.com/projects/mine/apps/web/variables") {
 		t.Errorf("get_app has no panel_url: %s", out)
 	}
 }

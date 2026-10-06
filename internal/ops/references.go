@@ -14,7 +14,7 @@ import (
 //
 //	${{api.URL}}          https://api.example.com, its public address
 //	${{api.HOST}}         api.example.com
-//	${{api.PRIVATE_URL}}  http://api.hakobu:8080, inside the project, past
+//	${{api.PRIVATE_URL}}  http://app-17.hakobu:8080, inside the project, past
 //	                      Cloudflare: for a server, not a browser
 var refPattern = regexp.MustCompile(`\$\{\{\s*([a-z][a-z0-9-]*)\.(URL|HOST|PRIVATE_URL)\s*\}\}`)
 
@@ -42,8 +42,8 @@ func expandRefs(s *store.Store, app store.App, env []string) ([]string, error) {
 }
 
 func refValue(s *store.Store, app store.App, name, field string) (string, error) {
-	target, err := s.GetApp(ctx(), name)
-	if err != nil || target.ProjectID != app.ProjectID {
+	target, err := s.GetApp(ctx(), store.GetAppParams{ProjectID: app.ProjectID, Name: name})
+	if err != nil {
 		return "", fmt.Errorf("names no app of project %s", app.ProjectName)
 	}
 	switch field {
@@ -63,7 +63,7 @@ func refValue(s *store.Store, app store.App, name, field string) (string, error)
 	if port == 0 {
 		return "", fmt.Errorf("has no port yet: deploy %s first, or set its port", name)
 	}
-	return fmt.Sprintf("http://%s:%d", EdgeAlias(name), port), nil
+	return fmt.Sprintf("http://%s:%d", EdgeAlias(target.Key()), port), nil
 }
 
 // RefersTo reports whether the variables in text refer to app.

@@ -81,8 +81,6 @@ func rotateSecrets(s *store.Store, out io.Writer) (manual []string, failures int
 		}
 		fmt.Fprintf(out, "done    %s\n", what)
 	}
-	restart := map[string]bool{} // apps to restart with new values
-
 	// GitHub: the webhook secret can be replaced through the API, the
 	// private key and client secret only on github.com.
 	if app, err := s.GetGitHubApp(ctx()); err == nil {
@@ -112,11 +110,6 @@ func rotateSecrets(s *store.Store, out io.Writer) (manual []string, failures int
 	if dbs, err := s.ListDatabases(ctx()); err == nil {
 		for _, d := range dbs {
 			step("password of database "+d.Name, rotateDatabasePassword(s, d))
-			if apps, err := s.AppsUsingDatabase(ctx(), d.Name); err == nil {
-				for _, a := range apps {
-					restart[a] = true
-				}
-			}
 		}
 	}
 
@@ -134,18 +127,14 @@ func rotateSecrets(s *store.Store, out io.Writer) (manual []string, failures int
 		for _, a := range apps {
 			key, err := RandomHex(16)
 			if err == nil {
-				err = s.SetAppSentryKey(ctx(), store.SetAppSentryKeyParams{Name: a.Name, SentryKey: secret.String(key)})
+				err = s.SetAppSentryKey(ctx(), store.SetAppSentryKeyParams{ID: a.ID, SentryKey: secret.String(key)})
 			}
 			step("Sentry DSN key of "+a.Name, err)
-			restart[a.Name] = true
 		}
-		names := make([]string, 0, len(restart))
-		for name := range restart {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-		for _, name := range names {
-			step("restart "+name+" with the new values", restartApp(s, name))
+		// Every app restarts, getting its new key and its database's new
+		// password.
+		for _, a := range apps {
+			step("restart "+a.Name+" with the new values", restartApp(s, a.ID))
 		}
 		manual = append(manual, userVariables(s, apps)...)
 	}
@@ -191,7 +180,7 @@ func rotateDatabasePassword(s *store.Store, d store.Database) error {
 	if err != nil {
 		return err
 	}
-	if err := s.SetDatabasePassword(ctx(), store.SetDatabasePasswordParams{Name: d.Name, Password: secret.String(password)}); err != nil {
+	if err := s.SetDatabasePassword(ctx(), store.SetDatabasePasswordParams{ID: d.ID, Password: secret.String(password)}); err != nil {
 		return err
 	}
 	n, err := databaseNode(s, d)
@@ -200,7 +189,7 @@ func rotateDatabasePassword(s *store.Store, d store.Database) error {
 		err = n.SetPassword(ctx(), dbSpec(d))
 	}
 	if err != nil {
-		if rerr := s.SetDatabasePassword(ctx(), store.SetDatabasePasswordParams{Name: d.Name, Password: old}); rerr != nil {
+		if rerr := s.SetDatabasePassword(ctx(), store.SetDatabasePasswordParams{ID: d.ID, Password: old}); rerr != nil {
 			return errors.Join(err, rerr)
 		}
 		return err
@@ -229,30 +218,30 @@ func SyncDatabasePasswords(s *store.Store) {
 			continue
 		}
 		if err := n.SetPassword(ctx(), dbSpec(d)); err != nil {
-			panellog.Error("failed to set the password of", d.User+":", err)
+			panellog.Error("failed to set the password of database", d.Name+":", err)
 		}
 	}
 }
 
 // restartApp redeploys the app's current image (and its worker) so they
 // get the current variables, without a build.
-func restartApp(s *store.Store, name string) error {
-	if _, err := reserve(name, false); err != nil {
+func restartApp(s *store.Store, id int64) error {
+	if _, err := reserve(id, false); err != nil {
 		return err
 	}
-	defer release(name)
-	app, err := s.GetApp(ctx(), name)
+	defer release(id)
+	app, err := s.GetAppByID(ctx(), id)
 	if err != nil {
 		return err
 	}
-	if ok, _ := AppNode(s, app).HasImage(ctx(), app.Name, node.Latest); !ok {
+	if ok, _ := AppNode(s, app).HasImage(ctx(), app.Key(), node.Latest); !ok {
 		return nil // never deployed: the first deploy gets the new values
 	}
 	var out strings.Builder
 	if err := rollOut(s, app, node.Latest, &out); err != nil {
 		return fmt.Errorf("%w\n%s", err, out.String())
 	}
-	if w, err := s.GetWorker(ctx(), name); err == nil {
+	if w, err := s.GetWorker(ctx(), id); err == nil {
 		return runWorker(s, app, w, &out)
 	}
 	return nil
@@ -262,27 +251,27 @@ func restartApp(s *store.Store, name string) error {
 // replace at wherever those keys come from.
 func userVariables(s *store.Store, apps []store.App) []string {
 	var manual []string
-	projects := map[string]bool{}
+	projects := map[int64]bool{}
 	for _, a := range apps {
 		keys := sortedKeys(envKeys(string(a.Env)))
-		keys = append(keys, SealedKeys(s, "app", a.Name)...)
-		if w, err := s.GetWorker(ctx(), a.Name); err == nil {
+		keys = append(keys, SealedKeys(s, "app", a.ID)...)
+		if w, err := s.GetWorker(ctx(), a.ID); err == nil {
 			keys = append(keys, sortedKeys(envKeys(string(w.Env)))...)
-			keys = append(keys, SealedKeys(s, "worker", a.Name)...)
+			keys = append(keys, SealedKeys(s, "worker", a.ID)...)
 		}
 		if len(keys) > 0 {
-			manual = append(manual, fmt.Sprintf("app %s: replace at their source any secrets among %s, then update them here", a.Name, strings.Join(keys, ", ")))
+			manual = append(manual, fmt.Sprintf("app %s of project %s: replace at their source any secrets among %s, then update them here", a.Name, a.ProjectName, strings.Join(keys, ", ")))
 		}
-		projects[a.ProjectName] = true
+		projects[a.ProjectID] = true
 	}
-	for p := range projects {
-		pr, err := s.GetProject(ctx(), p)
+	for id := range projects {
+		pr, err := s.GetProjectByID(ctx(), id)
 		if err != nil {
 			continue
 		}
-		keys := append(sortedKeys(envKeys(string(pr.SharedEnv))), SealedKeys(s, "project", p)...)
+		keys := append(sortedKeys(envKeys(string(pr.SharedEnv))), SealedKeys(s, "project", id)...)
 		if len(keys) > 0 {
-			manual = append(manual, fmt.Sprintf("project %s shared variables: likewise for %s", p, strings.Join(keys, ", ")))
+			manual = append(manual, fmt.Sprintf("project %s shared variables: likewise for %s", pr.Name, strings.Join(keys, ", ")))
 		}
 	}
 	sort.Strings(manual)

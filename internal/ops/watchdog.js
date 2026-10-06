@@ -61,7 +61,7 @@ export async function check(env, now, sleep = (ms) => new Promise((r) => setTime
 }
 
 function label(t) {
-	return t.name === "panel" ? "The panel" : t.name.replace(/^app:/, "");
+	return t.label || (t.name === "panel" ? "The panel" : t.name.replace(/^app:/, ""));
 }
 
 // probeTries asks a target up to TRIES times while it fails.

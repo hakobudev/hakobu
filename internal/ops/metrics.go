@@ -43,8 +43,8 @@ type reading struct {
 
 // metricState is what the next minute's usage is worked out from.
 type metricState struct {
-	servers map[string]*serverUsage // by server name, "" for the panel's
-	rolled  int64                   // the last five minutes summarized
+	servers map[int64]*serverUsage // by server ID, 0 for the panel's
+	rolled  int64                  // the last five minutes summarized
 }
 
 // serverUsage is a server's last readings.
@@ -53,32 +53,38 @@ type serverUsage struct {
 	host       node.HostCounters
 }
 
-func (st *metricState) server(name string) *serverUsage {
+func (st *metricState) server(id int64) *serverUsage {
 	if st.servers == nil {
-		st.servers = map[string]*serverUsage{}
+		st.servers = map[int64]*serverUsage{}
 	}
-	if st.servers[name] == nil {
-		st.servers[name] = &serverUsage{containers: map[string]reading{}}
+	if st.servers[id] == nil {
+		st.servers[id] = &serverUsage{containers: map[string]reading{}}
 	}
-	return st.servers[name]
+	return st.servers[id]
 }
 
-// hostTarget is what a server's own usage is recorded as.
-func hostTarget(serverName string) string {
-	if serverName == "" {
+// hostTarget is what a server's own usage is recorded as: by its ID, as
+// names are only unique among a user's servers.
+func hostTarget(serverID int64) string {
+	if serverID == 0 {
 		return HostTarget
 	}
-	return HostTarget + ":" + serverName
+	return fmt.Sprintf("%s:%d", HostTarget, serverID)
 }
 
 // ServiceTarget is what hakobu's service name (postgres, cloudflared,
-// buildkit) on a server is recorded as.
-func ServiceTarget(name, serverName string) string {
-	if serverName == "" {
+// buildkit) on a server (0: the panel's) is recorded as.
+func ServiceTarget(name string, serverID int64) string {
+	if serverID == 0 {
 		return "service:" + name
 	}
-	return "service:" + name + ":" + serverName
+	return fmt.Sprintf("service:%s:%d", name, serverID)
 }
+
+// AppTarget is what an app's usage is recorded as, WorkerTarget its
+// worker's.
+func AppTarget(id int64) string    { return fmt.Sprintf("app:%d", id) }
+func WorkerTarget(id int64) string { return fmt.Sprintf("worker:%d", id) }
 
 // WatchMetrics records usage every minute, on the minute.
 func WatchMetrics(s *store.Store) {
@@ -153,13 +159,13 @@ type containerTarget struct {
 // they are taken from its answer: it could belong to someone else.
 func containerTargets(s *store.Store, sv server) map[string]containerTarget {
 	targets := map[string]containerTarget{
-		node.PostgresContainer: {name: ServiceTarget("postgres", sv.Name)},
-		node.TunnelContainer:   {name: ServiceTarget("cloudflared", sv.Name)},
-		"buildkit":             {name: ServiceTarget("buildkit", sv.Name)},
+		node.PostgresContainer: {name: ServiceTarget("postgres", sv.ID)},
+		node.TunnelContainer:   {name: ServiceTarget("cloudflared", sv.ID)},
+		"buildkit":             {name: ServiceTarget("buildkit", sv.ID)},
 	}
 	for _, t := range tunnelsOn(s, sv) {
 		if !t.acct.isPanel() {
-			targets[t.acct.container()] = containerTarget{name: ServiceTarget("cloudflared-"+t.acct.Name, sv.Name)}
+			targets[t.acct.container()] = containerTarget{name: ServiceTarget("cloudflared-"+t.acct.Name, sv.ID)}
 		}
 	}
 	apps, err := s.ListApps(ctx())
@@ -175,10 +181,10 @@ func containerTargets(s *store.Store, sv server) map[string]containerTarget {
 			continue
 		}
 		limit := containerTarget{cpuLimit: a.Cpus, memLimit: a.MemoryMB << 20}
-		limit.name = "app:" + a.Name
+		limit.name = AppTarget(a.ID)
 		targets[a.ContainerName()] = limit
-		limit.name = "worker:" + a.Name
-		targets[a.Name+"-worker"] = limit
+		limit.name = WorkerTarget(a.ID)
+		targets[node.WorkerContainer(a.Key())] = limit
 	}
 	return targets
 }
@@ -194,10 +200,10 @@ func collectUsage(s *store.Store, st *metricState, now time.Time) []teldb.Sample
 		for name := range targets {
 			names[name] = true
 		}
-		su := st.server(pn.Name)
+		su := st.server(pn.ID)
 		r, err := pn.n.Readings(ctx(), names)
 		if r.HostErr == "" && r.Host.CPUTotal > 0 {
-			if u, ok := hostUsage(su, r.Host, hostTarget(pn.Name)); ok {
+			if u, ok := hostUsage(su, r.Host, hostTarget(pn.ID)); ok {
 				out = append(out, u)
 			}
 		}
@@ -289,7 +295,7 @@ func checkUsage(s *store.Store, ts int64) {
 			if a.MemoryMB == 0 {
 				continue
 			}
-			for _, target := range []string{"app:" + a.Name, "worker:" + a.Name} {
+			for _, target := range []string{AppTarget(a.ID), WorkerTarget(a.ID)} {
 				what := a.Name
 				if strings.HasPrefix(target, "worker:") {
 					what += "'s worker"
@@ -297,7 +303,7 @@ func checkUsage(s *store.Store, ts int64) {
 				alertOn(s, target, ts, memoryMinutes, memHigh, "memory:"+target,
 					what+": close to its memory limit",
 					fmt.Sprintf("%s has used over %d%% of its %d MB memory limit for %d minutes; at the limit it's killed. Raise the limit or find what grows: %s",
-						what, int(usageThreshold*100), a.MemoryMB, memoryMinutes, panelURL("/apps/"+a.Name)),
+						what, int(usageThreshold*100), a.MemoryMB, memoryMinutes, panelURL(AppPath(a))),
 					what+": memory back under its limit", what+" uses less than "+strconv.Itoa(int(usageThreshold*100))+"% of its memory limit again.")
 			}
 		}
@@ -366,9 +372,9 @@ func CurrentUsage(s *store.Store, user int64) ([]teldb.Sample, error) {
 	for _, p := range projects {
 		byProject[p.ID] = where{local: !p.NodeID.Valid, mine: p.UserID == user}
 	}
-	appOf := map[string]where{}
+	appOf := map[string]where{} // by ID
 	for _, a := range apps {
-		appOf[a.Name] = byProject[a.ProjectID]
+		appOf[strconv.FormatInt(a.ID, 10)] = byProject[a.ProjectID]
 	}
 	latest := map[string]teldb.Sample{}
 	for _, r := range rows { // oldest first

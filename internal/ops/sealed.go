@@ -17,33 +17,34 @@ import (
 
 var validEnvKey = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-// sealedOwner checks the scope and that its owner (project or app) exists.
-func sealedOwner(s *store.Store, scope, owner string) error {
+// sealedOwner checks the scope and that its owner exists: the project, or
+// the app whose variables or worker's they are, by ID.
+func sealedOwner(s *store.Store, scope string, owner int64) error {
 	var err error
 	switch scope {
 	case "project":
-		_, err = s.GetProject(ctx(), owner)
+		_, err = s.GetProjectByID(ctx(), owner)
 	case "app":
-		_, err = s.GetApp(ctx(), owner)
+		_, err = s.GetAppByID(ctx(), owner)
 	case "worker":
 		_, err = s.GetWorker(ctx(), owner)
 	default:
 		return fmt.Errorf("unknown scope %q", scope)
 	}
 	if err != nil {
-		return fmt.Errorf("%s %s not found", scope, owner)
+		return fmt.Errorf("no such %s", scope)
 	}
 	return nil
 }
 
 // visibleEnv is the scope's visible "KEY=value" text.
-func visibleEnv(s *store.Store, scope, owner string) (string, error) {
+func visibleEnv(s *store.Store, scope string, owner int64) (string, error) {
 	switch scope {
 	case "project":
-		p, err := s.GetProject(ctx(), owner)
+		p, err := s.GetProjectByID(ctx(), owner)
 		return string(p.SharedEnv), err
 	case "app":
-		a, err := s.GetApp(ctx(), owner)
+		a, err := s.GetAppByID(ctx(), owner)
 		return string(a.Env), err
 	default:
 		w, err := s.GetWorker(ctx(), owner)
@@ -61,7 +62,7 @@ func envKeys(text string) map[string]bool {
 }
 
 // SealVar sets a sealed variable; the value can be replaced but never read.
-func SealVar(s *store.Store, scope, owner, key, value string) error {
+func SealVar(s *store.Store, scope string, owner int64, key, value string) error {
 	if err := sealedOwner(s, scope, owner); err != nil {
 		return err
 	}
@@ -78,16 +79,16 @@ func SealVar(s *store.Store, scope, owner, key, value string) error {
 	if envKeys(visible)[key] {
 		return fmt.Errorf("%s is already a visible variable here: remove it there first", key)
 	}
-	return s.SetSealedVar(ctx(), store.SetSealedVarParams{Scope: scope, Owner: owner, Key: key, Value: secret.String(value)})
+	return s.SetSealedVar(ctx(), store.SetSealedVarParams{Scope: scope, OwnerID: owner, Key: key, Value: secret.String(value)})
 }
 
-func RemoveSealedVar(s *store.Store, scope, owner, key string) error {
-	return s.DeleteSealedVar(ctx(), store.DeleteSealedVarParams{Scope: scope, Owner: owner, Key: key})
+func RemoveSealedVar(s *store.Store, scope string, owner int64, key string) error {
+	return s.DeleteSealedVar(ctx(), store.DeleteSealedVarParams{Scope: scope, OwnerID: owner, Key: key})
 }
 
 // SealedKeys lists a scope's sealed variables, without their values.
-func SealedKeys(s *store.Store, scope, owner string) []string {
-	vars, _ := s.ListSealedVars(ctx(), store.ListSealedVarsParams{Scope: scope, Owner: owner})
+func SealedKeys(s *store.Store, scope string, owner int64) []string {
+	vars, _ := s.ListSealedVars(ctx(), store.ListSealedVarsParams{Scope: scope, OwnerID: owner})
 	keys := make([]string, len(vars))
 	for i, v := range vars {
 		keys[i] = v.Key
@@ -95,8 +96,8 @@ func SealedKeys(s *store.Store, scope, owner string) []string {
 	return keys
 }
 
-func sealedEnv(s *store.Store, scope, owner string) ([]string, error) {
-	vars, err := s.ListSealedVars(ctx(), store.ListSealedVarsParams{Scope: scope, Owner: owner})
+func sealedEnv(s *store.Store, scope string, owner int64) ([]string, error) {
+	vars, err := s.ListSealedVars(ctx(), store.ListSealedVarsParams{Scope: scope, OwnerID: owner})
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +110,7 @@ func sealedEnv(s *store.Store, scope, owner string) ([]string, error) {
 
 // checkNotSealed refuses visible variables that are sealed in the same
 // scope: which one would win would be anyone's guess.
-func checkNotSealed(s *store.Store, scope, owner, text string) error {
+func checkNotSealed(s *store.Store, scope string, owner int64, text string) error {
 	sealed := SealedKeys(s, scope, owner)
 	keys := envKeys(text)
 	for _, k := range sealed {
@@ -121,19 +122,19 @@ func checkNotSealed(s *store.Store, scope, owner, text string) error {
 }
 
 // SetSharedEnv saves the project's visible shared variables.
-func SetSharedEnv(s *store.Store, project, text string) error {
-	if err := checkNotSealed(s, "project", project, text); err != nil {
+func SetSharedEnv(s *store.Store, projectID int64, text string) error {
+	if err := checkNotSealed(s, "project", projectID, text); err != nil {
 		return err
 	}
-	return s.SetProjectSharedEnv(ctx(), store.SetProjectSharedEnvParams{Name: project, SharedEnv: secret.String(text)})
+	return s.SetProjectSharedEnv(ctx(), store.SetProjectSharedEnvParams{ID: projectID, SharedEnv: secret.String(text)})
 }
 
 // SetAppEnv saves the app's visible variables.
-func SetAppEnv(s *store.Store, app, text string) error {
-	if err := checkNotSealed(s, "app", app, text); err != nil {
+func SetAppEnv(s *store.Store, appID int64, text string) error {
+	if err := checkNotSealed(s, "app", appID, text); err != nil {
 		return err
 	}
-	return s.SetAppEnv(ctx(), store.SetAppEnvParams{Name: app, Env: secret.String(text)})
+	return s.SetAppEnv(ctx(), store.SetAppEnvParams{ID: appID, Env: secret.String(text)})
 }
 
 // EnvVar is one variable of the effective environment as the panel shows
@@ -152,10 +153,10 @@ func EffectiveEnv(s *store.Store, app store.App) ([]EnvVar, error) {
 	}
 	appVisible := envKeys(string(app.Env))
 	sealed := map[string]bool{}
-	for _, k := range SealedKeys(s, "project", app.ProjectName) {
+	for _, k := range SealedKeys(s, "project", app.ProjectID) {
 		sealed[k] = !appVisible[k] // a visible app variable overrides it
 	}
-	for _, k := range SealedKeys(s, "app", app.Name) {
+	for _, k := range SealedKeys(s, "app", app.ID) {
 		sealed[k] = true
 	}
 	var out []EnvVar
@@ -179,10 +180,10 @@ func EffectiveEnv(s *store.Store, app store.App) ([]EnvVar, error) {
 // ChangeAppVars sets and removes some of the app's visible variables,
 // keeping the rest of its text as it is: an AI app adding DATABASE_PATH
 // doesn't rewrite what the user typed.
-func ChangeAppVars(s *store.Store, app string, set map[string]string, unset []string) error {
-	text, err := visibleEnv(s, "app", app)
+func ChangeAppVars(s *store.Store, appID int64, set map[string]string, unset []string) error {
+	text, err := visibleEnv(s, "app", appID)
 	if err != nil {
-		return fmt.Errorf("app %s not found", app)
+		return fmt.Errorf("app not found")
 	}
 	for k, v := range set {
 		if !validEnvKey.MatchString(k) {
@@ -227,5 +228,5 @@ func ChangeAppVars(s *store.Store, app string, set map[string]string, unset []st
 		}
 		text += strings.Join(added, "\n")
 	}
-	return SetAppEnv(s, app, text)
+	return SetAppEnv(s, appID, text)
 }

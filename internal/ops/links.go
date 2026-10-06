@@ -78,38 +78,45 @@ func AddServer(s *store.Store, userID int64, name string) (string, error) {
 		return "", err
 	}
 	expires := time.Now().Add(joinValid).UTC().Format(time.RFC3339)
-	n, err := s.GetNodeByName(ctx(), name)
+	n, err := s.GetNodeByName(ctx(), store.GetNodeByNameParams{UserID: userID, Name: name})
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		err = s.CreateNode(ctx(), store.CreateNodeParams{Name: name, JoinSecretHash: secretHash(tok.Secret), JoinExpires: expires, UserID: userID})
 	case err != nil:
-	case n.UserID != userID:
-		return "", fmt.Errorf("a server named %s already exists", name)
 	case n.PublicKey != "":
 		return "", fmt.Errorf("server %s has joined already", name)
 	default:
-		err = s.SetNodeJoin(ctx(), store.SetNodeJoinParams{JoinSecretHash: secretHash(tok.Secret), JoinExpires: expires, Name: name})
+		err = s.SetNodeJoin(ctx(), store.SetNodeJoinParams{JoinSecretHash: secretHash(tok.Secret), JoinExpires: expires, ID: n.ID})
 	}
 	return tok.String(), err
 }
 
+// UserServer is the user's server by its name.
+func UserServer(s *store.Store, userID int64, name string) (store.Node, error) {
+	n, err := s.GetNodeByName(ctx(), store.GetNodeByNameParams{UserID: userID, Name: name})
+	if err != nil {
+		return n, fmt.Errorf("server %q not found", name)
+	}
+	return n, nil
+}
+
 // RemoveServer forgets a server that runs no project, deleting its
 // tunnels, and drops its link; its key no longer admits it.
-func RemoveServer(s *store.Store, name string) error {
-	n, err := s.GetNodeByName(ctx(), name)
+func RemoveServer(s *store.Store, id int64) error {
+	n, err := s.GetNode(ctx(), id)
 	if err != nil {
-		return fmt.Errorf("server %q not found", name)
+		return fmt.Errorf("server not found")
 	}
 	if projects, _ := s.ProjectsOnNode(ctx(), sql.NullInt64{Int64: n.ID, Valid: true}); len(projects) > 0 {
-		return fmt.Errorf("server %s still runs %s: delete them first", name, strings.Join(projects, ", "))
+		return fmt.Errorf("server %s still runs %s: delete them first", n.Name, strings.Join(projects, ", "))
 	}
 	for _, t := range tunnelsOn(s, server{ID: n.ID, Name: n.Name}) {
 		dropServerTunnel(s, t)
 	}
-	if err := s.DeleteNode(ctx(), name); err != nil {
+	if err := s.DeleteNode(ctx(), n.ID); err != nil {
 		return err
 	}
-	links.drop(name)
+	links.drop(n.ID)
 	return nil
 }
 
@@ -132,7 +139,7 @@ func dropServerTunnel(s *store.Store, t tunnel) {
 func admit(s *store.Store, key ed25519.PublicKey, joinSecret, version string) (string, error) {
 	n, err := s.GetNodeByKey(ctx(), hex.EncodeToString(key))
 	if err == nil {
-		return n.Name, s.SeeNode(ctx(), store.SeeNodeParams{Version: version, LastSeen: now(), ID: n.ID})
+		return linkName(n.ID), s.SeeNode(ctx(), store.SeeNodeParams{Version: version, LastSeen: now(), ID: n.ID})
 	}
 	if joinSecret == "" {
 		return "", errors.New("this server hasn't joined the panel")
@@ -147,17 +154,21 @@ func admit(s *store.Store, key ed25519.PublicKey, joinSecret, version string) (s
 	if err := s.JoinNode(ctx(), store.JoinNodeParams{PublicKey: hex.EncodeToString(key), ID: n.ID}); err != nil {
 		return "", err
 	}
-	return n.Name, s.SeeNode(ctx(), store.SeeNodeParams{Version: version, LastSeen: now(), ID: n.ID})
+	return linkName(n.ID), s.SeeNode(ctx(), store.SeeNodeParams{Version: version, LastSeen: now(), ID: n.ID})
 }
+
+// linkName is what the link calls a server: its ID, as names are only
+// unique among a user's servers.
+func linkName(id int64) string { return strconv.FormatInt(id, 10) }
 
 func now() string { return time.Now().UTC().Format(time.RFC3339) }
 
-// links are the nodes connected now, by name.
-var links = &linkSet{m: map[string]*linked{}}
+// links are the nodes connected now, by ID.
+var links = &linkSet{m: map[int64]*linked{}}
 
 type linkSet struct {
 	mu sync.Mutex
-	m  map[string]*linked
+	m  map[int64]*linked
 }
 
 type linked struct {
@@ -167,17 +178,17 @@ type linked struct {
 	since   time.Time
 }
 
-func (l *linkSet) get(name string) (*linked, bool) {
+func (l *linkSet) get(id int64) (*linked, bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	c, ok := l.m[name]
+	c, ok := l.m[id]
 	return c, ok
 }
 
-func (l *linkSet) drop(name string) {
+func (l *linkSet) drop(id int64) {
 	l.mu.Lock()
-	c := l.m[name]
-	delete(l.m, name)
+	c := l.m[id]
+	delete(l.m, id)
 	l.mu.Unlock()
 	if c != nil && c.session != nil {
 		c.session.Close()
@@ -200,37 +211,42 @@ func LinkServer(s *store.Store, version string) (http.Handler, error) {
 	return &link.Server{
 		Key: key, Version: version, URL: panelAddress,
 		Admit: func(k ed25519.PublicKey, joinSecret, v string) (string, error) { return admit(s, k, joinSecret, v) },
-		Serve: func(name, v string, sess *yamux.Session) {
+		Serve: func(ln, v string, sess *yamux.Session) {
+			id, _ := strconv.ParseInt(ln, 10, 64)
+			n, err := s.GetNode(ctx(), id)
+			if err != nil {
+				sess.Close()
+				return
+			}
 			linkWork.Add(1)
 			defer linkWork.Done()
+			sv := server{ID: n.ID, Name: n.Name}
 			r := node.NewRemote(sess.Open)
 			c := &linked{remote: r, session: sess, version: v, since: time.Now()}
 			links.mu.Lock()
-			old := links.m[name]
-			links.m[name] = c
+			old := links.m[id]
+			links.m[id] = c
 			links.mu.Unlock()
 			if old != nil {
 				old.session.Close() // the node came back on a new connection
 			}
-			panellog.Info("server", name, "connected, hakobu", v)
-			go func() { _ = http.Serve(sess, fromServer(s, name, r)) }()
+			panellog.Info(sv.label(), "connected, hakobu", v)
+			go func() { _ = http.Serve(sess, fromServer(s, id, r)) }()
 			watching, stopWatching := context.WithCancel(context.Background())
 			linkWork.Add(1)
 			go func() {
 				defer linkWork.Done()
-				serverConnected(s, name, r, watching)
+				serverConnected(s, sv, r, watching)
 			}()
 			<-sess.CloseChan()
 			stopWatching()
 			links.mu.Lock()
-			if links.m[name] == c {
-				delete(links.m, name)
+			if links.m[id] == c {
+				delete(links.m, id)
 			}
 			links.mu.Unlock()
-			if n, err := s.GetNodeByName(ctx(), name); err == nil {
-				_ = s.SeeNode(ctx(), store.SeeNodeParams{Version: v, LastSeen: now(), ID: n.ID})
-			}
-			panellog.Info("server", name, "disconnected")
+			_ = s.SeeNode(ctx(), store.SeeNodeParams{Version: v, LastSeen: now(), ID: id})
+			panellog.Info(sv.label(), "disconnected")
 		},
 	}, nil
 }
@@ -270,7 +286,7 @@ func restartForPanel(s *store.Store) {
 		return
 	}
 	for _, app := range apps {
-		if err := restartApp(s, app.Name); err != nil {
+		if err := restartApp(s, app.ID); err != nil {
 			panellog.Warnf("%s not restarted for the panel's new address (deploy it again): %v", app.Name, err)
 			continue
 		}
@@ -282,17 +298,18 @@ func tellServersPanelURL(url string) {
 	links.mu.Lock()
 	connected := maps.Clone(links.m)
 	links.mu.Unlock()
-	for name, c := range connected {
+	for id, c := range connected {
 		if err := c.remote.TellPanelURL(ctx(), url); err != nil {
-			panellog.Warn("server", name, "wasn't told the panel's new address:", err)
+			panellog.Warn("server", id, "wasn't told the panel's new address:", err)
 			continue
 		}
-		panellog.Info("told server", name, "the panel is at", url)
+		panellog.Info("told server", id, "the panel is at", url)
 	}
 }
 
 // Server is a server as the panel shows it.
 type Server struct {
+	ID        int64
 	UserID    int64 // who added it
 	Name      string
 	Joined    bool
@@ -312,35 +329,30 @@ func Servers(s *store.Store) ([]Server, error) {
 	}
 	out := make([]Server, len(rows))
 	for i, n := range rows {
-		out[i] = Server{UserID: n.UserID, Name: n.Name, Joined: n.PublicKey != "", Version: n.Version, LastSeen: n.LastSeen}
-		if c, ok := links.get(n.Name); ok {
+		out[i] = Server{ID: n.ID, UserID: n.UserID, Name: n.Name, Joined: n.PublicKey != "", Version: n.Version, LastSeen: n.LastSeen}
+		if c, ok := links.get(n.ID); ok {
 			out[i].Connected, out[i].Version = true, c.version
 		}
-		out[i].Key, out[i].KeyKnown = knownServerKeys(n.Name)
+		out[i].Key, out[i].KeyKnown = knownServerKeys(n.ID)
 	}
 	return out, nil
 }
 
 // serverNode is the connected server's node, ErrUnreachable while it
 // isn't connected.
-func serverNode(name string) (node.Node, error) {
-	if c, ok := links.get(name); ok {
+func serverNode(sv server) (node.Node, error) {
+	if c, ok := links.get(sv.ID); ok {
 		return c.remote, nil
 	}
-	return nil, fmt.Errorf("%w: server %s isn't connected", node.ErrUnreachable, name)
+	return nil, fmt.Errorf("%w: %s isn't connected", node.ErrUnreachable, sv.label())
 }
 
 // serverConnected brings a server that just connected up to date (it may
 // have restarted, or missed changes while away) and watches it while it
 // stays: its tunnels and networks, slots and proxies left by unfinished
 // jobs, the routes to its apps, and its dying containers.
-func serverConnected(s *store.Store, name string, n node.Node, watching context.Context) {
-	row, err := s.GetNodeByName(ctx(), name)
-	if err != nil {
-		return
-	}
-	sv := server{ID: row.ID, Name: name}
-	noteServerKeys(name, n)
+func serverConnected(s *store.Store, sv server, n node.Node, watching context.Context) {
+	noteServerKeys(sv.ID, n)
 	for _, t := range tunnelsOn(s, sv) {
 		if err := startTunnel(s, t); err != nil {
 			panellog.Errorf("%s: %v", t.label(), err)
@@ -358,7 +370,7 @@ func serverConnected(s *store.Store, name string, n node.Node, watching context.
 	apps, _ := s.ListApps(ctx())
 	places, _ := projectPlaces(s)
 	for _, app := range apps {
-		if places[app.ProjectID].server == sv.ID && !IsDeploying(app.Name) {
+		if places[app.ProjectID].server == sv.ID && !IsDeploying(app.ID) {
 			specs = append(specs, liveSpec(app))
 		}
 	}
@@ -381,40 +393,40 @@ func serverConnected(s *store.Store, name string, n node.Node, watching context.
 
 // IngestApp is what a server learns of an app of its own to take its
 // envelopes: its name and the key of its DSN.
-type IngestApp struct{ Name, Key string }
+type IngestApp struct {
+	ID  int64
+	Key string
+}
 
 // fromServer answers what a server asks of the panel over its link: the
 // URLs of its backups' parts, and the DSN keys of its apps, told only for
 // apps that run on it: a server can't take another's apps' envelopes.
-func fromServer(s *store.Store, name string, r *node.Remote) http.Handler {
+func fromServer(s *store.Store, nodeID int64, r *node.Remote) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("POST /callback/{id}", r.Handler())
 	mux.HandleFunc("GET /ingest/apps/{app_id}", func(w http.ResponseWriter, req *http.Request) {
 		id, _ := strconv.ParseInt(req.PathValue("app_id"), 10, 64)
 		app, err := s.GetAppByID(ctx(), id)
-		if err != nil || !appOnServer(s, id, name) {
+		if err != nil || !appOnServer(s, app, nodeID) {
 			http.Error(w, "not an app of this server", http.StatusNotFound)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(IngestApp{app.Name, string(app.SentryKey)})
+		_ = json.NewEncoder(w).Encode(IngestApp{app.ID, string(app.SentryKey)})
 	})
 	return mux
 }
 
-// appOnServer reports whether the app with ID id runs on server name.
-func appOnServer(s *store.Store, id int64, name string) bool {
-	app, err := s.GetAppByID(ctx(), id)
-	if err != nil {
-		return false
-	}
+// appOnServer reports whether app runs on the server (not the panel's)
+// with ID nodeID.
+func appOnServer(s *store.Store, app store.App, nodeID int64) bool {
 	sv, ok := appServer(s, app)
-	return ok && sv.Name == name && name != ""
+	return ok && sv.ID == nodeID && nodeID != 0
 }
 
 // appServer is the server app runs on.
 func appServer(s *store.Store, app store.App) (server, bool) {
-	p, err := s.GetProject(ctx(), app.ProjectName)
+	p, err := s.GetProjectByID(ctx(), app.ProjectID)
 	if err != nil {
 		return server{}, false
 	}

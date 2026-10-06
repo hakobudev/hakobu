@@ -39,30 +39,30 @@ func renders(t *testing.T, name string, c templ.Component) string {
 
 func TestPagesRender(t *testing.T) {
 	project := store.Project{ID: 1, Name: "demo", SharedEnv: "A=1"}
-	app := appView{App: store.App{Name: "web", ProjectName: "demo", Repo: "o/r", Stack: "Python · FastAPI", Domain: "web.example.com", Port: 8081, ContainerPort: 8080, Env: "B=2", LinkedDB: "main", LinkedStorage: "files", MemoryMB: 512, Cpus: 0.5, SnapshotAt: "t"}, State: deploy.State{Status: "running", Restarts: 2, OOMKilled: true}}
-	worker := &store.Worker{AppName: "web", Name: "worker", Command: "run", Env: "C=3"}
-	db := store.Database{Name: "main", User: "main_user"}
+	app := appView{App: store.App{ID: 1, Name: "web", ProjectName: "demo", Repo: "o/r", Stack: "Python · FastAPI", Domain: "web.example.com", Port: 8081, ContainerPort: 8080, Env: "B=2", MemoryMB: 512, Cpus: 0.5, SnapshotAt: "t"}, State: deploy.State{Status: "running", Restarts: 2, OOMKilled: true}, LinkedDB: "main", LinkedStorage: "files"}
+	worker := &store.Worker{AppID: 1, Name: "worker", Command: "run", Env: "C=3"}
+	db := store.Database{ID: 1, Name: "main"}
 	storages := []store.Storage{{Name: "files", Provider: "r2", Bucket: "hakobu-files-1", AccountID: "acc"}, {Name: "media", Provider: "s3", Bucket: "m", AccessKeyID: "k"}}
 	deploys := []store.DeployLog{{ID: 2, Status: "running", Trigger: "push", Output: "x", CreatedAt: "2026-10-02T12:00:00Z"}, {ID: 1, Status: "failed", Trigger: "manual"}}
-	events := []teldb.TelemetryEvent{{Kind: "error", Message: "boom", AppName: "web", TraceID: "abc"}, {Kind: "oom"}, {Kind: "health", Level: "error"}, {Kind: "log"}}
+	events := []teldb.TelemetryEvent{{Kind: "error", Message: "boom", AppID: 1, TraceID: "abc"}, {Kind: "oom"}, {Kind: "health", Level: "error"}, {Kind: "log"}}
 
 	pv := projectView{Project: project, Apps: []appView{app, {App: store.App{Name: "api", ProjectName: "demo"}, Deploying: true}}, Workers: map[string]workerCard{"web": {Name: "worker", Command: "taskiq worker app.tasks:broker", Status: "running"}},
 		LastDeploy: map[string]store.DeployLog{"web": deploys[0]}, Databases: []store.Database{db, {Name: "other"}}, LastBackup: map[string]store.Backup{"main": {VerifiedAt: "t"}},
 		Storages: storages, Sealed: []string{"P"}, SuggestedDB: "demo", BackupBucket: "hakobu-backups-1", Watchdog: true,
 		Volumes: map[string][]volumeCard{"web": {{Volume: store.Volume{Name: "data", MountPath: "/data"}}, {Volume: store.Volume{Name: "up"}, HasLast: true, Last: store.VolumeBackup{VerifiedAt: "t"}}}},
 		Calls:   map[string][]string{"api": {"web"}}}
-	ap := appPage{App: app, Project: project, PathRoutes: []store.AppRoute{{AppName: "web", Path: "/api", Target: "api"}}, Siblings: []string{"api", "admin"}, Worker: worker, WorkerStatus: "running", DataRollbackBlocker: "", LastOOM: "2026-09-29T10:00:00Z",
+	ap := appPage{App: app, Project: project, PathRoutes: []pathRoute{{Path: "/api", Target: "api"}}, Siblings: []string{"api", "admin"}, Worker: worker, WorkerStatus: "running", DataRollbackBlocker: "", LastOOM: "2026-09-29T10:00:00Z",
 		Deploys: deploys, Events: events, Output: "line", Range: "24h",
 		Routes:    []ops.RouteStats{{Name: "/orders/{id}", Count: 20, Errors: 1, AvgMs: 40, P50Ms: 20, P95Ms: 10000, P95Over: true}},
-		Traces:    []teldb.ListTracesRow{{ID: 1, AppName: "web", Name: "/orders/{id}", Status: "internal_error", HttpStatus: 500, DurationMs: 30}},
+		Traces:    []teldb.ListTracesRow{{ID: 1, AppID: 1, Name: "/orders/{id}", Status: "internal_error", HttpStatus: 500, DurationMs: 30}},
 		Effective: []ops.EnvVar{{Key: "A", Value: "1"}, {Key: "S", Sealed: true}}, SealedApp: []string{"S"}, SealedProject: []string{"P"},
 		Zones: []string{"example.com"}, Sub: "web", Zone: "example.com", Databases: []store.Database{db}, Storages: storages,
-		Volumes: []store.Volume{{AppName: "web", Name: "data", MountPath: "/app/data"}}, BackupBucket: "hakobu-backups-1", VolumeJobRunning: true, SealedWorker: []string{"W"},
+		Volumes: []store.Volume{{AppID: 1, Name: "data", MountPath: "/app/data"}}, BackupBucket: "hakobu-backups-1", VolumeJobRunning: true, SealedWorker: []string{"W"},
 		VolumeBackups: []volumeBackups{
 			{Volume: "data", Job: ops.DBJob{Running: "backing up"}, Backups: []store.VolumeBackup{{ID: 1, ObjectKey: "k", SizeBytes: 10}, {ID: 2, VerifiedAt: "t", Files: 3}, {ID: 3, VerifiedAt: "t", VerifyError: "boom"}}},
 			{Volume: "cache", Job: ops.DBJob{Last: "x", Failed: true}},
 		}}
-	bare := appPage{App: appView{App: store.App{Name: "web", ProjectName: "demo", LinkedDB: "main"}, State: deploy.State{Status: "exited"}}, DataRollbackBlocker: "no snapshot"}
+	bare := appPage{App: appView{App: store.App{Name: "web", ProjectName: "demo"}, State: deploy.State{Status: "exited"}, LinkedDB: "main"}, DataRollbackBlocker: "no snapshot"}
 	settings := settingsPage{PublicHost: "p", User: "me", Admin: true, LogLevel: "info", PanelLogErrors: 2, PanelLog: []ops.PanelLogLine{
 		{At: "2026-10-05T19:00:00Z", Level: "error", Message: "backup failed for main: R2 is off in the panel's Cloudflare account"},
 		{At: "2026-10-05T18:59:00Z", Level: "warn", Message: "tunnel routes not updated (retrying in 5s): context deadline exceeded"},
@@ -114,8 +114,8 @@ func TestPagesRender(t *testing.T) {
 		"oauth-error": oauthErrorPage("boom"),
 		"uptime": uptimeFragment(uptimeView{Uptime: ops.Uptime{AvgMs: 120, Windows: []ops.UptimeWindow{{Label: "24 hours", Pct: 99.5, Checks: 1440}, {Label: "7 days", Pct: 100, Checks: 10}, {Label: "30 days", Pct: 100, Checks: 10}},
 			Outages: []ops.Outage{{Start: time.Unix(1000, 0), End: time.Unix(1120, 0), Status: 530, Ongoing: true}, {Start: time.Unix(0, 0), End: time.Unix(0, 0)}}}}),
-		"trace": tracePage(traceView{ops.Waterfall{Trace: teldb.Trace{ID: 1, AppName: "web", Name: "/orders/{id}", DurationMs: 1500, HttpStatus: 200, Status: "ok", TraceID: "abc"},
-			Rows: []ops.WaterfallRow{{Op: "http.server", Description: "/orders/{id}", WidthPct: 100, Ms: 1500}, {Op: "db", Description: "SELECT 1", Depth: 1, LeftPct: 10, WidthPct: 50, Ms: 750, Status: "internal_error"}}}, "2026-10-02 12:00:00 UTC"}),
+		"trace": tracePage(traceView{ops.Waterfall{Trace: teldb.Trace{ID: 1, AppID: 1, Name: "/orders/{id}", DurationMs: 1500, HttpStatus: 200, Status: "ok", TraceID: "abc"},
+			Rows: []ops.WaterfallRow{{Op: "http.server", Description: "/orders/{id}", WidthPct: 100, Ms: 1500}, {Op: "db", Description: "SELECT 1", Depth: 1, LeftPct: 10, WidthPct: 50, Ms: 750, Status: "internal_error"}}}, app.App, "2026-10-02 12:00:00 UTC"}),
 	}
 	for _, tab := range []string{"", "variables", "settings"} {
 		v := pv
@@ -300,14 +300,14 @@ func TestMasterKeyNeedsFreshSignIn(t *testing.T) {
 
 func TestAppCalls(t *testing.T) {
 	apps := []store.App{
-		{Name: "web", Domain: "acme.example.com", Env: "VITE_API_URL=https://api.acme.example.com\nSITE=acme.example.com"},
-		{Name: "api", Domain: "api.acme.example.com", Env: "CORS_ORIGIN=https://acme.example.com/\nSEARCH=http://search.hakobu:8080"},
-		{Name: "search", Env: "X=searchable.hakobu.io"},
-		{Name: "admin", Env: "API=https://API.ACME.example.com"},
-		{Name: "worker", Env: "SEARCH=${{search.PRIVATE_URL}}"},
-		{Name: "site"},
+		{ID: 1, Name: "web", Domain: "acme.example.com", Env: "VITE_API_URL=https://api.acme.example.com\nSITE=acme.example.com"},
+		{ID: 2, Name: "api", Domain: "api.acme.example.com", Env: "CORS_ORIGIN=https://acme.example.com/\nSEARCH=http://app-3.hakobu:8080"},
+		{ID: 3, Name: "search", Env: "X=searchable.hakobu.io app-30.hakobu"},
+		{ID: 4, Name: "admin", Env: "API=https://API.ACME.example.com"},
+		{ID: 5, Name: "worker", Env: "SEARCH=${{search.PRIVATE_URL}}"},
+		{ID: 6, Name: "site"},
 	}
-	got := appCalls(apps, []store.AppRoute{{AppName: "site", Path: "/api", Target: "api"}})
+	got := appCalls(apps, []store.AppRoute{{AppID: 6, Path: "/api", TargetID: 2}})
 	want := map[string][]string{"web": {"api"}, "api": {"web", "search"}, "admin": {"api"}, "worker": {"search"}, "site": {"api"}}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("appCalls = %v, want %v", got, want)

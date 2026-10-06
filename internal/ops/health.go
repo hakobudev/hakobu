@@ -20,7 +20,7 @@ const healthFailures = 3
 // down from healthFailures on.
 var failedChecks struct {
 	sync.Mutex
-	n map[string]int
+	n map[int64]int // by app ID
 }
 
 // WatchHealth checks every live app the way its deploy did, on the docker
@@ -36,14 +36,14 @@ func WatchHealth(s *store.Store) {
 		}
 		var wg sync.WaitGroup
 		for _, app := range apps {
-			if app.LivePort == 0 || IsDeploying(app.Name) {
+			if app.LivePort == 0 || IsDeploying(app.ID) {
 				continue
 			}
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
 				if ok, why, checked := checkHealth(s, app); checked {
-					noteHealth(s, app.Name, ok, why)
+					noteHealth(s, app, ok, why)
 				}
 			}()
 		}
@@ -60,51 +60,52 @@ func checkHealth(s *store.Store, app store.App) (ok bool, why string, checked bo
 
 // noteHealth counts a check of app and records the change when the app
 // goes down or comes back.
-func noteHealth(s *store.Store, app string, ok bool, why string) {
+func noteHealth(s *store.Store, app store.App, ok bool, why string) {
 	failedChecks.Lock()
 	if failedChecks.n == nil {
-		failedChecks.n = map[string]int{}
+		failedChecks.n = map[int64]int{}
 	}
-	before := failedChecks.n[app]
+	before := failedChecks.n[app.ID]
 	if ok {
-		delete(failedChecks.n, app)
+		delete(failedChecks.n, app.ID)
 	} else {
-		failedChecks.n[app]++
+		failedChecks.n[app.ID]++
 	}
-	wasDown, isDown := before >= healthFailures, failedChecks.n[app] >= healthFailures
+	wasDown, isDown := before >= healthFailures, failedChecks.n[app.ID] >= healthFailures
 	failedChecks.Unlock()
 
+	key := fmt.Sprintf("health:%d", app.ID)
 	switch {
 	case isDown && !wasDown:
-		message := fmt.Sprintf("%s %s %d times in a row: it's running but not serving.", app, why, healthFailures)
+		message := fmt.Sprintf("%s %s %d times in a row: it's running but not serving.", app.Name, why, healthFailures)
 		recordHealth(s, app, "error", message)
-		problem(s, "health:"+app, notifyAgain, app+": not responding",
-			message+"\n\nIts output: "+panelURL("/apps/"+app+"/logs"))
+		problem(s, key, notifyAgain, app.Name+": not responding",
+			message+"\n\nIts output: "+panelURL(AppPath(app)+"/logs"))
 	case wasDown && !isDown:
-		recordHealth(s, app, "info", app+" answers its health check again.")
-		solved(s, "health:"+app, app+": responding again", app+" answers its health check again.\n\n"+panelURL("/apps/"+app))
+		recordHealth(s, app, "info", app.Name+" answers its health check again.")
+		solved(s, key, app.Name+": responding again", app.Name+" answers its health check again.\n\n"+panelURL(AppPath(app)))
 	}
 }
 
-func recordHealth(s *store.Store, app, level, message string) {
+func recordHealth(s *store.Store, app store.App, level, message string) {
 	if err := addAppEvent(s, teldb.CreateTelemetryEventParams{
-		AppName: app, Kind: "health", Level: level, Message: secret.String(message),
+		AppID: app.ID, Kind: "health", Level: level, Message: secret.String(message),
 	}); err != nil {
-		panellog.Error("failed to record the health of", app+":", err)
+		panellog.Error("failed to record the health of", app.Name+":", err)
 	}
 }
 
 // forgetHealth drops the counts of deleted apps.
 func forgetHealth(apps []store.App) {
-	live := map[string]bool{}
+	live := map[int64]bool{}
 	for _, a := range apps {
-		live[a.Name] = true
+		live[a.ID] = true
 	}
 	failedChecks.Lock()
 	defer failedChecks.Unlock()
-	for name := range failedChecks.n {
-		if !live[name] {
-			delete(failedChecks.n, name)
+	for id := range failedChecks.n {
+		if !live[id] {
+			delete(failedChecks.n, id)
 		}
 	}
 }

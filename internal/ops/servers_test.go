@@ -20,7 +20,7 @@ func joinServer(t *testing.T, s *store.Store, name string, f *nodetest.Fake) {
 	if err := s.CreateNode(ctx(), store.CreateNodeParams{Name: name}); err != nil {
 		t.Fatal(err)
 	}
-	n, _ := s.GetNodeByName(ctx(), name)
+	n, _ := s.GetNodeByName(ctx(), store.GetNodeByNameParams{Name: name})
 	key, _ := link.NewKey()
 	if err := s.JoinNode(ctx(), store.JoinNodeParams{PublicKey: fmt.Sprintf("%x", link.Public(key)), ID: n.ID}); err != nil {
 		t.Fatal(err)
@@ -33,11 +33,11 @@ func joinServer(t *testing.T, s *store.Store, name string, f *nodetest.Fake) {
 		t.Fatal(err)
 	}
 	links.mu.Lock()
-	links.m[name] = &linked{remote: r.(*node.Remote), session: nil}
+	links.m[n.ID] = &linked{remote: r.(*node.Remote), session: nil}
 	links.mu.Unlock()
 	t.Cleanup(func() {
 		links.mu.Lock()
-		delete(links.m, name)
+		delete(links.m, n.ID)
 		links.mu.Unlock()
 		closeLink()
 	})
@@ -58,16 +58,17 @@ func TestProjectOnAnotherServer(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	must(SetProjectServer(s, "own", "far"))
-	must(s.CreateApp(ctx(), store.CreateAppParams{ProjectID: own.ID, Name: "web", BuildStrategy: "dockerfile"}))
-	far.Images["web"] = map[node.Image]string{node.Next: "build-1"}
-	if err := SetProjectServer(s, "own", ""); err == nil {
+	must(SetProjectServer(s, own.ID, "far"))
+	must(createApp(s, store.CreateAppParams{ProjectID: own.ID, Name: "web", BuildStrategy: "dockerfile"}))
+	web := webApp(t, s).Key()
+	far.Images[web] = map[node.Image]string{node.Next: "build-1"}
+	if err := SetProjectServer(s, own.ID, ""); err == nil {
 		t.Error("a project with an app moved to another server")
 	}
 
 	// It deploys on its server, not the panel's.
 	must(rollOut(s, webApp(t, s), node.Next, &strings.Builder{}))
-	if far.Containers["web-green"] != "running" || here.Called("StartCandidate") {
+	if far.Containers[web+"-green"] != "running" || here.Called("StartCandidate") {
 		t.Errorf("far %v, here called StartCandidate: %v", far.Containers, here.Called("StartCandidate"))
 	}
 
@@ -78,11 +79,11 @@ func TestProjectOnAnotherServer(t *testing.T) {
 		t.Errorf("records %v", cf.records)
 	}
 	tun := far.Tunnels[node.TunnelName("")]
-	if tun.Token != "token-of-t-new-1" || tun.PanelSocket != "" || fmt.Sprint(tun.Projects) != "[own]" {
+	if tun.Token != "token-of-t-new-1" || tun.PanelSocket != "" || fmt.Sprint(tun.Projects) != "["+own.Key()+"]" {
 		t.Errorf("tunnel on far: %+v", tun)
 	}
 	must(SyncTunnel(s))
-	if got := fmt.Sprint(cf.ingress["t-new-1"]); got != "[{web.panel.com  http://web.hakobu:8080} {  http_status:404}]" {
+	if got := fmt.Sprint(cf.ingress["t-new-1"]); got != "[{web.panel.com  http://"+web+".hakobu:8080} {  http_status:404}]" {
 		t.Errorf("far's tunnel routes %s", got)
 	}
 	if got := fmt.Sprint(cf.ingress["t-panel"]); strings.Contains(got, "web.panel.com") {
@@ -92,11 +93,12 @@ func TestProjectOnAnotherServer(t *testing.T) {
 	// When it connects again, it's brought up to date: its tunnels, its
 	// projects' networks, slots and proxies.
 	far.Fail("RunTunnel", nil)
-	c, _ := links.get("far")
+	farServer := serverNamed(s, "far")
+	c, _ := links.get(farServer.ID)
 	gone, cancel := context.WithCancel(context.Background())
 	cancel() // stop watching at once
 	before := len(far.Calls())
-	serverConnected(s, "far", c.remote, gone)
+	serverConnected(s, farServer, c.remote, gone)
 	calls := strings.Join(far.Calls()[before:], " ")
 	for _, want := range []string{"RunTunnel", "EnsureProjectNetworks", "Reconcile", "EnsureProxy"} {
 		if !strings.Contains(calls, want) {
@@ -106,11 +108,11 @@ func TestProjectOnAnotherServer(t *testing.T) {
 
 	// A server running a project can't be removed; once it's gone, its
 	// tunnels go too.
-	if err := RemoveServer(s, "far"); err == nil || !strings.Contains(err.Error(), "own") {
+	if err := RemoveServer(s, farServer.ID); err == nil || !strings.Contains(err.Error(), "own") {
 		t.Errorf("removed a server running a project: %v", err)
 	}
-	must(DeleteProject(s, "own"))
-	must(RemoveServer(s, "far"))
+	must(DeleteProject(s, own.ID))
+	must(RemoveServer(s, farServer.ID))
 	if fmt.Sprint(cf.deleted) != "[t-new-1]" {
 		t.Errorf("tunnels deleted in Cloudflare: %v", cf.deleted)
 	}
@@ -125,10 +127,10 @@ func TestServerAway(t *testing.T) {
 	newFakeAccounts(t)
 	s, own, _ := accountsStore(t)
 	joinServer(t, s, "away", nil)
-	if err := SetProjectServer(s, "own", "away"); err != nil {
+	if err := SetProjectServer(s, own.ID, "away"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.CreateApp(ctx(), store.CreateAppParams{ProjectID: own.ID, Name: "web", BuildStrategy: "dockerfile"}); err != nil {
+	if err := createApp(s, store.CreateAppParams{ProjectID: own.ID, Name: "web", BuildStrategy: "dockerfile"}); err != nil {
 		t.Fatal(err)
 	}
 	before := webApp(t, s)
@@ -139,7 +141,7 @@ func TestServerAway(t *testing.T) {
 	if after := webApp(t, s); after.ActiveSlot != before.ActiveSlot || after.LivePort != before.LivePort {
 		t.Errorf("record changed: %s:%d, was %s:%d", after.ActiveSlot, after.LivePort, before.ActiveSlot, before.LivePort)
 	}
-	if err := SetProjectServer(s, "own", "nowhere"); err == nil {
+	if err := SetProjectServer(s, own.ID, "nowhere"); err == nil {
 		t.Error("moved to an unknown server")
 	}
 }
@@ -161,7 +163,7 @@ func TestServerKeyNotSaved(t *testing.T) {
 	mailed := func() bool {
 		problems.Lock()
 		defer problems.Unlock()
-		_, ok := problems.mailed["serverkey:box"]
+		_, ok := problems.mailed[fmt.Sprintf("serverkey:%d", serverNamed(s, "box").ID)]
 		return ok
 	}
 

@@ -10,6 +10,11 @@ import (
 )
 
 func TestSealedVars(t *testing.T) {
+	// DeleteApp below updates the watchdog after it returns: done before
+	// the test ends, its writes don't race the cleanup of its directory.
+	old := async
+	async = func(f func()) { f() }
+	t.Cleanup(func() { async = old })
 	s, err := store.Open(filepath.Join(t.TempDir(), "hakobu.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -20,32 +25,32 @@ func TestSealedVars(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	must(CreateProject(s, 0, "p"))
-	p, _ := s.GetProject(ctx(), "p")
-	must(s.CreateApp(ctx(), store.CreateAppParams{ProjectID: p.ID, Name: "web", BuildStrategy: "dockerfile"}))
+	must(must2(CreateProject(s, 0, "p")))
+	p, _ := getProject(s, "p")
+	must(createApp(s, store.CreateAppParams{ProjectID: p.ID, Name: "web", BuildStrategy: "dockerfile"}))
 
-	must(SetSharedEnv(s, "p", "SHARED=1\nOVERRIDDEN=project"))
-	must(SealVar(s, "project", "p", "PROJECT_SECRET", "ps"))
-	must(SealVar(s, "project", "p", "SHADOWED", "sealed"))
-	must(SetAppEnv(s, "web", "VISIBLE=v\nSHADOWED=visible-app"))
-	must(SealVar(s, "app", "web", "API_KEY", "sk-live"))
-	must(SealVar(s, "app", "web", "OVERRIDDEN", "app-sealed"))
+	must(SetSharedEnv(s, projectID(t, s, "p"), "SHARED=1\nOVERRIDDEN=project"))
+	must(SealVar(s, "project", projectID(t, s, "p"), "PROJECT_SECRET", "ps"))
+	must(SealVar(s, "project", projectID(t, s, "p"), "SHADOWED", "sealed"))
+	must(SetAppEnv(s, appID(t, s, "web"), "VISIBLE=v\nSHADOWED=visible-app"))
+	must(SealVar(s, "app", appID(t, s, "web"), "API_KEY", "sk-live"))
+	must(SealVar(s, "app", appID(t, s, "web"), "OVERRIDDEN", "app-sealed"))
 
 	// A name can't be visible and sealed in the same scope.
-	if err := SealVar(s, "app", "web", "VISIBLE", "x"); err == nil {
+	if err := SealVar(s, "app", appID(t, s, "web"), "VISIBLE", "x"); err == nil {
 		t.Error("sealed a name that's visible in the same scope")
 	}
-	if err := SetAppEnv(s, "web", "API_KEY=plain"); err == nil {
+	if err := SetAppEnv(s, appID(t, s, "web"), "API_KEY=plain"); err == nil {
 		t.Error("a visible variable took a sealed name")
 	}
-	if err := SealVar(s, "app", "nope", "K", "v"); err == nil {
+	if err := SealVar(s, "app", 999, "K", "v"); err == nil {
 		t.Error("sealed a variable of a missing app")
 	}
-	if err := SealVar(s, "app", "web", "1BAD", "v"); err == nil {
+	if err := SealVar(s, "app", appID(t, s, "web"), "1BAD", "v"); err == nil {
 		t.Error("accepted an invalid name")
 	}
 
-	app, _ := s.GetApp(ctx(), "web")
+	app, _ := getApp(s, "web")
 	env, err := appEnv(s, app, 8080)
 	must(err)
 	last := map[string]string{}
@@ -74,12 +79,12 @@ func TestSealedVars(t *testing.T) {
 			}
 		}
 	}
-	if keys := SealedKeys(s, "app", "web"); !slices.Equal(keys, []string{"API_KEY", "OVERRIDDEN"}) {
+	if keys := SealedKeys(s, "app", appID(t, s, "web")); !slices.Equal(keys, []string{"API_KEY", "OVERRIDDEN"}) {
 		t.Errorf("sealed keys = %v", keys)
 	}
 
 	// Deleting the app takes its sealed variables along.
-	must(DeleteApp(s, "web"))
+	must(DeleteApp(s, appID(t, s, "web")))
 	if vars, _ := s.ListAllSealedVars(ctx()); len(vars) != 2 {
 		t.Errorf("%d sealed vars left, want the project's 2", len(vars))
 	}
@@ -92,28 +97,28 @@ func TestChangeAppVars(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := CreateProject(s, 0, "p"); err != nil {
+	if _, err := CreateProject(s, 0, "p"); err != nil {
 		t.Fatal(err)
 	}
-	p, _ := s.GetProject(ctx(), "p")
-	if err := s.CreateApp(ctx(), store.CreateAppParams{ProjectID: p.ID, Name: "web", BuildStrategy: "dockerfile"}); err != nil {
+	p, _ := getProject(s, "p")
+	if err := createApp(s, store.CreateAppParams{ProjectID: p.ID, Name: "web", BuildStrategy: "dockerfile"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := SetAppEnv(s, "web", "# mine\nA=1\nB=2\nexport C=3"); err != nil {
+	if err := SetAppEnv(s, appID(t, s, "web"), "# mine\nA=1\nB=2\nexport C=3"); err != nil {
 		t.Fatal(err)
 	}
-	if err := SealVar(s, "app", "web", "KEY", "secret"); err != nil {
+	if err := SealVar(s, "app", appID(t, s, "web"), "KEY", "secret"); err != nil {
 		t.Fatal(err)
 	}
-	if err := ChangeAppVars(s, "web", map[string]string{"B": "two", "D": "4", "C": "three"}, []string{"A"}); err != nil {
+	if err := ChangeAppVars(s, appID(t, s, "web"), map[string]string{"B": "two", "D": "4", "C": "three"}, []string{"A"}); err != nil {
 		t.Fatal(err)
 	}
-	app, _ := s.GetApp(ctx(), "web")
+	app, _ := getApp(s, "web")
 	if got, want := string(app.Env), "# mine\nB=two\nC=three\nD=4"; got != want {
 		t.Errorf("env = %q, want %q", got, want)
 	}
 	for _, bad := range []map[string]string{{"KEY": "plain"}, {"1X": "y"}, {"X": "a\nY=b"}} {
-		if err := ChangeAppVars(s, "web", bad, nil); err == nil {
+		if err := ChangeAppVars(s, appID(t, s, "web"), bad, nil); err == nil {
 			t.Errorf("took %v", bad)
 		}
 	}

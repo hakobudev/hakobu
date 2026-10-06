@@ -198,7 +198,8 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 		return func(w http.ResponseWriter, r *http.Request) {
 			if sess, ok := userSession(r, s); ok {
 				r = r.WithContext(context.WithValue(r.Context(), sessionKey{}, sess))
-				if err := checkAccess(r, s); err != nil {
+				var err error
+				if r, err = resolve(r, s); err != nil {
 					http.Error(w, err.Error(), http.StatusNotFound)
 					return
 				}
@@ -302,7 +303,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 		cards := make([]homeProject, 0, len(projects))
 		for _, p := range projects {
 			card := homeProject{Name: p.Name, Server: ops.ProjectServerName(s, p)}
-			n := ops.ProjectNode(s, p.Name)
+			n := ops.ProjectNode(s, p.ID)
 			if _, ok := statuses[n]; !ok {
 				statuses[n], _ = n.Statuses(r.Context()) // nil if it doesn't answer: all down
 			}
@@ -315,7 +316,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			for _, a := range apps {
 				addLogo(appLogo(a))
 				card.Apps++
-				if ops.IsDeploying(a.Name) {
+				if ops.IsDeploying(a.ID) {
 					card.Deploying++
 				} else if statuses[n][a.ContainerName()] != "running" {
 					card.Down++
@@ -334,42 +335,39 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 
 	action("POST /projects", func(r *http.Request) (string, error) {
 		name := strings.TrimSpace(r.FormValue("name"))
-		return "/projects/" + name, ops.CreateProjectOn(s, requestUser(r).ID, name, r.FormValue("server"), r.FormValue("client"))
+		_, err := ops.CreateProjectOn(s, requestUser(r).ID, name, r.FormValue("server"), r.FormValue("client"))
+		return projectPath(name), err
 	})
 
 	action("POST /projects/{p}/server", func(r *http.Request) (string, error) {
-		return "", ops.SetProjectServer(s, r.PathValue("p"), r.FormValue("server"))
+		return "", ops.SetProjectServer(s, reqProject(r).ID, r.FormValue("server"))
 	})
 
 	projectPageHandler := func(tab string) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
-			p, err := s.GetProject(r.Context(), r.PathValue("p"))
-			if err != nil {
-				http.NotFound(w, r)
-				return
-			}
+			p := reqProject(r)
 			v := projectView{Project: p, Tab: tab, Workers: map[string]workerCard{}, LastDeploy: map[string]store.DeployLog{}, LastBackup: map[string]store.Backup{}}
 			apps, _ := s.ListAppsByProject(r.Context(), p.ID)
 			// Every tab's header counts the resources; the canvas also shows
 			// their state: containers, last deploys and backups.
 			canvas := tab == ""
 			for _, a := range apps {
-				av := appView{App: a}
+				av := linkedView(r.Context(), s, a)
 				if canvas {
 					av = newAppView(r.Context(), s, a)
 				}
 				v.Apps = append(v.Apps, av)
-				if wk, err := s.GetWorker(r.Context(), a.Name); err == nil {
+				if wk, err := s.GetWorker(r.Context(), a.ID); err == nil {
 					card := workerCard{Name: wk.Name, Command: string(wk.Command)}
 					if canvas {
-						card.Status = ops.ProjectNode(s, p.Name).State(r.Context(), wk.ContainerName()).Status
+						card.Status = ops.ProjectNode(s, p.ID).State(r.Context(), wk.ContainerName()).Status
 					}
 					v.Workers[a.Name] = card
 				}
 				if !canvas {
 					continue
 				}
-				if logs := deploySummaries(r.Context(), s, a.Name, 1); len(logs) > 0 {
+				if logs := deploySummaries(r.Context(), s, a.ID, 1); len(logs) > 0 {
 					v.LastDeploy[a.Name] = logs[0]
 				}
 			}
@@ -378,18 +376,18 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 				if !canvas {
 					break
 				}
-				if list, _ := s.ListBackups(r.Context(), store.ListBackupsParams{Database: d.Name, Limit: 1}); len(list) > 0 {
+				if list, _ := s.ListBackups(r.Context(), store.ListBackupsParams{DatabaseID: d.ID, Limit: 1}); len(list) > 0 {
 					v.LastBackup[d.Name] = list[0]
 				}
 			}
 			v.Storages, _ = s.ListStoragesByProject(r.Context(), p.ID)
 			v.Volumes = map[string][]volumeCard{}
 			for _, a := range apps {
-				vols, _ := s.ListVolumes(r.Context(), a.Name)
+				vols, _ := s.ListVolumes(r.Context(), a.ID)
 				for _, vol := range vols {
 					card := volumeCard{Volume: vol}
 					if canvas {
-						if list, _ := s.ListVolumeBackups(r.Context(), store.ListVolumeBackupsParams{AppName: a.Name, Volume: vol.Name, Limit: 1}); len(list) > 0 {
+						if list, _ := s.ListVolumeBackups(r.Context(), store.ListVolumeBackupsParams{AppID: a.ID, Volume: vol.Name, Limit: 1}); len(list) > 0 {
 							card.Last, card.HasLast = list[0], true
 						}
 					}
@@ -415,7 +413,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 					}
 				}
 			}
-			v.Sealed = ops.SealedKeys(s, "project", p.Name)
+			v.Sealed = ops.SealedKeys(s, "project", p.ID)
 			v.SuggestedDB = ops.SuggestDatabaseName(s, p)
 			v.SuggestedStorage = ops.SuggestStorageName(s, p)
 			v.R2Off, v.R2URL = ops.ProjectR2Off(s, p)
@@ -434,8 +432,8 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 		renderPage(w, r, switchProjects(projects, r.URL.Query().Get("current")))
 	})
 	handle("GET /switch/resources", func(w http.ResponseWriter, r *http.Request) {
-		p, err := s.GetProject(r.Context(), r.URL.Query().Get("project"))
-		if err != nil || p.UserID != requestUser(r).ID {
+		p, err := s.GetProject(r.Context(), store.GetProjectParams{UserID: requestUser(r).ID, Name: r.URL.Query().Get("project")})
+		if err != nil {
 			http.NotFound(w, r)
 			return
 		}
@@ -451,21 +449,21 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 	}
 
 	action("DELETE /projects/{p}", func(r *http.Request) (string, error) {
-		return "/", ops.DeleteProject(s, r.PathValue("p"))
+		return "/", ops.DeleteProject(s, reqProject(r).ID)
 	})
 
 	action("POST /projects/{p}/account", func(r *http.Request) (string, error) {
-		return "", ops.SetProjectAccount(s, r.PathValue("p"), r.FormValue("client"))
+		return "", ops.SetProjectAccount(s, reqProject(r).ID, r.FormValue("client"))
 	})
 
 	action("POST /projects/{p}/env", func(r *http.Request) (string, error) {
-		return "", ops.SetSharedEnv(s, r.PathValue("p"), r.FormValue("env"))
+		return "", ops.SetSharedEnv(s, reqProject(r).ID, r.FormValue("env"))
 	})
 
 	handle("GET /projects/{p}/new-app", func(w http.ResponseWriter, r *http.Request) {
 		repos, err := ops.ListRepos(s, requestUser(r).GitHubID)
-		v := newAppData{Project: r.PathValue("p"), Repos: repos}
-		v.Zones, v.DefaultZone, _ = ops.ProjectZones(s, v.Project)
+		v := newAppData{Project: reqProject(r).Name, Repos: repos}
+		v.Zones, v.DefaultZone, _ = ops.ProjectZones(s, reqProject(r))
 		if err != nil {
 			v.RepoError = err.Error()
 		}
@@ -491,7 +489,9 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 		if !ok {
 			return "", fmt.Errorf("pick a repository and how to build it")
 		}
+		p := reqProject(r)
 		app := store.CreateAppParams{
+			ProjectID:     p.ID,
 			Name:          strings.TrimSpace(r.FormValue("name")),
 			Repo:          r.FormValue("repo"),
 			BuildPath:     path,
@@ -502,25 +502,25 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 				return "", err
 			}
 		}
-		return "/apps/" + app.Name, ops.CreateApp(s, r.PathValue("p"), app, formDomain(r))
+		_, err := ops.CreateApp(s, app, formDomain(r))
+		return appPath(p.Name, app.Name), err
 	})
 
 	action("POST /projects/{p}/databases", func(r *http.Request) (string, error) {
+		p := reqProject(r)
 		name := strings.TrimSpace(r.FormValue("name"))
 		if name == "" { // the suggested name, shown as the placeholder
-			p, err := s.GetProject(r.Context(), r.PathValue("p"))
-			if err != nil {
-				return "", err
-			}
 			if name = ops.SuggestDatabaseName(s, p); name == "" {
 				return "", fmt.Errorf("type a name for the database")
 			}
 		}
-		return "", ops.CreateDatabase(s, r.PathValue("p"), name)
+		_, err := ops.CreateDatabase(s, p.ID, name)
+		return "", err
 	})
 
 	action("POST /projects/{p}/storages", func(r *http.Request) (string, error) {
-		return "", ops.CreateStorage(s, r.PathValue("p"), store.Storage{
+		_, err := ops.CreateStorage(s, store.Storage{
+			ProjectID:       reqProject(r).ID,
 			Name:            strings.TrimSpace(r.FormValue("name")),
 			Provider:        r.FormValue("provider"),
 			Endpoint:        strings.TrimSpace(r.FormValue("endpoint")),
@@ -529,67 +529,44 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			Bucket:          strings.TrimSpace(r.FormValue("bucket")),
 			Region:          strings.TrimSpace(r.FormValue("region")),
 		})
+		return "", err
 	})
 
-	action("POST /storages/{st}/keys", func(r *http.Request) (string, error) {
-		return "", ops.SetStorageKeys(s, r.PathValue("st"), r.FormValue("access_key_id"), r.FormValue("secret_access_key"))
+	action("POST /projects/{p}/storages/{st}/keys", func(r *http.Request) (string, error) {
+		return "", ops.SetStorageKeys(s, reqStorage(r).ID, r.FormValue("access_key_id"), r.FormValue("secret_access_key"))
 	})
 
-	handle("GET /storages/{st}", func(w http.ResponseWriter, r *http.Request) {
-		st, err := s.GetStorage(r.Context(), r.PathValue("st"))
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
-		v := storagePage{Storage: st}
-		v.Project, _ = s.GetProjectByID(r.Context(), st.ProjectID)
-		v.UsedBy, _ = s.AppsUsingStorage(r.Context(), st.Name)
+	handle("GET /projects/{p}/storages/{st}", func(w http.ResponseWriter, r *http.Request) {
+		st := reqStorage(r)
+		v := storagePage{Storage: st, Project: reqProject(r)}
+		v.UsedBy, _ = s.AppsUsingStorage(r.Context(), sql.NullInt64{Int64: st.ID, Valid: true})
 		renderPage(w, r, storageView(v))
 	})
 
-	action("DELETE /storages/{st}", func(r *http.Request) (string, error) {
-		st, err := s.GetStorage(r.Context(), r.PathValue("st"))
-		if err != nil {
-			return "", err
-		}
-		redirect := "/"
-		if p, err := s.GetProjectByID(r.Context(), st.ProjectID); err == nil {
-			redirect = "/projects/" + p.Name
-		}
-		return redirect, ops.DeleteStorage(s, st.Name)
+	action("DELETE /projects/{p}/storages/{st}", func(r *http.Request) (string, error) {
+		return projectPath(reqProject(r).Name), ops.DeleteStorage(s, reqStorage(r).ID)
 	})
 
 	// Apps.
 
-	getApp := func(w http.ResponseWriter, r *http.Request) (store.App, bool) {
-		app, err := s.GetApp(r.Context(), r.PathValue("a"))
-		if err != nil {
-			http.NotFound(w, r)
-		}
-		return app, err == nil
-	}
-
 	// An app's pages: the header's data, then what the tab shows.
 	appPageHandler := func(tab string) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
-			app, ok := getApp(w, r)
-			if !ok {
-				return
-			}
-			p := appPage{App: newAppView(r.Context(), s, app), Tab: tab, DataRollbackBlocker: ops.DataRollbackBlocker(s, app), LastOOM: ops.LastOOM(s, app.Name)}
-			p.Project, _ = s.GetProject(r.Context(), app.ProjectName)
-			if wk, err := s.GetWorker(r.Context(), app.Name); err == nil {
+			app := reqApp(r)
+			p := appPage{App: newAppView(r.Context(), s, app), Tab: tab, DataRollbackBlocker: ops.DataRollbackBlocker(s, app), LastOOM: ops.LastOOM(s, app)}
+			p.Project = reqProject(r)
+			if wk, err := s.GetWorker(r.Context(), app.ID); err == nil {
 				p.Worker = &wk
 				p.WorkerStatus = ops.AppNode(s, app).State(r.Context(), wk.ContainerName()).Status
 			}
 			switch tab {
 			case "overview":
-				p.Deploys = deploySummaries(r.Context(), s, app.Name, 5)
-				p.Events, _ = ops.AppEvents(s, app.Name, false, 5)
+				p.Deploys = deploySummaries(r.Context(), s, app.ID, 5)
+				p.Events, _ = ops.AppEvents(s, app, false, 5)
 				renderPage(w, r, appOverview(p))
 			case "deployments":
 				var err error
-				if p.Deploys, err = s.ListDeployLogs(r.Context(), store.ListDeployLogsParams{AppName: app.Name, Limit: 20}); err != nil {
+				if p.Deploys, err = s.ListDeployLogs(r.Context(), store.ListDeployLogsParams{AppID: app.ID, Limit: 20}); err != nil {
 					fail(w, err)
 					return
 				}
@@ -597,7 +574,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			case "logs":
 				container := app.ContainerName()
 				if p.OfWorker = r.URL.Query().Get("worker") != "" && p.Worker != nil; p.OfWorker {
-					container = app.Name + "-worker"
+					container = node.WorkerContainer(app.Key())
 				}
 				out, err := ops.AppNode(s, app).Logs(r.Context(), container, 300)
 				if err != nil {
@@ -608,7 +585,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			case "errors":
 				p.Logs = r.URL.Query().Get("logs") != ""
 				var err error
-				if p.Events, err = ops.AppEvents(s, app.Name, p.Logs, 50); errors.Is(err, node.ErrUnreachable) {
+				if p.Events, err = ops.AppEvents(s, app, p.Logs, 50); errors.Is(err, node.ErrUnreachable) {
 					p.Away = err.Error()
 				} else if err != nil {
 					fail(w, err)
@@ -620,8 +597,8 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 					p.Range = "24h"
 				}
 				var err error
-				if p.Routes, err = ops.RoutesOf(s, app.Name, ops.MetricRanges[p.Range]); err == nil {
-					p.Traces, err = ops.AppTraces(s, app.Name, 50)
+				if p.Routes, err = ops.RoutesOf(s, app, ops.MetricRanges[p.Range]); err == nil {
+					p.Traces, err = ops.AppTraces(s, app, 50)
 				}
 				if errors.Is(err, node.ErrUnreachable) {
 					p.Away = err.Error()
@@ -636,74 +613,75 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 					p.EnvError = err.Error()
 				}
 				p.Effective = env
-				p.SealedApp = ops.SealedKeys(s, "app", app.Name)
-				p.SealedProject = ops.SealedKeys(s, "project", app.ProjectName)
+				p.SealedApp = ops.SealedKeys(s, "app", app.ID)
+				p.SealedProject = ops.SealedKeys(s, "project", app.ProjectID)
 				renderPage(w, r, appVariables(p))
 			case "settings":
 				p.Databases, _ = s.ListDatabasesByProject(r.Context(), app.ProjectID)
 				p.Storages, _ = s.ListStoragesByProject(r.Context(), app.ProjectID)
-				p.Zones, _, _ = ops.ProjectZones(s, app.ProjectName)
+				p.Zones, _, _ = ops.ProjectZones(s, p.Project)
 				p.Sub, p.Zone = splitDomain(app.Domain, p.Zones)
-				p.Volumes, _ = s.ListVolumes(r.Context(), app.Name)
+				p.Volumes, _ = s.ListVolumes(r.Context(), app.ID)
 				for _, v := range p.Volumes {
-					list, _ := s.ListVolumeBackups(r.Context(), store.ListVolumeBackupsParams{AppName: app.Name, Volume: v.Name, Limit: 10})
-					job := ops.VolumeJob(app.Name, v.Name)
+					list, _ := s.ListVolumeBackups(r.Context(), store.ListVolumeBackupsParams{AppID: app.ID, Volume: v.Name, Limit: 10})
+					job := ops.VolumeJob(app.ID, v.Name)
 					p.VolumeBackups = append(p.VolumeBackups, volumeBackups{Volume: v.Name, Backups: list, Job: job})
 					p.VolumeJobRunning = p.VolumeJobRunning || job.Running != ""
 				}
-				p.PathRoutes, _ = s.ListAppRoutes(r.Context(), app.Name)
 				if apps, err := s.ListAppsByProject(r.Context(), app.ProjectID); err == nil {
+					names := map[int64]string{}
 					for _, a := range apps {
-						if a.Name != app.Name {
+						names[a.ID] = a.Name
+						if a.ID != app.ID {
 							p.Siblings = append(p.Siblings, a.Name)
 						}
 					}
+					routes, _ := s.ListAppRoutes(r.Context(), app.ID)
+					for _, rt := range routes {
+						p.PathRoutes = append(p.PathRoutes, pathRoute{Path: rt.Path, Target: names[rt.TargetID]})
+					}
 				}
 				p.BackupBucket = ops.BackupBucket(s)
-				p.SealedWorker = ops.SealedKeys(s, "worker", app.Name)
+				p.SealedWorker = ops.SealedKeys(s, "worker", app.ID)
 				renderPage(w, r, appSettings(p))
 			}
 		}
 	}
-	handle("GET /apps/{a}", appPageHandler("overview"))
+	const appRoute = "/projects/{p}/apps/{a}"
+	handle("GET "+appRoute, appPageHandler("overview"))
 	for _, tab := range []string{"deployments", "logs", "errors", "performance", "variables", "settings"} {
-		handle("GET /apps/{a}/"+tab, appPageHandler(tab))
+		handle("GET "+appRoute+"/"+tab, appPageHandler(tab))
 	}
 
-	handle("GET /apps/{a}/deploys/{id}", func(w http.ResponseWriter, r *http.Request) {
+	handle("GET "+appRoute+"/deploys/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
-		d, err := s.GetDeployLog(r.Context(), store.GetDeployLogParams{ID: id, AppName: r.PathValue("a")})
+		app := reqApp(r)
+		d, err := s.GetDeployLog(r.Context(), store.GetDeployLogParams{ID: id, AppID: app.ID})
 		if err != nil {
 			http.NotFound(w, r)
 			return
 		}
-		renderPage(w, r, deployItem(d.AppName, d))
+		renderPage(w, r, deployItem(app, d))
 	})
 
-	handle("GET /apps/{a}/status", func(w http.ResponseWriter, r *http.Request) {
-		if app, ok := getApp(w, r); ok {
-			renderPage(w, r, appStatus(newAppView(r.Context(), s, app)))
-		}
+	handle("GET "+appRoute+"/status", func(w http.ResponseWriter, r *http.Request) {
+		renderPage(w, r, appStatus(newAppView(r.Context(), s, reqApp(r))))
 	})
 
-	action("POST /apps/{a}/deploy", func(r *http.Request) (string, error) {
-		return "", ops.StartDeploy(s, r.PathValue("a"), "manual")
+	action("POST "+appRoute+"/deploy", func(r *http.Request) (string, error) {
+		return "", ops.StartDeploy(s, reqApp(r).ID, "manual")
 	})
 
-	action("POST /apps/{a}/rollback", func(r *http.Request) (string, error) {
-		return "", ops.StartRollback(s, r.PathValue("a"), r.FormValue("data") != "")
+	action("POST "+appRoute+"/rollback", func(r *http.Request) (string, error) {
+		return "", ops.StartRollback(s, reqApp(r).ID, r.FormValue("data") != "")
 	})
 
-	action("DELETE /apps/{a}", func(r *http.Request) (string, error) {
-		app, err := s.GetApp(r.Context(), r.PathValue("a"))
-		if err != nil {
-			return "", err
-		}
-		return "/projects/" + app.ProjectName, ops.DeleteApp(s, app.Name)
+	action("DELETE "+appRoute, func(r *http.Request) (string, error) {
+		return projectPath(reqProject(r).Name), ops.DeleteApp(s, reqApp(r).ID)
 	})
 
-	action("POST /apps/{a}/settings", func(r *http.Request) (string, error) {
-		name := r.PathValue("a")
+	action("POST "+appRoute+"/settings", func(r *http.Request) (string, error) {
+		app := reqApp(r)
 		var port int64
 		if v := strings.TrimSpace(r.FormValue("container_port")); v != "" {
 			var err error
@@ -711,39 +689,35 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 				return "", fmt.Errorf("port must be empty (detect automatically) or between 1 and 65535")
 			}
 		}
-		app, err := s.GetApp(r.Context(), name)
-		if err != nil {
-			return "", err
-		}
 		if err := ops.SetAppDomain(s, app, formDomain(r)); err != nil {
 			return "", err
 		}
 		return "", s.SetAppSettings(r.Context(), store.SetAppSettingsParams{
-			Name:            name,
+			ID:              app.ID,
 			ContainerPort:   port,
 			HealthCheckPath: strings.TrimSpace(r.FormValue("health_check_path")),
 		})
 	})
 
-	action("POST /apps/{a}/build", func(r *http.Request) (string, error) {
-		return "", ops.SetAppBuild(s, r.PathValue("a"), r.FormValue("build_path"), r.FormValue("build_strategy"), r.FormValue("start_command"))
+	action("POST "+appRoute+"/build", func(r *http.Request) (string, error) {
+		return "", ops.SetAppBuild(s, reqApp(r).ID, r.FormValue("build_path"), r.FormValue("build_strategy"), r.FormValue("start_command"))
 	})
 
 	// A route with no target is removed.
-	action("POST /apps/{a}/routes", func(r *http.Request) (string, error) {
-		return "", ops.SetAppRoute(s, r.PathValue("a"), r.FormValue("path"), r.FormValue("target"))
+	action("POST "+appRoute+"/routes", func(r *http.Request) (string, error) {
+		return "", ops.SetAppRoute(s, reqApp(r), r.FormValue("path"), r.FormValue("target"))
 	})
 
-	action("POST /apps/{a}/volumes", func(r *http.Request) (string, error) {
-		return "", ops.AddVolume(s, r.PathValue("a"), strings.TrimSpace(r.FormValue("name")), r.FormValue("mount_path"))
+	action("POST "+appRoute+"/volumes", func(r *http.Request) (string, error) {
+		return "", ops.AddVolume(s, reqApp(r).ID, strings.TrimSpace(r.FormValue("name")), r.FormValue("mount_path"))
 	})
 
 	// A file uploaded into a volume streams to a private file first: up to
 	// what Cloudflare passes in one request, given minutes to arrive.
-	handle("POST /apps/{a}/volumes/{v}/files", func(w http.ResponseWriter, r *http.Request) {
+	handle("POST "+appRoute+"/volumes/{v}/files", func(w http.ResponseWriter, r *http.Request) {
 		src, name, err := receiveUpload(w, r)
 		if err == nil {
-			err = ops.StartVolumeUpload(s, r.PathValue("a"), r.PathValue("v"), name, src)
+			err = ops.StartVolumeUpload(s, reqApp(r).ID, r.PathValue("v"), name, src)
 		}
 		if err != nil {
 			panellog.Warn(r.Method, r.URL.Path, "failed:", err)
@@ -753,27 +727,27 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 		done(w, "")
 	})
 
-	action("DELETE /apps/{a}/volumes/{v}", func(r *http.Request) (string, error) {
-		return "", ops.RemoveVolume(s, r.PathValue("a"), r.PathValue("v"))
+	action("DELETE "+appRoute+"/volumes/{v}", func(r *http.Request) (string, error) {
+		return "", ops.RemoveVolume(s, reqApp(r).ID, r.PathValue("v"))
 	})
 
-	action("POST /apps/{a}/volumes/{v}/backups", func(r *http.Request) (string, error) {
-		return "", ops.StartVolumeBackup(s, r.PathValue("a"), r.PathValue("v"))
+	action("POST "+appRoute+"/volumes/{v}/backups", func(r *http.Request) (string, error) {
+		return "", ops.StartVolumeBackup(s, reqApp(r).ID, r.PathValue("v"))
 	})
 
-	volumeBackupAction := func(pattern string, start func(*store.Store, string, string, int64) error) {
+	volumeBackupAction := func(pattern string, start func(*store.Store, int64, string, int64) error) {
 		action(pattern, func(r *http.Request) (string, error) {
 			id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 			if err != nil {
 				return "", fmt.Errorf("no such backup")
 			}
-			return "", start(s, r.PathValue("a"), r.PathValue("v"), id)
+			return "", start(s, reqApp(r).ID, r.PathValue("v"), id)
 		})
 	}
-	volumeBackupAction("POST /apps/{a}/volumes/{v}/backups/{id}/restore", ops.StartVolumeRestore)
-	volumeBackupAction("POST /apps/{a}/volumes/{v}/backups/{id}/verify", ops.StartVolumeVerify)
+	volumeBackupAction("POST "+appRoute+"/volumes/{v}/backups/{id}/restore", ops.StartVolumeRestore)
+	volumeBackupAction("POST "+appRoute+"/volumes/{v}/backups/{id}/verify", ops.StartVolumeVerify)
 
-	action("POST /apps/{a}/limits", func(r *http.Request) (string, error) {
+	action("POST "+appRoute+"/limits", func(r *http.Request) (string, error) {
 		var memory int64
 		var cpus float64
 		var err error
@@ -787,133 +761,132 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 				return "", fmt.Errorf("CPU limit must be a number, e.g. 0.5")
 			}
 		}
-		return "", ops.SetLimits(s, r.PathValue("a"), memory, cpus)
+		return "", ops.SetLimits(s, reqApp(r).ID, memory, cpus)
 	})
 
-	action("POST /apps/{a}/share-volumes", func(r *http.Request) (string, error) {
-		return "", ops.SetShareVolumes(s, r.PathValue("a"), r.FormValue("share") != "")
+	action("POST "+appRoute+"/share-volumes", func(r *http.Request) (string, error) {
+		return "", ops.SetShareVolumes(s, reqApp(r).ID, r.FormValue("share") != "")
 	})
 
-	action("POST /apps/{a}/links", func(r *http.Request) (string, error) {
-		name := r.PathValue("a")
-		if err := ops.LinkDatabase(s, name, r.FormValue("database")); err != nil {
+	action("POST "+appRoute+"/links", func(r *http.Request) (string, error) {
+		app := reqApp(r)
+		if err := ops.LinkDatabase(s, app, r.FormValue("database")); err != nil {
 			return "", err
 		}
-		return "", ops.LinkStorage(s, name, r.FormValue("storage"))
+		return "", ops.LinkStorage(s, app, r.FormValue("storage"))
 	})
 
-	action("POST /apps/{a}/env", func(r *http.Request) (string, error) {
-		return "", ops.SetAppEnv(s, r.PathValue("a"), r.FormValue("env"))
+	action("POST "+appRoute+"/env", func(r *http.Request) (string, error) {
+		return "", ops.SetAppEnv(s, reqApp(r).ID, r.FormValue("env"))
 	})
 
-	// Sealed variables of a project ("project", its name), app ("app") or
-	// worker ("worker", its app's name).
-	action("POST /sealed/{scope}/{owner}", func(r *http.Request) (string, error) {
-		return "", ops.SealVar(s, r.PathValue("scope"), r.PathValue("owner"), strings.TrimSpace(r.FormValue("key")), r.FormValue("value"))
+	// Sealed variables of a project, of an app ({scope} "app") or of its
+	// worker ("worker").
+	action("POST /projects/{p}/sealed", func(r *http.Request) (string, error) {
+		return "", ops.SealVar(s, "project", reqProject(r).ID, strings.TrimSpace(r.FormValue("key")), r.FormValue("value"))
 	})
-
-	action("DELETE /sealed/{scope}/{owner}/{key}", func(r *http.Request) (string, error) {
-		return "", ops.RemoveSealedVar(s, r.PathValue("scope"), r.PathValue("owner"), r.PathValue("key"))
+	action("DELETE /projects/{p}/sealed/{key}", func(r *http.Request) (string, error) {
+		return "", ops.RemoveSealedVar(s, "project", reqProject(r).ID, r.PathValue("key"))
 	})
-
-	handle("GET /apps/{a}/env/suggest", func(w http.ResponseWriter, r *http.Request) {
-		app, ok := getApp(w, r)
-		if !ok {
-			return
+	appScope := func(r *http.Request) (string, error) {
+		if scope := r.PathValue("scope"); scope == "app" || scope == "worker" {
+			return scope, nil
 		}
-		file, keys := ops.FindEnvExampleKeys(s, app)
+		return "", errNotFound
+	}
+	action("POST "+appRoute+"/sealed/{scope}", func(r *http.Request) (string, error) {
+		scope, err := appScope(r)
+		if err != nil {
+			return "", err
+		}
+		return "", ops.SealVar(s, scope, reqApp(r).ID, strings.TrimSpace(r.FormValue("key")), r.FormValue("value"))
+	})
+	action("DELETE "+appRoute+"/sealed/{scope}/{key}", func(r *http.Request) (string, error) {
+		scope, err := appScope(r)
+		if err != nil {
+			return "", err
+		}
+		return "", ops.RemoveSealedVar(s, scope, reqApp(r).ID, r.PathValue("key"))
+	})
+
+	handle("GET "+appRoute+"/env/suggest", func(w http.ResponseWriter, r *http.Request) {
+		file, keys := ops.FindEnvExampleKeys(s, reqApp(r))
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"file": file, "keys": keys})
 	})
 
-	handle("GET /apps/{a}/traces/{id}", func(w http.ResponseWriter, r *http.Request) {
+	handle("GET "+appRoute+"/traces/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
-		t, err := ops.TraceOf(s, r.PathValue("a"), id)
+		t, err := ops.TraceOf(s, reqApp(r), id)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
-		renderPage(w, r, tracePage(traceView{t, time.Unix(t.CreatedAt, 0).UTC().Format("2006-01-02 15:04:05 UTC")}))
+		renderPage(w, r, tracePage(traceView{t, reqApp(r), time.Unix(t.CreatedAt, 0).UTC().Format("2006-01-02 15:04:05 UTC")}))
 	})
 
 	// From an error to the trace of the request it happened in, if kept.
-	handle("GET /apps/{a}/traces/by-trace/{trace}", func(w http.ResponseWriter, r *http.Request) {
-		app := r.PathValue("a")
+	handle("GET "+appRoute+"/traces/by-trace/{trace}", func(w http.ResponseWriter, r *http.Request) {
+		app := reqApp(r)
 		id, err := ops.TraceByID(s, app, r.PathValue("trace"))
 		if err != nil {
 			http.Error(w, "That request's trace wasn't kept: only slow and failed ones are, for a week, and only when the SDK traces requests (traces_sample_rate).", http.StatusNotFound)
 			return
 		}
-		http.Redirect(w, r, fmt.Sprintf("/apps/%s/traces/%d", url.PathEscape(app), id), http.StatusSeeOther)
+		http.Redirect(w, r, fmt.Sprintf("%s/traces/%d", ops.AppPath(app), id), http.StatusSeeOther)
 	})
 
-	action("POST /apps/{a}/worker", func(r *http.Request) (string, error) {
+	action("POST "+appRoute+"/worker", func(r *http.Request) (string, error) {
 		return "", ops.SaveWorker(s, store.Worker{
-			AppName: r.PathValue("a"),
+			AppID:   reqApp(r).ID,
 			Name:    strings.TrimSpace(r.FormValue("name")),
 			Command: secret.String(strings.TrimSpace(r.FormValue("command"))),
 			Env:     secret.String(r.FormValue("env")),
 		})
 	})
 
-	action("POST /apps/{a}/worker/restart", func(r *http.Request) (string, error) {
-		app, err := s.GetApp(r.Context(), r.PathValue("a"))
-		if err != nil {
-			return "", err
-		}
-		return "", ops.RestartWorker(s, app)
+	action("POST "+appRoute+"/worker/restart", func(r *http.Request) (string, error) {
+		return "", ops.RestartWorker(s, reqApp(r))
 	})
 
-	action("DELETE /apps/{a}/worker", func(r *http.Request) (string, error) {
-		return "", ops.DeleteWorker(s, r.PathValue("a"))
+	action("DELETE "+appRoute+"/worker", func(r *http.Request) (string, error) {
+		return "", ops.DeleteWorker(s, reqApp(r))
 	})
 
 	// Databases.
 
-	handle("GET /databases/{d}", func(w http.ResponseWriter, r *http.Request) {
-		d, err := s.GetDatabase(r.Context(), r.PathValue("d"))
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
-		project, _ := s.GetProjectByID(r.Context(), d.ProjectID)
-		backups, _ := s.ListBackups(r.Context(), store.ListBackupsParams{Database: d.Name, Limit: 30})
-		usedBy, _ := s.AppsUsingDatabase(r.Context(), d.Name)
+	const dbRoute = "/projects/{p}/databases/{d}"
+	handle("GET "+dbRoute, func(w http.ResponseWriter, r *http.Request) {
+		d, project := reqDB(r), reqProject(r)
+		backups, _ := s.ListBackups(r.Context(), store.ListBackupsParams{DatabaseID: d.ID, Limit: 30})
+		usedBy, _ := s.AppsUsingDatabase(r.Context(), sql.NullInt64{Int64: d.ID, Valid: true})
 		renderPage(w, r, databaseView(databasePage{
 			DB: d, Project: project, Ready: ops.DatabaseReady(s, d), Env: splitEnv(ops.DatabaseEnv(d)),
 			Backups: backups, UsedBy: usedBy, BackupBucket: ops.BackupBucket(s),
-			Job: ops.DatabaseJob(d.Name), Keep: config.BackupKeep,
-			UsageTarget: ops.ServiceTarget("postgres", ops.ProjectServerName(s, project)),
+			Job: ops.DatabaseJob(d.ID), Keep: config.BackupKeep,
+			UsageTarget: ops.ServiceTarget("postgres", project.NodeID.Int64),
 		}))
 	})
 
-	action("DELETE /databases/{d}", func(r *http.Request) (string, error) {
-		d, err := s.GetDatabase(r.Context(), r.PathValue("d"))
-		if err != nil {
-			return "", err
-		}
-		redirect := "/"
-		if p, err := s.GetProjectByID(r.Context(), d.ProjectID); err == nil {
-			redirect = "/projects/" + p.Name
-		}
-		return redirect, ops.DeleteDatabase(s, d.Name)
+	action("DELETE "+dbRoute, func(r *http.Request) (string, error) {
+		return projectPath(reqProject(r).Name), ops.DeleteDatabase(s, reqDB(r).ID)
 	})
 
-	action("POST /databases/{d}/backups", func(r *http.Request) (string, error) {
-		return "", ops.StartBackup(s, r.PathValue("d"))
+	action("POST "+dbRoute+"/backups", func(r *http.Request) (string, error) {
+		return "", ops.StartBackup(s, reqDB(r).ID)
 	})
 
-	backupAction := func(pattern string, start func(*store.Store, string, int64) error) {
+	backupAction := func(pattern string, start func(*store.Store, int64, int64) error) {
 		action(pattern, func(r *http.Request) (string, error) {
 			id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 			if err != nil {
 				return "", fmt.Errorf("no such backup")
 			}
-			return "", start(s, r.PathValue("d"), id)
+			return "", start(s, reqDB(r).ID, id)
 		})
 	}
-	backupAction("POST /databases/{d}/backups/{id}/restore", ops.StartRestore)
-	backupAction("POST /databases/{d}/backups/{id}/verify", ops.StartVerify)
+	backupAction("POST "+dbRoute+"/backups/{id}/restore", ops.StartRestore)
+	backupAction("POST "+dbRoute+"/backups/{id}/verify", ops.StartVerify)
 
 	// Settings.
 
@@ -1020,7 +993,11 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 	})
 
 	action("DELETE /settings/servers/{name}", func(r *http.Request) (string, error) {
-		return "", ops.RemoveServer(s, r.PathValue("name"))
+		n, err := ops.UserServer(s, requestUser(r).ID, r.PathValue("name"))
+		if err != nil {
+			return "", err
+		}
+		return "", ops.RemoveServer(s, n.ID)
 	})
 
 	// A user's token connects every account it reaches, and keeps doing so
@@ -1360,6 +1337,8 @@ type appView struct {
 	store.App
 	node.State
 	Deploying bool
+	// The names of its linked database and storage, "" for none.
+	LinkedDB, LinkedStorage string
 }
 
 // volumeBackups is one volume's part of the Backups card on an app's page.
@@ -1370,7 +1349,38 @@ type volumeBackups struct {
 }
 
 func newAppView(ctx context.Context, s *store.Store, a store.App) appView {
-	return appView{App: a, State: ops.AppNode(s, a).State(ctx, a.ContainerName()), Deploying: ops.IsDeploying(a.Name)}
+	v := linkedView(ctx, s, a)
+	v.State, v.Deploying = ops.AppNode(s, a).State(ctx, a.ContainerName()), ops.IsDeploying(a.ID)
+	return v
+}
+
+// linkedView is the app with the names of what it's linked to, without
+// asking its node.
+func linkedView(ctx context.Context, s *store.Store, a store.App) appView {
+	v := appView{App: a}
+	if a.LinkedDbID.Valid {
+		if d, err := s.GetDatabaseByID(ctx, a.LinkedDbID.Int64); err == nil {
+			v.LinkedDB = d.Name
+		}
+	}
+	if a.LinkedStorageID.Valid {
+		if st, err := s.GetStorageByID(ctx, a.LinkedStorageID.Int64); err == nil {
+			v.LinkedStorage = st.Name
+		}
+	}
+	return v
+}
+
+// appURL is the app's page; dbURL and storageURL a database's and a
+// storage's of the user's project.
+func appURL(a store.App) string { return ops.AppPath(a) }
+
+func dbURL(project, name string) string {
+	return projectPath(project) + "/databases/" + url.PathEscape(name)
+}
+
+func storageURL(project, name string) string {
+	return projectPath(project) + "/storages/" + url.PathEscape(name)
 }
 
 type envVar struct{ Key, Value string }
@@ -1443,7 +1453,8 @@ func mayAccess(ctx context.Context, s *store.Store, githubID int64) bool {
 // traceView is a kept trace for its page.
 type traceView struct {
 	ops.Waterfall
-	At string
+	App store.App
+	At  string
 }
 
 // appCalls guesses which apps of a project call which: an app that routes
@@ -1452,15 +1463,15 @@ type traceView struct {
 // Shared variables are left out: every app gets them, so they say nothing
 // about one.
 func appCalls(apps []store.App, routes []store.AppRoute) map[string][]string {
-	routed := map[[2]string]bool{}
+	routed := map[[2]int64]bool{}
 	for _, r := range routes {
-		routed[[2]string{r.AppName, r.Target}] = true
+		routed[[2]int64{r.AppID, r.TargetID}] = true
 	}
 	calls := map[string][]string{}
 	for _, a := range apps {
 		env := strings.ToLower(string(a.Env))
 		for _, b := range apps {
-			if a.Name != b.Name && (routed[[2]string{a.Name, b.Name}] || ops.RefersTo(string(a.Env), b.Name) || namesHost(env, b.Domain) || namesHost(env, ops.EdgeAlias(b.Name))) {
+			if a.ID != b.ID && (routed[[2]int64{a.ID, b.ID}] || ops.RefersTo(string(a.Env), b.Name) || namesHost(env, b.Domain) || namesHost(env, ops.EdgeAlias(b.Key()))) {
 				calls[a.Name] = append(calls[a.Name], b.Name)
 			}
 		}
@@ -1491,14 +1502,20 @@ func namesHost(text, host string) bool {
 
 // deploySummaries is the app's last n deploys without their output, for
 // where only their status and time show.
-func deploySummaries(ctx context.Context, s *store.Store, app string, n int64) []store.DeployLog {
-	rows, _ := s.ListDeploySummaries(ctx, store.ListDeploySummariesParams{AppName: app, Limit: n})
+func deploySummaries(ctx context.Context, s *store.Store, appID int64, n int64) []store.DeployLog {
+	rows, _ := s.ListDeploySummaries(ctx, store.ListDeploySummariesParams{AppID: appID, Limit: n})
 	logs := make([]store.DeployLog, len(rows))
 	for i, d := range rows {
-		logs[i] = store.DeployLog{ID: d.ID, AppName: d.AppName, Trigger: d.Trigger, Status: d.Status, CreatedAt: d.CreatedAt}
+		logs[i] = store.DeployLog{ID: d.ID, AppID: d.AppID, Trigger: d.Trigger, Status: d.Status, CreatedAt: d.CreatedAt}
 	}
 	return logs
 }
+
+// projectPath is the page of the user's project named name.
+func projectPath(name string) string { return "/projects/" + url.PathEscape(name) }
+
+// appPath is the page of the app named app in the user's project.
+func appPath(project, app string) string { return projectPath(project) + "/apps/" + url.PathEscape(app) }
 
 // joinedServers are the user's servers that have joined, to put projects
 // on.

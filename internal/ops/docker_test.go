@@ -29,10 +29,10 @@ func TestDockerDeploys(t *testing.T) {
 		t.Fatal(err)
 	}
 	app := newDockerTestApp(t, s)
-	t.Cleanup(func() { DeleteApp(s, app.Name) })
+	t.Cleanup(func() { _ = DeleteApp(s, app.ID) })
 
 	reload := func() store.App {
-		a, err := s.GetApp(ctx(), app.Name)
+		a, err := getApp(s, app.Name)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -58,7 +58,7 @@ func TestDockerDeploys(t *testing.T) {
 		return out.String()
 	}
 
-	if err := AddVolume(s, app.Name, "data", "/data"); err != nil {
+	if err := AddVolume(s, app.ID, "data", "/data"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -83,7 +83,7 @@ func TestDockerDeploys(t *testing.T) {
 	if got := dataLines(t, reload()); got != 2 {
 		t.Errorf("volume has %d start entries, want 2 (data lost between deploys?)", got)
 	}
-	if n := countContainers(t, app.Name+"-"); n != 1 {
+	if n := countContainers(t, app.Key()+"-"); n != 1 {
 		t.Errorf("%d app containers after deploy, want 1", n)
 	}
 	if deploy.ImageID(ctx(), PreviousImageTag(app)) != v1 {
@@ -91,14 +91,14 @@ func TestDockerDeploys(t *testing.T) {
 	}
 
 	// The worker mounts the same volume.
-	if err := SaveWorker(s, store.Worker{AppName: app.Name, Name: "w", Command: "sleep 3600"}); err != nil {
+	if err := SaveWorker(s, store.Worker{AppID: app.ID, Name: "w", Command: "sleep 3600"}); err != nil {
 		t.Fatal(err)
 	}
-	if m := dockerOut(t, "inspect", "-f", "{{range .Mounts}}{{.Name}}{{end}}", app.Name+"-worker"); m != node.Volume(app.Name, "data") {
+	if m := dockerOut(t, "inspect", "-f", "{{range .Mounts}}{{.Name}}{{end}}", app.Key()+"-worker"); m != node.Volume(app.Key(), "data") {
 		t.Errorf("worker mounts %q", m)
 	}
 	time.Sleep(2 * time.Second) // a command the entrypoint swallowed has exited by now
-	if st := dockerOut(t, "inspect", "-f", "{{.State.Running}} {{.RestartCount}}", app.Name+"-worker"); st != "true 0" {
+	if st := dockerOut(t, "inspect", "-f", "{{.State.Running}} {{.RestartCount}}", app.Key()+"-worker"); st != "true 0" {
 		t.Errorf("the worker's command doesn't run: running, restarts = %s", st)
 	}
 
@@ -125,7 +125,7 @@ func TestDockerDeploys(t *testing.T) {
 
 	// Limits reach the container; going over the memory limit fails the
 	// deploy with the reason.
-	if err := SetLimits(s, app.Name, 32, 0.5); err != nil {
+	if err := SetLimits(s, app.ID, 32, 0.5); err != nil {
 		t.Fatal(err)
 	}
 	out = deployVersion("hungry", true)
@@ -137,12 +137,12 @@ func TestDockerDeploys(t *testing.T) {
 	if got := dockerOut(t, "inspect", "-f", "{{.HostConfig.Memory}} {{.HostConfig.NanoCpus}} {{.HostConfig.RestartPolicy.Name}}", reload().ContainerName()); got != "33554432 500000000 unless-stopped" {
 		t.Errorf("container limits and restart policy = %q", got)
 	}
-	if err := SetLimits(s, app.Name, 0, 0); err != nil {
+	if err := SetLimits(s, app.ID, 0, 0); err != nil {
 		t.Fatal(err)
 	}
 
 	// Shared volumes keep the zero-downtime switch.
-	if err := SetShareVolumes(s, app.Name, true); err != nil {
+	if err := SetShareVolumes(s, app.ID, true); err != nil {
 		t.Fatal(err)
 	}
 	if out := deployVersion("v4", false); strings.Contains(out, "stopping") {
@@ -151,12 +151,12 @@ func TestDockerDeploys(t *testing.T) {
 	expectServing(t, app, "v4")
 
 	// A start command runs instead of the image's.
-	if err := SetAppBuild(s, app.Name, "", "dockerfile", `echo -n custom > /www/index.html; trap 'exit 0' TERM; httpd -f -p 8080 -h /www & wait`); err != nil {
+	if err := SetAppBuild(s, app.ID, "", "dockerfile", `echo -n custom > /www/index.html; trap 'exit 0' TERM; httpd -f -p 8080 -h /www & wait`); err != nil {
 		t.Fatal(err)
 	}
 	deployVersion("v5", false)
 	expectServing(t, app, "custom")
-	if err := SetAppBuild(s, app.Name, "", "dockerfile", ""); err != nil {
+	if err := SetAppBuild(s, app.ID, "", "dockerfile", ""); err != nil {
 		t.Fatal(err)
 	}
 	deployVersion("v4", false)
@@ -165,24 +165,24 @@ func TestDockerDeploys(t *testing.T) {
 	// Rollback goes to v5 (now with the image's own start), rolling back
 	// again returns to v4.
 	for _, want := range []string{"v5", "v4"} {
-		if err := StartRollback(s, app.Name, false); err != nil {
+		if err := StartRollback(s, app.ID, false); err != nil {
 			t.Fatal(err)
 		}
-		waitIdle(t, app.Name)
+		waitIdle(t, app.ID)
 		expectServing(t, app, want)
 	}
 
 	// Deleting the app removes containers, images and volumes.
-	if err := DeleteApp(s, app.Name); err != nil {
+	if err := DeleteApp(s, app.ID); err != nil {
 		t.Fatal(err)
 	}
-	if n := countContainers(t, app.Name+"-"); n != 0 {
+	if n := countContainers(t, app.Key()+"-"); n != 0 {
 		t.Errorf("%d containers left after delete", n)
 	}
 	if ok, _ := deploy.ImageExists(ctx(), ImageTag(app)); ok {
 		t.Error("image left after delete")
 	}
-	if vols, _ := deploy.VolumeNames(ctx(), node.Volume(app.Name, "")); len(vols) != 0 {
+	if vols, _ := deploy.VolumeNames(ctx(), node.Volume(app.Key(), "")); len(vols) != 0 {
 		t.Errorf("volumes left after delete: %v", vols)
 	}
 }
@@ -198,16 +198,16 @@ func TestDockerReconcileSlots(t *testing.T) {
 		t.Fatal(err)
 	}
 	app := newDockerTestApp(t, s)
-	t.Cleanup(func() { _ = DeleteApp(s, app.Name) })
+	t.Cleanup(func() { _ = DeleteApp(s, app.ID) })
 	buildTestImage(t, nextImageTag(app), "v1")
 	var out strings.Builder
 	if err := rollOut(s, app, node.Next, &out); err != nil {
 		t.Fatalf("deploy: %v\n%s", err, out.String())
 	}
-	app, _ = s.GetApp(ctx(), app.Name)
-	live, other := app.ContainerName(), app.Name+"-green"
+	app, _ = getApp(s, app.Name)
+	live, other := app.ContainerName(), app.Key()+"-green"
 	if live == other {
-		other = app.Name + "-blue"
+		other = app.Key() + "-blue"
 	}
 	dockerOut(t, "run", "-d", "--name", other, "busybox:1.36", "sleep", "3600")
 	dockerOut(t, "stop", "-t", "0", live)
@@ -226,22 +226,22 @@ func TestDockerReconcileSlots(t *testing.T) {
 func newDockerTestApp(t *testing.T, s *store.Store) store.App {
 	suffix, _ := RandomHex(3)
 	project := "zt" + suffix
-	if err := s.CreateProject(ctx(), project); err != nil {
+	if err := createProject(s, project); err != nil {
 		t.Fatal(err)
 	}
-	p, _ := s.GetProject(ctx(), project)
+	p, _ := getProject(s, project)
 	// Runs after the tests' own cleanups (LIFO), once the apps are gone.
 	t.Cleanup(func() {
-		if err := removeProjectNetworks(s, project); err != nil {
+		if err := removeProjectNetworks(s, p); err != nil {
 			t.Error(err)
 		}
 	})
 	for i := 0; ; i++ {
 		name := fmt.Sprintf("zt%s-%d", suffix, i)
-		if err := s.CreateApp(ctx(), store.CreateAppParams{ProjectID: p.ID, Name: name, BuildStrategy: "dockerfile"}); err != nil {
+		if err := createApp(s, store.CreateAppParams{ProjectID: p.ID, Name: name, BuildStrategy: "dockerfile"}); err != nil {
 			t.Fatal(err)
 		}
-		app, _ := s.GetApp(ctx(), name)
+		app, _ := getApp(s, name)
 		if ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", app.Port)); err == nil {
 			ln.Close()
 			return app
@@ -276,8 +276,8 @@ func expectServing(t *testing.T, app store.App, want string) {
 	t.Helper()
 	// What cloudflared sees: the app's alias on the edge network, served
 	// by the live container only.
-	edge := dockerOut(t, "run", "--rm", "--quiet", "--network", projectEdge(app.ProjectName), "busybox:1.36",
-		"sh", "-c", fmt.Sprintf("nslookup %s 127.0.0.11 | grep -c '^Address' ; wget -qO- http://%s:8080/", EdgeAlias(app.Name), EdgeAlias(app.Name)))
+	edge := dockerOut(t, "run", "--rm", "--quiet", "--network", projectEdge(app.ProjectKey()), "busybox:1.36",
+		"sh", "-c", fmt.Sprintf("nslookup %s 127.0.0.11 | grep -c '^Address' ; wget -qO- http://%s:8080/", EdgeAlias(app.Key()), EdgeAlias(app.Key())))
 	if edge != "2\n"+want { // the resolver's own address, then exactly one container
 		t.Errorf("edge network serves %q, want one address and %q", edge, want)
 	}
@@ -306,7 +306,7 @@ func countContainers(t *testing.T, prefix string) int {
 	return n
 }
 
-func waitIdle(t *testing.T, app string) {
+func waitIdle(t *testing.T, app int64) {
 	for deadline := time.Now().Add(2 * time.Minute); IsDeploying(app); time.Sleep(200 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatal("job still running")
@@ -345,22 +345,22 @@ func TestDockerDataRollback(t *testing.T) {
 	}
 	app := newDockerTestApp(t, s)
 	t.Cleanup(func() {
-		if err := DeleteApp(s, app.Name); err != nil {
+		if err := DeleteApp(s, app.ID); err != nil {
 			t.Error(err)
 		}
 	})
-	if err := CreateDatabase(s, app.ProjectName, "zt"+suffix); err != nil {
+	if _, err := CreateDatabase(s, app.ProjectID, "zt"+suffix); err != nil {
 		t.Fatal(err)
 	}
-	if err := LinkDatabase(s, app.Name, "zt"+suffix); err != nil {
+	if err := LinkDatabase(s, app, "zt"+suffix); err != nil {
 		t.Fatal(err)
 	}
-	d, _ := s.GetDatabase(ctx(), "zt"+suffix)
+	d, _ := getDB(s, "zt"+suffix)
 	sql := func(q string) string {
 		t.Helper()
-		return dockerOut(t, "exec", node.PostgresContainer, "psql", "-U", d.User, "-d", d.Name, "-Atc", q)
+		return dockerOut(t, "exec", node.PostgresContainer, "psql", "-U", d.Key(), "-d", d.Key(), "-Atc", q)
 	}
-	reload := func() store.App { a, _ := s.GetApp(ctx(), app.Name); return a }
+	reload := func() store.App { a, _ := getApp(s, app.Name); return a }
 	// StartDeploy's steps after the build.
 	deployVersion := func(v string) {
 		t.Helper()
@@ -374,17 +374,17 @@ func TestDockerDataRollback(t *testing.T) {
 		if err := promote(s, a); err != nil {
 			t.Fatal(err)
 		}
-		if err := keepSnapshot(s, a, a.LinkedDB, snapshot); err != nil {
+		if err := keepSnapshot(s, a, a.LinkedDbID, snapshot); err != nil {
 			t.Fatal(err)
 		}
 	}
 	rollBack := func(withData bool) {
 		t.Helper()
-		if err := StartRollback(s, app.Name, withData); err != nil {
+		if err := StartRollback(s, app.ID, withData); err != nil {
 			t.Fatal(err)
 		}
-		waitIdle(t, app.Name)
-		logs, _ := s.ListDeployLogs(ctx(), store.ListDeployLogsParams{AppName: app.Name, Limit: 1})
+		waitIdle(t, app.ID)
+		logs, _ := s.ListDeployLogs(ctx(), store.ListDeployLogsParams{AppID: app.ID, Limit: 1})
 		if logs[0].Status != "success" {
 			t.Fatalf("rollback failed:\n%s", logs[0].Output)
 		}
@@ -431,17 +431,17 @@ func TestDockerDataRollback(t *testing.T) {
 	deployVersion("v3")
 	sql(`INSERT INTO notes2 VALUES ('v3 data')`)
 	a := reload()
-	if err := s.SetAppSettings(ctx(), store.SetAppSettingsParams{Name: a.Name, HealthCheckPath: "/missing"}); err != nil { // 404 for every version
+	if err := s.SetAppSettings(ctx(), store.SetAppSettingsParams{ID: a.ID, HealthCheckPath: "/missing"}); err != nil { // 404 for every version
 		t.Fatal(err)
 	}
-	if err := StartRollback(s, a.Name, true); err != nil {
+	if err := StartRollback(s, a.ID, true); err != nil {
 		t.Fatal(err)
 	}
-	waitIdle(t, a.Name)
-	if logs, _ := s.ListDeployLogs(ctx(), store.ListDeployLogsParams{AppName: a.Name, Limit: 1}); logs[0].Status != "failed" || !strings.Contains(string(logs[0].Output), "put the current data back") {
+	waitIdle(t, a.ID)
+	if logs, _ := s.ListDeployLogs(ctx(), store.ListDeployLogsParams{AppID: a.ID, Limit: 1}); logs[0].Status != "failed" || !strings.Contains(string(logs[0].Output), "put the current data back") {
 		t.Errorf("failed rollback:\n%s", logs[0].Output)
 	}
-	if err := s.SetAppSettings(ctx(), store.SetAppSettingsParams{Name: a.Name, HealthCheckPath: "/"}); err != nil {
+	if err := s.SetAppSettings(ctx(), store.SetAppSettingsParams{ID: a.ID, HealthCheckPath: "/"}); err != nil {
 		t.Fatal(err)
 	}
 	expectServing(t, reload(), "v3")
@@ -450,15 +450,15 @@ func TestDockerDataRollback(t *testing.T) {
 	}
 
 	// A database another app uses too is never rolled back.
-	if err := s.CreateApp(ctx(), store.CreateAppParams{ProjectID: app.ProjectID, Name: app.Name + "-b", BuildStrategy: "dockerfile"}); err != nil {
+	if err := createApp(s, store.CreateAppParams{ProjectID: app.ProjectID, Name: app.Name + "-b", BuildStrategy: "dockerfile"}); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if err := DeleteApp(s, app.Name+"-b"); err != nil {
+		if err := DeleteApp(s, appID(t, s, app.Name+"-b")); err != nil {
 			t.Error(err)
 		}
 	})
-	if err := LinkDatabase(s, app.Name+"-b", d.Name); err != nil {
+	if err := LinkDatabase(s, mustApp(t, s, app.Name+"-b"), d.Name); err != nil {
 		t.Fatal(err)
 	}
 	if reason := DataRollbackBlocker(s, reload()); !strings.Contains(reason, "other apps") {
@@ -493,28 +493,28 @@ func TestDockerRotateSecrets(t *testing.T) {
 	}
 	app := newDockerTestApp(t, s)
 	t.Cleanup(func() {
-		if err := DeleteApp(s, app.Name); err != nil {
+		if err := DeleteApp(s, app.ID); err != nil {
 			t.Error(err)
 		}
 	})
-	must(CreateDatabase(s, app.ProjectName, "zt"+suffix))
-	must(LinkDatabase(s, app.Name, "zt"+suffix))
-	p, _ := s.GetProject(ctx(), app.ProjectName)
-	must(s.CreateStorage(ctx(), store.CreateStorageParams{Name: "zt" + suffix, ProjectID: p.ID, Provider: "s3", Endpoint: "https://s3.example.com",
-		AccessKeyID: "key", SecretAccessKey: "secret", Bucket: "files", Region: "auto"}))
-	must(LinkStorage(s, app.Name, "zt"+suffix))
-	must(SetAppEnv(s, app.Name, "API_KEY=abc"))
-	must(SealVar(s, "app", app.Name, "SEALED", "shh"))
-	must(s.SetAppSentryKey(ctx(), store.SetAppSentryKeyParams{Name: app.Name, SentryKey: "oldsentrykey"}))
+	must(must2(CreateDatabase(s, app.ProjectID, "zt"+suffix)))
+	must(LinkDatabase(s, app, "zt"+suffix))
+	p, _ := getProject(s, app.ProjectName)
+	must(must2(s.CreateStorage(ctx(), store.CreateStorageParams{Name: "zt" + suffix, ProjectID: p.ID, Provider: "s3", Endpoint: "https://s3.example.com",
+		AccessKeyID: "key", SecretAccessKey: "secret", Bucket: "files", Region: "auto"})))
+	must(LinkStorage(s, app, "zt"+suffix))
+	must(SetAppEnv(s, app.ID, "API_KEY=abc"))
+	must(SealVar(s, "app", app.ID, "SEALED", "shh"))
+	must(s.SetAppSentryKey(ctx(), store.SetAppSentryKeyParams{ID: app.ID, SentryKey: "oldsentrykey"}))
 	must(s.NewSession(ctx(), "tok", 42, time.Hour))
 
-	a, _ := s.GetApp(ctx(), app.Name)
+	a, _ := getApp(s, app.Name)
 	buildTestImage(t, nextImageTag(a), "v1")
 	var out strings.Builder
 	must(rollOut(s, a, node.Next, &out))
 	must(promote(s, a))
 
-	dbBefore, _ := s.GetDatabase(ctx(), "zt"+suffix)
+	dbBefore, _ := getDB(s, "zt"+suffix)
 	keyBefore, _ := os.ReadFile("master.key")
 
 	var log strings.Builder
@@ -523,23 +523,23 @@ func TestDockerRotateSecrets(t *testing.T) {
 		t.Fatalf("%d failures:\n%s", failures, log.String())
 	}
 
-	dbAfter, _ := s.GetDatabase(ctx(), "zt"+suffix)
-	a, _ = s.GetApp(ctx(), app.Name)
+	dbAfter, _ := getDB(s, "zt"+suffix)
+	a, _ = getApp(s, app.Name)
 	if dbAfter.Password == dbBefore.Password || a.SentryKey == "oldsentrykey" {
 		t.Error("a secret wasn't replaced")
 	}
 	// The new database password works, the old one doesn't, connecting
 	// like an app does (inside its container Postgres trusts localhost).
 	login := func(pw string) error {
-		return exec.Command("docker", "run", "--rm", "--quiet", "--network", ProjectNetwork(app.ProjectName), "-e", "PGPASSWORD="+pw, "postgres:18",
-			"psql", "-h", node.PostgresContainer, "-U", dbAfter.User, "-d", dbAfter.Name, "-c", "SELECT 1").Run()
+		return exec.Command("docker", "run", "--rm", "--quiet", "--network", ProjectNetwork(app.ProjectKey()), "-e", "PGPASSWORD="+pw, "postgres:18",
+			"psql", "-h", node.PostgresContainer, "-U", dbAfter.Key(), "-d", dbAfter.Key(), "-c", "SELECT 1").Run()
 	}
 	if login(string(dbAfter.Password)) != nil || login(string(dbBefore.Password)) == nil {
 		t.Error("database password not rotated")
 	}
 	// A rotation cut short after the panel stored the password: the next
 	// start gives it to Postgres.
-	must(local.SetPassword(ctx(), node.DBSpec{Name: dbAfter.Name, User: dbAfter.User, Password: "0123456789abcdef"}))
+	must(local.SetPassword(ctx(), node.DBSpec{Name: dbAfter.Name, User: dbAfter.Key(), Password: "0123456789abcdef"}))
 	SyncDatabasePasswords(s)
 	if login(string(dbAfter.Password)) != nil {
 		t.Error("startup didn't give Postgres the stored password")
@@ -581,9 +581,9 @@ func TestDockerProjectIsolation(t *testing.T) {
 			t.Fatalf("%v\n%s", err, out.String())
 		}
 	}
-	a, _ = s.GetApp(ctx(), a.Name)
-	b, _ = s.GetApp(ctx(), b.Name)
-	bIP, err := deploy.ContainerIP(ctx(), b.ContainerName(), ProjectNetwork(b.ProjectName))
+	a, _ = getApp(s, a.Name)
+	b, _ = getApp(s, b.Name)
+	bIP, err := deploy.ContainerIP(ctx(), b.ContainerName(), ProjectNetwork(b.ProjectKey()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -592,28 +592,28 @@ func TestDockerProjectIsolation(t *testing.T) {
 		return exec.Command("docker", "run", "--rm", "--quiet", "--network", network, "busybox:1.36",
 			"wget", "-q", "-T", "3", "-O", "/dev/null", "http://"+target+":8080/").Run() == nil
 	}
-	if !reach(ProjectNetwork(a.ProjectName), a.ContainerName()) {
+	if !reach(ProjectNetwork(a.ProjectKey()), a.ContainerName()) {
 		t.Error("an app isn't reachable in its own project")
 	}
 	for _, target := range []string{b.ContainerName(), bIP} {
-		if reach(ProjectNetwork(a.ProjectName), target) {
+		if reach(ProjectNetwork(a.ProjectKey()), target) {
 			t.Errorf("another project's app is reachable at %s", target)
 		}
 	}
-	if reach(projectEdge(a.ProjectName), EdgeAlias(b.Name)) {
+	if reach(projectEdge(a.ProjectKey()), EdgeAlias(b.Key())) {
 		t.Error("another project's app is reachable on the edge network")
 	}
 
 	// Deleting a project removes its networks.
-	if err := DeleteProject(s, b.ProjectName); err != nil {
+	if err := DeleteProject(s, b.ProjectID); err != nil {
 		t.Fatal(err)
 	}
-	for _, n := range []string{ProjectNetwork(b.ProjectName), projectEdge(b.ProjectName)} {
+	for _, n := range []string{ProjectNetwork(b.ProjectKey()), projectEdge(b.ProjectKey())} {
 		if exec.Command("docker", "network", "inspect", n).Run() == nil {
 			t.Errorf("network %s left after deleting its project", n)
 		}
 	}
-	if err := DeleteProject(s, a.ProjectName); err != nil {
+	if err := DeleteProject(s, a.ProjectID); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -650,26 +650,27 @@ func TestDockerRestoreOnNewServer(t *testing.T) {
 	must(s.SaveCloudflareTunnel(ctx(), store.SaveCloudflareTunnelParams{AccountID: "acc", TunnelID: "t"}))
 	must(SetupBackups(s))
 	project := "zt" + suffix
-	must(CreateProject(s, 0, project))
-	t.Cleanup(func() { _ = removeProjectNetworks(s, project) })
-	must(CreateDatabase(s, project, "zt"+suffix))
-	d, _ := s.GetDatabase(ctx(), "zt"+suffix)
-	dockerOut(t, "exec", node.PostgresContainer, "psql", "-U", d.User, "-d", d.Name, "-c", "CREATE TABLE t (n int); INSERT INTO t VALUES (7)")
-	id, err := BackupDatabase(s, d.Name)
+	must(must2(CreateProject(s, 0, project)))
+	pr, _ := getProject(s, project)
+	t.Cleanup(func() { _ = removeProjectNetworks(s, pr) })
+	must(must2(CreateDatabase(s, projectID(t, s, project), "zt"+suffix)))
+	d, _ := getDB(s, "zt"+suffix)
+	dockerOut(t, "exec", node.PostgresContainer, "psql", "-U", d.Key(), "-d", d.Key(), "-c", "CREATE TABLE t (n int); INSERT INTO t VALUES (7)")
+	id, err := BackupDatabase(s, d.ID)
 	must(err)
 
 	// The new server's Postgres: nothing of this database or its role.
-	must(deploy.PostgresExec(ctx(), node.PostgresContainer, `DROP DATABASE "`+d.Name+`" WITH (FORCE)`))
-	must(deploy.PostgresExec(ctx(), node.PostgresContainer, `DROP USER "`+d.User+`"`))
+	must(deploy.PostgresExec(ctx(), node.PostgresContainer, `DROP DATABASE "`+d.Key()+`" WITH (FORCE)`))
+	must(deploy.PostgresExec(ctx(), node.PostgresContainer, `DROP USER "`+d.Key()+`"`))
 	b, err := s.GetBackup(ctx(), id)
 	must(err)
 	must(restoreBackup(s, b))
-	if n := dockerOut(t, "exec", node.PostgresContainer, "psql", "-U", d.User, "-d", d.Name, "-Atc", "SELECT n FROM t"); n != "7" {
+	if n := dockerOut(t, "exec", node.PostgresContainer, "psql", "-U", d.Key(), "-d", d.Key(), "-Atc", "SELECT n FROM t"); n != "7" {
 		t.Errorf("restored row = %q", n)
 	}
 	// The recreated role logs in with the password apps were given.
-	dockerOut(t, "exec", "-e", "PGPASSWORD="+string(d.Password), node.PostgresContainer, "psql", "-h", "127.0.0.1", "-U", d.User, "-d", d.Name, "-c", "SELECT 1")
-	must(DeleteDatabase(s, d.Name))
+	dockerOut(t, "exec", "-e", "PGPASSWORD="+string(d.Password), node.PostgresContainer, "psql", "-h", "127.0.0.1", "-U", d.Key(), "-d", d.Key(), "-c", "SELECT 1")
+	must(DeleteDatabase(s, d.ID))
 }
 
 // TestDockerImportDump moves a database in from elsewhere: a dump owned by
@@ -704,12 +705,13 @@ func TestDockerImportDump(t *testing.T) {
 	must(s.SaveCloudflareTunnel(ctx(), store.SaveCloudflareTunnelParams{AccountID: "acc", TunnelID: "t"}))
 	must(SetupBackups(s))
 	project := "zt" + suffix
-	must(CreateProject(s, 0, project))
-	t.Cleanup(func() { _ = removeProjectNetworks(s, project) })
-	must(CreateDatabase(s, project, "zt"+suffix))
-	d, _ := s.GetDatabase(ctx(), "zt"+suffix)
+	must(must2(CreateProject(s, 0, project)))
+	pr, _ := getProject(s, project)
+	t.Cleanup(func() { _ = removeProjectNetworks(s, pr) })
+	must(must2(CreateDatabase(s, projectID(t, s, project), "zt"+suffix)))
+	d, _ := getDB(s, "zt"+suffix)
 	// The app already migrated an empty schema, as after a first deploy.
-	dockerOut(t, "exec", node.PostgresContainer, "psql", "-U", d.User, "-d", d.Name, "-c", "CREATE TABLE contacts (name text)")
+	dockerOut(t, "exec", node.PostgresContainer, "psql", "-U", d.Key(), "-d", d.Key(), "-c", "CREATE TABLE contacts (name text)")
 
 	// The other host's database, made by its superuser.
 	dockerOut(t, "exec", "-u", "postgres", node.PostgresContainer, "createdb", "-U", "postgres", "elsewhere")
@@ -718,10 +720,10 @@ func TestDockerImportDump(t *testing.T) {
 	dump, err := exec.Command("docker", "exec", "-u", "postgres", node.PostgresContainer, "pg_dump", "-Fc", "-U", "postgres", "-d", "elsewhere").Output()
 	must(err)
 
-	if _, err := ImportDump(s, d.Name, strings.NewReader("CREATE TABLE x;")); err == nil {
+	if _, err := ImportDump(s, d.ID, strings.NewReader("CREATE TABLE x;")); err == nil {
 		t.Error("imported a plain SQL dump")
 	}
-	id, err := ImportDump(s, d.Name, bytes.NewReader(dump))
+	id, err := ImportDump(s, d.ID, bytes.NewReader(dump))
 	must(err)
 	must(VerifyBackup(s, id))
 	b, err := s.GetBackup(ctx(), id)
@@ -730,26 +732,26 @@ func TestDockerImportDump(t *testing.T) {
 		t.Errorf("checked backup has %d tables", b.Tables)
 	}
 	must(restoreBackup(s, b))
-	if n := dockerOut(t, "exec", node.PostgresContainer, "psql", "-U", d.User, "-d", d.Name, "-Atc",
+	if n := dockerOut(t, "exec", node.PostgresContainer, "psql", "-U", d.Key(), "-d", d.Key(), "-Atc",
 		"SELECT name FROM contacts WHERE name % 'Kas'"); n != "Kasl" {
 		t.Errorf("restored rows = %q", n)
 	}
-	if owner := dockerOut(t, "exec", node.PostgresContainer, "psql", "-U", d.User, "-d", d.Name, "-Atc",
-		"SELECT tableowner FROM pg_tables WHERE tablename = 'contacts'"); owner != d.User {
+	if owner := dockerOut(t, "exec", node.PostgresContainer, "psql", "-U", d.Key(), "-d", d.Key(), "-Atc",
+		"SELECT tableowner FROM pg_tables WHERE tablename = 'contacts'"); owner != d.Key() {
 		t.Errorf("contacts is owned by %q", owner)
 	}
 	// Restoring again replaces the data rather than clashing with it.
-	dockerOut(t, "exec", node.PostgresContainer, "psql", "-U", d.User, "-d", d.Name, "-c", "INSERT INTO contacts VALUES ('later')")
+	dockerOut(t, "exec", node.PostgresContainer, "psql", "-U", d.Key(), "-d", d.Key(), "-c", "INSERT INTO contacts VALUES ('later')")
 	must(restoreBackup(s, b))
-	if n := dockerOut(t, "exec", node.PostgresContainer, "psql", "-U", d.User, "-d", d.Name, "-Atc", "SELECT count(*) FROM contacts"); n != "1" {
+	if n := dockerOut(t, "exec", node.PostgresContainer, "psql", "-U", d.Key(), "-d", d.Key(), "-Atc", "SELECT count(*) FROM contacts"); n != "1" {
 		t.Errorf("after the second restore, %s rows", n)
 	}
 	// The renamed database still keeps other roles out.
-	if out, err := exec.Command("docker", "exec", node.PostgresContainer, "psql", "-U", "postgres", "-d", d.Name, "-Atc",
+	if out, err := exec.Command("docker", "exec", node.PostgresContainer, "psql", "-U", "postgres", "-d", d.Key(), "-Atc",
 		"SELECT has_database_privilege('public', current_database(), 'CONNECT')").CombinedOutput(); err != nil || strings.TrimSpace(string(out)) != "f" {
 		t.Errorf("PUBLIC may connect: %s %v", out, err)
 	}
-	must(DeleteDatabase(s, d.Name))
+	must(DeleteDatabase(s, d.ID))
 }
 
 // TestDockerVolumeBackup backs a volume up while the app writes to it,
@@ -775,17 +777,17 @@ func TestDockerVolumeBackup(t *testing.T) {
 	must(s.SaveCloudflareTunnel(ctx(), store.SaveCloudflareTunnelParams{AccountID: "acc"}))
 	must(SetupBackups(s))
 	app := newDockerTestApp(t, s)
-	t.Cleanup(func() { _ = DeleteApp(s, app.Name) })
-	must(AddVolume(s, app.Name, "data", "/data"))
+	t.Cleanup(func() { _ = DeleteApp(s, app.ID) })
+	must(AddVolume(s, app.ID, "data", "/data"))
 	buildTestImage(t, nextImageTag(app), "v1")
 	var out strings.Builder
 	must(rollOut(s, app, node.Next, &out))
 	must(promote(s, app))
-	app, _ = s.GetApp(ctx(), app.Name)
+	app, _ = getApp(s, app.Name)
 	live := app.ContainerName()
 	dockerOut(t, "exec", live, "sh", "-c", "echo secret-contents > /data/file && mkdir -p /data/sub && echo x > /data/sub/y && chown 1234:5678 /data/file && chmod 600 /data/file")
 
-	id, err := BackupVolume(s, app.Name, "data")
+	id, err := BackupVolume(s, app.ID, "data")
 	must(err)
 	if st := dockerOut(t, "inspect", "-f", "{{.State.Status}}", live); st != "running" {
 		t.Errorf("app is %s after the backup, want running", st)
@@ -802,9 +804,9 @@ func TestDockerVolumeBackup(t *testing.T) {
 	}
 
 	dockerOut(t, "exec", live, "sh", "-c", "rm -r /data/sub && echo changed > /data/file && touch /data/new")
-	must(StartVolumeRestore(s, app.Name, "data", id))
-	waitIdle(t, app.Name)
-	if j := VolumeJob(app.Name, "data"); j.Failed {
+	must(StartVolumeRestore(s, app.ID, "data", id))
+	waitIdle(t, app.ID)
+	if j := VolumeJob(app.ID, "data"); j.Failed {
 		t.Fatalf("restore: %s", j.Last)
 	}
 	got := dockerOut(t, "exec", live, "sh", "-c", "cat /data/file /data/sub/y; ls /data; stat -c '%u:%g %a' /data/file")
@@ -826,7 +828,7 @@ func checkStats(t *testing.T, s *store.Store, app store.App) {
 		if c.Name != app.ContainerName() {
 			continue
 		}
-		if target := containerTargets(s, server{})[c.Name]; target.name != "app:"+app.Name {
+		if target := containerTargets(s, server{})[c.Name]; target.name != AppTarget(app.ID) {
 			t.Errorf("recorded as %q", target.name)
 		}
 		counters, err := deploy.ContainerStats(ctx(), c.ID)

@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"database/sql"
 	"fmt"
 	"io"
 	"time"
@@ -16,10 +17,10 @@ import (
 // takeSnapshot dumps the app's database before a deploy; "" if the app has
 // none or the dump failed (the deploy goes on without one).
 func takeSnapshot(s *store.Store, app store.App, out io.Writer) node.Dump {
-	if app.LinkedDB == "" {
+	if !app.LinkedDbID.Valid {
 		return ""
 	}
-	d, err := s.GetDatabase(ctx(), app.LinkedDB)
+	d, err := s.GetDatabaseByID(ctx(), app.LinkedDbID.Int64)
 	if err == nil {
 		fmt.Fprintln(out, "saving a snapshot of database", d.Name, "for rollback")
 		var dump node.Dump
@@ -33,30 +34,30 @@ func takeSnapshot(s *store.Store, app store.App, out io.Writer) node.Dump {
 
 // keepSnapshot makes a dump the app's snapshot of db, or with dump "" drops
 // the snapshot: it must always belong to the Previous build.
-func keepSnapshot(s *store.Store, app store.App, db string, dump node.Dump) error {
-	if err := AppNode(s, app).KeepSnapshot(app.Name, dump); err != nil {
+func keepSnapshot(s *store.Store, app store.App, db sql.NullInt64, dump node.Dump) error {
+	if err := AppNode(s, app).KeepSnapshot(app.Key(), dump); err != nil {
 		return err
 	}
 	if dump == "" {
-		return s.SetAppSnapshot(ctx(), store.SetAppSnapshotParams{Name: app.Name})
+		return s.SetAppSnapshot(ctx(), store.SetAppSnapshotParams{ID: app.ID})
 	}
-	return s.SetAppSnapshot(ctx(), store.SetAppSnapshotParams{Name: app.Name, SnapshotDB: db, SnapshotAt: time.Now().UTC().Format("2006-01-02T15:04:05Z")})
+	return s.SetAppSnapshot(ctx(), store.SetAppSnapshotParams{ID: app.ID, SnapshotDbID: db, SnapshotAt: time.Now().UTC().Format("2006-01-02T15:04:05Z")})
 }
 
 // DataRollbackBlocker says why Rollback can't return the app's data, ""
 // if it can.
 func DataRollbackBlocker(s *store.Store, app store.App) string {
 	switch {
-	case app.SnapshotDB == "":
+	case !app.SnapshotDbID.Valid:
 		return "there's no database snapshot from before the last deploy"
-	case app.SnapshotDB != app.LinkedDB:
-		return "the snapshot is of " + app.SnapshotDB + ", which isn't the app's database any more"
+	case app.SnapshotDbID != app.LinkedDbID:
+		return "the snapshot is of a database that isn't the app's any more"
 	}
-	if !AppNode(s, app).HasSnapshot(app.Name) {
+	if !AppNode(s, app).HasSnapshot(app.Key()) {
 		return "the snapshot file is missing"
 	}
-	if users, err := s.AppsUsingDatabase(ctx(), app.LinkedDB); err != nil || len(users) != 1 {
-		return "other apps use " + app.LinkedDB + " too, and would lose their data as well"
+	if users, err := s.AppsUsingDatabase(ctx(), app.LinkedDbID); err != nil || len(users) != 1 {
+		return "other apps use its database too, and would lose their data as well"
 	}
 	return ""
 }

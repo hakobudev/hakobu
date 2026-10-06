@@ -55,22 +55,22 @@ func TestBackupsToDrop(t *testing.T) {
 
 func TestDBJobs(t *testing.T) {
 	release := make(chan struct{})
-	if err := startDBJob("main", "backing up", func() error { <-release; return nil }); err != nil {
+	if err := startDBJob("db:1", "backing up", func() error { <-release; return nil }); err != nil {
 		t.Fatal(err)
 	}
-	if err := startDBJob("main", "restoring", func() error { return nil }); err == nil {
+	if err := startDBJob("db:1", "restoring", func() error { return nil }); err == nil {
 		t.Error("a second job should be refused while one runs")
 	}
-	if j := DatabaseJob("main"); j.Running != "backing up" {
+	if j := DatabaseJob(1); j.Running != "backing up" {
 		t.Errorf("running = %q", j.Running)
 	}
 	close(release)
-	for deadline := time.Now().Add(time.Second); DatabaseJob("main").Running != ""; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Second); DatabaseJob(1).Running != ""; time.Sleep(10 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatal("job never finished")
 		}
 	}
-	if j := DatabaseJob("main"); j.Failed || j.Last == "" {
+	if j := DatabaseJob(1); j.Failed || j.Last == "" {
 		t.Errorf("last = %+v", j)
 	}
 }
@@ -252,16 +252,16 @@ func TestR2Backups(t *testing.T) {
 
 	// Rotation deletes every part of a dropped backup: this one, once seven
 	// newer ones exist.
-	id, err := s.CreateBackup(ctx(), store.CreateBackupParams{Database: "main", ObjectKey: b.ObjectKey, Parts: b.Parts})
+	id, err := s.CreateBackup(ctx(), store.CreateBackupParams{DatabaseID: 1, ObjectKey: b.ObjectKey, Parts: b.Parts})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for i := range 7 {
-		if _, err := s.CreateBackup(ctx(), store.CreateBackupParams{Database: "main", ObjectKey: fmt.Sprint("newer", i), Parts: 0}); err != nil {
+		if _, err := s.CreateBackup(ctx(), store.CreateBackupParams{DatabaseID: 1, ObjectKey: fmt.Sprint("newer", i), Parts: 0}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := RotateBackups(s, "main", time.Now().AddDate(1, 0, 0)); err != nil {
+	if err := RotateBackups(s, 1, time.Now().AddDate(1, 0, 0)); err != nil {
 		t.Fatal(err)
 	}
 	for k := range objects {

@@ -12,13 +12,14 @@ import (
 
 func TestTracesCountedAndSlowOnesKept(t *testing.T) {
 	s := notifyStore(t)
+	web := seedApp(t, s, "shop", "web")
 	tx := func(name string, d time.Duration, status string) ingest.Transaction {
 		return ingest.Transaction{TraceID: "t-" + name, Name: name, Op: "http.server", Status: status, Duration: d,
 			Spans: []ingest.Span{{ID: "a", Op: "db", Description: "SELECT 1", Duration: d / 2}, {ID: "b", Parent: "a", Op: "db", Start: d / 2, Duration: d / 4}}}
 	}
 	record := func(tx ingest.Transaction) {
 		t.Helper()
-		if err := node.RecordTransaction(ctx(), s.Tel, "web", tx, []byte(`{}`)); err != nil {
+		if err := node.RecordTransaction(ctx(), s.Tel, web.ID, tx, []byte(`{}`)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -29,7 +30,7 @@ func TestTracesCountedAndSlowOnesKept(t *testing.T) {
 	record(tx("/fast", 30*time.Millisecond, "internal_error")) // failed: kept
 	record(tx("/slow", 12*time.Second, "ok"))
 
-	routes, err := RoutesOf(s, "web", 24*time.Hour)
+	routes, err := RoutesOf(s, web, 24*time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +42,7 @@ func TestTracesCountedAndSlowOnesKept(t *testing.T) {
 		t.Errorf("/fast %+v", fast)
 	}
 
-	kept, err := s.Tel.ListTraces(ctx(), teldb.ListTracesParams{AppName: "web", Limit: 10})
+	kept, err := s.Tel.ListTraces(ctx(), teldb.ListTracesParams{AppID: web.ID, Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,12 +56,13 @@ func TestTracesCountedAndSlowOnesKept(t *testing.T) {
 
 func TestRoutesCappedPerHour(t *testing.T) {
 	s := notifyStore(t)
+	web := seedApp(t, s, "shop", "web")
 	for i := range node.MaxRoutesPerHour + 3 {
-		if err := node.RecordTransaction(ctx(), s.Tel, "web", ingest.Transaction{Name: fmt.Sprintf("/r%d", i), Status: "ok"}, nil); err != nil {
+		if err := node.RecordTransaction(ctx(), s.Tel, web.ID, ingest.Transaction{Name: fmt.Sprintf("/r%d", i), Status: "ok"}, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
-	routes, err := RoutesOf(s, "web", time.Hour)
+	routes, err := RoutesOf(s, web, time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}

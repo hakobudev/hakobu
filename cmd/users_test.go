@@ -194,27 +194,34 @@ func TestUsersSeeOnlyTheirOwn(t *testing.T) {
 	_, err = s.CreateUser(ctx, store.CreateUserParams{GitHubID: 7, GitHubLogin: "friend"})
 	must(err)
 	must(s.NewSession(ctx, "friend", 7, time.Hour))
-	must(s.CreateUserProject(ctx, store.CreateUserProjectParams{Name: "adminp", UserID: admin}))
-	p, _ := s.GetProject(ctx, "adminp")
-	must(s.CreateApp(ctx, store.CreateAppParams{ProjectID: p.ID, Name: "adminapp", BuildStrategy: "dockerfile"}))
-	must(s.CreateDatabase(ctx, store.CreateDatabaseParams{Name: "admindb", ProjectID: p.ID, User: "u", Password: "x"}))
-	must(s.CreateStorage(ctx, store.CreateStorageParams{Name: "adminst", ProjectID: p.ID, Provider: "r2", SecretAccessKey: "x"}))
+	pid, err := s.CreateProject(ctx, store.CreateProjectParams{Name: "adminp", UserID: admin})
+	must(err)
+	p, _ := s.GetProjectByID(ctx, pid)
+	_, err = s.CreateApp(ctx, store.CreateAppParams{ProjectID: p.ID, Name: "adminapp", BuildStrategy: "dockerfile"})
+	must(err)
+	_, err = s.CreateDatabase(ctx, store.CreateDatabaseParams{Name: "admindb", ProjectID: p.ID, Password: "x"})
+	must(err)
+	_, err = s.CreateStorage(ctx, store.CreateStorageParams{Name: "adminst", ProjectID: p.ID, Provider: "r2", SecretAccessKey: "x"})
+	must(err)
 	must(s.CreateNode(ctx, store.CreateNodeParams{Name: "adminsrv", UserID: admin}))
 	_, err = s.CreateCloudflareAccount(ctx, store.CreateCloudflareAccountParams{Name: "adminclient", ApiToken: "x", AccountID: "acc", UserID: admin})
 	must(err)
 
 	mux := http.NewServeMux()
 	registerWebRoutes(mux, s)
-	src, err := os.ReadFile(filepath.Join(sourceDir(t), "web.go"))
+	b, err := os.ReadFile(filepath.Join(sourceDir(t), "web.go"))
 	must(err)
+	// Routes under an app or a database are written with these constants.
+	src := strings.NewReplacer(`"+appRoute+"`, "/projects/{p}/apps/{a}", `"+appRoute)`, `/projects/{p}/apps/{a}")`,
+		`"+dbRoute+"`, "/projects/{p}/databases/{d}", `"+dbRoute)`, `/projects/{p}/databases/{d}")`).Replace(string(b))
 	names := map[string]string{
 		"{p}": "adminp", "{a}": "adminapp", "{d}": "admindb", "{st}": "adminst", "{name}": "adminsrv", "{c}": "adminclient",
-		"{scope}": "app", "{owner}": "adminapp", "{key}": "K", "{v}": "data", "{id}": "1", "{trace}": "t",
+		"{scope}": "app", "{key}": "K", "{v}": "data", "{id}": "1", "{trace}": "t",
 	}
 	checked := 0
-	for _, m := range regexp.MustCompile(`(?:handle|action)\("(GET|POST|DELETE) ([^"]+)"`).FindAllStringSubmatch(string(src), -1) {
+	for _, m := range regexp.MustCompile(`(?:handle|action)\("(GET|POST|DELETE) ([^"]+)"`).FindAllStringSubmatch(src, -1) {
 		method, path := m[1], m[2]
-		if !regexp.MustCompile(`\{(p|a|d|st|name|c|owner)\}`).MatchString(path) {
+		if !regexp.MustCompile(`\{(p|a|d|st|name|c)\}`).MatchString(path) {
 			continue
 		}
 		for k, v := range names {
@@ -232,7 +239,7 @@ func TestUsersSeeOnlyTheirOwn(t *testing.T) {
 	if checked < 40 {
 		t.Errorf("only %d routes checked: is the pattern still right?", checked)
 	}
-	for target, want := range map[string]int{"app:adminapp": http.StatusNotFound, "worker:adminapp": http.StatusNotFound, "host:adminsrv": http.StatusNotFound, "service:postgres:adminsrv": http.StatusNotFound, "panel": http.StatusNotFound, "host": http.StatusOK, "service:postgres": http.StatusOK} {
+	for target, want := range map[string]int{"app:1": http.StatusNotFound, "worker:1": http.StatusNotFound, "host:1": http.StatusNotFound, "service:postgres:1": http.StatusNotFound, "panel": http.StatusNotFound, "host": http.StatusOK, "service:postgres": http.StatusOK} {
 		for _, path := range []string{"/usage", "/uptime"} {
 			if path == "/uptime" && (strings.HasPrefix(target, "host") || strings.HasPrefix(target, "service")) {
 				continue

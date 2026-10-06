@@ -55,7 +55,7 @@ const uptimeFresh = 2 * time.Minute
 // maxOutages is how many of the latest outages are shown.
 const maxOutages = 10
 
-// UptimeOf reads target's record ("panel" or "app:<name>") from the
+// UptimeOf reads target's record ("panel" or AppTarget) from the
 // watchdog's history.
 func UptimeOf(s *store.Store, target string) (Uptime, error) {
 	w, err := s.GetWatchdog(ctx())

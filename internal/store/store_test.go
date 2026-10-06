@@ -24,54 +24,58 @@ func TestStore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := s.CreateProject(ctx, "demo"); err != nil {
-		t.Fatal(err)
-	}
-	p, err := s.GetProject(ctx, "demo")
+	pid, err := s.CreateProject(ctx, CreateProjectParams{Name: "demo", UserID: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
+	p, err := s.GetProject(ctx, GetProjectParams{UserID: 1, Name: "demo"})
+	if err != nil || p.ID != pid {
+		t.Fatal(p, err)
+	}
 	for _, name := range []string{"web", "api"} {
-		if err := s.CreateApp(ctx, CreateAppParams{ProjectID: p.ID, Name: name, Repo: "o/r", ContainerPort: 8080, BuildStrategy: "railpack"}); err != nil {
+		if _, err := s.CreateApp(ctx, CreateAppParams{ProjectID: p.ID, Name: name, Repo: "o/r", ContainerPort: 8080, BuildStrategy: "railpack"}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	web, err := s.GetApp(ctx, "web")
+	web, err := s.GetApp(ctx, GetAppParams{ProjectID: p.ID, Name: "web"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	api, _ := s.GetApp(ctx, "api")
+	api, _ := s.GetApp(ctx, GetAppParams{ProjectID: p.ID, Name: "api"})
 	if web.Port != 8081 || api.Port != 8082 {
 		t.Errorf("ports = %d, %d, want 8081, 8082", web.Port, api.Port)
 	}
-	if web.ProjectName != "demo" || web.ContainerName() != "web-blue" {
-		t.Errorf("app view: project %q, container %q", web.ProjectName, web.ContainerName())
+	if web.ProjectName != "demo" || web.UserID != 1 || web.ContainerName() != AppKey(web.ID)+"-blue" {
+		t.Errorf("app view: project %q of %d, container %q", web.ProjectName, web.UserID, web.ContainerName())
+	}
+	if id, ok := ParseAppKey(web.Key()); !ok || id != web.ID {
+		t.Errorf("ParseAppKey(%q) = %d, %v", web.Key(), id, ok)
 	}
 	if apps, _ := s.ListAppsByRepo(ctx, "o/r"); len(apps) != 2 {
 		t.Errorf("ListAppsByRepo = %d apps, want 2", len(apps))
 	}
 
-	if err := s.SaveWorker(ctx, SaveWorkerParams{AppName: "web", Name: "w", Command: "run"}); err != nil {
+	if err := s.SaveWorker(ctx, SaveWorkerParams{AppID: web.ID, Name: "w", Command: "run"}); err != nil {
 		t.Fatal(err)
 	}
-	id, err := s.CreateDeployLog(ctx, CreateDeployLogParams{AppName: "web", Trigger: "manual", Status: "running"})
+	id, err := s.CreateDeployLog(ctx, CreateDeployLogParams{AppID: web.ID, Trigger: "manual", Status: "running"})
 	if err != nil || id == 0 {
 		t.Fatalf("CreateDeployLog = %d, %v", id, err)
 	}
 	if err := s.FailRunningDeployLogs(ctx); err != nil {
 		t.Fatal(err)
 	}
-	logs, _ := s.ListDeployLogs(ctx, ListDeployLogsParams{AppName: "web", Limit: 10})
+	logs, _ := s.ListDeployLogs(ctx, ListDeployLogsParams{AppID: web.ID, Limit: 10})
 	if len(logs) != 1 || logs[0].Status != "failed" {
 		t.Errorf("deploy logs after restart = %+v", logs)
 	}
-	if err := s.DeleteAppCascade(ctx, "web"); err != nil {
+	if err := s.DeleteAppCascade(ctx, web.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.GetWorker(ctx, "web"); err == nil {
+	if _, err := s.GetWorker(ctx, web.ID); err == nil {
 		t.Error("worker survived app deletion")
 	}
-	if logs, _ := s.ListDeployLogs(ctx, ListDeployLogsParams{AppName: "web", Limit: 10}); len(logs) != 0 {
+	if logs, _ := s.ListDeployLogs(ctx, ListDeployLogsParams{AppID: web.ID, Limit: 10}); len(logs) != 0 {
 		t.Error("deploy logs survived app deletion")
 	}
 
@@ -135,8 +139,52 @@ func TestStore(t *testing.T) {
 	if files, _ := fs.Glob(migrationFiles, "migrations/*.sql"); version != len(files) {
 		t.Errorf("user_version = %d, want %d", version, len(files))
 	}
-	if _, err := s.GetApp(ctx, "api"); err != nil {
+	if _, err := s.GetApp(ctx, GetAppParams{ProjectID: p.ID, Name: "api"}); err != nil {
 		t.Errorf("data lost on reopen: %v", err)
+	}
+}
+
+// Names are unique where people see them: a project's among its owner's,
+// an app's, database's or storage's in its project.
+func TestNamesAreScoped(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(filepath.Join(t.TempDir(), "hakobu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := s.CreateProject(ctx, CreateProjectParams{Name: "shop", UserID: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.CreateProject(ctx, CreateProjectParams{Name: "shop", UserID: 2})
+	if err != nil {
+		t.Fatalf("another user's project of the same name: %v", err)
+	}
+	if _, err := s.CreateProject(ctx, CreateProjectParams{Name: "shop", UserID: 1}); err == nil {
+		t.Error("a user got two projects named shop")
+	}
+	c, err := s.CreateProject(ctx, CreateProjectParams{Name: "blog", UserID: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []int64{a, b, c} {
+		if _, err := s.CreateApp(ctx, CreateAppParams{ProjectID: p, Name: "web", BuildStrategy: "railpack"}); err != nil {
+			t.Fatalf("web in project %d: %v", p, err)
+		}
+		if _, err := s.CreateDatabase(ctx, CreateDatabaseParams{ProjectID: p, Name: "db", Password: "x"}); err != nil {
+			t.Fatalf("db in project %d: %v", p, err)
+		}
+	}
+	if _, err := s.CreateApp(ctx, CreateAppParams{ProjectID: a, Name: "web", BuildStrategy: "railpack"}); err == nil {
+		t.Error("a project got two apps named web")
+	}
+	webA, _ := s.GetApp(ctx, GetAppParams{ProjectID: a, Name: "web"})
+	webB, _ := s.GetApp(ctx, GetAppParams{ProjectID: b, Name: "web"})
+	if webA.ID == webB.ID || webA.Key() == webB.Key() {
+		t.Errorf("two users' web apps share a key: %s, %s", webA.Key(), webB.Key())
+	}
+	if _, err := s.GetProject(ctx, GetProjectParams{UserID: 3, Name: "shop"}); err == nil {
+		t.Error("found another user's project")
 	}
 }
 
@@ -148,10 +196,11 @@ func TestSecretsEncryptedAtRest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.CreateProject(ctx, "demo"); err != nil {
+	pid, err := s.CreateProject(ctx, CreateProjectParams{Name: "demo"})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetProjectSharedEnv(ctx, SetProjectSharedEnvParams{Name: "demo", SharedEnv: "TOKEN=hunter2"}); err != nil {
+	if err := s.SetProjectSharedEnv(ctx, SetProjectSharedEnvParams{ID: pid, SharedEnv: "TOKEN=hunter2"}); err != nil {
 		t.Fatal(err)
 	}
 	var raw string
@@ -165,14 +214,14 @@ func TestSecretsEncryptedAtRest(t *testing.T) {
 	if s, err = Open(path); err != nil {
 		t.Fatal(err)
 	}
-	if p, err := s.GetProject(ctx, "demo"); err != nil || p.SharedEnv != "TOKEN=hunter2" {
+	if p, err := s.GetProjectByID(ctx, pid); err != nil || p.SharedEnv != "TOKEN=hunter2" {
 		t.Errorf("read %q, %v", p.SharedEnv, err)
 	}
 	// A secret column holding something unencrypted is an error, not data.
 	if _, err := s.db.Exec(`UPDATE projects SET shared_env = 'X=1'`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.GetProject(ctx, "demo"); err == nil {
+	if _, err := s.GetProjectByID(ctx, pid); err == nil {
 		t.Error("plaintext in a secret column was accepted")
 	}
 
@@ -199,13 +248,14 @@ func TestRotateMasterKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.CreateProject(ctx, "demo"); err != nil {
+	pid, err := s.CreateProject(ctx, CreateProjectParams{Name: "demo"})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetProjectSharedEnv(ctx, SetProjectSharedEnvParams{Name: "demo", SharedEnv: "TOKEN=hunter2"}); err != nil {
+	if err := s.SetProjectSharedEnv(ctx, SetProjectSharedEnvParams{ID: pid, SharedEnv: "TOKEN=hunter2"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetSealedVar(ctx, SetSealedVarParams{Scope: "app", Owner: "web", Key: "K", Value: "sealed"}); err != nil {
+	if err := s.SetSealedVar(ctx, SetSealedVarParams{Scope: "app", OwnerID: 7, Key: "K", Value: "sealed"}); err != nil {
 		t.Fatal(err)
 	}
 	raw := func() string {
@@ -229,10 +279,10 @@ func TestRotateMasterKey(t *testing.T) {
 	if _, err := os.Stat(keyFile + ".new"); !os.IsNotExist(err) {
 		t.Error("master.key.new left behind")
 	}
-	if p, err := s.GetProject(ctx, "demo"); err != nil || p.SharedEnv != "TOKEN=hunter2" {
+	if p, err := s.GetProjectByID(ctx, pid); err != nil || p.SharedEnv != "TOKEN=hunter2" {
 		t.Errorf("after rotation: %q, %v", p.SharedEnv, err)
 	}
-	if v, err := s.ListSealedVars(ctx, ListSealedVarsParams{Scope: "app", Owner: "web"}); err != nil || v[0].Value != "sealed" {
+	if v, err := s.ListSealedVars(ctx, ListSealedVarsParams{Scope: "app", OwnerID: 7}); err != nil || v[0].Value != "sealed" {
 		t.Errorf("sealed var after rotation: %v, %v", v, err)
 	}
 
@@ -250,7 +300,7 @@ func TestRotateMasterKey(t *testing.T) {
 	if _, err := os.Stat(keyFile + ".new"); !os.IsNotExist(err) {
 		t.Error("master.key.new left behind")
 	}
-	if p, err := s.GetProject(ctx, "demo"); err != nil || p.SharedEnv != "TOKEN=hunter2" {
+	if p, err := s.GetProjectByID(ctx, pid); err != nil || p.SharedEnv != "TOKEN=hunter2" {
 		t.Errorf("after an interrupted rotation: %q, %v", p.SharedEnv, err)
 	}
 }
@@ -294,20 +344,21 @@ func TestLogsEncryptedAtRest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.CreateProject(ctx, "demo"); err != nil {
+	pid, err := s.CreateProject(ctx, CreateProjectParams{Name: "demo"})
+	if err != nil {
 		t.Fatal(err)
 	}
-	p, _ := s.GetProject(ctx, "demo")
-	if err := s.CreateApp(ctx, CreateAppParams{ProjectID: p.ID, Name: "web", Repo: "o/r", BuildStrategy: "railpack"}); err != nil {
+	web, err := s.CreateApp(ctx, CreateAppParams{ProjectID: pid, Name: "web", Repo: "o/r", BuildStrategy: "railpack"})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Tel.CreateTelemetryEvent(ctx, teldb.CreateTelemetryEventParams{AppName: "web", Kind: "error", Level: "error", Message: "user alice@example.com", Payload: `{"ip":"203.0.113.9"}`}); err != nil {
+	if err := s.Tel.CreateTelemetryEvent(ctx, teldb.CreateTelemetryEventParams{AppID: web, Kind: "error", Level: "error", Message: "user alice@example.com", Payload: `{"ip":"203.0.113.9"}`}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SaveWorker(ctx, SaveWorkerParams{AppName: "web", Name: "w", Command: "worker --token=hunter2"}); err != nil {
+	if err := s.SaveWorker(ctx, SaveWorkerParams{AppID: web, Name: "w", Command: "worker --token=hunter2"}); err != nil {
 		t.Fatal(err)
 	}
-	id, err := s.CreateDeployLog(ctx, CreateDeployLogParams{AppName: "web", Trigger: "push", Status: "running"})
+	id, err := s.CreateDeployLog(ctx, CreateDeployLogParams{AppID: web, Trigger: "push", Status: "running"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -332,7 +383,7 @@ func TestLogsEncryptedAtRest(t *testing.T) {
 	if err := s.FailRunningDeployLogs(ctx); err != nil {
 		t.Fatal(err)
 	}
-	logs, err := s.ListDeployLogs(ctx, ListDeployLogsParams{AppName: "web", Limit: 1})
+	logs, err := s.ListDeployLogs(ctx, ListDeployLogsParams{AppID: web, Limit: 1})
 	if err != nil || len(logs) != 1 {
 		t.Fatal(logs, err)
 	}

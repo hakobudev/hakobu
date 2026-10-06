@@ -40,7 +40,7 @@ func TestPanelBackupAndRestore(t *testing.T) {
 		t.Error("backed up before backups were set up")
 	}
 	must(SetupBackups(s))
-	must(s.CreateProject(ctx(), "shop"))
+	must(createProject(s, "shop"))
 	must(BackupPanel(s))
 	if LastPanelBackup() == "" || strings.HasPrefix(LastPanelBackup(), "failed") {
 		t.Errorf("last panel backup = %q", LastPanelBackup())
@@ -80,7 +80,7 @@ func TestPanelBackupAndRestore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := restored.GetProject(ctx(), "shop"); err != nil {
+	if _, err := restored.GetProject(ctx(), store.GetProjectParams{Name: "shop"}); err != nil {
 		t.Errorf("restored panel lost its project: %v", err)
 	}
 	if cf, err := restored.GetCloudflare(ctx()); err != nil || string(cf.ApiToken) != "tok" {

@@ -76,16 +76,12 @@ func projectAccount(s *store.Store, p store.Project) (cfAccount, error) {
 	return clientAccount(s, a), nil
 }
 
-func projectAccountByName(s *store.Store, project string) (cfAccount, error) {
-	p, err := s.GetProject(ctx(), project)
+func appAccount(s *store.Store, app store.App) (cfAccount, error) {
+	p, err := s.GetProjectByID(ctx(), app.ProjectID)
 	if err != nil {
-		return cfAccount{}, fmt.Errorf("project %q not found: %w", project, err)
+		return cfAccount{}, fmt.Errorf("the project of %s: %w", app.Name, err)
 	}
 	return projectAccount(s, p)
-}
-
-func appAccount(s *store.Store, app store.App) (cfAccount, error) {
-	return projectAccountByName(s, app.ProjectName)
 }
 
 // accountByCloudflareID finds the connected account with Cloudflare's
@@ -258,10 +254,10 @@ func RemoveClientAccount(s *store.Store, name string) error {
 // SetProjectAccount moves a project to a client's account, or with client
 // "" to the panel's. Its apps' domains are in the old account, so a project
 // with public apps must make them private first.
-func SetProjectAccount(s *store.Store, project, client string) error {
-	p, err := s.GetProject(ctx(), project)
+func SetProjectAccount(s *store.Store, projectID int64, client string) error {
+	p, err := s.GetProjectByID(ctx(), projectID)
 	if err != nil {
-		return fmt.Errorf("project %q not found: %w", project, err)
+		return fmt.Errorf("project not found: %w", err)
 	}
 	if config.PanelOnly && client == "" {
 		return errPanelOnly
@@ -293,7 +289,7 @@ func SetProjectAccount(s *store.Store, project, client string) error {
 	if err := s.SetProjectCloudflareAccount(ctx(), store.SetProjectCloudflareAccountParams{CloudflareAccountID: id, ID: p.ID}); err != nil {
 		return err
 	}
-	return ensureProjectNetworks(s, project)
+	return ensureProjectNetworks(s, p.ID)
 }
 
 func plural(n int, one, many string) string {
@@ -305,8 +301,8 @@ func plural(n int, one, many string) string {
 
 // ProjectZones are the domains of the project's account and the one a new
 // app's address defaults to.
-func ProjectZones(s *store.Store, project string) (zones []string, def string, err error) {
-	a, err := projectAccountByName(s, project)
+func ProjectZones(s *store.Store, p store.Project) (zones []string, def string, err error) {
+	a, err := projectAccount(s, p)
 	if err != nil {
 		return nil, "", err
 	}

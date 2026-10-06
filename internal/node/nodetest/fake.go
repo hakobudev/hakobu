@@ -687,11 +687,11 @@ func (f *Fake) Disk(ctx context.Context) (uint64, uint64, error) {
 
 // Telemetry goes to Tel, a real telemetry.db (the panel's in most tests).
 
-func (f *Fake) AppEvents(ctx context.Context, app string, logs bool, limit int64) ([]teldb.TelemetryEvent, error) {
+func (f *Fake) AppEvents(ctx context.Context, app int64, logs bool, limit int64) ([]teldb.TelemetryEvent, error) {
 	return node.Telemetry{Q: f.Tel}.AppEvents(ctx, app, logs, limit)
 }
 
-func (f *Fake) AppEvent(ctx context.Context, app string, id int64) (teldb.TelemetryEvent, error) {
+func (f *Fake) AppEvent(ctx context.Context, app int64, id int64) (teldb.TelemetryEvent, error) {
 	return node.Telemetry{Q: f.Tel}.AppEvent(ctx, app, id)
 }
 
@@ -699,31 +699,31 @@ func (f *Fake) AddAppEvent(ctx context.Context, e teldb.CreateTelemetryEventPara
 	return node.Telemetry{Q: f.Tel}.AddAppEvent(ctx, e)
 }
 
-func (f *Fake) LastAppEvent(ctx context.Context, app, kind string) (string, error) {
+func (f *Fake) LastAppEvent(ctx context.Context, app int64, kind string) (string, error) {
 	return node.Telemetry{Q: f.Tel}.LastAppEvent(ctx, app, kind)
 }
 
-func (f *Fake) AppTraces(ctx context.Context, app string, limit int64) ([]teldb.ListTracesRow, error) {
+func (f *Fake) AppTraces(ctx context.Context, app int64, limit int64) ([]teldb.ListTracesRow, error) {
 	return node.Telemetry{Q: f.Tel}.AppTraces(ctx, app, limit)
 }
 
-func (f *Fake) AppTrace(ctx context.Context, app string, id int64) (teldb.Trace, error) {
+func (f *Fake) AppTrace(ctx context.Context, app int64, id int64) (teldb.Trace, error) {
 	return node.Telemetry{Q: f.Tel}.AppTrace(ctx, app, id)
 }
 
-func (f *Fake) TraceByID(ctx context.Context, app, traceID string) (int64, error) {
+func (f *Fake) TraceByID(ctx context.Context, app int64, traceID string) (int64, error) {
 	return node.Telemetry{Q: f.Tel}.TraceByID(ctx, app, traceID)
 }
 
-func (f *Fake) TraceRoutes(ctx context.Context, app string, since int64) ([]teldb.TraceRoute, error) {
+func (f *Fake) TraceRoutes(ctx context.Context, app int64, since int64) ([]teldb.TraceRoute, error) {
 	return node.Telemetry{Q: f.Tel}.TraceRoutes(ctx, app, since)
 }
 
-func (f *Fake) DropTelemetry(ctx context.Context, app string) error {
+func (f *Fake) DropTelemetry(ctx context.Context, app int64) error {
 	return node.Telemetry{Q: f.Tel}.DropTelemetry(ctx, app)
 }
 
-func (f *Fake) StoreEnvelope(ctx context.Context, app string, body []byte) error {
+func (f *Fake) StoreEnvelope(ctx context.Context, app int64, body []byte) error {
 	unlock, err := f.call("StoreEnvelope")
 	defer unlock()
 	if err != nil {

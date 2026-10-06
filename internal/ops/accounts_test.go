@@ -166,6 +166,14 @@ func accountsStore(t *testing.T) (*store.Store, store.Project, store.Project) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A client's tunnel made on the panel's server runs a real cloudflared
+	// on the local Docker: it goes with the test.
+	t.Cleanup(func() {
+		rows, _ := s.ListCloudflareAccounts(ctx())
+		for _, r := range rows {
+			_ = local.RemoveTunnel(ctx(), r.Name)
+		}
+	})
 	must := func(err error) {
 		t.Helper()
 		if err != nil {
@@ -177,12 +185,12 @@ func accountsStore(t *testing.T) (*store.Store, store.Project, store.Project) {
 	id, err := s.CreateCloudflareAccount(ctx(), store.CreateCloudflareAccountParams{Name: "acme", ApiToken: "acme-tok", TokenGroup: "g-acme", AccountID: "acme-acc", Title: "Acme", Domains: "acme.com"})
 	must(err)
 	must(s.SetCloudflareAccountTunnel(ctx(), store.SetCloudflareAccountTunnelParams{TunnelID: "t-acme", TunnelToken: "y", ID: id}))
-	must(s.CreateProject(ctx(), "own"))
-	must(s.CreateProject(ctx(), "shop"))
-	own, _ := s.GetProject(ctx(), "own")
-	shop, _ := s.GetProject(ctx(), "shop")
+	must(createProject(s, "own"))
+	must(createProject(s, "shop"))
+	own, _ := getProject(s, "own")
+	shop, _ := getProject(s, "shop")
 	must(s.SetProjectCloudflareAccount(ctx(), store.SetProjectCloudflareAccountParams{CloudflareAccountID: sql.NullInt64{Int64: id, Valid: true}, ID: shop.ID}))
-	shop, _ = s.GetProject(ctx(), "shop")
+	shop, _ = getProject(s, "shop")
 	return s, own, shop
 }
 
@@ -193,15 +201,15 @@ func TestClientTunnelsAreIsolated(t *testing.T) {
 		project store.Project
 		name    string
 	}{{own, "web"}, {shop, "store"}} {
-		if err := s.CreateApp(ctx(), store.CreateAppParams{ProjectID: a.project.ID, Name: a.name, BuildStrategy: "dockerfile"}); err != nil {
+		if err := createApp(s, store.CreateAppParams{ProjectID: a.project.ID, Name: a.name, BuildStrategy: "dockerfile"}); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.SetAppLive(ctx(), store.SetAppLiveParams{Name: a.name, ActiveSlot: "blue", LivePort: 3000}); err != nil {
+		if err := s.SetAppLive(ctx(), store.SetAppLiveParams{ID: appID(t, s, a.name), ActiveSlot: "blue", LivePort: 3000}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	web, _ := s.GetApp(ctx(), "web")
-	shopApp, _ := s.GetApp(ctx(), "store")
+	web, _ := getApp(s, "web")
+	shopApp, _ := getApp(s, "store")
 
 	// A domain goes to the tunnel of its project's account, from that
 	// account's domains only.
@@ -224,8 +232,8 @@ func TestClientTunnelsAreIsolated(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]string{
-		"t-panel": "[{web.panel.com  http://web.hakobu:3000} {  unix:/run/hakobu/panel.sock}]",
-		"t-acme":  "[{store.acme.com  http://store.hakobu:3000} {  http_status:404}]",
+		"t-panel": "[{web.panel.com  http://" + web.Key() + ".hakobu:3000} {  unix:/run/hakobu/panel.sock}]",
+		"t-acme":  "[{store.acme.com  http://" + shopApp.Key() + ".hakobu:3000} {  http_status:404}]",
 	}
 	for tunnel, rules := range want {
 		if got := fmt.Sprint(f.ingress[tunnel]); got != rules {
@@ -260,16 +268,16 @@ func TestAddAccountTokenRefuses(t *testing.T) {
 func TestSetProjectAccountNeedsPrivateApps(t *testing.T) {
 	newFakeAccounts(t)
 	s, own, _ := accountsStore(t)
-	if err := s.CreateApp(ctx(), store.CreateAppParams{ProjectID: own.ID, Name: "web", BuildStrategy: "dockerfile"}); err != nil {
+	if err := createApp(s, store.CreateAppParams{ProjectID: own.ID, Name: "web", BuildStrategy: "dockerfile"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetAppDomain(ctx(), store.SetAppDomainParams{Name: "web", Domain: "web.panel.com"}); err != nil {
+	if err := s.SetAppDomain(ctx(), store.SetAppDomainParams{ID: appID(t, s, "web"), Domain: "web.panel.com"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := SetProjectAccount(s, "own", "acme"); err == nil || !strings.Contains(err.Error(), "make it private") {
+	if err := SetProjectAccount(s, projectID(t, s, "own"), "acme"); err == nil || !strings.Contains(err.Error(), "make it private") {
 		t.Errorf("moved a project with a public app: %v", err)
 	}
-	if err := SetProjectAccount(s, "own", "nobody"); err == nil {
+	if err := SetProjectAccount(s, projectID(t, s, "own"), "nobody"); err == nil {
 		t.Error("moved a project to an unknown client")
 	}
 	if err := RemoveClientAccount(s, "acme"); err == nil || !strings.Contains(err.Error(), "shop") {
@@ -325,7 +333,7 @@ func TestDockerClientTunnelNetworks(t *testing.T) {
 	}
 	t.Chdir(t.TempDir()) // for the panel's socket directory
 	newFakeAccounts(t)
-	s, _, _ := accountsStore(t)
+	s, own, shop := accountsStore(t)
 	accounts := tunnelAccounts(s)
 	if len(accounts) != 2 {
 		t.Fatalf("tunnel accounts %+v", accounts)
@@ -336,7 +344,9 @@ func TestDockerClientTunnelNetworks(t *testing.T) {
 			_ = deploy.RemoveContainer(ctx(), a.container())
 		}
 		for _, p := range []string{"own", "shop"} {
-			_ = removeProjectNetworks(s, p)
+			if pr, err := getProject(s, p); err == nil {
+				_ = removeProjectNetworks(s, pr)
+			}
 		}
 		_ = local.RemoveTunnel(ctx(), acme.Name)
 	})
@@ -348,7 +358,7 @@ func TestDockerClientTunnelNetworks(t *testing.T) {
 		}
 	}
 	for _, p := range []string{"own", "shop"} {
-		if err := ensureProjectNetworks(s, p); err != nil {
+		if err := ensureProjectNetworks(s, projectID(t, s, p)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -362,14 +372,14 @@ func TestDockerClientTunnelNetworks(t *testing.T) {
 			t.Errorf("%s: %s (want %s, not %s, panel socket %v)", a.container(), got, has, hasNot, socket)
 		}
 	}
-	expect(panel, projectEdge("own"), projectEdge("shop"), true)
-	expect(acme, projectEdge("shop"), projectEdge("own"), false)
+	expect(panel, projectEdge(own.Key()), projectEdge(shop.Key()), true)
+	expect(acme, projectEdge(shop.Key()), projectEdge(own.Key()), false)
 
-	if err := SetProjectAccount(s, "shop", ""); err != nil {
+	if err := SetProjectAccount(s, projectID(t, s, "shop"), ""); err != nil {
 		t.Fatal(err)
 	}
-	expect(panel, projectEdge("shop"), "-", true)
-	expect(acme, deploy.EdgeNetwork+"-acme", projectEdge("shop"), false)
+	expect(panel, projectEdge(shop.Key()), "-", true)
+	expect(acme, deploy.EdgeNetwork+"-acme", projectEdge(shop.Key()), false)
 }
 
 // A panel whose domain lapsed moves to another domain of its account,
@@ -389,8 +399,8 @@ func TestMovePanel(t *testing.T) {
 	must(config.SetAppsDomain("panel.com"))
 	f.records["hakobu.panel.com"] = "t-panel.cfargotunnel.com"
 	for _, a := range []struct{ name, domain string }{{"web", "web.panel.com"}, {"apex", "panel.com"}, {"elsewhere", ""}} {
-		must(s.CreateApp(ctx(), store.CreateAppParams{ProjectID: own.ID, Name: a.name, BuildStrategy: "dockerfile"}))
-		app, _ := s.GetApp(ctx(), a.name)
+		must(createApp(s, store.CreateAppParams{ProjectID: own.ID, Name: a.name, BuildStrategy: "dockerfile"}))
+		app, _ := getApp(s, a.name)
 		must(SetAppDomain(s, app, a.domain))
 	}
 	must(s.SaveCloudflareToken(ctx(), "lapsed-tok"))
@@ -411,7 +421,7 @@ func TestMovePanel(t *testing.T) {
 		}
 	}
 	for name, want := range map[string]string{"web": "web.new.com", "apex": "new.com", "elsewhere": ""} {
-		if app, _ := s.GetApp(ctx(), name); app.Domain != want || (want != "" && app.DnsZoneID != "z-new") {
+		if app, _ := getApp(s, name); app.Domain != want || (want != "" && app.DnsZoneID != "z-new") {
 			t.Errorf("app %s at %q in %s", name, app.Domain, app.DnsZoneID)
 		}
 	}
@@ -439,30 +449,30 @@ func TestPanelOnlyProjectsUseTheirOwnersPlaces(t *testing.T) {
 	t.Cleanup(func() { config.PanelOnly = false })
 
 	for _, place := range [][2]string{{"", ""}, {"box", ""}, {"", "acme"}} {
-		if err := CreateProjectOn(s, 0, "web", place[0], place[1]); !errors.Is(err, errPanelOnly) {
+		if _, err := CreateProjectOn(s, 0, "web", place[0], place[1]); !errors.Is(err, errPanelOnly) {
 			t.Errorf("server %q, account %q: %v, want errPanelOnly", place[0], place[1], err)
 		}
-		if _, err := s.GetProject(ctx(), "web"); err == nil {
+		if _, err := getProject(s, "web"); err == nil {
 			t.Fatalf("server %q, account %q: the project was left behind", place[0], place[1])
 		}
 	}
-	if err := CreateProjectOn(s, 1, "web", "box", "acme"); err == nil {
+	if _, err := CreateProjectOn(s, 1, "web", "box", "acme"); err == nil {
 		t.Error("a user put a project on another user's server and account")
 	}
-	if err := CreateProjectOn(s, 0, "web", "box", "acme"); err != nil {
+	if _, err := CreateProjectOn(s, 0, "web", "box", "acme"); err != nil {
 		t.Fatal(err)
 	}
-	p, _ := s.GetProject(ctx(), "web")
+	p, _ := getProject(s, "web")
 	if a, err := projectAccount(s, p); err != nil || a.Name != "acme" {
 		t.Errorf("account = %q (%v), want acme", a.Name, err)
 	}
 	if sv, err := projectServer(s, p); err != nil || sv.Name != "box" {
 		t.Errorf("server = %q (%v), want box", sv.Name, err)
 	}
-	if err := SetProjectServer(s, "web", ""); !errors.Is(err, errPanelOnly) {
+	if err := SetProjectServer(s, projectID(t, s, "web"), ""); !errors.Is(err, errPanelOnly) {
 		t.Errorf("moved to the panel's server: %v", err)
 	}
-	if err := SetProjectAccount(s, "web", ""); !errors.Is(err, errPanelOnly) {
+	if err := SetProjectAccount(s, projectID(t, s, "web"), ""); !errors.Is(err, errPanelOnly) {
 		t.Errorf("moved to the panel's account: %v", err)
 	}
 }
@@ -477,26 +487,26 @@ func TestAppRoutes(t *testing.T) {
 		name    string
 		port    int64
 	}{{own, "web", 3000}, {own, "api", 8080}, {own, "admin", 0}, {shop, "store", 3000}} {
-		if err := s.CreateApp(ctx(), store.CreateAppParams{ProjectID: a.project.ID, Name: a.name, BuildStrategy: "dockerfile"}); err != nil {
+		if err := createApp(s, store.CreateAppParams{ProjectID: a.project.ID, Name: a.name, BuildStrategy: "dockerfile"}); err != nil {
 			t.Fatal(err)
 		}
 		if a.port > 0 {
-			if err := s.SetAppLive(ctx(), store.SetAppLiveParams{Name: a.name, ActiveSlot: "blue", LivePort: a.port}); err != nil {
+			if err := s.SetAppLive(ctx(), store.SetAppLiveParams{ID: appID(t, s, a.name), ActiveSlot: "blue", LivePort: a.port}); err != nil {
 				t.Fatal(err)
 			}
 		}
 	}
-	web, _ := s.GetApp(ctx(), "web")
+	web, _ := getApp(s, "web")
 	if err := SetAppDomain(s, web, "web.panel.com"); err != nil {
 		t.Fatal(err)
 	}
 	for _, r := range [][2]string{{"/api", "api"}, {"api/v2/", "api"}, {"/admin", "admin"}} {
-		if err := SetAppRoute(s, "web", r[0], r[1]); err != nil {
+		if err := SetAppRoute(s, mustApp(t, s, "web"), r[0], r[1]); err != nil {
 			t.Fatal(err)
 		}
 	}
 	for _, bad := range [][2]string{{"/", "api"}, {"/a b", "api"}, {"/x", "store"}, {"/x", "web"}, {"/x", "nobody"}} {
-		if err := SetAppRoute(s, "web", bad[0], bad[1]); err == nil {
+		if err := SetAppRoute(s, mustApp(t, s, "web"), bad[0], bad[1]); err == nil {
 			t.Errorf("took route %s → %s", bad[0], bad[1])
 		}
 	}
@@ -504,17 +514,18 @@ func TestAppRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	// admin isn't deployed: its route waits.
-	want := "[{web.panel.com ^/api/v2(/|$) http://api.hakobu:8080} {web.panel.com ^/api(/|$) http://api.hakobu:8080} {web.panel.com  http://web.hakobu:3000} {  unix:/run/hakobu/panel.sock}]"
+	apiKey, webKey := mustApp(t, s, "api").Key(), mustApp(t, s, "web").Key()
+	want := "[{web.panel.com ^/api/v2(/|$) http://" + apiKey + ".hakobu:8080} {web.panel.com ^/api(/|$) http://" + apiKey + ".hakobu:8080} {web.panel.com  http://" + webKey + ".hakobu:3000} {  unix:/run/hakobu/panel.sock}]"
 	if got := fmt.Sprint(f.ingress["t-panel"]); got != want {
 		t.Errorf("ingress = %s, want %s", got, want)
 	}
-	if err := SetAppRoute(s, "web", "/api/v2", ""); err != nil {
+	if err := SetAppRoute(s, mustApp(t, s, "web"), "/api/v2", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DeleteAppCascade(ctx(), "api"); err != nil {
+	if err := s.DeleteAppCascade(ctx(), appID(t, s, "api")); err != nil {
 		t.Fatal(err)
 	}
-	if routes, _ := s.ListAppRoutes(ctx(), "web"); len(routes) != 1 || routes[0].Target != "admin" {
+	if routes, _ := s.ListAppRoutes(ctx(), appID(t, s, "web")); len(routes) != 1 || routes[0].TargetID != appID(t, s, "admin") {
 		t.Errorf("routes left: %v", routes)
 	}
 }
@@ -563,10 +574,10 @@ func TestUserTokenConnectsItsAccounts(t *testing.T) {
 	}
 
 	// A project uses late; then the token loses late and other.
-	if err := s.CreateProject(ctx(), "shop2"); err != nil {
+	if err := createProject(s, "shop2"); err != nil {
 		t.Fatal(err)
 	}
-	p, _ := s.GetProject(ctx(), "shop2")
+	p, _ := getProject(s, "shop2")
 	if err := s.SetProjectCloudflareAccount(ctx(), store.SetProjectCloudflareAccountParams{CloudflareAccountID: sql.NullInt64{Int64: lateRow.ID, Valid: true}, ID: p.ID}); err != nil {
 		t.Fatal(err)
 	}
@@ -608,18 +619,18 @@ func TestClientTunnelOnFirstDomain(t *testing.T) {
 		t.Fatal(err)
 	}
 	newco, _ := s.GetCloudflareAccountByName(ctx(), "newco")
-	if err := s.CreateProject(ctx(), "fresh"); err != nil {
+	if err := createProject(s, "fresh"); err != nil {
 		t.Fatal(err)
 	}
-	p, _ := s.GetProject(ctx(), "fresh")
+	p, _ := getProject(s, "fresh")
 	if err := s.SetProjectCloudflareAccount(ctx(), store.SetProjectCloudflareAccountParams{CloudflareAccountID: sql.NullInt64{Int64: newco.ID, Valid: true}, ID: p.ID}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.CreateApp(ctx(), store.CreateAppParams{ProjectID: p.ID, Name: "site", BuildStrategy: "dockerfile"}); err != nil {
+	if err := createApp(s, store.CreateAppParams{ProjectID: p.ID, Name: "site", BuildStrategy: "dockerfile"}); err != nil {
 		t.Fatal(err)
 	}
 	before := f.created - len(f.deleted)
-	app, _ := s.GetApp(ctx(), "site")
+	app, _ := getApp(s, "site")
 	if err := SetAppDomain(s, app, "www.newco.com"); err != nil {
 		t.Fatal(err)
 	}
@@ -627,7 +638,7 @@ func TestClientTunnelOnFirstDomain(t *testing.T) {
 	if f.created-len(f.deleted) != before+1 || newco.TunnelID == "" || f.records["www.newco.com"] != newco.TunnelID+".cfargotunnel.com" {
 		t.Errorf("tunnels %d → %d, newco's %q, records %v", before, f.created-len(f.deleted), newco.TunnelID, f.records)
 	}
-	app, _ = s.GetApp(ctx(), "site")
+	app, _ = getApp(s, "site")
 	if err := SetAppDomain(s, app, "shop.newco.com"); err != nil {
 		t.Fatal(err)
 	}

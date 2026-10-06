@@ -58,10 +58,10 @@ func TestR2Off(t *testing.T) {
 	if err := s.SaveCloudflareTunnel(ctx(), store.SaveCloudflareTunnelParams{AccountID: "r2-acc", TunnelID: "t"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.CreateProject(ctx(), "shop"); err != nil {
+	if err := createProject(s, "shop"); err != nil {
 		t.Fatal(err)
 	}
-	err = CreateStorage(s, "shop", store.Storage{Provider: "r2"})
+	_, err = CreateStorage(s, store.Storage{ProjectID: projectID(t, s, "shop"), Provider: "r2"})
 	if err == nil || !strings.Contains(err.Error(), cloudflare.R2URL("r2-acc")) {
 		t.Errorf("storage without R2: %v", err)
 	}

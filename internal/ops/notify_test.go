@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -398,20 +399,26 @@ func TestProblemsAreMailedOnce(t *testing.T) {
 	f := newFakeEmail(t)
 	s := notifyStore(t)
 	boom := errors.New("boom")
+	web := seedApp(t, s, "store", "web")
+	shopDB, err := s.CreateDatabase(ctx(), store.CreateDatabaseParams{Name: "shop", ProjectID: web.ProjectID, Password: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shop := dbJobKey(shopDB)
 
-	NoteBackup(s, "shop", boom) // notifications are off: nothing
+	NoteBackup(s, shop, boom) // notifications are off: nothing
 	if err := SetupNotifications(s, "me@example.org", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	f.addresses["me@example.org"] = true
-	NoteBackup(s, "shop", boom)
-	NoteBackup(s, "shop", boom) // still failing: quiet
+	NoteBackup(s, shop, boom)
+	NoteBackup(s, shop, boom) // still failing: quiet
 	NoteBackup(s, "panel", boom)
-	NoteBackup(s, "shop", nil)
-	NoteBackup(s, "shop", nil)           // nothing open any more
-	noteDeploy(s, "web", "manual", boom) // the owner is watching
-	noteDeploy(s, "web", "push", boom)
-	noteDeploy(s, "web", "manual", nil)
+	NoteBackup(s, shop, nil)
+	NoteBackup(s, shop, nil)           // nothing open any more
+	noteDeploy(s, web, "manual", boom) // the owner is watching
+	noteDeploy(s, web, "push", boom)
+	noteDeploy(s, web, "manual", nil)
 
 	want := []string{
 		"Backup of database shop failed",
@@ -431,33 +438,34 @@ func TestCrashesOfLiveContainers(t *testing.T) {
 	if err := SetupNotifications(s, "me@example.org", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.CreateProject(ctx(), "shop"); err != nil {
+	if err := createProject(s, "shop"); err != nil {
 		t.Fatal(err)
 	}
-	p, err := s.GetProject(ctx(), "shop")
+	p, err := getProject(s, "shop")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.CreateApp(ctx(), store.CreateAppParams{ProjectID: p.ID, Name: "web", BuildStrategy: "dockerfile"}); err != nil {
+	if err := createApp(s, store.CreateAppParams{ProjectID: p.ID, Name: "web", BuildStrategy: "dockerfile"}); err != nil {
 		t.Fatal(err)
 	}
-	app, err := s.GetApp(ctx(), "web")
+	app, err := getApp(s, "web")
 	if err != nil {
 		t.Fatal(err)
 	}
-	candidate := "web-green"
+	key := app.Key()
+	candidate := key + "-green"
 	if app.ActiveSlot == "green" {
-		candidate = "web-blue"
+		candidate = key + "-blue"
 	}
 
-	recordDeath(s, server{ID: 7, Name: "other"}, "web-"+app.ActiveSlot, "web", deploy.Death{OOM: true}) // not its app
-	recordDeath(s, server{}, candidate, "web", deploy.Death{ExitCode: "1"})                             // its deploy says so
-	recordDeath(s, server{}, "postgres", "", deploy.Death{ExitCode: "1"})                               // not an app's
-	recordDeath(s, server{}, "web-"+app.ActiveSlot, "web", deploy.Death{ExitCode: "1"})
-	recordDeath(s, server{}, "web-"+app.ActiveSlot, "web", deploy.Death{ExitCode: "1"}) // restarted, crashed again
-	recordDeath(s, server{}, "web-worker", "web", deploy.Death{OOM: true})
+	recordDeath(s, server{ID: 7, Name: "other"}, app.ContainerName(), key, deploy.Death{OOM: true}) // not its app
+	recordDeath(s, server{}, candidate, key, deploy.Death{ExitCode: "1"})                           // its deploy says so
+	recordDeath(s, server{}, "postgres", "", deploy.Death{ExitCode: "1"})                           // not an app's
+	recordDeath(s, server{}, app.ContainerName(), key, deploy.Death{ExitCode: "1"})
+	recordDeath(s, server{}, app.ContainerName(), key, deploy.Death{ExitCode: "1"}) // restarted, crashed again
+	recordDeath(s, server{}, key+"-worker", key, deploy.Death{OOM: true})
 
-	if at, _ := s.Tel.LastTelemetryOfKind(ctx(), teldb.LastTelemetryOfKindParams{AppName: "web", Kind: "crash"}); at == "" {
+	if at, _ := s.Tel.LastTelemetryOfKind(ctx(), teldb.LastTelemetryOfKindParams{AppID: app.ID, Kind: "crash"}); at == "" {
 		t.Error("the crash isn't in the Errors tab")
 	}
 	if got, want := f.sent(), []string{"web: crashed", "web: out of memory"}; strings.Join(got, "|") != strings.Join(want, "|") {
@@ -489,18 +497,22 @@ func TestAlertRecipients(t *testing.T) {
 		project, app string
 		database     string
 	}{{admin, "mine", "web", "maindb"}, {friend, "theirs", "shop", "shopdb"}, {quiet, "silent", "blog", ""}} {
-		must(s.CreateUserProject(ctx(), store.CreateUserProjectParams{Name: o.project, UserID: o.user}))
-		p, _ := s.GetProject(ctx(), o.project)
-		must(s.CreateApp(ctx(), store.CreateAppParams{ProjectID: p.ID, Name: o.app, BuildStrategy: "dockerfile"}))
+		_, err := s.CreateProject(ctx(), store.CreateProjectParams{Name: o.project, UserID: o.user})
+		must(err)
+		p, _ := getProject(s, o.project)
+		must(createApp(s, store.CreateAppParams{ProjectID: p.ID, Name: o.app, BuildStrategy: "dockerfile"}))
 		if o.database != "" {
-			must(s.CreateDatabase(ctx(), store.CreateDatabaseParams{Name: o.database, ProjectID: p.ID, User: "u", Password: "x"}))
+			_, err := s.CreateDatabase(ctx(), store.CreateDatabaseParams{Name: o.database, ProjectID: p.ID, Password: "x"})
+			must(err)
 		}
 	}
+	app := func(name string) string { return strconv.FormatInt(appID(t, s, name), 10) }
+	db := func(name string) string { return strconv.FormatInt(dbID(t, s, name), 10) }
 	for key, want := range map[string]string{
-		"deploy:web": "panel@example.org", "crash:shop": "friend@example.org", "health:blog": "",
-		"memory:worker:shop": "friend@example.org", "backup:shopdb": "friend@example.org", "backup:shop/data": "friend@example.org",
-		"backup:maindb": "panel@example.org", "backup:panel": "panel@example.org", "disk": "panel@example.org", "host-memory": "panel@example.org",
-		"oom:gone": "panel@example.org",
+		"deploy:" + app("web"): "panel@example.org", "crash:" + app("shop"): "friend@example.org", "health:" + app("blog"): "",
+		"memory:worker:" + app("shop"): "friend@example.org", "backup:db:" + db("shopdb"): "friend@example.org", "backup:vol:" + app("shop") + "/data": "friend@example.org",
+		"backup:db:" + db("maindb"): "panel@example.org", "backup:panel": "panel@example.org", "disk": "panel@example.org", "host-memory": "panel@example.org",
+		"oom:999": "panel@example.org",
 	} {
 		if got := recipient(s, key); got != want {
 			t.Errorf("%s goes to %q, want %q", key, got, want)

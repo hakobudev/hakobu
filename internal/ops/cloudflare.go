@@ -134,7 +134,7 @@ func StartTunnel(s *store.Store) error {
 
 // startTunnel runs the tunnel's cloudflared on its server.
 func startTunnel(s *store.Store, t tunnel) error {
-	spec, err := tunnelSpec(s, t, "")
+	spec, err := tunnelSpec(s, t, 0)
 	if err != nil {
 		return err
 	}
@@ -144,7 +144,7 @@ func startTunnel(s *store.Store, t tunnel) error {
 // tunnelSpec is the tunnel's cloudflared as it should be: on the edge
 // networks of its account's projects on its server, except skip (one being
 // deleted), and with the panel's socket only for the panel's own tunnel.
-func tunnelSpec(s *store.Store, t tunnel, skip string) (node.TunnelSpec, error) {
+func tunnelSpec(s *store.Store, t tunnel, skip int64) (node.TunnelSpec, error) {
 	spec := node.TunnelSpec{Client: t.acct.Name, Token: string(t.Token)}
 	if t.fallback() == panelService {
 		var err error
@@ -157,15 +157,15 @@ func tunnelSpec(s *store.Store, t tunnel, skip string) (node.TunnelSpec, error) 
 		return spec, err
 	}
 	for _, p := range projects {
-		if p.CloudflareAccountID.Int64 == t.acct.ID && p.NodeID.Int64 == t.server.ID && p.Name != skip {
-			spec.Projects = append(spec.Projects, p.Name)
+		if p.CloudflareAccountID.Int64 == t.acct.ID && p.NodeID.Int64 == t.server.ID && p.ID != skip {
+			spec.Projects = append(spec.Projects, p.Key())
 		}
 	}
 	return spec, nil
 }
 
 // tunnelSpecs is tunnelSpec for every tunnel of the server.
-func tunnelSpecs(s *store.Store, sv server, skip string) ([]node.TunnelSpec, error) {
+func tunnelSpecs(s *store.Store, sv server, skip int64) ([]node.TunnelSpec, error) {
 	var out []node.TunnelSpec
 	for _, t := range tunnelsOn(s, sv) {
 		spec, err := tunnelSpec(s, t, skip)
@@ -274,21 +274,21 @@ func SyncTunnel(s *store.Store) error {
 	if err != nil {
 		return err
 	}
-	routesOf := map[string][]store.AppRoute{}
+	routesOf := map[int64][]store.AppRoute{}
 	for _, r := range routes {
-		routesOf[r.AppName] = append(routesOf[r.AppName], r)
+		routesOf[r.AppID] = append(routesOf[r.AppID], r)
 	}
-	live := map[string]int64{}
+	live := map[int64]int64{}
 	for _, app := range apps {
-		live[app.Name] = app.LivePort
+		live[app.ID] = app.LivePort
 	}
 	var errs []error
 	for _, t := range tunnels {
 		var rules []cloudflare.IngressRule
 		for _, app := range apps {
 			if places[app.ProjectID] == (place{t.acct.ID, t.server.ID}) && app.Domain != "" && app.LivePort > 0 {
-				rules = append(rules, routeRules(app, routesOf[app.Name], live)...)
-				rules = append(rules, cloudflare.IngressRule{Hostname: app.Domain, Service: fmt.Sprintf("http://%s:%d", EdgeAlias(app.Name), app.LivePort)})
+				rules = append(rules, routeRules(app, routesOf[app.ID], live)...)
+				rules = append(rules, cloudflare.IngressRule{Hostname: app.Domain, Service: fmt.Sprintf("http://%s:%d", EdgeAlias(app.Key()), app.LivePort)})
 			}
 		}
 		rules = append(rules, cloudflare.IngressRule{Service: t.fallback()})
@@ -560,10 +560,10 @@ func SetAppDomain(s *store.Store, app store.App, domain string) error {
 	if domain == app.Domain {
 		return nil
 	}
-	if err := CheckDomain(s, app.Name, domain); err != nil {
+	if err := CheckDomain(s, app.ID, domain); err != nil {
 		return err
 	}
-	params := store.SetAppDomainParams{Name: app.Name, Domain: domain}
+	params := store.SetAppDomainParams{ID: app.ID, Domain: domain}
 	connected := TunnelReady(s)
 	var a cfAccount
 	if connected {
@@ -573,7 +573,7 @@ func SetAppDomain(s *store.Store, app store.App, domain string) error {
 		}
 	}
 	if connected && domain != "" {
-		p, err := s.GetProject(ctx(), app.ProjectName)
+		p, err := s.GetProjectByID(ctx(), app.ProjectID)
 		if err != nil {
 			return err
 		}

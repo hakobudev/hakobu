@@ -29,8 +29,8 @@ func RandomHex(n int) (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-// Names end up in container names, URLs, bucket names and Postgres
-// identifiers, so they are restricted to what all of those accept.
+// Names are what people see and type, and go in URLs and bucket names;
+// containers, Postgres and the rest go by ID (store.AppKey).
 var (
 	validName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,39}$`)
 	// Database names are always double-quoted in SQL, where dashes are fine.
@@ -46,7 +46,7 @@ func checkName(kind, name string) error {
 
 // Projects.
 
-func CreateProject(s *store.Store, userID int64, name string) error {
+func CreateProject(s *store.Store, userID int64, name string) (int64, error) {
 	return CreateProjectOn(s, userID, name, "", "")
 }
 
@@ -56,58 +56,64 @@ var errPanelOnly = errors.New("this panel runs no apps of its own: a project run
 
 // CreateProjectOn creates a project of user's on a server of theirs (""
 // for the panel's), in a Cloudflare account of theirs ("" for the panel's).
-func CreateProjectOn(s *store.Store, userID int64, name, serverName, client string) error {
+func CreateProjectOn(s *store.Store, userID int64, name, serverName, client string) (int64, error) {
 	if err := checkName("project", name); err != nil {
-		return err
+		return 0, err
 	}
 	if config.PanelOnly && (serverName == "" || client == "") {
-		return errPanelOnly
+		return 0, errPanelOnly
 	}
 	var account sql.NullInt64
 	if client != "" {
 		a, err := s.GetCloudflareAccountByName(ctx(), client)
 		if err != nil || a.UserID != userID {
-			return fmt.Errorf("Cloudflare account %q not found", client)
+			return 0, fmt.Errorf("Cloudflare account %q not found", client)
 		}
 		account = sql.NullInt64{Int64: a.ID, Valid: true}
 	}
 	// Its networks are created when it first needs them.
-	if err := s.CreateUserProject(ctx(), store.CreateUserProjectParams{Name: name, UserID: userID}); err != nil {
-		return err
+	id, err := s.CreateProject(ctx(), store.CreateProjectParams{Name: name, UserID: userID})
+	if err != nil {
+		return 0, taken(err, "a project named %q", name)
 	}
-	undo := func(err error) error {
-		_ = s.DeleteProject(ctx(), name)
-		return err
+	undo := func(err error) (int64, error) {
+		_ = s.DeleteProject(ctx(), id)
+		return 0, err
 	}
 	if serverName != "" {
-		if err := SetProjectServer(s, name, serverName); err != nil {
+		if err := SetProjectServer(s, id, serverName); err != nil {
 			return undo(err)
 		}
 	}
 	if account.Valid {
-		p, err := s.GetProject(ctx(), name)
-		if err != nil {
-			return undo(err)
-		}
-		if err := s.SetProjectCloudflareAccount(ctx(), store.SetProjectCloudflareAccountParams{CloudflareAccountID: account, ID: p.ID}); err != nil {
+		if err := s.SetProjectCloudflareAccount(ctx(), store.SetProjectCloudflareAccountParams{CloudflareAccountID: account, ID: id}); err != nil {
 			return undo(err)
 		}
 	}
-	return nil
+	return id, nil
+}
+
+// taken says that what's named exists already, for a UNIQUE constraint
+// that failed.
+func taken(err error, what string, args ...any) error {
+	if strings.Contains(err.Error(), "UNIQUE") {
+		return fmt.Errorf(what+" already exists", args...)
+	}
+	return err
 }
 
 // DeleteProject removes every app, database and storage in the project.
-func DeleteProject(s *store.Store, name string) error {
-	p, err := s.GetProject(ctx(), name)
+func DeleteProject(s *store.Store, id int64) error {
+	p, err := s.GetProjectByID(ctx(), id)
 	if err != nil {
-		return fmt.Errorf("project %q not found: %w", name, err)
+		return fmt.Errorf("project not found: %w", err)
 	}
 	apps, err := s.ListAppsByProject(ctx(), p.ID)
 	if err != nil {
 		return err
 	}
 	for _, a := range apps {
-		if err := DeleteApp(s, a.Name); err != nil {
+		if err := DeleteApp(s, a.ID); err != nil {
 			return err
 		}
 	}
@@ -116,7 +122,7 @@ func DeleteProject(s *store.Store, name string) error {
 		return err
 	}
 	for _, d := range dbs {
-		if err := DeleteDatabase(s, d.Name); err != nil {
+		if err := DeleteDatabase(s, d.ID); err != nil {
 			return err
 		}
 	}
@@ -125,70 +131,66 @@ func DeleteProject(s *store.Store, name string) error {
 		return err
 	}
 	for _, st := range storages {
-		if err := DeleteStorage(s, st.Name); err != nil {
+		if err := DeleteStorage(s, st.ID); err != nil {
 			return err
 		}
 	}
-	if err := s.DeleteSealedVarsOf(ctx(), store.DeleteSealedVarsOfParams{Scope: "project", Owner: name}); err != nil {
+	if err := s.DeleteSealedVarsOf(ctx(), store.DeleteSealedVarsOfParams{Scope: "project", OwnerID: p.ID}); err != nil {
 		return err
 	}
-	if err := removeProjectNetworks(s, name); err != nil {
+	if err := removeProjectNetworks(s, p); err != nil {
 		return err
 	}
-	return s.DeleteProject(ctx(), name)
+	return s.DeleteProject(ctx(), p.ID)
 }
 
 // Apps.
 
-// CreateApp stores the app, gives it its domain ("" keeps it private) and
-// kicks off its first build and deploy.
-func CreateApp(s *store.Store, projectName string, app store.CreateAppParams, domain string) error {
-	return CreateAppWith(s, projectName, app, domain, "")
+// CreateApp stores the app in its project (app.ProjectID), gives it its
+// domain ("" keeps it private) and kicks off its first build and deploy.
+func CreateApp(s *store.Store, app store.CreateAppParams, domain string) (int64, error) {
+	return CreateAppWith(s, app, domain, "")
 }
 
 // CreateAppWith is CreateApp for an app with a start command of its own,
 // set before its first deploy.
-func CreateAppWith(s *store.Store, projectName string, app store.CreateAppParams, domain, startCommand string) error {
+func CreateAppWith(s *store.Store, app store.CreateAppParams, domain, startCommand string) (int64, error) {
 	if err := checkName("app", app.Name); err != nil {
-		return err
+		return 0, err
 	}
 	if app.BuildStrategy == "" {
 		app.BuildStrategy = "railpack"
 	}
 	var err error
 	if app.BuildPath, app.BuildStrategy, err = checkBuild(app.BuildPath, app.BuildStrategy); err != nil {
-		return err
+		return 0, err
 	}
-	p, err := s.GetProject(ctx(), projectName)
+	if _, err := s.GetProjectByID(ctx(), app.ProjectID); err != nil {
+		return 0, fmt.Errorf("project not found: %w", err)
+	}
+	if err := CheckDomain(s, 0, domain); err != nil {
+		return 0, err
+	}
+	id, err := s.CreateApp(ctx(), app)
 	if err != nil {
-		return fmt.Errorf("project %q not found: %w", projectName, err)
+		return 0, taken(err, "an app named %q", app.Name)
 	}
-	if err := CheckDomain(s, app.Name, domain); err != nil {
-		return err
-	}
-	app.ProjectID = p.ID
-	if err := s.CreateApp(ctx(), app); err != nil {
-		if strings.Contains(err.Error(), "UNIQUE") {
-			return fmt.Errorf("an app named %q already exists", app.Name)
-		}
-		return err
-	}
-	created, err := s.GetApp(ctx(), app.Name)
+	created, err := s.GetAppByID(ctx(), id)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if err := SetAppDomain(s, created, domain); err != nil {
-		s.DeleteAppCascade(ctx(), app.Name)
-		return err
+		_ = s.DeleteAppCascade(ctx(), id)
+		return 0, err
 	}
 	if startCommand = strings.TrimSpace(startCommand); startCommand != "" {
-		if err := s.SetAppBuild(ctx(), store.SetAppBuildParams{Name: app.Name, BuildPath: app.BuildPath, BuildStrategy: app.BuildStrategy, StartCommand: startCommand}); err != nil {
-			_ = s.DeleteAppCascade(ctx(), app.Name)
-			return err
+		if err := s.SetAppBuild(ctx(), store.SetAppBuildParams{ID: id, BuildPath: app.BuildPath, BuildStrategy: app.BuildStrategy, StartCommand: startCommand}); err != nil {
+			_ = s.DeleteAppCascade(ctx(), id)
+			return 0, err
 		}
 	}
 	async(func() { watchApps(s) })
-	return StartDeploy(s, app.Name, "create")
+	return id, StartDeploy(s, id, "create")
 }
 
 // watchApps has the watchdog check the apps there are now.
@@ -202,13 +204,13 @@ func watchApps(s *store.Store) {
 // "dockerfile", path of the build context inside the repo) and started (a
 // shell command instead of the image's own start, "" for that). Applies on
 // the next deploy; no need to delete and recreate the app.
-func SetAppBuild(s *store.Store, appName, path, strategy, startCommand string) error {
+func SetAppBuild(s *store.Store, appID int64, path, strategy, startCommand string) error {
 	path, strategy, err := checkBuild(path, strategy)
 	if err != nil {
 		return err
 	}
 	startCommand = strings.TrimSpace(startCommand)
-	return s.SetAppBuild(ctx(), store.SetAppBuildParams{Name: appName, BuildPath: path, BuildStrategy: strategy, StartCommand: startCommand})
+	return s.SetAppBuild(ctx(), store.SetAppBuildParams{ID: appID, BuildPath: path, BuildStrategy: strategy, StartCommand: startCommand})
 }
 
 // checkBuild cleans up a build path in the repo and a strategy, and
@@ -225,46 +227,54 @@ func checkBuild(path, strategy string) (string, string, error) {
 	return path, strategy, nil
 }
 
-// CheckDomain rejects a domain that the panel or another app already uses.
-func CheckDomain(s *store.Store, appName, domain string) error {
+// CheckDomain rejects a domain that the panel or another app than appID
+// already uses; it doesn't say whose, as it may be another user's.
+func CheckDomain(s *store.Store, appID int64, domain string) error {
 	if domain == "" {
 		return nil
 	}
 	if strings.EqualFold(domain, config.PublicHost()) {
 		return fmt.Errorf("%s is the panel's own address", domain)
 	}
-	if other, err := s.GetAppByDomain(ctx(), domain); err == nil && other.Name != appName {
-		return fmt.Errorf("%s is already used by %s", domain, other.Name)
+	if other, err := s.GetAppByDomain(ctx(), domain); err == nil && other.ID != appID {
+		return fmt.Errorf("%s is already in use", domain)
 	}
 	return nil
 }
 
-func DeleteApp(s *store.Store, name string) error {
+func DeleteApp(s *store.Store, id int64) error {
 	// Hold the app like a deploy so no deploy recreates its container or
 	// proxy while it's being removed.
-	if _, err := reserve(name, false); err != nil {
+	if _, err := reserve(id, false); err != nil {
 		return err
 	}
-	defer release(name)
-	app, err := s.GetApp(ctx(), name)
+	defer release(id)
+	app, err := s.GetAppByID(ctx(), id)
 	if err != nil {
-		return fmt.Errorf("app %q not found: %w", name, err)
+		return fmt.Errorf("app not found: %w", err)
 	}
-	vols, err := s.ListVolumes(ctx(), name)
+	vols, err := s.ListVolumes(ctx(), id)
 	if err != nil {
 		return err
 	}
 	if err := removeAppDNS(s, app); err != nil {
 		panellog.Error("failed to delete the DNS record of", app.Domain+":", err)
 	}
-	if err := s.DeleteAppCascade(ctx(), name); err != nil {
+	// Its telemetry on another server goes with it; the panel's own goes
+	// with its records.
+	if t, err := appTelemetry(s, app); err == nil {
+		if err := t.DropTelemetry(ctx(), id); err != nil {
+			panellog.Warn("the telemetry of", app.Name, "stays on its server:", err)
+		}
+	}
+	if err := s.DeleteAppCascade(ctx(), id); err != nil {
 		return err
 	}
 	names := make([]string, len(vols))
 	for i, v := range vols {
 		names[i] = v.Name
 	}
-	if err := AppNode(s, app).RemoveApp(ctx(), app.Name, names); err != nil {
+	if err := AppNode(s, app).RemoveApp(ctx(), app.Key(), names); err != nil {
 		return err
 	}
 	if err := SyncTunnel(s); err != nil {
@@ -274,37 +284,35 @@ func DeleteApp(s *store.Store, name string) error {
 	return nil
 }
 
-// LinkDatabase links (or with dbName "" unlinks) one of the project's databases.
-func LinkDatabase(s *store.Store, appName, dbName string) error {
-	app, err := s.GetApp(ctx(), appName)
-	if err != nil {
-		return err
-	}
+// LinkDatabase links (or with dbName "" unlinks) one of the project's
+// databases, by its name there.
+func LinkDatabase(s *store.Store, app store.App, dbName string) error {
+	var id sql.NullInt64
 	if dbName != "" {
-		d, err := s.GetDatabase(ctx(), dbName)
-		if err != nil || d.ProjectID != app.ProjectID {
+		d, err := s.GetDatabase(ctx(), store.GetDatabaseParams{ProjectID: app.ProjectID, Name: dbName})
+		if err != nil {
 			return fmt.Errorf("database %q not found in project %s", dbName, app.ProjectName)
 		}
+		id = sql.NullInt64{Int64: d.ID, Valid: true}
 	}
-	return s.SetAppLinkedDB(ctx(), store.SetAppLinkedDBParams{Name: appName, LinkedDB: dbName})
+	return s.SetAppLinkedDB(ctx(), store.SetAppLinkedDBParams{ID: app.ID, LinkedDbID: id})
 }
 
-// LinkStorage links (or with storageName "" unlinks) one of the project's storages.
-func LinkStorage(s *store.Store, appName, storageName string) error {
-	app, err := s.GetApp(ctx(), appName)
-	if err != nil {
-		return err
-	}
+// LinkStorage links (or with storageName "" unlinks) one of the project's
+// storages, by its name there.
+func LinkStorage(s *store.Store, app store.App, storageName string) error {
+	var id sql.NullInt64
 	if storageName != "" {
-		st, err := s.GetStorage(ctx(), storageName)
-		if err != nil || st.ProjectID != app.ProjectID {
+		st, err := s.GetStorage(ctx(), store.GetStorageParams{ProjectID: app.ProjectID, Name: storageName})
+		if err != nil {
 			return fmt.Errorf("storage %q not found in project %s", storageName, app.ProjectName)
 		}
 		if st.AccessKeyID == "" {
 			return fmt.Errorf("storage %s has no keys yet: add them on the project page", storageName)
 		}
+		id = sql.NullInt64{Int64: st.ID, Valid: true}
 	}
-	return s.SetAppLinkedStorage(ctx(), store.SetAppLinkedStorageParams{Name: appName, LinkedStorage: storageName})
+	return s.SetAppLinkedStorage(ctx(), store.SetAppLinkedStorageParams{ID: app.ID, LinkedStorageID: id})
 }
 
 // Environment. Later entries win on duplicate keys, so the order is:
@@ -317,17 +325,17 @@ func baseEnv(s *store.Store, app store.App, port int64) ([]string, error) {
 	if port > 0 {
 		env = append(env, fmt.Sprintf("PORT=%d", port))
 	}
-	if app.LinkedDB != "" {
-		d, err := s.GetDatabase(ctx(), app.LinkedDB)
+	if app.LinkedDbID.Valid {
+		d, err := s.GetDatabaseByID(ctx(), app.LinkedDbID.Int64)
 		if err != nil {
-			return nil, fmt.Errorf("linked database %q not found: %w", app.LinkedDB, err)
+			return nil, fmt.Errorf("linked database not found: %w", err)
 		}
 		env = append(env, DatabaseEnv(d)...)
 	}
-	if app.LinkedStorage != "" {
-		st, err := s.GetStorage(ctx(), app.LinkedStorage)
+	if app.LinkedStorageID.Valid {
+		st, err := s.GetStorageByID(ctx(), app.LinkedStorageID.Int64)
 		if err != nil {
-			return nil, fmt.Errorf("linked storage %q not found: %w", app.LinkedStorage, err)
+			return nil, fmt.Errorf("linked storage not found: %w", err)
 		}
 		env = append(env, storageEnv(st)...)
 	}
@@ -338,7 +346,7 @@ func baseEnv(s *store.Store, app store.App, port int64) ([]string, error) {
 			if key, err = RandomHex(16); err != nil {
 				return nil, err
 			}
-			if err := s.SetAppSentryKey(ctx(), store.SetAppSentryKeyParams{Name: app.Name, SentryKey: secret.String(key)}); err != nil {
+			if err := s.SetAppSentryKey(ctx(), store.SetAppSentryKeyParams{ID: app.ID, SentryKey: secret.String(key)}); err != nil {
 				return nil, err
 			}
 		}
@@ -346,15 +354,15 @@ func baseEnv(s *store.Store, app store.App, port int64) ([]string, error) {
 		// Cloudflare may challenge them. Browser SDKs need the public one.
 		env = append(env, "SENTRY_DSN="+ingestDSN(key, app.ID), fmt.Sprintf("SENTRY_PUBLIC_DSN=https://%s@%s/%d", key, host, app.ID))
 	}
-	p, err := s.GetProject(ctx(), app.ProjectName)
+	p, err := s.GetProjectByID(ctx(), app.ProjectID)
 	if err != nil {
 		return nil, err
 	}
-	return withScope(s, append(env, ParseEnv(string(p.SharedEnv))...), "project", p.Name)
+	return withScope(s, append(env, ParseEnv(string(p.SharedEnv))...), "project", p.ID)
 }
 
 // withScope adds a scope's sealed variables on top of env.
-func withScope(s *store.Store, env []string, scope, owner string) ([]string, error) {
+func withScope(s *store.Store, env []string, scope string, owner int64) ([]string, error) {
 	sealed, err := sealedEnv(s, scope, owner)
 	if err != nil {
 		return nil, err
@@ -367,7 +375,7 @@ func appEnv(s *store.Store, app store.App, port int64) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if env, err = withScope(s, append(env, ParseEnv(string(app.Env))...), "app", app.Name); err != nil {
+	if env, err = withScope(s, append(env, ParseEnv(string(app.Env))...), "app", app.ID); err != nil {
 		return nil, err
 	}
 	return expandRefs(s, app, env)
@@ -378,7 +386,7 @@ func WorkerEnv(s *store.Store, app store.App, w store.Worker) ([]string, error) 
 	if err != nil {
 		return nil, err
 	}
-	if env, err = withScope(s, append(env, ParseEnv(string(w.Env))...), "worker", app.Name); err != nil {
+	if env, err = withScope(s, append(env, ParseEnv(string(w.Env))...), "worker", app.ID); err != nil {
 		return nil, err
 	}
 	return expandRefs(s, app, env)

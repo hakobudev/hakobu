@@ -62,43 +62,46 @@ func TestR2Storages(t *testing.T) {
 	must(s.SaveCloudflareToken(ctx(), "tok"))
 	must(s.SaveCloudflareTunnel(ctx(), store.SaveCloudflareTunnelParams{AccountID: "acc", TunnelID: "t"}))
 	must(s.SetBackupBucket(ctx(), "hakobu-backups-1"))
-	must(s.CreateProject(ctx(), "shop"))
-	p, _ := s.GetProject(ctx(), "shop")
-	must(s.CreateApp(ctx(), store.CreateAppParams{ProjectID: p.ID, Name: "web", BuildStrategy: "dockerfile"}))
+	must(createProject(s, "shop"))
+	p, _ := getProject(s, "shop")
+	must(createApp(s, store.CreateAppParams{ProjectID: p.ID, Name: "web", BuildStrategy: "dockerfile"}))
 
 	// The bucket is made in the account; keys come later.
-	must(CreateStorage(s, "shop", store.Storage{Name: "files", Provider: "r2"}))
-	st, _ := s.GetStorage(ctx(), "files")
+	_, err = CreateStorage(s, store.Storage{ProjectID: p.ID, Name: "files", Provider: "r2"})
+	must(err)
+	st, _ := getStorage(s, "files")
 	if len(buckets) != 1 || buckets[0] != st.Bucket || !regexp.MustCompile(`^shop-files-[0-9a-f]{6}$`).MatchString(st.Bucket) || st.AccountID != "acc" || st.AccessKeyID != "" {
 		t.Fatalf("storage %+v, buckets made %v", st, buckets)
 	}
 	// Left unnamed, a storage is the project's, its bucket too.
-	must(CreateStorage(s, "shop", store.Storage{Provider: "r2"}))
-	if st, err := s.GetStorage(ctx(), "shop-storage"); err != nil || !strings.HasPrefix(st.Bucket, "shop-storage-") {
+	_, err = CreateStorage(s, store.Storage{ProjectID: p.ID, Provider: "r2"})
+	must(err)
+	if st, err := getStorage(s, "shop-storage"); err != nil || !strings.HasPrefix(st.Bucket, "shop-storage-") {
 		t.Errorf("unnamed storage: %+v, %v", st, err)
 	}
-	if err := LinkStorage(s, "web", "files"); err == nil {
+	web := mustApp(t, s, "web")
+	if err := LinkStorage(s, web, "files"); err == nil {
 		t.Error("linked a storage without keys")
 	}
 
 	for keys, want := range map[string]string{"none": "can't read", "wide": "backups"} {
-		if err := SetStorageKeys(s, "files", keys, "secret"); err == nil || !strings.Contains(err.Error(), want) {
+		if err := SetStorageKeys(s, st.ID, keys, "secret"); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%s keys: %v, want an error about %q", keys, err, want)
 		}
 	}
-	must(SetStorageKeys(s, "files", "narrow", "secret"))
-	must(LinkStorage(s, "web", "files"))
-	st, _ = s.GetStorage(ctx(), "files")
+	must(SetStorageKeys(s, st.ID, "narrow", "secret"))
+	must(LinkStorage(s, web, "files"))
+	st, _ = getStorage(s, "files")
 	env := strings.Join(storageEnv(st), "\n")
 	if !strings.Contains(env, "S3_ACCESS_KEY_ID=narrow") || !strings.Contains(env, "S3_BUCKET_NAME="+st.Bucket) || !strings.Contains(env, "R2_ACCOUNT_ID=acc") {
 		t.Errorf("env:\n%s", env)
 	}
 
 	// Any other S3: its keys must reach its bucket from the start.
-	if err := CreateStorage(s, "shop", store.Storage{Name: "media", Provider: "s3", Endpoint: r2.URL, Bucket: "media", AccessKeyID: "none", SecretAccessKey: "x"}); err == nil {
+	if _, err := CreateStorage(s, store.Storage{ProjectID: p.ID, Name: "media", Provider: "s3", Endpoint: r2.URL, Bucket: "media", AccessKeyID: "none", SecretAccessKey: "x"}); err == nil {
 		t.Error("took keys that can't read their bucket")
 	}
-	if err := CreateStorage(s, "shop", store.Storage{Name: "media", Provider: "rustfs"}); err == nil {
+	if _, err := CreateStorage(s, store.Storage{ProjectID: p.ID, Name: "media", Provider: "rustfs"}); err == nil {
 		t.Error("made a RustFS storage")
 	}
 }

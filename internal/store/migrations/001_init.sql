@@ -95,14 +95,15 @@ CREATE TABLE cloudflare_accounts (
 -- node's ed25519 key (hex) from then on.
 CREATE TABLE nodes (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	name TEXT UNIQUE NOT NULL,
+	name TEXT NOT NULL,
 	user_id INTEGER NOT NULL DEFAULT 0,
 	public_key TEXT NOT NULL DEFAULT '',
 	join_secret_hash TEXT NOT NULL DEFAULT '',
 	join_expires TEXT NOT NULL DEFAULT '',
 	version TEXT NOT NULL DEFAULT '',
 	last_seen TEXT NOT NULL DEFAULT '',
-	created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+	created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+	UNIQUE (user_id, name)
 );
 
 -- The panel's own key on the link, which nodes check it by. It's kept in
@@ -125,15 +126,22 @@ CREATE TABLE server_tunnels (
 	UNIQUE (node_id, cloudflare_account_id)
 );
 
+-- Names are what people see and type, unique where they see them: a
+-- project's among its owner's, an app's, database's or storage's in its
+-- project. Everything else (containers, Postgres databases and roles,
+-- volumes, alerts, telemetry) goes by ID, so two users' "web" never meet
+-- and a name can change.
+--
 -- node_id NULL is the panel's own server, cloudflare_account_id NULL the
 -- panel's account.
 CREATE TABLE projects (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	name TEXT UNIQUE NOT NULL,
+	name TEXT NOT NULL,
 	user_id INTEGER NOT NULL DEFAULT 0,
 	shared_env TEXT NOT NULL DEFAULT '',
 	cloudflare_account_id INTEGER REFERENCES cloudflare_accounts(id),
-	node_id INTEGER REFERENCES nodes(id)
+	node_id INTEGER REFERENCES nodes(id),
+	UNIQUE (user_id, name)
 );
 
 -- port is the app's proxy on 127.0.0.1; container_port 0 means "detect",
@@ -141,7 +149,7 @@ CREATE TABLE projects (
 -- dns_* is the record hakobu owns for domain. memory_mb/cpus 0: no limit.
 -- An app with volumes deploys by stopping the old version first, unless
 -- share_volumes lets both versions use them during the switch.
--- snapshot_db/snapshot_at describe the dump of the app's database taken
+-- snapshot_db_id/snapshot_at describe the dump of the app's database taken
 -- before the deploy of its live image, so Rollback can return the data
 -- together with the previous image. stack is what its last build was made
 -- from, e.g. "Python · FastAPI" ('' if unknown); start_command runs in
@@ -149,7 +157,7 @@ CREATE TABLE projects (
 CREATE TABLE apps (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	project_id INTEGER NOT NULL REFERENCES projects(id),
-	name TEXT UNIQUE NOT NULL,
+	name TEXT NOT NULL,
 	repo TEXT NOT NULL DEFAULT '',
 	domain TEXT NOT NULL DEFAULT '',
 	dns_zone_id TEXT NOT NULL DEFAULT '',
@@ -163,44 +171,45 @@ CREATE TABLE apps (
 	env TEXT NOT NULL DEFAULT '',
 	sentry_key TEXT NOT NULL DEFAULT '',
 	health_check_path TEXT NOT NULL DEFAULT '/',
-	linked_db TEXT NOT NULL DEFAULT '',
-	linked_storage TEXT NOT NULL DEFAULT '',
+	linked_db_id INTEGER REFERENCES databases(id),
+	linked_storage_id INTEGER REFERENCES storages(id),
 	share_volumes INTEGER NOT NULL DEFAULT 0,
 	memory_mb INTEGER NOT NULL DEFAULT 0,
 	cpus REAL NOT NULL DEFAULT 0,
-	snapshot_db TEXT NOT NULL DEFAULT '',
+	snapshot_db_id INTEGER,
 	snapshot_at TEXT NOT NULL DEFAULT '',
 	stack TEXT NOT NULL DEFAULT '',
-	start_command TEXT NOT NULL DEFAULT ''
+	start_command TEXT NOT NULL DEFAULT '',
+	UNIQUE (project_id, name)
 );
 CREATE INDEX idx_apps_repo ON apps(repo);
 
 CREATE VIEW app_view AS
-SELECT a.id, a.project_id, p.name AS project_name, a.name, a.repo, a.domain, a.dns_zone_id, a.dns_record_id,
+SELECT a.id, a.project_id, p.name AS project_name, p.user_id, a.name, a.repo, a.domain, a.dns_zone_id, a.dns_record_id,
 	a.port, a.container_port, a.live_port, a.build_path, a.build_strategy, a.active_slot, a.env, a.sentry_key,
-	a.health_check_path, a.linked_db, a.linked_storage, a.share_volumes, a.memory_mb, a.cpus,
-	a.snapshot_db, a.snapshot_at, a.stack, a.start_command
+	a.health_check_path, a.linked_db_id, a.linked_storage_id, a.share_volumes, a.memory_mb, a.cpus,
+	a.snapshot_db_id, a.snapshot_at, a.stack, a.start_command
 FROM apps a JOIN projects p ON p.id = a.project_id;
 
 -- Paths of an app's address served by another app of its project, through
 -- the tunnel: shop.example.com/api/... goes to the api app, the rest to
 -- the shop. path is a prefix like /api; the target sees the whole path.
 CREATE TABLE app_routes (
-	app_name TEXT NOT NULL,
+	app_id INTEGER NOT NULL REFERENCES apps(id),
 	path TEXT NOT NULL,
-	target TEXT NOT NULL,
-	PRIMARY KEY (app_name, path)
+	target_id INTEGER NOT NULL REFERENCES apps(id),
+	PRIMARY KEY (app_id, path)
 );
 
 -- Apps whose new build went live on a server that dropped off before it
 -- became the Latest image there: the panel finishes it (node Promote) as
 -- the server connects again, so Latest is the build that serves.
 CREATE TABLE pending_promotions (
-	app_name TEXT PRIMARY KEY
+	app_id INTEGER PRIMARY KEY
 );
 
 CREATE TABLE workers (
-	app_name TEXT PRIMARY KEY,
+	app_id INTEGER PRIMARY KEY REFERENCES apps(id),
 	name TEXT NOT NULL,
 	command TEXT NOT NULL,
 	env TEXT NOT NULL DEFAULT ''
@@ -208,33 +217,36 @@ CREATE TABLE workers (
 
 -- Variables whose value can't be read back, in the panel or anywhere else:
 -- they're only passed to the containers. scope is 'project', 'app' or
--- 'worker', owner the project's or app's name. They go on top of the
+-- 'worker', owner_id the project's or app's ID. They go on top of the
 -- visible variables of the same scope.
 CREATE TABLE sealed_vars (
 	scope TEXT NOT NULL,
-	owner TEXT NOT NULL,
+	owner_id INTEGER NOT NULL,
 	key TEXT NOT NULL,
 	value TEXT NOT NULL,
-	PRIMARY KEY (scope, owner, key)
+	PRIMARY KEY (scope, owner_id, key)
 );
 
 -- Docker volumes mounted into an app and its worker.
 CREATE TABLE volumes (
-	app_name TEXT NOT NULL,
+	app_id INTEGER NOT NULL REFERENCES apps(id),
 	name TEXT NOT NULL,
 	mount_path TEXT NOT NULL,
-	PRIMARY KEY (app_name, name)
+	PRIMARY KEY (app_id, name)
 );
 
+-- A database is Postgres database and role db_<id> (node.DBSpec).
 CREATE TABLE databases (
-	name TEXT PRIMARY KEY,
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	name TEXT NOT NULL,
 	project_id INTEGER NOT NULL REFERENCES projects(id),
-	db_user TEXT NOT NULL,
-	db_password TEXT NOT NULL
+	db_password TEXT NOT NULL,
+	UNIQUE (project_id, name)
 );
 
 CREATE TABLE storages (
-	name TEXT PRIMARY KEY,
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	name TEXT NOT NULL,
 	project_id INTEGER NOT NULL REFERENCES projects(id),
 	provider TEXT NOT NULL,
 	account_id TEXT NOT NULL DEFAULT '',
@@ -242,7 +254,8 @@ CREATE TABLE storages (
 	access_key_id TEXT NOT NULL,
 	secret_access_key TEXT NOT NULL,
 	bucket TEXT NOT NULL,
-	region TEXT NOT NULL DEFAULT 'auto'
+	region TEXT NOT NULL DEFAULT 'auto',
+	UNIQUE (project_id, name)
 );
 
 -- A backup is the files <object_key>/000, /001, ... in bucket of the
@@ -253,7 +266,7 @@ CREATE TABLE storages (
 -- restored.
 CREATE TABLE backups (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	database TEXT NOT NULL,
+	database_id INTEGER NOT NULL,
 	account_id TEXT NOT NULL DEFAULT '',
 	bucket TEXT NOT NULL DEFAULT '',
 	object_key TEXT NOT NULL,
@@ -268,12 +281,12 @@ CREATE TABLE backups (
 	verify_error TEXT NOT NULL DEFAULT '',
 	tables INTEGER NOT NULL DEFAULT 0
 );
-CREATE INDEX idx_backups_database ON backups(database);
+CREATE INDEX idx_backups_database ON backups(database_id);
 
 -- Backups of apps' volumes: a tar of the volume, sealed like the dumps.
 CREATE TABLE volume_backups (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	app_name TEXT NOT NULL,
+	app_id INTEGER NOT NULL,
 	volume TEXT NOT NULL,
 	account_id TEXT NOT NULL DEFAULT '',
 	bucket TEXT NOT NULL DEFAULT '',
@@ -287,11 +300,11 @@ CREATE TABLE volume_backups (
 	verify_error TEXT NOT NULL DEFAULT '',
 	files INTEGER NOT NULL DEFAULT 0
 );
-CREATE INDEX idx_volume_backups_volume ON volume_backups(app_name, volume);
+CREATE INDEX idx_volume_backups_volume ON volume_backups(app_id, volume);
 
 CREATE TABLE deploy_logs (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	app_name TEXT NOT NULL,
+	app_id INTEGER NOT NULL,
 	trigger_source TEXT NOT NULL,
 	status TEXT NOT NULL,
 	output TEXT NOT NULL DEFAULT '',

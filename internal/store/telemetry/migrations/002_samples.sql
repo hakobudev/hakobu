@@ -1,5 +1,5 @@
--- Resource usage of the server (target 'host'), the apps ('app:<name>'),
--- their workers ('worker:<name>') and hakobu's services ('service:<name>'),
+-- Resource usage of the server (target 'host'), the apps ('app:<id>'),
+-- their workers ('worker:<id>') and hakobu's services ('service:<name>'),
 -- as rings of fixed slots: res 60 keeps 48 hours of minutes, res 300 a
 -- month of five-minute averages and peaks. Writing a slot replaces what
 -- was there, so the table never grows; readers skip slots by ts.

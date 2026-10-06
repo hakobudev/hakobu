@@ -21,7 +21,7 @@ type databasePage struct {
 }
 
 templ databaseView(v databasePage) {
-	@shell(v.DB.Name, projectCrumb(v.Project.Name), resourceCrumb(v.Project.Name, v.DB.Name, "/databases/"+v.DB.Name, "postgresql", "database")) {
+	@shell(v.DB.Name, projectCrumb(v.Project.Name), resourceCrumb(v.Project.Name, v.DB.Name, dbURL(v.Project.Name, v.DB.Name), "postgresql", "database")) {
 		@pageHeader(pageHead{Icon: "database", Logo: "postgresql", Title: v.DB.Name, Mono: true, Status: dbStatus(v.Ready), Meta: dbMeta(v)})
 		<div class="space-y-10">
 			@section("", "Connection", "Reachable from this project's apps only, at host hakobu-postgres on its Docker network.", nil) {
@@ -33,7 +33,7 @@ templ databaseView(v databasePage) {
 						</span>
 						<span class="flex flex-wrap gap-2 justify-end">
 							for _, a := range v.UsedBy {
-								<a href={ "/apps/" + a } class="badge">{ a }</a>
+								<a href={ templ.SafeURL(appPath(v.Project.Name, a)) } class="badge">{ a }</a>
 							}
 							if len(v.UsedBy) == 0 {
 								<span class="muted">no apps: link it in an app's settings</span>
@@ -74,7 +74,7 @@ templ databaseView(v databasePage) {
 					id="db-backups"
 					class="box"
 					if v.Job.Running != "" {
-						hx-get={ "/databases/" + v.DB.Name }
+						hx-get={ dbURL(v.Project.Name, v.DB.Name) }
 						hx-trigger="every 3s"
 						hx-select="#db-backups"
 						hx-swap="outerHTML"
@@ -116,10 +116,10 @@ templ databaseView(v databasePage) {
 								}
 							</span>
 							<span class="row-actions">
-								<button class="btn btn-sm btn-invisible" hx-post={ "/databases/" + v.DB.Name + "/backups/" + itoa(b.ID) + "/verify" } disabled?={ v.Job.Running != "" }>Check</button>
+								<button class="btn btn-sm btn-invisible" hx-post={ dbURL(v.Project.Name, v.DB.Name) + "/backups/" + itoa(b.ID) + "/verify" } disabled?={ v.Job.Running != "" }>Check</button>
 								<button
 									class="btn btn-sm btn-invisible"
-									hx-post={ "/databases/" + v.DB.Name + "/backups/" + itoa(b.ID) + "/restore" }
+									hx-post={ dbURL(v.Project.Name, v.DB.Name) + "/backups/" + itoa(b.ID) + "/restore" }
 									hx-confirm="The database's current data is replaced with the backup's, and apps connected to it reconnect. A backup that doesn't restore changes nothing."
 									data-confirm-title={ "Restore into " + v.DB.Name + "?" }
 									data-confirm-action="Restore backup"
@@ -139,7 +139,7 @@ templ databaseView(v databasePage) {
 					</div>
 					<button
 						class="btn btn-danger"
-						hx-delete={ "/databases/" + v.DB.Name }
+						hx-delete={ dbURL(v.Project.Name, v.DB.Name) }
 						hx-confirm={ "All data in " + v.DB.Name + " is permanently lost, and apps linked to it lose DATABASE_URL on their next deploy." }
 						data-confirm-title={ "Delete " + v.DB.Name + "?" }
 						data-confirm-action="Delete this database"
@@ -169,13 +169,13 @@ templ dbMeta(v databasePage) {
 	</span>
 	<span class="meta-item">
 		@ic("key-round")
-		user <span class="mono">{ v.DB.User }</span>
+		user <span class="mono">{ v.DB.Key() }</span>
 	</span>
 }
 
 templ backupNow(v databasePage) {
 	if v.BackupBucket != "" {
-		<button class="btn btn-sm" hx-post={ "/databases/" + v.DB.Name + "/backups" } disabled?={ v.Job.Running != "" }>
+		<button class="btn btn-sm" hx-post={ dbURL(v.Project.Name, v.DB.Name) + "/backups" } disabled?={ v.Job.Running != "" }>
 			@ic("loader-circle", "btn-spinner")
 			@ic("archive", "icon-sm btn-label-icon")
 			Back up now

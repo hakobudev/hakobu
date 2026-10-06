@@ -10,20 +10,20 @@ import (
 )
 
 // appBinds mounts the app's volumes; the app and its worker share them.
-func appBinds(s *store.Store, app string) ([]string, error) {
-	vols, err := s.ListVolumes(ctx(), app)
+func appBinds(s *store.Store, app store.App) ([]string, error) {
+	vols, err := s.ListVolumes(ctx(), app.ID)
 	if err != nil {
 		return nil, err
 	}
 	binds := make([]string, len(vols))
 	for i, v := range vols {
-		binds[i] = node.Volume(app, v.Name) + ":" + v.MountPath
+		binds[i] = node.Volume(app.Key(), v.Name) + ":" + v.MountPath
 	}
 	return binds, nil
 }
 
 // AddVolume attaches a new volume; it's mounted from the next deploy on.
-func AddVolume(s *store.Store, app, name, mountPath string) error {
+func AddVolume(s *store.Store, appID int64, name, mountPath string) error {
 	if err := checkName("volume", name); err != nil {
 		return err
 	}
@@ -31,42 +31,42 @@ func AddVolume(s *store.Store, app, name, mountPath string) error {
 	if !path.IsAbs(mountPath) || mountPath == "/" || strings.Contains(mountPath, ":") {
 		return fmt.Errorf("mount path must be an absolute directory other than /, e.g. /app/data")
 	}
-	vols, err := s.ListVolumes(ctx(), app)
+	vols, err := s.ListVolumes(ctx(), appID)
 	if err != nil {
 		return err
 	}
 	for _, v := range vols {
 		if v.Name == name {
-			return fmt.Errorf("%s already has a volume named %s", app, name)
+			return fmt.Errorf("the app already has a volume named %s", name)
 		}
 		if v.MountPath == mountPath {
 			return fmt.Errorf("volume %s is already mounted at %s", v.Name, mountPath)
 		}
 	}
-	return s.AddVolume(ctx(), store.AddVolumeParams{AppName: app, Name: name, MountPath: mountPath})
+	return s.AddVolume(ctx(), store.AddVolumeParams{AppID: appID, Name: name, MountPath: mountPath})
 }
 
 // RemoveVolume detaches a volume and deletes its data. A volume the running
 // container still uses is deleted by the daily cleanup after the next deploy.
-func RemoveVolume(s *store.Store, app, name string) error {
-	if err := s.DeleteVolume(ctx(), store.DeleteVolumeParams{AppName: app, Name: name}); err != nil {
-		return err
-	}
-	// The files stay in the bucket, as a deleted database's do.
-	if err := s.DeleteVolumeBackupsOf(ctx(), store.DeleteVolumeBackupsOfParams{AppName: app, Volume: name}); err != nil {
-		return err
-	}
-	a, err := s.GetApp(ctx(), app)
+func RemoveVolume(s *store.Store, appID int64, name string) error {
+	a, err := s.GetAppByID(ctx(), appID)
 	if err != nil {
 		return err
 	}
-	return AppNode(s, a).RemoveVolume(ctx(), app, name)
+	if err := s.DeleteVolume(ctx(), store.DeleteVolumeParams{AppID: appID, Name: name}); err != nil {
+		return err
+	}
+	// The files stay in the bucket, as a deleted database's do.
+	if err := s.DeleteVolumeBackupsOf(ctx(), store.DeleteVolumeBackupsOfParams{AppID: appID, Volume: name}); err != nil {
+		return err
+	}
+	return AppNode(s, a).RemoveVolume(ctx(), a.Key(), name)
 }
 
-func SetShareVolumes(s *store.Store, app string, share bool) error {
+func SetShareVolumes(s *store.Store, appID int64, share bool) error {
 	var v int64
 	if share {
 		v = 1
 	}
-	return s.SetAppShareVolumes(ctx(), store.SetAppShareVolumesParams{Name: app, ShareVolumes: v})
+	return s.SetAppShareVolumes(ctx(), store.SetAppShareVolumesParams{ID: appID, ShareVolumes: v})
 }

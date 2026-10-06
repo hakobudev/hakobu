@@ -14,7 +14,8 @@ func TestHealthOutages(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { forgetHealth(nil) })
-	check := func(ok bool) { noteHealth(s, "web", ok, "didn't answer on port 3000") }
+	web := seedApp(t, s, "shop", "web")
+	check := func(ok bool) { noteHealth(s, web, ok, "didn't answer on port 3000") }
 
 	check(false)
 	check(false)
@@ -28,7 +29,7 @@ func TestHealthOutages(t *testing.T) {
 	if got, want := f.sent(), []string{"web: not responding", "web: responding again"}; strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("sent %q, want %q", got, want)
 	}
-	events, err := s.Tel.ListTelemetryEvents(ctx(), teldb.ListTelemetryEventsParams{AppName: "web", Limit: 10})
+	events, err := s.Tel.ListTelemetryEvents(ctx(), teldb.ListTelemetryEventsParams{AppID: web.ID, Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,16 +49,17 @@ func TestHealthOutages(t *testing.T) {
 // problems.
 func TestAppEventsWithoutLogs(t *testing.T) {
 	s := notifyStore(t)
+	web := seedApp(t, s, "shop", "web")
 	for _, kind := range []string{"error", "log", "log", "crash", "log"} {
-		if err := s.Tel.CreateTelemetryEvent(ctx(), teldb.CreateTelemetryEventParams{AppName: "web", Kind: kind}); err != nil {
+		if err := s.Tel.CreateTelemetryEvent(ctx(), teldb.CreateTelemetryEventParams{AppID: web.ID, Kind: kind}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	problems, err := AppEvents(s, "web", false, 10)
+	problems, err := AppEvents(s, web, false, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
-	all, _ := AppEvents(s, "web", true, 10)
+	all, _ := AppEvents(s, web, true, 10)
 	if len(problems) != 2 || problems[0].Kind != "crash" || len(all) != 5 {
 		t.Errorf("problems %v, all %d", problems, len(all))
 	}

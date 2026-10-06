@@ -25,17 +25,18 @@ func TestIngestTraces(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.CreateProject(ctx, "demo"); err != nil {
+	p, err := s.CreateProject(ctx, store.CreateProjectParams{Name: "demo"})
+	if err != nil {
 		t.Fatal(err)
 	}
-	p, _ := s.GetProject(ctx, "demo")
-	if err := s.CreateApp(ctx, store.CreateAppParams{ProjectID: p.ID, Name: "web", BuildStrategy: "dockerfile"}); err != nil {
+	id, err := s.CreateApp(ctx, store.CreateAppParams{ProjectID: p, Name: "web", BuildStrategy: "dockerfile"})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetAppSentryKey(ctx, store.SetAppSentryKeyParams{Name: "web", SentryKey: "abc"}); err != nil {
+	if err := s.SetAppSentryKey(ctx, store.SetAppSentryKeyParams{ID: id, SentryKey: "abc"}); err != nil {
 		t.Fatal(err)
 	}
-	app, _ := s.GetApp(ctx, "web")
+	app, _ := s.GetAppByID(ctx, id)
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/{app_id}/envelope/", panelIngest(s))
 
@@ -53,28 +54,28 @@ func TestIngestTraces(t *testing.T) {
 		}
 	}
 
-	routes, err := ops.RoutesOf(s, "web", time.Hour)
+	routes, err := ops.RoutesOf(s, app, time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(routes) != 2 {
 		t.Errorf("routes %+v, want /orders/{order_id} and /users/{id}/profile", routes)
 	}
-	kept, err := s.Tel.ListTraces(ctx, teldb.ListTracesParams{AppName: "web", Limit: 10})
+	kept, err := s.Tel.ListTraces(ctx, teldb.ListTracesParams{AppID: id, Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(kept) != 1 || kept[0].HttpStatus != 500 {
 		t.Fatalf("kept %+v, want the failed request only", kept)
 	}
-	events, err := s.Tel.ListTelemetryEvents(ctx, teldb.ListTelemetryEventsParams{AppName: "web", Limit: 10})
+	events, err := s.Tel.ListTelemetryEvents(ctx, teldb.ListTelemetryEventsParams{AppID: id, Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(events) != 1 || events[0].TraceID != kept[0].TraceID {
 		t.Errorf("the error isn't linked to its trace: %+v", events)
 	}
-	if _, err := ops.TraceOf(s, "web", kept[0].ID); err != nil {
+	if _, err := ops.TraceOf(s, app, kept[0].ID); err != nil {
 		t.Error(err)
 	}
 }

@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -15,28 +16,28 @@ import (
 
 var serverKeys struct {
 	sync.Mutex
-	of map[string]node.KeyState // by server name
+	of map[int64]node.KeyState // by server ID
 }
 
 // noteServerKeys asks the server for its keys' state and remembers it.
-func noteServerKeys(name string, n node.Node) {
+func noteServerKeys(id int64, n node.Node) {
 	k, err := n.KeyState(ctx())
 	if err != nil {
-		panellog.Warn("keys of server", name+":", err)
+		panellog.Warn("keys of server", id, err)
 		return
 	}
 	serverKeys.Lock()
 	defer serverKeys.Unlock()
 	if serverKeys.of == nil {
-		serverKeys.of = map[string]node.KeyState{}
+		serverKeys.of = map[int64]node.KeyState{}
 	}
-	serverKeys.of[name] = k
+	serverKeys.of[id] = k
 }
 
-func knownServerKeys(name string) (node.KeyState, bool) {
+func knownServerKeys(id int64) (node.KeyState, bool) {
 	serverKeys.Lock()
 	defer serverKeys.Unlock()
-	k, ok := serverKeys.of[name]
+	k, ok := serverKeys.of[id]
 	return k, ok
 }
 
@@ -53,11 +54,11 @@ func checkServerKeys(s *store.Store) {
 		return
 	}
 	for _, row := range rows {
-		if n, err := serverNode(row.Name); err == nil {
-			noteServerKeys(row.Name, n)
+		if n, err := serverNode(server{ID: row.ID, Name: row.Name}); err == nil {
+			noteServerKeys(row.ID, n)
 		}
-		key := "serverkey:" + row.Name
-		if k, ok := knownServerKeys(row.Name); ok && !k.Exported {
+		key := fmt.Sprintf("serverkey:%d", row.ID)
+		if k, ok := knownServerKeys(row.ID); ok && !k.Exported {
 			problem(s, key, 7*24*time.Hour, "Save the key of server "+row.Name,
 				"Server "+row.Name+" seals its backups with its own key, which hakobu never sees: without a copy of it, they can't be restored if the server is lost. On the server, run:\n\n  "+
 					KeyExportCommand(row.Name)+"\n\nand keep the file away from it.\n\n"+panelURL("/settings#servers"))

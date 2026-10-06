@@ -83,9 +83,9 @@ func storageView(v storagePage) templ.Component {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var4 templ.SafeURL
-					templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinURLErrs("/apps/" + a)
+					templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(appPath(v.Project.Name, a)))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_storage.templ`, Line: 22, Col: 28}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_storage.templ`, Line: 22, Col: 57}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 					if templ_7745c5c3_Err != nil {
@@ -158,9 +158,9 @@ func storageView(v storagePage) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var7 string
-				templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.ResolveAttributeValue("/storages/" + v.Storage.Name + "/keys")
+				templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.ResolveAttributeValue(storageURL(v.Project.Name, v.Storage.Name) + "/keys")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_storage.templ`, Line: 36, Col: 59}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_storage.templ`, Line: 36, Col: 72}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var7)
 				if templ_7745c5c3_Err != nil {
@@ -356,9 +356,9 @@ func storageView(v storagePage) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var16 string
-			templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.ResolveAttributeValue("/storages/" + v.Storage.Name)
+			templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.ResolveAttributeValue(storageURL(v.Project.Name, v.Storage.Name))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_storage.templ`, Line: 77, Col: 47}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_storage.templ`, Line: 77, Col: 60}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var16)
 			if templ_7745c5c3_Err != nil {
@@ -414,7 +414,7 @@ func storageView(v storagePage) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = shell(v.Storage.Name, projectCrumb(v.Project.Name), resourceCrumb(v.Project.Name, v.Storage.Name, "/storages/"+v.Storage.Name, storageLogo(v.Storage), "archive")).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = shell(v.Storage.Name, projectCrumb(v.Project.Name), resourceCrumb(v.Project.Name, v.Storage.Name, storageURL(v.Project.Name, v.Storage.Name), storageLogo(v.Storage), "archive")).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

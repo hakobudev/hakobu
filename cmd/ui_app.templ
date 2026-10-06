@@ -41,17 +41,20 @@ type appPage struct {
 	Volumes          []store.Volume
 	VolumeBackups    []volumeBackups
 	VolumeJobRunning bool
-	PathRoutes       []store.AppRoute
+	PathRoutes       []pathRoute
 	Siblings         []string // the project's other apps
 	BackupBucket     string
 	SealedWorker     []string
 }
 
+// pathRoute is a route of the app's address to another app, by its name.
+type pathRoute struct{ Path, Target string }
+
 func (p appPage) path(tab string) string {
 	if tab == "" || tab == "overview" {
-		return "/apps/" + p.App.Name
+		return appURL(p.App.App)
 	}
-	return "/apps/" + p.App.Name + "/" + tab
+	return appURL(p.App.App) + "/" + tab
 }
 
 func buildText(a appView) string {
@@ -99,7 +102,7 @@ templ appShell(p appPage) {
 
 // appStatus refreshes itself while the page is open.
 templ appStatus(a appView) {
-	<span id="app-status" hx-get={ "/apps/" + a.Name + "/status" } hx-trigger="every 3s" hx-swap="outerHTML" class="inline-flex items-center gap-2">
+	<span id="app-status" hx-get={ appURL(a.App) + "/status" } hx-trigger="every 3s" hx-swap="outerHTML" class="inline-flex items-center gap-2">
 		if a.Deploying {
 			<span class="badge badge-accent"><span class="dot dot-accent dot-pulse"></span>Deploying</span>
 		} else if a.Status == "running" {
@@ -142,7 +145,7 @@ templ appActions(p appPage) {
 	@menu("rollback-menu", "Rollback", "history", false) {
 		<button
 			class="menu-item"
-			hx-post={ "/apps/" + p.App.Name + "/rollback" }
+			hx-post={ p.path("") + "/rollback" }
 			hx-confirm="The build before the latest one goes live again. The data stays as it is."
 			data-confirm-title={ "Roll back " + p.App.Name + "?" }
 			data-confirm-action="Roll back"
@@ -161,7 +164,7 @@ templ appActions(p appPage) {
 			} else {
 				<button
 					class="menu-item"
-					hx-post={ "/apps/" + p.App.Name + "/rollback" }
+					hx-post={ p.path("") + "/rollback" }
 					hx-vals='{"data": "1"}'
 					hx-confirm={ p.App.LinkedDB + " returns to its snapshot from " + p.App.SnapshotAt + ". Everything written since then is replaced, and the app is down for the swap. Rolling back again returns today's data." }
 					data-confirm-title={ "Roll back " + p.App.Name + " and its database?" }
@@ -176,7 +179,7 @@ templ appActions(p appPage) {
 			}
 		}
 	}
-	<button class="btn btn-primary" hx-post={ "/apps/" + p.App.Name + "/deploy" }>
+	<button class="btn btn-primary" hx-post={ p.path("") + "/deploy" }>
 		@ic("loader-circle", "btn-spinner")
 		@ic("refresh-cw", "btn-label-icon")
 		Redeploy
@@ -312,13 +315,13 @@ templ productionBox(p appPage) {
 				<span class="kv-key">Linked</span>
 				<span class="flex flex-wrap gap-2">
 					if p.App.LinkedDB != "" {
-						<a href={ "/databases/" + p.App.LinkedDB } class="badge">
+						<a href={ templ.SafeURL(dbURL(p.App.ProjectName, p.App.LinkedDB)) } class="badge">
 							@ic("database", "icon-sm")
 							{ p.App.LinkedDB }
 						</a>
 					}
 					if p.App.LinkedStorage != "" {
-						<a href={ "/storages/" + p.App.LinkedStorage } class="badge">
+						<a href={ templ.SafeURL(storageURL(p.App.ProjectName, p.App.LinkedStorage)) } class="badge">
 							@ic("archive", "icon-sm")
 							{ p.App.LinkedStorage }
 						</a>
@@ -359,7 +362,7 @@ templ workerBox(p appPage) {
 				<p class="mono break-all">{ string(p.Worker.Command) }</p>
 				<p class="muted">Same image as the app; restarts after every deploy.</p>
 				<div class="btn-group">
-					<button class="btn btn-sm" hx-post={ "/apps/" + p.App.Name + "/worker/restart" }>
+					<button class="btn btn-sm" hx-post={ p.path("") + "/worker/restart" }>
 						@ic("loader-circle", "btn-spinner")
 						@ic("refresh-cw", "icon-sm btn-label-icon")
 						Restart
@@ -412,7 +415,7 @@ templ appDeployments(p appPage) {
 				</div>
 			}
 			for _, d := range p.Deploys {
-				@deployItem(p.App.Name, d)
+				@deployItem(p.App.App, d)
 			}
 		</div>
 	}
@@ -420,13 +423,13 @@ templ appDeployments(p appPage) {
 
 // deployItem is one deploy and its output; a running one reloads itself
 // until it ends, leaving the others (and which of them are open) alone.
-templ deployItem(app string, d store.DeployLog) {
+templ deployItem(app store.App, d store.DeployLog) {
 	<details
 		class="box"
 		id={ "d-" + itoa(d.ID) }
 		open?={ d.Status == "running" }
 		if d.Status == "running" {
-			hx-get={ "/apps/" + app + "/deploys/" + itoa(d.ID) }
+			hx-get={ appURL(app) + "/deploys/" + itoa(d.ID) }
 			hx-trigger="every 2s"
 			hx-swap="outerHTML"
 		}
@@ -516,7 +519,7 @@ templ appErrors(p appPage) {
 								{ " · " }
 								@timeAgo(e.CreatedAt)
 								if e.TraceID != "" {
-									{ " · " }<a href={ "/apps/" + e.AppName + "/traces/by-trace/" + e.TraceID }>its trace</a>
+									{ " · " }<a href={ templ.SafeURL(p.path("traces/by-trace/" + e.TraceID)) }>its trace</a>
 								}
 							</p>
 							<pre class="mono whitespace-pre-wrap break-words">{ string(e.Message) }</pre>
@@ -578,7 +581,7 @@ templ appPerformance(p appPage) {
 				@section("", "Slow and failed", "Kept whole for a week: requests of 1 s and over, and failed ones. Newest first.", nil) {
 					<div class="box">
 						for _, t := range p.Traces {
-							<a href={ "/apps/" + t.AppName + "/traces/" + itoa(t.ID) } class="box-row">
+							<a href={ templ.SafeURL(p.path("traces/" + itoa(t.ID))) } class="box-row">
 								<span class="row-main">
 									if traceFailed(t.HttpStatus, t.Status) {
 										@ic("circle-x", "text-danger")
@@ -614,17 +617,17 @@ func traceFailed(httpStatus int64, status string) bool {
 templ appVariables(p appPage) {
 	@appShell(p) {
 		<div class="space-y-6">
-			<form hx-post={ "/apps/" + p.App.Name + "/env" } class="box" id="app-env" data-saved>
+			<form hx-post={ p.path("") + "/env" } class="box" id="app-env" data-saved>
 				<div class="box-header"><span>Service variables</span></div>
 				<div class="box-body">
 					<p class="field-hint">Only for this app; they override the project's shared variables. Refer to another app of the project with <span class="mono">${"{{"}api.URL{"}}"}</span> (its public address), <span class="mono">HOST</span> or <span class="mono">PRIVATE_URL</span> (inside the project, for a server). <span class="mono">VITE_</span>, <span class="mono">NEXT_PUBLIC_</span>, <span class="mono">PUBLIC_</span>, <span class="mono">REACT_APP_</span> and <span class="mono">RAILPACK_</span> variables reach the build too.</p>
-					@envEditor("env", string(p.App.Env), "/apps/"+p.App.Name+"/env/suggest")
+					@envEditor("env", string(p.App.Env), p.path("")+"/env/suggest")
 				</div>
 				@boxFooter("Applies on the next deploy.") {
 					@submit("Save", true)
 				}
 			</form>
-			@sealedVars("app", p.App.Name, p.SealedApp)
+			@sealedVars(p.path("sealed/app"), p.SealedApp)
 			<div class="box">
 				<div class="box-header">
 					<span>Effective environment</span>

@@ -47,7 +47,7 @@ templ appSettings(p appPage) {
 			</nav>
 			<div class="min-w-0">
 				@section("general", "General", "", nil) {
-					<form hx-post={ "/apps/" + p.App.Name + "/settings" } class="box" id="form-general" data-saved>
+					<form hx-post={ p.path("") + "/settings" } class="box" id="form-general" data-saved>
 						<div class="box-body">
 							@field("Address", "Hakobu manages the DNS record in Cloudflare; HTTPS works right away. Leave the subdomain empty for the root domain.") {
 								@domainField(p.Zones, p.Sub, p.Zone, p.App.Domain, false)
@@ -73,7 +73,7 @@ templ appSettings(p appPage) {
 					@appRoutes(p)
 				}
 				@section("build", "Build", "", nil) {
-					<form hx-post={ "/apps/" + p.App.Name + "/build" } class="box" id="form-build" data-saved>
+					<form hx-post={ p.path("") + "/build" } class="box" id="form-build" data-saved>
 						<div class="box-body">
 							<div class="fields">
 								@field("Method", "") {
@@ -97,7 +97,7 @@ templ appSettings(p appPage) {
 					</form>
 				}
 				@section("resources", "Resources", "", nil) {
-					<form hx-post={ "/apps/" + p.App.Name + "/links" } class="box" id="form-links" data-saved>
+					<form hx-post={ p.path("") + "/links" } class="box" id="form-links" data-saved>
 						<div class="box-body">
 							<div class="fields">
 								@field("Database", "Gives DATABASE_URL and POSTGRES_*.") {
@@ -130,7 +130,7 @@ templ appSettings(p appPage) {
 					@appVolumes(p)
 				}
 				@section("limits", "Limits", "", nil) {
-					<form hx-post={ "/apps/" + p.App.Name + "/limits" } class="box" id="form-limits" data-saved>
+					<form hx-post={ p.path("") + "/limits" } class="box" id="form-limits" data-saved>
 						<div class="box-body">
 							if p.LastOOM != "" {
 								@flash("danger") {
@@ -156,7 +156,7 @@ templ appSettings(p appPage) {
 				}
 				@section("worker", "Worker", "A background process from the app's image with its own start command and no port. It restarts after every deploy.", workerActions(p)) {
 					<div class="space-y-6">
-						<form hx-post={ "/apps/" + p.App.Name + "/worker" } class="box" id="form-worker" data-saved>
+						<form hx-post={ p.path("") + "/worker" } class="box" id="form-worker" data-saved>
 							<div class="box-body">
 								<div class="grid gap-4 sm:grid-cols-3">
 									@field("Name", "") {
@@ -181,7 +181,7 @@ templ appSettings(p appPage) {
 							}
 						</form>
 						if p.Worker != nil {
-							@sealedVars("worker", p.App.Name, p.SealedWorker)
+							@sealedVars(p.path("sealed/worker"), p.SealedWorker)
 						}
 					</div>
 				}
@@ -197,7 +197,7 @@ templ appSettings(p appPage) {
 							</div>
 							<button
 								class="btn btn-danger"
-								hx-delete={ "/apps/" + p.App.Name }
+								hx-delete={ p.path("") }
 								hx-confirm={ deleteAppText(p) }
 								data-confirm-title={ "Delete " + p.App.Name + "?" }
 								data-confirm-action="Delete this app"
@@ -218,13 +218,13 @@ templ workerActions(p appPage) {
 	if p.Worker != nil {
 		<div class="btn-group">
 			@statusText(p.WorkerStatus)
-			<button class="btn btn-sm" hx-post={ "/apps/" + p.App.Name + "/worker/restart" }>
+			<button class="btn btn-sm" hx-post={ p.path("") + "/worker/restart" }>
 				@ic("loader-circle", "btn-spinner")
 				Restart
 			</button>
 			<button
 				class="btn btn-sm btn-danger"
-				hx-delete={ "/apps/" + p.App.Name + "/worker" }
+				hx-delete={ p.path("") + "/worker" }
 				hx-confirm="The worker stops and isn't started on the next deploy."
 				data-confirm-title="Delete the worker?"
 				data-confirm-action="Delete worker"
@@ -253,11 +253,11 @@ templ appVolumes(p appPage) {
 				</div>
 				<div class="row-actions">
 					if p.BackupBucket != "" {
-						<button class="btn btn-sm btn-invisible" hx-post={ "/apps/" + p.App.Name + "/volumes/" + vb.Volume + "/backups" } disabled?={ vb.Job.Running != "" }>Back up now</button>
+						<button class="btn btn-sm btn-invisible" hx-post={ p.path("") + "/volumes/" + vb.Volume + "/backups" } disabled?={ vb.Job.Running != "" }>Back up now</button>
 					}
 					<button
 						class="btn btn-sm btn-invisible btn-danger"
-						hx-delete={ "/apps/" + p.App.Name + "/volumes/" + vb.Volume }
+						hx-delete={ p.path("") + "/volumes/" + vb.Volume }
 						hx-confirm={ "Volume " + vb.Volume + " is deleted with its data. Its backups' files stay in the bucket, but the panel forgets them." }
 						data-confirm-title={ "Remove volume " + vb.Volume + "?" }
 						data-confirm-action="Remove volume"
@@ -282,7 +282,7 @@ templ appVolumes(p appPage) {
 					<summary class="cursor-pointer muted">Upload a file, an SQLite database say</summary>
 					<form
 						class="space-y-3 mt-3"
-						hx-post={ "/apps/" + p.App.Name + "/volumes/" + vb.Volume + "/files" }
+						hx-post={ p.path("") + "/volumes/" + vb.Volume + "/files" }
 						hx-encoding="multipart/form-data"
 						hx-confirm={ "The volume is backed up first, then " + p.App.Name + " stops while the file is written, replacing a file of that name." }
 						data-confirm-title={ "Upload into " + vb.Volume + "?" }
@@ -319,10 +319,10 @@ templ appVolumes(p appPage) {
 						}
 					</span>
 					<span class="row-actions">
-						<button class="btn btn-sm btn-invisible" hx-post={ "/apps/" + p.App.Name + "/volumes/" + vb.Volume + "/backups/" + itoa(b.ID) + "/verify" } disabled?={ vb.Job.Running != "" }>Check</button>
+						<button class="btn btn-sm btn-invisible" hx-post={ p.path("") + "/volumes/" + vb.Volume + "/backups/" + itoa(b.ID) + "/verify" } disabled?={ vb.Job.Running != "" }>Check</button>
 						<button
 							class="btn btn-sm btn-invisible"
-							hx-post={ "/apps/" + p.App.Name + "/volumes/" + vb.Volume + "/backups/" + itoa(b.ID) + "/restore" }
+							hx-post={ p.path("") + "/volumes/" + vb.Volume + "/backups/" + itoa(b.ID) + "/restore" }
 							hx-confirm={ "Everything in volume " + vb.Volume + " is replaced with this backup. " + p.App.Name + " stops while it's written; what's in the volume now is lost." }
 							data-confirm-title={ "Restore " + vb.Volume + "?" }
 							data-confirm-action="Restore backup"
@@ -334,7 +334,7 @@ templ appVolumes(p appPage) {
 			}
 		}
 		if len(p.Volumes) > 0 {
-			<form hx-post={ "/apps/" + p.App.Name + "/share-volumes" } hx-trigger="change" class="box-body">
+			<form hx-post={ p.path("") + "/share-volumes" } hx-trigger="change" class="box-body">
 				<label class="check">
 					<input type="checkbox" name="share" value="1" checked?={ p.App.ShareVolumes != 0 }/>
 					<span>
@@ -358,7 +358,7 @@ templ appVolumes(p appPage) {
 				}
 			</div>
 		}
-		<form hx-post={ "/apps/" + p.App.Name + "/volumes" } class="box-footer">
+		<form hx-post={ p.path("") + "/volumes" } class="box-footer">
 			<input name="name" placeholder="name, e.g. data" required class="input input-sm mono w-36"/>
 			<input name="mount_path" placeholder="path in the container, e.g. /app/data" required class="input input-sm mono flex-1 min-w-40"/>
 			<button class="btn btn-sm">
@@ -373,13 +373,13 @@ templ appVolumes(p appPage) {
 templ appRoutes(p appPage) {
 	<div class="box">
 		for _, r := range p.PathRoutes {
-			<form class="box-row" hx-post={ "/apps/" + p.App.Name + "/routes" }>
+			<form class="box-row" hx-post={ p.path("") + "/routes" }>
 				<input type="hidden" name="path" value={ r.Path }/>
 				<span class="row-main">
 					@ic("route", "icon-muted")
 					<span class="mono">{ p.App.Domain + r.Path }</span>
 					<span class="muted">→</span>
-					<a href={ templ.SafeURL("/apps/" + r.Target) } class="mono">{ r.Target }</a>
+					<a href={ templ.SafeURL(appPath(p.Project.Name, r.Target)) } class="mono">{ r.Target }</a>
 				</span>
 				<button class="btn btn-sm btn-invisible btn-danger">Remove</button>
 			</form>
@@ -389,7 +389,7 @@ templ appRoutes(p appPage) {
 				<p class="field-hint">The project has no other app to route to yet.</p>
 			</div>
 		} else {
-			<form hx-post={ "/apps/" + p.App.Name + "/routes" } class="box-body">
+			<form hx-post={ p.path("") + "/routes" } class="box-body">
 				if p.App.Domain == "" {
 					<p class="field-hint mb-3">Routes work once this app has an address.</p>
 				}

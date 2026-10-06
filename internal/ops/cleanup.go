@@ -67,14 +67,14 @@ func cleanup(s *store.Store) (string, error) {
 		mine := map[string]bool{}
 		for _, a := range apps {
 			if places[a.ProjectID].server == n.ID {
-				mine[a.Name] = true
-				spec.Apps[a.Name] = true
-				spec.Busy[a.Name] = IsDeploying(a.Name)
+				mine[a.Key()] = true
+				spec.Apps[a.Key()] = true
+				spec.Busy[a.Key()] = IsDeploying(a.ID)
 			}
 		}
 		for _, v := range vols {
-			if mine[v.AppName] {
-				spec.Volumes[node.Volume(v.AppName, v.Name)] = true
+			if mine[store.AppKey(v.AppID)] {
+				spec.Volumes[node.Volume(store.AppKey(v.AppID), v.Name)] = true
 			}
 		}
 		f, i, err := n.n.Cleanup(ctx(), spec)

@@ -19,33 +19,33 @@ import (
 // one moment, as after a power cut; an app is frozen for as long as that
 // takes, seconds for most volumes.
 
-// volumeJob names a volume's backup jobs (DatabaseJob): volume and
-// database names hold no "/", so they never clash.
-func volumeJob(app, volume string) string { return app + "/" + volume }
+// volumeJob names a volume's backup jobs in dbJobs (DatabaseJob), and its
+// backup alerts.
+func volumeJob(appID int64, volume string) string { return fmt.Sprintf("vol:%d/%s", appID, volume) }
 
 // VolumeJob is the running or last backup job of an app's volume.
-func VolumeJob(app, volume string) DBJob { return DatabaseJob(volumeJob(app, volume)) }
+func VolumeJob(appID int64, volume string) DBJob { return jobOf(volumeJob(appID, volume)) }
 
 // errAppBusy is a volume backup put off because the app is being deployed.
 var errAppBusy = errors.New("a deploy is in progress")
 
 // BackupVolume uploads a backup of the volume; it returns errAppBusy while
 // the app is deploying, and 0 for a volume no deploy has created yet.
-func BackupVolume(s *store.Store, app, volume string) (int64, error) {
-	a, err := s.GetApp(ctx(), app)
+func BackupVolume(s *store.Store, appID int64, volume string) (int64, error) {
+	a, err := s.GetAppByID(ctx(), appID)
 	if err != nil {
 		return 0, err
 	}
 	// Held like a deploy while the app is paused and its archive goes up,
 	// so no deploy starts or stops its containers meanwhile; a push is
 	// deployed after it.
-	if ok, _ := reserve(app, false); !ok {
+	if ok, _ := reserve(appID, false); !ok {
 		return 0, errAppBusy
 	}
 	id, err := backupVolumeHeld(s, a, volume)
-	if release(app) {
-		if err := StartDeploy(s, app, "push"); err != nil {
-			panellog.Error("deploying", app, "after its backup failed:", err)
+	if release(appID) {
+		if err := StartDeploy(s, appID, "push"); err != nil {
+			panellog.Error("deploying", a.Name, "after its backup failed:", err)
 		}
 	}
 	return id, err
@@ -53,26 +53,25 @@ func BackupVolume(s *store.Store, app, volume string) (int64, error) {
 
 // backupVolumeHeld is BackupVolume for a caller holding the app.
 func backupVolumeHeld(s *store.Store, a store.App, volume string) (int64, error) {
-	app := a.Name
 	n := AppNode(s, a)
-	if ok, err := n.HasVolume(ctx(), app, volume); err != nil || !ok {
+	if ok, err := n.HasVolume(ctx(), a.Key(), volume); err != nil || !ok {
 		return 0, err
 	}
 	target, err := projectBackupTarget(s, a.ProjectID)
 	if err != nil {
 		return 0, err
 	}
-	key := fmt.Sprintf("volumes/%s_%s/%s.tar.enc", app, volume, time.Now().UTC().Format("20060102-150405"))
+	key := fmt.Sprintf("volumes/%s_%s/%s.tar.enc", a.Key(), volume, time.Now().UTC().Format("20060102-150405"))
 	up, err := newUpload(s, target, key)
 	if err != nil {
 		return 0, err
 	}
-	obj, err := n.BackupVolume(ctx(), app, volume, up)
+	obj, err := n.BackupVolume(ctx(), a.Key(), volume, up)
 	if err != nil {
 		return 0, err
 	}
 	return s.CreateVolumeBackup(ctx(), store.CreateVolumeBackupParams{
-		AppName: app, Volume: volume, ObjectKey: key, Parts: int64(obj.Parts), SizeBytes: obj.Size, SHA256: obj.SHA256, KeyFingerprint: obj.KeyFingerprint,
+		AppID: a.ID, Volume: volume, ObjectKey: key, Parts: int64(obj.Parts), SizeBytes: obj.Size, SHA256: obj.SHA256, KeyFingerprint: obj.KeyFingerprint,
 		AccountID: target.AccountID, Bucket: target.Bucket,
 	})
 }
@@ -103,7 +102,7 @@ func VerifyVolumeBackup(s *store.Store, id int64) error {
 }
 
 func countTarFiles(s *store.Store, b store.VolumeBackup) (int, error) {
-	app, err := s.GetApp(ctx(), b.AppName)
+	app, err := s.GetAppByID(ctx(), b.AppID)
 	if err != nil {
 		return 0, err
 	}
@@ -116,14 +115,14 @@ func countTarFiles(s *store.Store, b store.VolumeBackup) (int, error) {
 
 // volumeBackupAndCheck backs a volume up, reads the backup back and drops
 // old ones.
-func volumeBackupAndCheck(s *store.Store, app, volume string) error {
-	id, err := BackupVolume(s, app, volume)
+func volumeBackupAndCheck(s *store.Store, appID int64, volume string) error {
+	id, err := BackupVolume(s, appID, volume)
 	if err != nil || id == 0 {
 		return err
 	}
 	verifyErr := VerifyVolumeBackup(s, id)
-	if err := RotateVolumeBackups(s, app, volume, time.Now()); err != nil {
-		panellog.Error("backup rotation of", volumeJob(app, volume), "failed:", err)
+	if err := RotateVolumeBackups(s, appID, volume, time.Now()); err != nil {
+		panellog.Error("backup rotation of", volumeJob(appID, volume), "failed:", err)
 	}
 	if verifyErr != nil {
 		return fmt.Errorf("the backup was uploaded, but reading it back failed: %w", verifyErr)
@@ -132,12 +131,12 @@ func volumeBackupAndCheck(s *store.Store, app, volume string) error {
 }
 
 // StartVolumeBackup backs the volume up in the background.
-func StartVolumeBackup(s *store.Store, app, volume string) error {
-	if err := hasVolume(s, app, volume); err != nil {
+func StartVolumeBackup(s *store.Store, appID int64, volume string) error {
+	if err := hasVolume(s, appID, volume); err != nil {
 		return err
 	}
-	return startDBJob(volumeJob(app, volume), "backing up", func() error {
-		err := volumeBackupAndCheck(s, app, volume)
+	return startDBJob(volumeJob(appID, volume), "backing up", func() error {
+		err := volumeBackupAndCheck(s, appID, volume)
 		if errors.Is(err, errAppBusy) {
 			return fmt.Errorf("%w, try again when it finishes", err)
 		}
@@ -146,28 +145,28 @@ func StartVolumeBackup(s *store.Store, app, volume string) error {
 }
 
 // StartVolumeVerify reads a backup back in the background.
-func StartVolumeVerify(s *store.Store, app, volume string, id int64) error {
-	b, err := volumeBackup(s, app, volume, id)
+func StartVolumeVerify(s *store.Store, appID int64, volume string, id int64) error {
+	b, err := volumeBackup(s, appID, volume, id)
 	if err != nil {
 		return err
 	}
-	return startDBJob(volumeJob(app, volume), "checking a backup", func() error { return VerifyVolumeBackup(s, b.ID) })
+	return startDBJob(volumeJob(appID, volume), "checking a backup", func() error { return VerifyVolumeBackup(s, b.ID) })
 }
 
 // StartVolumeRestore replaces the volume's contents with a backup, as a
 // job in the app's deploy history: the app and its worker are stopped
 // while it's written and started again after.
-func StartVolumeRestore(s *store.Store, app, volume string, id int64) error {
-	b, err := volumeBackup(s, app, volume, id)
+func StartVolumeRestore(s *store.Store, appID int64, volume string, id int64) error {
+	b, err := volumeBackup(s, appID, volume, id)
 	if err != nil {
 		return err
 	}
-	job := volumeJob(app, volume)
+	job := volumeJob(appID, volume)
 	what := "restoring the backup of " + b.CreatedAt
 	if err := reserveDB(job, what); err != nil {
 		return err
 	}
-	err = startJob(s, app, "restore volume "+volume, func(a store.App, out io.Writer) error {
+	err = startJob(s, appID, "restore volume "+volume, func(a store.App, out io.Writer) error {
 		err := restoreVolume(s, a, b, out)
 		finishDB(job, what, err)
 		return err
@@ -188,8 +187,8 @@ func restoreVolume(s *store.Store, app store.App, b store.VolumeBackup, out io.W
 	return AppNode(s, app).RestoreVolume(ctx(), liveSpec(app), b.Volume, dl, out)
 }
 
-func hasVolume(s *store.Store, app, volume string) error {
-	vols, err := s.ListVolumes(ctx(), app)
+func hasVolume(s *store.Store, appID int64, volume string) error {
+	vols, err := s.ListVolumes(ctx(), appID)
 	if err != nil {
 		return err
 	}
@@ -198,16 +197,16 @@ func hasVolume(s *store.Store, app, volume string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("%s has no volume %s", app, volume)
+	return fmt.Errorf("the app has no volume %s", volume)
 }
 
-// volumeBackup looks up a backup and makes sure it's of app's volume.
-func volumeBackup(s *store.Store, app, volume string, id int64) (store.VolumeBackup, error) {
+// volumeBackup looks up a backup and makes sure it's of the app's volume.
+func volumeBackup(s *store.Store, appID int64, volume string, id int64) (store.VolumeBackup, error) {
 	b, err := s.GetVolumeBackup(ctx(), id)
-	if err != nil || b.AppName != app || b.Volume != volume {
-		return b, fmt.Errorf("no such backup of %s", volumeJob(app, volume))
+	if err != nil || b.AppID != appID || b.Volume != volume {
+		return b, fmt.Errorf("no such backup of volume %s", volume)
 	}
-	return b, hasVolume(s, app, volume)
+	return b, hasVolume(s, appID, volume)
 }
 
 func volumeBackupAge(b store.VolumeBackup) (int64, string, bool) {
@@ -216,8 +215,8 @@ func volumeBackupAge(b store.VolumeBackup) (int64, string, bool) {
 
 // RotateVolumeBackups deletes the volume's backups the rotation no longer
 // keeps, the same as a database's.
-func RotateVolumeBackups(s *store.Store, app, volume string, now time.Time) error {
-	all, err := s.ListAllVolumeBackups(ctx(), store.ListAllVolumeBackupsParams{AppName: app, Volume: volume})
+func RotateVolumeBackups(s *store.Store, appID int64, volume string, now time.Time) error {
+	all, err := s.ListAllVolumeBackups(ctx(), store.ListAllVolumeBackupsParams{AppID: appID, Volume: volume})
 	if err != nil {
 		return err
 	}
@@ -233,7 +232,7 @@ func RotateVolumeBackups(s *store.Store, app, volume string, now time.Time) erro
 }
 
 // VolumeBackupDue backs up every volume whose last backup is older than
-// config.BackupEvery, keyed by "app/volume" like NoteBackup wants them. A
+// config.BackupEvery, keyed by volumeJob like NoteBackup wants them. A
 // volume of an app being deployed waits for the next hour.
 func VolumeBackupDue(s *store.Store) map[string]error {
 	results := map[string]error{}
@@ -242,15 +241,15 @@ func VolumeBackupDue(s *store.Store) map[string]error {
 		return results
 	}
 	for _, v := range vols {
-		last, err := s.ListVolumeBackups(ctx(), store.ListVolumeBackupsParams{AppName: v.AppName, Volume: v.Name, Limit: 1})
+		last, err := s.ListVolumeBackups(ctx(), store.ListVolumeBackupsParams{AppID: v.AppID, Volume: v.Name, Limit: 1})
 		if err == nil && len(last) > 0 {
 			if t, err := time.Parse("2006-01-02T15:04:05Z", last[0].CreatedAt); err == nil && time.Since(t) < config.BackupEvery {
 				continue
 			}
 		}
-		err = runDBJob(volumeJob(v.AppName, v.Name), "backing up (scheduled)", func() error { return volumeBackupAndCheck(s, v.AppName, v.Name) })
+		err = runDBJob(volumeJob(v.AppID, v.Name), "backing up (scheduled)", func() error { return volumeBackupAndCheck(s, v.AppID, v.Name) })
 		if !errors.Is(err, errAppBusy) {
-			results[volumeJob(v.AppName, v.Name)] = err
+			results[volumeJob(v.AppID, v.Name)] = err
 		}
 	}
 	return results

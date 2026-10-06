@@ -302,7 +302,7 @@ func (p *panelApps) find(ctx context.Context, id int64) (ingestApp, bool) {
 	if resp.StatusCode != http.StatusOK || json.NewDecoder(resp.Body).Decode(&a) != nil {
 		return k.app, ok
 	}
-	app := ingestApp{a.Name, a.Key}
+	app := ingestApp{a.ID, a.Key}
 	p.mu.Lock()
 	p.known[id] = knownApp{app, time.Now()}
 	p.mu.Unlock()

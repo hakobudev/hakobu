@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"net/mail"
+	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -492,37 +494,38 @@ func recipient(s *store.Store, key string) string {
 }
 
 // alertOwner is the user whose project problem key is about: an app's
-// (deploy, crash, out of memory, health, memory use), a database's or a
-// volume's backup. ok is false for the server's own alerts.
+// (deploy, crash, out of memory, health, memory use, by the app's ID), a
+// database's or a volume's backup (by dbJobKey or volumeJob). ok is false
+// for the server's own alerts.
 func alertOwner(s *store.Store, key string) (user int64, ok bool) {
 	kind, rest, _ := strings.Cut(key, ":")
 	var projectID int64
 	switch kind {
 	case "deploy", "oom", "crash", "health", "memory":
-		if kind == "memory" { // memory:app:<app> or memory:worker:<app>
+		if kind == "memory" { // memory:app:<id> or memory:worker:<id>
 			if _, rest, ok = strings.Cut(rest, ":"); !ok {
 				return 0, false
 			}
 		}
-		a, err := s.GetApp(ctx(), rest)
+		id, _ := strconv.ParseInt(rest, 10, 64)
+		a, err := s.GetAppByID(ctx(), id)
 		if err != nil {
 			return 0, false
 		}
 		projectID = a.ProjectID
 	case "backup":
-		if app, _, isVolume := strings.Cut(rest, "/"); isVolume {
-			a, err := s.GetApp(ctx(), app)
-			if err != nil {
-				return 0, false
-			}
-			projectID = a.ProjectID
-		} else if d, err := s.GetDatabase(ctx(), rest); err == nil {
-			projectID = d.ProjectID
-		} else {
+		app, db, ok := backupOf(s, rest)
+		switch {
+		case !ok:
 			return 0, false // the panel's own backup
+		case app != nil:
+			projectID = app.ProjectID
+		default:
+			projectID = db.ProjectID
 		}
-	case "serverkey": // serverkey:<server>, its key not exported
-		n, err := s.GetNodeByName(ctx(), rest)
+	case "serverkey": // serverkey:<server ID>, its key not exported
+		id, _ := strconv.ParseInt(rest, 10, 64)
+		n, err := s.GetNode(ctx(), id)
 		if err != nil {
 			return 0, false
 		}
@@ -543,6 +546,40 @@ func alertOwner(s *store.Store, key string) (user int64, ok bool) {
 	return p.UserID, true
 }
 
+// backupOf is what a backup job (dbJobKey, volumeJob) is of: the app whose
+// volume it is, or the database.
+func backupOf(s *store.Store, job string) (app *store.App, db *store.Database, ok bool) {
+	kind, rest, _ := strings.Cut(job, ":")
+	switch kind {
+	case "db":
+		id, _ := strconv.ParseInt(rest, 10, 64)
+		if d, err := s.GetDatabaseByID(ctx(), id); err == nil {
+			return nil, &d, true
+		}
+	case "vol":
+		appID, _, _ := strings.Cut(rest, "/")
+		id, _ := strconv.ParseInt(appID, 10, 64)
+		if a, err := s.GetAppByID(ctx(), id); err == nil {
+			return &a, nil, true
+		}
+	}
+	return nil, nil, false
+}
+
+// AppPath is the app's page in the panel.
+func AppPath(app store.App) string {
+	return "/projects/" + url.PathEscape(app.ProjectName) + "/apps/" + url.PathEscape(app.Name)
+}
+
+// DatabasePath is the database's page in the panel.
+func DatabasePath(s *store.Store, d store.Database) string {
+	p, err := s.GetProjectByID(ctx(), d.ProjectID)
+	if err != nil {
+		return "/"
+	}
+	return "/projects/" + url.PathEscape(p.Name) + "/databases/" + url.PathEscape(d.Name)
+}
+
 // async runs an email's sending off the caller's path; tests wait for it.
 var async = func(f func()) { go f() }
 
@@ -556,29 +593,33 @@ func panelURL(path string) string { return "https://" + config.PublicHost() + pa
 
 // noteDeploy mails a deploy that failed after a push, when nobody was
 // watching, and the next one that works.
-func noteDeploy(s *store.Store, app, trigger string, err error) {
-	key := "deploy:" + app
+func noteDeploy(s *store.Store, app store.App, trigger string, err error) {
+	key := fmt.Sprintf("deploy:%d", app.ID)
 	if err == nil {
-		solved(s, key, app+": deploys work again", "The latest deploy of "+app+" succeeded.\n\n"+panelURL("/apps/"+app))
+		solved(s, key, app.Name+": deploys work again", "The latest deploy of "+app.Name+" succeeded.\n\n"+panelURL(AppPath(app)))
 		return
 	}
 	if trigger != "push" {
 		return
 	}
-	problem(s, key, notifyAgain, app+": deploy failed",
-		fmt.Sprintf("Deploying %s after a push to GitHub failed:\n\n  %v\n\nThe deploy log: %s", app, err, panelURL("/apps/"+app+"/deployments")))
+	problem(s, key, notifyAgain, app.Name+": deploy failed",
+		fmt.Sprintf("Deploying %s after a push to GitHub failed:\n\n  %v\n\nThe deploy log: %s", app.Name, err, panelURL(AppPath(app)+"/deployments")))
 }
 
-// NoteBackup mails a failed backup of a database, or of the panel with
-// name "panel", and the next one that works.
-func NoteBackup(s *store.Store, name string, err error) {
-	what, path := "database "+name, "/databases/"+name
-	if name == "panel" {
-		what, path = "the panel", "/settings"
-	} else if app, volume, ok := strings.Cut(name, "/"); ok { // volumeJob
-		what, path = "volume "+volume+" of "+app, "/apps/"+app
+// NoteBackup mails a failed backup of a database or a volume (job: its
+// dbJobKey or volumeJob), or of the panel with job "panel", and the next
+// one that works.
+func NoteBackup(s *store.Store, job string, err error) {
+	what, path := "the panel", "/settings"
+	if app, db, ok := backupOf(s, job); ok && app != nil {
+		_, volume, _ := strings.Cut(job, "/")
+		what, path = "volume "+volume+" of "+app.Name, AppPath(*app)
+	} else if ok {
+		what, path = "database "+db.Name, DatabasePath(s, *db)
+	} else if job != "panel" {
+		return // gone since
 	}
-	key := "backup:" + name
+	key := "backup:" + job
 	if err == nil {
 		solved(s, key, "Backups of "+what+" work again", "The latest backup of "+what+" succeeded.\n\n"+panelURL(path))
 		return
@@ -588,16 +629,16 @@ func NoteBackup(s *store.Store, name string, err error) {
 }
 
 // noteOOM mails an app or worker killed for running out of memory.
-func noteOOM(s *store.Store, app, message string) {
-	problem(s, "oom:"+app, notifyAgain, app+": out of memory",
-		message+"\n\nGive it more memory or find what grows: "+panelURL("/apps/"+app+"/errors"))
+func noteOOM(s *store.Store, app store.App, message string) {
+	problem(s, fmt.Sprintf("oom:%d", app.ID), notifyAgain, app.Name+": out of memory",
+		message+"\n\nGive it more memory or find what grows: "+panelURL(AppPath(app)+"/errors"))
 }
 
 // noteCrash mails a live app or worker container that exited with an
 // error; Docker restarting it again and again stays one email.
-func noteCrash(s *store.Store, app, message string) {
-	problem(s, "crash:"+app, notifyAgain, app+": crashed",
-		message+"\n\nIts output: "+panelURL("/apps/"+app+"/logs"))
+func noteCrash(s *store.Store, app store.App, message string) {
+	problem(s, fmt.Sprintf("crash:%d", app.ID), notifyAgain, app.Name+": crashed",
+		message+"\n\nIts output: "+panelURL(AppPath(app)+"/logs"))
 }
 
 // CheckForOwner mails the disk filling up and a master key the owner

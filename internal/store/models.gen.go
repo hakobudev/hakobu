@@ -14,6 +14,7 @@ type App struct {
 	ID              int64
 	ProjectID       int64
 	ProjectName     string
+	UserID          int64
 	Name            string
 	Repo            string
 	Domain          string
@@ -28,12 +29,12 @@ type App struct {
 	Env             secret.String
 	SentryKey       secret.String
 	HealthCheckPath string
-	LinkedDB        string
-	LinkedStorage   string
+	LinkedDbID      sql.NullInt64
+	LinkedStorageID sql.NullInt64
 	ShareVolumes    int64
 	MemoryMB        int64
 	Cpus            float64
-	SnapshotDB      string
+	SnapshotDbID    sql.NullInt64
 	SnapshotAt      string
 	Stack           string
 	StartCommand    string
@@ -56,26 +57,26 @@ type AppRecord struct {
 	Env             secret.String
 	SentryKey       secret.String
 	HealthCheckPath string
-	LinkedDB        string
-	LinkedStorage   string
+	LinkedDbID      sql.NullInt64
+	LinkedStorageID sql.NullInt64
 	ShareVolumes    int64
 	MemoryMB        int64
 	Cpus            float64
-	SnapshotDB      string
+	SnapshotDbID    sql.NullInt64
 	SnapshotAt      string
 	Stack           string
 	StartCommand    string
 }
 
 type AppRoute struct {
-	AppName string
-	Path    string
-	Target  string
+	AppID    int64
+	Path     string
+	TargetID int64
 }
 
 type Backup struct {
 	ID             int64
-	Database       string
+	DatabaseID     int64
 	AccountID      string
 	Bucket         string
 	ObjectKey      string
@@ -117,15 +118,15 @@ type CloudflareAccount struct {
 }
 
 type Database struct {
+	ID        int64
 	Name      string
 	ProjectID int64
-	User      string
 	Password  secret.String
 }
 
 type DeployLog struct {
 	ID        int64
-	AppName   string
+	AppID     int64
 	Trigger   string
 	Status    string
 	Output    secret.String
@@ -203,7 +204,7 @@ type OAuthToken struct {
 }
 
 type PendingPromotion struct {
-	AppName string
+	AppID int64
 }
 
 type Project struct {
@@ -216,10 +217,10 @@ type Project struct {
 }
 
 type SealedVar struct {
-	Scope string
-	Owner string
-	Key   string
-	Value secret.String
+	Scope   string
+	OwnerID int64
+	Key     string
+	Value   secret.String
 }
 
 type ServerTunnel struct {
@@ -238,6 +239,7 @@ type Session struct {
 }
 
 type Storage struct {
+	ID              int64
 	Name            string
 	ProjectID       int64
 	Provider        string
@@ -260,14 +262,14 @@ type User struct {
 }
 
 type Volume struct {
-	AppName   string
+	AppID     int64
 	Name      string
 	MountPath string
 }
 
 type VolumeBackup struct {
 	ID             int64
-	AppName        string
+	AppID          int64
 	Volume         string
 	AccountID      string
 	Bucket         string
@@ -301,7 +303,7 @@ type WebhookDelivery struct {
 }
 
 type Worker struct {
-	AppName string
+	AppID   int64
 	Name    string
 	Command secret.String
 	Env     secret.String

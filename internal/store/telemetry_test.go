@@ -21,7 +21,7 @@ func TestTelemetryStartsOver(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer db.Close()
-		if _, err := db.Exec(`INSERT INTO telemetry_events (app_name, kind) VALUES ('web', 'error')`); err != nil {
+		if _, err := db.Exec(`INSERT INTO telemetry_events (app_id, kind) VALUES (1, 'error')`); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -58,7 +58,7 @@ func TestRotationReencryptsTelemetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Tel.CreateTelemetryEvent(ctx, teldb.CreateTelemetryEventParams{AppName: "web", Kind: "error", Message: "boom"}); err != nil {
+	if err := s.Tel.CreateTelemetryEvent(ctx, teldb.CreateTelemetryEventParams{AppID: 1, Kind: "error", Message: "boom"}); err != nil {
 		t.Fatal(err)
 	}
 	var before string

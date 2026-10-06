@@ -195,14 +195,21 @@ const maxWatchedApps = 15
 // watchdogTarget is what the watchdog checks: the panel's /healthz, which
 // must say "ok", and each app's health check path at its address.
 type watchdogTarget struct {
-	Name string `json:"name"`
-	URL  string `json:"url"`
-	Need string `json:"need"` // "ok", "2xx", or "any" answer but a server error
+	Name  string `json:"name"`            // its history's key: "panel" or AppTarget
+	Label string `json:"label,omitempty"` // what emails call it
+	URL   string `json:"url"`
+	Need  string `json:"need"` // "ok", "2xx", or "any" answer but a server error
 }
 
 // watchdogTargets are the panel and the apps with an address, as JSON.
 func watchdogTargets(s *store.Store) (string, error) {
 	targets := []watchdogTarget{{Name: "panel", URL: panelURL("/healthz"), Need: "ok"}}
+	if config.PanelOnly {
+		// The apps are others', on their servers: their owners hear of
+		// them from the panel, not the admin from the watchdog.
+		b, err := json.Marshal(targets)
+		return string(b), err
+	}
 	apps, err := s.ListApps(ctx())
 	if err != nil {
 		return "", err
@@ -218,7 +225,7 @@ func watchdogTargets(s *store.Store) (string, error) {
 		if path == "/" {
 			need = "any"
 		}
-		targets = append(targets, watchdogTarget{Name: "app:" + a.Name, URL: u + path, Need: need})
+		targets = append(targets, watchdogTarget{Name: AppTarget(a.ID), Label: a.Name, URL: u + path, Need: need})
 	}
 	b, err := json.Marshal(targets)
 	return string(b), err

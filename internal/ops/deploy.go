@@ -20,15 +20,15 @@ func ctx() context.Context { return context.Background() }
 
 // An app's images: :latest is live, :previous is the rollback target and
 // :next is a build that hasn't passed its health check yet.
-func ImageTag(app store.App) string         { return node.Tag(app.Name, node.Latest) }
-func PreviousImageTag(app store.App) string { return node.Tag(app.Name, node.Previous) }
-func nextImageTag(app store.App) string     { return node.Tag(app.Name, node.Next) }
+func ImageTag(app store.App) string         { return node.Tag(app.Key(), node.Latest) }
+func PreviousImageTag(app store.App) string { return node.Tag(app.Key(), node.Previous) }
+func nextImageTag(app store.App) string     { return node.Tag(app.Key(), node.Next) }
 
 var (
 	jobsMu  sync.Mutex
-	running = map[string]bool{} // apps with a deploy, rollback or deletion in progress
-	queued  = map[string]bool{} // a push arrived during a deploy; deploy again after it
-	closed  string              // why no job may start now, "" when they may
+	running = map[int64]bool{} // apps with a deploy, rollback or deletion in progress
+	queued  = map[int64]bool{} // a push arrived during a deploy; deploy again after it
+	closed  string             // why no job may start now, "" when they may
 )
 
 // CloseJobs stops new deploys, rollbacks, deletions and database jobs from
@@ -53,28 +53,28 @@ func jobsClosed() error {
 	return nil
 }
 
-func IsDeploying(name string) bool {
+func IsDeploying(id int64) bool {
 	jobsMu.Lock()
 	defer jobsMu.Unlock()
-	return running[name]
+	return running[id]
 }
 
 // reserve marks the app busy; with queuePush a busy app gets a follow-up
 // push deploy instead of an error.
-func reserve(name string, queuePush bool) (ok bool, err error) {
+func reserve(id int64, queuePush bool) (ok bool, err error) {
 	jobsMu.Lock()
 	defer jobsMu.Unlock()
 	if closed != "" {
 		return false, errors.New(closed + ", try again in a minute")
 	}
-	if running[name] {
+	if running[id] {
 		if queuePush {
-			queued[name] = true
+			queued[id] = true
 			return false, nil
 		}
-		return false, fmt.Errorf("a deploy of %s is in progress, try again when it finishes", name)
+		return false, fmt.Errorf("a deploy of the app is in progress, try again when it finishes")
 	}
-	running[name] = true
+	running[id] = true
 	return true, nil
 }
 
@@ -96,12 +96,12 @@ func WaitForJobs(timeout time.Duration) bool {
 }
 
 // release frees the app and reports whether a queued push should run now.
-func release(name string) (runQueued bool) {
+func release(id int64) (runQueued bool) {
 	jobsMu.Lock()
 	defer jobsMu.Unlock()
-	delete(running, name)
-	runQueued = queued[name]
-	delete(queued, name)
+	delete(running, id)
+	runQueued = queued[id]
+	delete(queued, id)
 	return runQueued
 }
 
@@ -169,35 +169,37 @@ func (l *deployLog) finish(err error) {
 
 // startJob runs fn in the background with a deploy log; only one job per
 // app runs at a time, and a push arriving meanwhile is deployed after it.
-func startJob(s *store.Store, appName, trigger string, fn func(app store.App, out io.Writer) error) error {
-	ok, err := reserve(appName, trigger == "push")
+func startJob(s *store.Store, appID int64, trigger string, fn func(app store.App, out io.Writer) error) error {
+	ok, err := reserve(appID, trigger == "push")
 	if !ok {
 		return err
 	}
-	app, err := s.GetApp(ctx(), appName)
+	app, err := s.GetAppByID(ctx(), appID)
 	if err == nil {
 		var id int64
-		id, err = s.CreateDeployLog(ctx(), store.CreateDeployLogParams{AppName: appName, Trigger: trigger, Status: "running"})
+		id, err = s.CreateDeployLog(ctx(), store.CreateDeployLogParams{AppID: appID, Trigger: trigger, Status: "running"})
 		if err == nil {
 			go func() {
 				log := &deployLog{s: s, id: id}
 				err := fn(app, log)
 				log.finish(err)
-				noteDeploy(s, appName, trigger, err)
-				if release(appName) {
-					StartDeploy(s, appName, "push")
+				noteDeploy(s, app, trigger, err)
+				if release(appID) {
+					if err := StartDeploy(s, appID, "push"); err != nil {
+						panellog.Warn("the push that came during a deploy of", app.Name, "wasn't deployed:", err)
+					}
 				}
 			}()
 			return nil
 		}
 	}
-	release(appName)
+	release(appID)
 	return err
 }
 
 // StartDeploy builds the app's repo on its node and rolls the build out.
-func StartDeploy(s *store.Store, appName, trigger string) error {
-	return startJob(s, appName, trigger, func(app store.App, out io.Writer) error {
+func StartDeploy(s *store.Store, appID int64, trigger string) error {
+	return startJob(s, appID, trigger, func(app store.App, out io.Writer) error {
 		token, err := repoToken(s, app.Repo)
 		if err != nil {
 			return err
@@ -209,7 +211,7 @@ func StartDeploy(s *store.Store, appName, trigger string) error {
 		pending := false
 		defer func() {
 			if !pending {
-				n.DropImage(ctx(), app.Name, node.Next)
+				n.DropImage(ctx(), app.Key(), node.Next)
 			}
 		}()
 		env, err := buildEnv(s, app)
@@ -217,7 +219,7 @@ func StartDeploy(s *store.Store, appName, trigger string) error {
 			return err
 		}
 		stack, err := n.Build(ctx(), node.BuildSpec{
-			App: app.Name, Repo: app.Repo, CloneURL: github.CloneURL(app.Repo), Token: token, Path: app.BuildPath, Strategy: app.BuildStrategy,
+			App: app.Key(), Repo: app.Repo, CloneURL: github.CloneURL(app.Repo), Token: token, Path: app.BuildPath, Strategy: app.BuildStrategy,
 			Env: env,
 		}, out)
 		if err != nil {
@@ -232,7 +234,7 @@ func StartDeploy(s *store.Store, appName, trigger string) error {
 			// The new version serves, but its server dropped off before
 			// it became Latest there; that's finished as it connects
 			// again (finishPromotions), so Latest is what serves.
-			if perr := s.AddPendingPromotion(ctx(), app.Name); perr != nil {
+			if perr := s.AddPendingPromotion(ctx(), app.ID); perr != nil {
 				return errors.Join(err, perr)
 			}
 			pending = true
@@ -243,11 +245,11 @@ func StartDeploy(s *store.Store, appName, trigger string) error {
 		// For the panel's logo of the app, once this build is the live one;
 		// a stale one is no reason to fail the deploy.
 		if stack != app.Stack {
-			if err := s.SetAppStack(ctx(), store.SetAppStackParams{Name: app.Name, Stack: stack}); err != nil {
+			if err := s.SetAppStack(ctx(), store.SetAppStackParams{ID: app.ID, Stack: stack}); err != nil {
 				fmt.Fprintln(out, "warning: failed to note the app's stack:", err)
 			}
 		}
-		if w, err := s.GetWorker(ctx(), app.Name); err == nil && !pending {
+		if w, err := s.GetWorker(ctx(), app.ID); err == nil && !pending {
 			if err := runWorker(s, app, w, out); err != nil {
 				return fmt.Errorf("app deployed, but worker failed: %w", err)
 			}
@@ -264,12 +266,12 @@ func finishPromotions(s *store.Store, sv server, n node.Node) {
 	if err != nil {
 		return
 	}
-	for _, name := range apps {
-		app, err := s.GetApp(ctx(), name)
+	for _, id := range apps {
+		app, err := s.GetAppByID(ctx(), id)
 		if err != nil {
 			continue
 		}
-		p, err := s.GetProject(ctx(), app.ProjectName)
+		p, err := s.GetProjectByID(ctx(), app.ProjectID)
 		if err != nil {
 			continue
 		}
@@ -277,19 +279,19 @@ func finishPromotions(s *store.Store, sv server, n node.Node) {
 			continue
 		}
 		// No Next: the server promoted it before its answer was lost.
-		if next, err := n.HasImage(ctx(), app.Name, node.Next); err != nil {
+		if next, err := n.HasImage(ctx(), app.Key(), node.Next); err != nil {
 			continue
 		} else if next {
-			if err := n.Promote(ctx(), app.Name); err != nil && !errors.Is(err, node.ErrPreviousNotKept) {
+			if err := n.Promote(ctx(), app.Key()); err != nil && !errors.Is(err, node.ErrPreviousNotKept) {
 				panellog.Error("keeping the live build of", app.Name, "as the latest:", err)
 				continue
 			}
-			n.DropImage(ctx(), app.Name, node.Next)
+			n.DropImage(ctx(), app.Key(), node.Next)
 		}
-		if err := s.DeletePendingPromotion(ctx(), app.Name); err != nil {
+		if err := s.DeletePendingPromotion(ctx(), app.ID); err != nil {
 			panellog.Error(app.Name+":", err)
 		}
-		if w, err := s.GetWorker(ctx(), app.Name); err == nil {
+		if w, err := s.GetWorker(ctx(), app.ID); err == nil {
 			if err := runWorker(s, app, w, io.Discard); err != nil {
 				panellog.Error("starting the worker of", app.Name+":", err)
 			}
@@ -303,7 +305,7 @@ func finishPromotions(s *store.Store, sv server, n node.Node) {
 // snapshot is unpaired first: a failure or crash in between must leave no
 // snapshot rather than pair the new Previous with data it never ran with.
 func withSnapshot(s *store.Store, app store.App, dump node.Dump, out io.Writer, retag func() error) error {
-	if err := s.SetAppSnapshot(ctx(), store.SetAppSnapshotParams{Name: app.Name}); err != nil {
+	if err := s.SetAppSnapshot(ctx(), store.SetAppSnapshotParams{ID: app.ID}); err != nil {
 		return err
 	}
 	if err := retag(); errors.Is(err, node.ErrPreviousNotKept) {
@@ -312,9 +314,9 @@ func withSnapshot(s *store.Store, app store.App, dump node.Dump, out io.Writer, 
 	} else if err != nil {
 		return err
 	}
-	if err := keepSnapshot(s, app, app.LinkedDB, dump); err != nil {
+	if err := keepSnapshot(s, app, app.LinkedDbID, dump); err != nil {
 		fmt.Fprintln(out, "warning: failed to keep the database snapshot, Rollback will only restore the code:", err)
-		_ = AppNode(s, app).KeepSnapshot(app.Name, "") // drops it
+		_ = AppNode(s, app).KeepSnapshot(app.Key(), "") // drops it
 	}
 	return nil
 }
@@ -322,7 +324,7 @@ func withSnapshot(s *store.Store, app store.App, dump node.Dump, out io.Writer, 
 // promote makes the Next build that just went live Latest on the app's
 // node (see node.Local.Promote).
 func promote(s *store.Store, app store.App) error {
-	return AppNode(s, app).Promote(ctx(), app.Name)
+	return AppNode(s, app).Promote(ctx(), app.Key())
 }
 
 // StartRollback redeploys the image that was live before the current one;
@@ -330,12 +332,12 @@ func promote(s *store.Store, app store.App) error {
 // withData also returns the database to its snapshot from before the last
 // deploy, losing what was written since; the current data becomes the
 // snapshot, so rolling back again returns it too.
-func StartRollback(s *store.Store, appName string, withData bool) error {
-	app, err := s.GetApp(ctx(), appName)
+func StartRollback(s *store.Store, appID int64, withData bool) error {
+	app, err := s.GetAppByID(ctx(), appID)
 	if err != nil {
 		return err
 	}
-	if ok, err := AppNode(s, app).HasImage(ctx(), app.Name, node.Previous); err != nil {
+	if ok, err := AppNode(s, app).HasImage(ctx(), app.Key(), node.Previous); err != nil {
 		return err
 	} else if !ok {
 		return fmt.Errorf("no previous build to roll back to")
@@ -347,7 +349,7 @@ func StartRollback(s *store.Store, appName string, withData bool) error {
 	if withData {
 		trigger = "rollback with data"
 	}
-	return startJob(s, appName, trigger, func(app store.App, out io.Writer) error {
+	return startJob(s, appID, trigger, func(app store.App, out io.Writer) error {
 		n := AppNode(s, app)
 		var current node.Dump
 		if withData {
@@ -366,10 +368,10 @@ func StartRollback(s *store.Store, appName string, withData bool) error {
 		}
 		// The snapshot must match the new Previous: the data it ran with,
 		// or nothing after a code-only rollback.
-		if err := withSnapshot(s, app, current, out, func() error { return n.SwapForRollback(ctx(), app.Name) }); err != nil {
+		if err := withSnapshot(s, app, current, out, func() error { return n.SwapForRollback(ctx(), app.Key()) }); err != nil {
 			return err
 		}
-		if w, err := s.GetWorker(ctx(), app.Name); err == nil {
+		if w, err := s.GetWorker(ctx(), app.ID); err == nil {
 			return runWorker(s, app, w, out)
 		}
 		return nil
@@ -380,7 +382,7 @@ func StartRollback(s *store.Store, appName string, withData bool) error {
 // nothing writes during the swap, and puts the snapshot in place. It
 // returns the dump of the current data.
 func rollBackData(s *store.Store, app store.App, out io.Writer) (current node.Dump, err error) {
-	d, err := s.GetDatabase(ctx(), app.LinkedDB)
+	d, err := s.GetDatabaseByID(ctx(), app.LinkedDbID.Int64)
 	if err != nil {
 		return "", err
 	}
@@ -392,7 +394,7 @@ func rollBackData(s *store.Store, app store.App, out io.Writer) (current node.Du
 	fmt.Fprintln(out, "stopping", app.Name, "and restoring", d.Name, "from", app.SnapshotAt)
 	err = stopApp(s, app)
 	if err == nil {
-		err = n.ReplaceDatabase(ctx(), dbSpec(d), node.SnapshotOf(app.Name))
+		err = n.ReplaceDatabase(ctx(), dbSpec(d), node.SnapshotOf(app.Key()))
 	}
 	if err != nil {
 		n.DropDump(current)
@@ -411,12 +413,12 @@ func undoDataRollback(s *store.Store, app store.App, current node.Dump, out io.W
 	err := stopApp(s, app) // a recreate deploy may have started it again already
 	if err == nil {
 		var d store.Database
-		if d, err = s.GetDatabase(ctx(), app.LinkedDB); err == nil {
+		if d, err = s.GetDatabaseByID(ctx(), app.LinkedDbID.Int64); err == nil {
 			err = n.ReplaceDatabase(ctx(), dbSpec(d), current)
 		}
 	}
 	if err != nil {
-		keep := n.SetAside(app.Name, current)
+		keep := n.SetAside(app.Key(), current)
 		fmt.Fprintf(out, "ERROR: couldn't put the current data back (%v); it's saved in %s\n", err, keep)
 		return false
 	}
@@ -437,7 +439,7 @@ func startApp(s *store.Store, app store.App, out io.Writer) {
 }
 
 func restartWorker(s *store.Store, app store.App, out io.Writer) {
-	if w, err := s.GetWorker(ctx(), app.Name); err == nil {
+	if w, err := s.GetWorker(ctx(), app.ID); err == nil {
 		if err := runWorker(s, app, w, out); err != nil {
 			fmt.Fprintln(out, "failed to start the worker again:", err)
 		}
@@ -474,7 +476,7 @@ func buildEnv(s *store.Store, app store.App) ([]string, error) {
 
 func liveSpec(app store.App) node.AppSpec {
 	return node.AppSpec{
-		Name: app.Name, Project: app.ProjectName, ActiveSlot: app.ActiveSlot, ProxyPort: app.Port,
+		Name: app.Key(), Project: app.ProjectKey(), ActiveSlot: app.ActiveSlot, ProxyPort: app.Port,
 		ContainerPort: app.ContainerPort, PortHint: portHint(app, 0), HealthPath: app.HealthCheckPath,
 		MemoryMB: app.MemoryMB, CPUs: app.Cpus, Command: app.StartCommand,
 	}
@@ -489,7 +491,7 @@ func appSpec(s *store.Store, app store.App, hint int64) (node.AppSpec, error) {
 	if spec.Env, err = appEnv(s, app, hint); err != nil {
 		return spec, err
 	}
-	if spec.Binds, err = appBinds(s, app.Name); err != nil {
+	if spec.Binds, err = appBinds(s, app); err != nil {
 		return spec, err
 	}
 	spec.Recreate = len(spec.Binds) > 0 && app.ShareVolumes == 0
@@ -506,11 +508,11 @@ func appSpec(s *store.Store, app store.App, hint int64) (node.AppSpec, error) {
 // started again if the new one fails.
 func rollOut(s *store.Store, app store.App, img node.Image, out io.Writer) error {
 	n := AppNode(s, app)
-	spec, err := appSpec(s, app, portHint(app, n.ExposedPort(ctx(), app.Name, img)))
+	spec, err := appSpec(s, app, portHint(app, n.ExposedPort(ctx(), app.Key(), img)))
 	if err != nil {
 		return err
 	}
-	if err := ensureProjectNetworks(s, app.ProjectName); err != nil {
+	if err := ensureProjectNetworks(s, app.ProjectID); err != nil {
 		return err
 	}
 	c, err := n.StartCandidate(ctx(), spec, img, out)
@@ -520,11 +522,11 @@ func rollOut(s *store.Store, app store.App, img node.Image, out io.Writer) error
 	// The record first: after a crash between the two, the agent points
 	// the proxy at the slot the record names (EnsureProxy), and
 	// ReconcileSlots removes the other one.
-	if err := s.SetAppLive(ctx(), store.SetAppLiveParams{Name: app.Name, ActiveSlot: c.Slot, LivePort: c.Port}); err != nil {
+	if err := s.SetAppLive(ctx(), store.SetAppLiveParams{ID: app.ID, ActiveSlot: c.Slot, LivePort: c.Port}); err != nil {
 		return n.Discard(ctx(), spec, c, out, err)
 	}
 	if err := n.Switch(ctx(), spec, c); err != nil {
-		if rerr := s.SetAppLive(ctx(), store.SetAppLiveParams{Name: app.Name, ActiveSlot: app.ActiveSlot, LivePort: app.LivePort}); rerr != nil {
+		if rerr := s.SetAppLive(ctx(), store.SetAppLiveParams{ID: app.ID, ActiveSlot: app.ActiveSlot, LivePort: app.LivePort}); rerr != nil {
 			fmt.Fprintln(out, "warning:", rerr)
 		}
 		return n.Discard(ctx(), spec, c, out, err)
@@ -533,7 +535,7 @@ func rollOut(s *store.Store, app store.App, img node.Image, out io.Writer) error
 		fmt.Fprintln(out, "warning: failed to update the tunnel's routes, retrying in the background:", err)
 	}
 	n.Retire(ctx(), spec, c, out)
-	fmt.Fprintf(out, "live: container port %d, 127.0.0.1:%d (%s)\n", c.Port, app.Port, node.Tag(app.Name, img))
+	fmt.Fprintf(out, "live: container port %d, 127.0.0.1:%d (%s)\n", c.Port, app.Port, node.Tag(app.Key(), img))
 	return nil
 }
 
@@ -557,7 +559,7 @@ func EnsureProxy(s *store.Store, app store.App) {
 	}
 }
 
-func RemoveProxy(s *store.Store, app store.App) { AppNode(s, app).RemoveProxy(app.Name) }
+func RemoveProxy(s *store.Store, app store.App) { AppNode(s, app).RemoveProxy(app.Key()) }
 
 // ReconcileSlots tidies up after jobs the agent didn't live to finish on
 // the panel's server, run at startup before any job (see
@@ -571,7 +573,7 @@ func ReconcileSlots(s *store.Store) {
 	// Servers that joined are reconciled as they connect (serverConnected).
 	var specs []node.AppSpec
 	for _, app := range apps {
-		if !IsDeploying(app.Name) && onLocal(s, app) {
+		if !IsDeploying(app.ID) && onLocal(s, app) {
 			specs = append(specs, liveSpec(app))
 		}
 	}
@@ -581,7 +583,7 @@ func ReconcileSlots(s *store.Store) {
 // Workers.
 
 func runWorker(s *store.Store, app store.App, w store.Worker, out io.Writer) error {
-	if err := ensureProjectNetworks(s, app.ProjectName); err != nil {
+	if err := ensureProjectNetworks(s, app.ProjectID); err != nil {
 		return err
 	}
 	spec := liveSpec(app)
@@ -589,7 +591,7 @@ func runWorker(s *store.Store, app store.App, w store.Worker, out io.Writer) err
 	if spec.Env, err = WorkerEnv(s, app, w); err != nil {
 		return err
 	}
-	if spec.Binds, err = appBinds(s, app.Name); err != nil {
+	if spec.Binds, err = appBinds(s, app); err != nil {
 		return err
 	}
 	return AppNode(s, app).RunWorker(ctx(), node.WorkerSpec{App: spec, Command: string(w.Command)}, out)
@@ -598,14 +600,14 @@ func runWorker(s *store.Store, app store.App, w store.Worker, out io.Writer) err
 // SaveWorker creates or updates the app's worker and restarts it if the
 // app has been built.
 func SaveWorker(s *store.Store, w store.Worker) error {
-	app, err := s.GetApp(ctx(), w.AppName)
+	app, err := s.GetAppByID(ctx(), w.AppID)
 	if err != nil {
 		return err
 	}
 	if strings.TrimSpace(string(w.Command)) == "" {
 		return fmt.Errorf("worker command is required")
 	}
-	if err := checkNotSealed(s, "worker", w.AppName, string(w.Env)); err != nil {
+	if err := checkNotSealed(s, "worker", w.AppID, string(w.Env)); err != nil {
 		return err
 	}
 	if err := s.SaveWorker(ctx(), store.SaveWorkerParams(w)); err != nil {
@@ -615,26 +617,22 @@ func SaveWorker(s *store.Store, w store.Worker) error {
 }
 
 func RestartWorker(s *store.Store, app store.App) error {
-	w, err := s.GetWorker(ctx(), app.Name)
+	w, err := s.GetWorker(ctx(), app.ID)
 	if err != nil {
 		return fmt.Errorf("%s has no worker", app.Name)
 	}
-	if ok, _ := AppNode(s, app).HasImage(ctx(), app.Name, node.Latest); !ok {
+	if ok, _ := AppNode(s, app).HasImage(ctx(), app.Key(), node.Latest); !ok {
 		return nil // started by the first successful deploy
 	}
 	return runWorker(s, app, w, io.Discard)
 }
 
-func DeleteWorker(s *store.Store, appName string) error {
-	app, err := s.GetApp(ctx(), appName)
-	if err != nil {
+func DeleteWorker(s *store.Store, app store.App) error {
+	if err := AppNode(s, app).RemoveWorker(ctx(), app.Key()); err != nil {
 		return err
 	}
-	if err := AppNode(s, app).RemoveWorker(ctx(), appName); err != nil {
+	if err := s.DeleteSealedVarsOf(ctx(), store.DeleteSealedVarsOfParams{Scope: "worker", OwnerID: app.ID}); err != nil {
 		return err
 	}
-	if err := s.DeleteSealedVarsOf(ctx(), store.DeleteSealedVarsOfParams{Scope: "worker", Owner: appName}); err != nil {
-		return err
-	}
-	return s.DeleteWorker(ctx(), appName)
+	return s.DeleteWorker(ctx(), app.ID)
 }

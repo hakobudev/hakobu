@@ -22,12 +22,10 @@ import (
 var validRoutePath = regexp.MustCompile(`^(/[A-Za-z0-9._~-]+)+$`)
 
 // SetAppRoute sends the app's address's path (a prefix such as /api) to
-// target, another app of its project; target "" removes the route.
-func SetAppRoute(s *store.Store, appName, routePath, target string) error {
-	app, err := s.GetApp(ctx(), appName)
-	if err != nil {
-		return fmt.Errorf("app %q not found", appName)
-	}
+// target, another app of its project by its name; target "" removes the
+// route.
+func SetAppRoute(s *store.Store, app store.App, routePath, target string) error {
+	var err error
 	routePath = strings.TrimSpace(routePath)
 	if routePath != "" && routePath != "/" {
 		routePath = path.Clean("/" + strings.TrimPrefix(routePath, "/"))
@@ -36,16 +34,16 @@ func SetAppRoute(s *store.Store, appName, routePath, target string) error {
 		return fmt.Errorf("a route's path is like /api: letters, digits, dots, dashes and underscores between slashes, not / alone")
 	}
 	if target == "" {
-		err = s.DeleteAppRoute(ctx(), store.DeleteAppRouteParams{AppName: appName, Path: routePath})
+		err = s.DeleteAppRoute(ctx(), store.DeleteAppRouteParams{AppID: app.ID, Path: routePath})
 	} else {
-		t, terr := s.GetApp(ctx(), target)
+		t, terr := s.GetApp(ctx(), store.GetAppParams{ProjectID: app.ProjectID, Name: target})
 		switch {
-		case terr != nil || t.ProjectID != app.ProjectID:
+		case terr != nil:
 			return fmt.Errorf("%s isn't an app of project %s", target, app.ProjectName)
-		case t.Name == app.Name:
+		case t.ID == app.ID:
 			return fmt.Errorf("a route goes to another app")
 		}
-		err = s.SetAppRoute(ctx(), store.SetAppRouteParams{AppName: appName, Path: routePath, Target: target})
+		err = s.SetAppRoute(ctx(), store.SetAppRouteParams{AppID: app.ID, Path: routePath, TargetID: t.ID})
 	}
 	if err != nil {
 		return err
@@ -61,14 +59,14 @@ func SetAppRoute(s *store.Store, appName, routePath, target string) error {
 // routeRules are the ingress rules for app's routes, longest path first,
 // to go before the rule for its address; a target not deployed yet has
 // none.
-func routeRules(app store.App, routes []store.AppRoute, live map[string]int64) []cloudflare.IngressRule {
+func routeRules(app store.App, routes []store.AppRoute, live map[int64]int64) []cloudflare.IngressRule {
 	sort.Slice(routes, func(i, j int) bool { return len(routes[i].Path) > len(routes[j].Path) })
 	var rules []cloudflare.IngressRule
 	for _, r := range routes {
-		if port := live[r.Target]; port > 0 {
+		if port := live[r.TargetID]; port > 0 {
 			rules = append(rules, cloudflare.IngressRule{
 				Hostname: app.Domain, Path: "^" + regexp.QuoteMeta(r.Path) + "(/|$)",
-				Service: fmt.Sprintf("http://%s:%d", EdgeAlias(r.Target), port),
+				Service: fmt.Sprintf("http://%s:%d", EdgeAlias(store.AppKey(r.TargetID)), port),
 			})
 		}
 	}

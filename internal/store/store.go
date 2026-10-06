@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -209,16 +211,46 @@ func (s *Store) SnapshotTo(path string) error {
 	return err
 }
 
+// AppKey is the app's name on its server: its containers, images,
+// volumes and work dir, and its telemetry. It goes by ID, so two users'
+// apps of the same name never meet and an app can be renamed.
+func AppKey(id int64) string { return fmt.Sprintf("app-%d", id) }
+
+// Key is the project's name on its server: its networks.
+func (p Project) Key() string { return ProjectKey(p.ID) }
+
+// ProjectKey is Project.Key of the project with ID id.
+func ProjectKey(id int64) string { return fmt.Sprintf("proj-%d", id) }
+
+// ProjectKey is the key of the app's project.
+func (a App) ProjectKey() string { return ProjectKey(a.ProjectID) }
+
+// ParseAppKey is the ID in an AppKey.
+func ParseAppKey(key string) (int64, bool) {
+	rest, ok := strings.CutPrefix(key, "app-")
+	if !ok {
+		return 0, false
+	}
+	id, err := strconv.ParseInt(rest, 10, 64)
+	return id, err == nil
+}
+
+// Key is AppKey of the app.
+func (a App) Key() string { return AppKey(a.ID) }
+
+// Key is the database's name in Postgres, and its role's.
+func (d Database) Key() string { return fmt.Sprintf("db_%d", d.ID) }
+
 func (a App) ContainerName() string {
 	slot := a.ActiveSlot
 	if slot == "" {
 		slot = "blue"
 	}
-	return a.Name + "-" + slot
+	return a.Key() + "-" + slot
 }
 
 func (w Worker) ContainerName() string {
-	return w.AppName + "-worker"
+	return AppKey(w.AppID) + "-worker"
 }
 
 // FailRunningDeployLogs marks the deploys a restart cut short as failed.
@@ -239,29 +271,28 @@ func (s *Store) FailRunningDeployLogs(ctx context.Context) error {
 
 // DeleteAppCascade removes the app with its worker, volumes, routes (its
 // own and to it), deploy logs and telemetry.
-func (s *Store) DeleteAppCascade(ctx context.Context, name string) error {
+func (s *Store) DeleteAppCascade(ctx context.Context, id int64) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	q := s.WithTx(tx)
-	// Backups of its volumes stay in the bucket, but a new app of the same
-	// name mustn't list (and rotate away) them.
-	for _, del := range []func(context.Context, string) error{q.DeleteWorker, q.DeleteVolumesOfApp, q.DeleteVolumeBackupsOfApp, q.DeleteDeployLogsOfApp, q.DeletePendingPromotion, q.DeleteRoutesOfApp, q.DeleteApp} {
-		if err := del(ctx, name); err != nil {
+	// Backups of its volumes stay in the bucket, out of the panel's sight.
+	for _, del := range []func(context.Context, int64) error{q.DeleteWorker, q.DeleteVolumesOfApp, q.DeleteVolumeBackupsOfApp, q.DeleteDeployLogsOfApp, q.DeletePendingPromotion, q.DeleteRoutesOfApp, q.DeleteApp} {
+		if err := del(ctx, id); err != nil {
 			return err
 		}
 	}
 	for _, scope := range []string{"app", "worker"} {
-		if err := q.DeleteSealedVarsOf(ctx, DeleteSealedVarsOfParams{Scope: scope, Owner: name}); err != nil {
+		if err := q.DeleteSealedVarsOf(ctx, DeleteSealedVarsOfParams{Scope: scope, OwnerID: id}); err != nil {
 			return err
 		}
 	}
 	if err := tx.Commit(); err != nil {
 		return err
 	}
-	return s.deleteTelemetryOf(ctx, name)
+	return s.deleteTelemetryOf(ctx, id)
 }
 
 // Admin returns the panel's admin, the first user; its GitHubID is 0

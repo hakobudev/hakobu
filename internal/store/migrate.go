@@ -35,12 +35,12 @@ var (
 	indexes = []string{
 		// deploy_logs holds every deploy's output: without these, listing
 		// an app's deploys and the daily prune read all of it.
-		`CREATE INDEX IF NOT EXISTS idx_deploy_logs_app ON deploy_logs (app_name, id)`,
+		`CREATE INDEX IF NOT EXISTS idx_deploy_logs_app ON deploy_logs (app_id, id)`,
 		`CREATE INDEX IF NOT EXISTS idx_deploy_logs_created ON deploy_logs (created_at)`,
 	}
 	telemetryIndexes = []string{
 		// An app's errors without walking past its logs, and the prune of traces.
-		`CREATE INDEX IF NOT EXISTS telemetry_events_kind ON telemetry_events (app_name, kind, id)`,
+		`CREATE INDEX IF NOT EXISTS telemetry_events_kind ON telemetry_events (app_id, kind, id)`,
 		`CREATE INDEX IF NOT EXISTS traces_created ON traces (created_at)`,
 	}
 )

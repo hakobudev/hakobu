@@ -34,12 +34,12 @@ func (r RouteStats) ErrorPct() float64 {
 
 // RoutesOf sums an app's routes over the span, the ones that took the
 // most time in all first.
-func RoutesOf(s *store.Store, app string, span time.Duration) ([]RouteStats, error) {
+func RoutesOf(s *store.Store, app store.App, span time.Duration) ([]RouteStats, error) {
 	t, err := appTelemetry(s, app)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := t.TraceRoutes(ctx(), app, time.Now().Add(-span).Truncate(time.Hour).Unix())
+	rows, err := t.TraceRoutes(ctx(), app.ID, time.Now().Add(-span).Truncate(time.Hour).Unix())
 	if err != nil {
 		return nil, err
 	}
@@ -119,18 +119,18 @@ type WaterfallRow struct {
 }
 
 // TraceOf reads a kept trace of app and lays it out.
-func TraceOf(s *store.Store, app string, id int64) (Waterfall, error) {
+func TraceOf(s *store.Store, app store.App, id int64) (Waterfall, error) {
 	keeper, err := appTelemetry(s, app)
 	if err != nil {
 		return Waterfall{}, err
 	}
-	t, err := keeper.AppTrace(ctx(), app, id)
+	t, err := keeper.AppTrace(ctx(), app.ID, id)
 	if err != nil {
-		return Waterfall{}, fmt.Errorf("no trace %d of %s (traces are kept for a week)", id, app)
+		return Waterfall{}, fmt.Errorf("no trace %d of %s (traces are kept for a week)", id, app.Name)
 	}
 	tx, ok := ingest.ExtractTransaction(ingest.Item{Type: "transaction", Payload: []byte(t.Payload)})
 	if !ok {
-		return Waterfall{}, fmt.Errorf("trace %d of %s can't be read", id, app)
+		return Waterfall{}, fmt.Errorf("trace %d of %s can't be read", id, app.Name)
 	}
 	return Waterfall{Trace: t, Tx: tx, Rows: waterfallRows(tx)}, nil
 }

@@ -44,11 +44,11 @@ func TestOAuthAndMCP(t *testing.T) {
 		project, app string
 		user         int64
 	}{{"mine", "web", 1}, {"other", "theirs", 2}} {
-		if err := s.CreateUserProject(ctx, store.CreateUserProjectParams{Name: a.project, UserID: a.user}); err != nil {
+		p, err := s.CreateProject(ctx, store.CreateProjectParams{Name: a.project, UserID: a.user})
+		if err != nil {
 			t.Fatal(err)
 		}
-		p, _ := s.GetProject(ctx, a.project)
-		if err := s.CreateApp(ctx, store.CreateAppParams{ProjectID: p.ID, Name: a.app, BuildStrategy: "dockerfile"}); err != nil {
+		if _, err := s.CreateApp(ctx, store.CreateAppParams{ProjectID: p, Name: a.app, BuildStrategy: "dockerfile"}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -174,22 +174,22 @@ func TestOAuthAndMCP(t *testing.T) {
 	}
 	access := tokens["access_token"].(string)
 	if out := call(access, "list_apps", `{}`); out["result"] == nil || out["result"].(map[string]any)["isError"] == true ||
-		!strings.Contains(jsonString(out), `"web"`) || strings.Contains(jsonString(out), "theirs") {
+		!strings.Contains(jsonString(out), `"mine/web"`) || strings.Contains(jsonString(out), "theirs") {
 		t.Errorf("list_apps: %v", out)
 	}
-	if out := call(access, "get_app", `{"app":"theirs"}`); !strings.Contains(jsonString(out), `no app named \"theirs\"`) {
+	if out := call(access, "get_app", `{"app":"other/theirs"}`); !strings.Contains(jsonString(out), `no app \"other/theirs\"`) {
 		t.Errorf("get_app of someone else's: %v", out)
 	}
-	if out := call(access, "list_errors", `{"app":"theirs"}`); !strings.Contains(jsonString(out), "no app named") {
+	if out := call(access, "list_errors", `{"app":"other/theirs"}`); !strings.Contains(jsonString(out), "no app") {
 		t.Errorf("list_errors of someone else's: %v", out)
 	}
-	if out := call(access, "deploy", `{"app":"web"}`); !strings.Contains(jsonString(out), "may only read") {
+	if out := call(access, "deploy", `{"app":"mine/web"}`); !strings.Contains(jsonString(out), "may only read") {
 		t.Errorf("deploy with a read-only token: %v", out)
 	}
-	if out := call(access, "set_build", `{"app":"web","start_command":"node x.js"}`); !strings.Contains(jsonString(out), "may only read") {
+	if out := call(access, "set_build", `{"app":"mine/web","start_command":"node x.js"}`); !strings.Contains(jsonString(out), "may only read") {
 		t.Errorf("set_build with a read-only token: %v", out)
 	}
-	if app, _ := s.GetApp(ctx, "web"); app.StartCommand != "" {
+	if app, _ := s.GetAppByID(ctx, 1); app.StartCommand != "" {
 		t.Errorf("a read-only token set the start command to %q", app.StartCommand)
 	}
 

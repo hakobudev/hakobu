@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -52,21 +53,21 @@ func TestWatchdog(t *testing.T) {
 	}
 
 	// A new app with an address is checked from the next hourly check on.
-	if err := s.CreateProject(ctx(), "shop"); err != nil {
+	if err := createProject(s, "shop"); err != nil {
 		t.Fatal(err)
 	}
-	p, _ := s.GetProject(ctx(), "shop")
-	if err := s.CreateApp(ctx(), store.CreateAppParams{ProjectID: p.ID, Name: "web", BuildStrategy: "dockerfile"}); err != nil {
+	p, _ := getProject(s, "shop")
+	if err := createApp(s, store.CreateAppParams{ProjectID: p.ID, Name: "web", BuildStrategy: "dockerfile"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetAppSettings(ctx(), store.SetAppSettingsParams{Name: "web", HealthCheckPath: "/up"}); err != nil {
+	if err := s.SetAppSettings(ctx(), store.SetAppSettingsParams{ID: appID(t, s, "web"), HealthCheckPath: "/up"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetAppDomain(ctx(), store.SetAppDomainParams{Name: "web", Domain: "web.example.com"}); err != nil {
+	if err := s.SetAppDomain(ctx(), store.SetAppDomainParams{ID: appID(t, s, "web"), Domain: "web.example.com"}); err != nil {
 		t.Fatal(err)
 	}
 	CheckForOwner(s)
-	if b := binding(f.workers[name], "TARGETS"); !strings.Contains(b["text"], `{"name":"app:web","url":"https://web.example.com/up","need":"2xx"}`) {
+	if b := binding(f.workers[name], "TARGETS"); !strings.Contains(b["text"], fmt.Sprintf(`{"name":"app:%d","label":"web","url":"https://web.example.com/up","need":"2xx"}`, appID(t, s, "web"))) {
 		t.Errorf("after an app was added, TARGETS %v", b)
 	}
 

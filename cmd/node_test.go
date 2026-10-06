@@ -25,7 +25,7 @@ func TestNodeAsksThePanelForItsApps(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(ops.IngestApp{Name: "web", Key: "k"})
+		_ = json.NewEncoder(w).Encode(ops.IngestApp{ID: 7, Key: "k"})
 	}))
 	defer panel.Close()
 	// The link is a client whose requests reach the panel, whatever the host.
@@ -35,7 +35,7 @@ func TestNodeAsksThePanelForItsApps(t *testing.T) {
 	apps := &panelApps{toPanel: &toPanel, known: map[int64]knownApp{}}
 	ctx := context.Background()
 
-	if a, ok := apps.find(ctx, 7); !ok || a != (ingestApp{"web", "k"}) {
+	if a, ok := apps.find(ctx, 7); !ok || a != (ingestApp{7, "k"}) {
 		t.Fatalf("find: %+v %v", a, ok)
 	}
 	apps.find(ctx, 7)
@@ -48,7 +48,7 @@ func TestNodeAsksThePanelForItsApps(t *testing.T) {
 
 	// The panel away: what it told still holds, however old.
 	toPanel.Store(nil)
-	apps.known[7] = knownApp{ingestApp{"web", "k"}, time.Now().Add(-time.Hour)}
+	apps.known[7] = knownApp{ingestApp{7, "k"}, time.Now().Add(-time.Hour)}
 	if _, ok := apps.find(ctx, 7); !ok {
 		t.Error("forgot the app while the panel is away")
 	}

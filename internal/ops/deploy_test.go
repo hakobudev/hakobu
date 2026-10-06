@@ -9,22 +9,22 @@ import (
 )
 
 func TestJobReservation(t *testing.T) {
-	if ok, err := reserve("web", false); !ok || err != nil {
+	if ok, err := reserve(1, false); !ok || err != nil {
 		t.Fatalf("first reserve = %v, %v", ok, err)
 	}
-	if ok, err := reserve("web", false); ok || err == nil {
+	if ok, err := reserve(1, false); ok || err == nil {
 		t.Error("a second manual deploy should be refused while one runs")
 	}
-	if ok, err := reserve("web", true); ok || err != nil {
+	if ok, err := reserve(1, true); ok || err != nil {
 		t.Errorf("a push during a deploy should be queued, got %v, %v", ok, err)
 	}
-	if !release("web") {
+	if !release(1) {
 		t.Error("release should report the queued push")
 	}
-	if IsDeploying("web") {
+	if IsDeploying(1) {
 		t.Error("app still marked busy after release")
 	}
-	if ok, _ := reserve("web", false); !ok || release("web") {
+	if ok, _ := reserve(1, false); !ok || release(1) {
 		t.Error("the queue should be empty after it was handed out")
 	}
 }
@@ -42,7 +42,8 @@ func TestAddVolumeValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := AddVolume(s, "web", "data", "/app/data/"); err != nil {
+	web := seedApp(t, s, "shop", "web")
+	if err := AddVolume(s, web.ID, "data", "/app/data/"); err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range []struct{ name, path string }{
@@ -53,12 +54,12 @@ func TestAddVolumeValidation(t *testing.T) {
 		{"files", "/a:/b"},     // bind syntax injection
 		{"Bad_Name", "/files"}, // invalid name
 	} {
-		if err := AddVolume(s, "web", c.name, c.path); err == nil {
+		if err := AddVolume(s, appID(t, s, "web"), c.name, c.path); err == nil {
 			t.Errorf("AddVolume(%q, %q) should fail", c.name, c.path)
 		}
 	}
-	binds, _ := appBinds(s, "web")
-	if len(binds) != 1 || binds[0] != "hakobu-vol-web_data:/app/data" {
+	binds, _ := appBinds(s, mustApp(t, s, "web"))
+	if len(binds) != 1 || binds[0] != "hakobu-vol-"+web.Key()+"_data:/app/data" {
 		t.Errorf("binds = %v", binds)
 	}
 }
@@ -99,25 +100,25 @@ func TestDeployLogCutsTheMiddle(t *testing.T) {
 // tools build in, the app's over its project's, references filled in.
 func TestBuildEnv(t *testing.T) {
 	s := notifyStore(t)
-	if err := CreateProject(s, 0, "shop"); err != nil {
+	if _, err := CreateProject(s, 0, "shop"); err != nil {
 		t.Fatal(err)
 	}
-	p, _ := s.GetProject(ctx(), "shop")
+	p, _ := getProject(s, "shop")
 	for _, name := range []string{"web", "api"} {
-		if err := s.CreateApp(ctx(), store.CreateAppParams{ProjectID: p.ID, Name: name, BuildStrategy: "railpack"}); err != nil {
+		if err := createApp(s, store.CreateAppParams{ProjectID: p.ID, Name: name, BuildStrategy: "railpack"}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := s.SetAppDomain(ctx(), store.SetAppDomainParams{Name: "api", Domain: "api.example.com"}); err != nil {
+	if err := s.SetAppDomain(ctx(), store.SetAppDomainParams{ID: appID(t, s, "api"), Domain: "api.example.com"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := SetSharedEnv(s, "shop", "RAILPACK_NODE_VERSION=20\nRAILPACK_START_CMD=node shared.js\nSHARED_SECRET=x"); err != nil {
+	if err := SetSharedEnv(s, projectID(t, s, "shop"), "RAILPACK_NODE_VERSION=20\nRAILPACK_START_CMD=node shared.js\nSHARED_SECRET=x"); err != nil {
 		t.Fatal(err)
 	}
-	if err := SetAppEnv(s, "web", "RAILPACK_START_CMD=node app.js\nAPI_KEY=y\nVITE_API_URL=${{api.URL}}/v1"); err != nil {
+	if err := SetAppEnv(s, appID(t, s, "web"), "RAILPACK_START_CMD=node app.js\nAPI_KEY=y\nVITE_API_URL=${{api.URL}}/v1"); err != nil {
 		t.Fatal(err)
 	}
-	app, _ := s.GetApp(ctx(), "web")
+	app, _ := getApp(s, "web")
 	env, err := buildEnv(s, app)
 	if err != nil {
 		t.Fatal(err)

@@ -99,9 +99,9 @@ func databaseView(v databasePage) templ.Component {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var4 templ.SafeURL
-					templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinURLErrs("/apps/" + a)
+					templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(appPath(v.Project.Name, a)))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_database.templ`, Line: 36, Col: 30}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_database.templ`, Line: 36, Col: 59}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 					if templ_7745c5c3_Err != nil {
@@ -114,7 +114,7 @@ func databaseView(v databasePage) templ.Component {
 					var templ_7745c5c3_Var5 string
 					templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(a)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_database.templ`, Line: 36, Col: 50}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_database.templ`, Line: 36, Col: 79}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 					if templ_7745c5c3_Err != nil {
@@ -258,9 +258,9 @@ func databaseView(v databasePage) templ.Component {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var11 string
-					templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.ResolveAttributeValue("/databases/" + v.DB.Name)
+					templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.ResolveAttributeValue(dbURL(v.Project.Name, v.DB.Name))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_database.templ`, Line: 77, Col: 40}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_database.templ`, Line: 77, Col: 47}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var11)
 					if templ_7745c5c3_Err != nil {
@@ -509,9 +509,9 @@ func databaseView(v databasePage) templ.Component {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var25 string
-					templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.ResolveAttributeValue("/databases/" + v.DB.Name + "/backups/" + itoa(b.ID) + "/verify")
+					templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.ResolveAttributeValue(dbURL(v.Project.Name, v.DB.Name) + "/backups/" + itoa(b.ID) + "/verify")
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_database.templ`, Line: 119, Col: 123}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_database.templ`, Line: 119, Col: 130}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var25)
 					if templ_7745c5c3_Err != nil {
@@ -532,9 +532,9 @@ func databaseView(v databasePage) templ.Component {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var26 string
-					templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.ResolveAttributeValue("/databases/" + v.DB.Name + "/backups/" + itoa(b.ID) + "/restore")
+					templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.ResolveAttributeValue(dbURL(v.Project.Name, v.DB.Name) + "/backups/" + itoa(b.ID) + "/restore")
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_database.templ`, Line: 122, Col: 84}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_database.templ`, Line: 122, Col: 91}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var26)
 					if templ_7745c5c3_Err != nil {
@@ -583,9 +583,9 @@ func databaseView(v databasePage) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var28 string
-			templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.ResolveAttributeValue("/databases/" + v.DB.Name)
+			templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.ResolveAttributeValue(dbURL(v.Project.Name, v.DB.Name))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_database.templ`, Line: 142, Col: 43}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_database.templ`, Line: 142, Col: 50}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var28)
 			if templ_7745c5c3_Err != nil {
@@ -644,7 +644,7 @@ func databaseView(v databasePage) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = shell(v.DB.Name, projectCrumb(v.Project.Name), resourceCrumb(v.Project.Name, v.DB.Name, "/databases/"+v.DB.Name, "postgresql", "database")).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = shell(v.DB.Name, projectCrumb(v.Project.Name), resourceCrumb(v.Project.Name, v.DB.Name, dbURL(v.Project.Name, v.DB.Name), "postgresql", "database")).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -730,9 +730,9 @@ func dbMeta(v databasePage) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var34 string
-		templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.JoinStringErrs(v.DB.User)
+		templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.JoinStringErrs(v.DB.Key())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_database.templ`, Line: 172, Col: 37}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_database.templ`, Line: 172, Col: 38}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var34))
 		if templ_7745c5c3_Err != nil {
@@ -773,9 +773,9 @@ func backupNow(v databasePage) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var36 string
-			templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.ResolveAttributeValue("/databases/" + v.DB.Name + "/backups")
+			templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.ResolveAttributeValue(dbURL(v.Project.Name, v.DB.Name) + "/backups")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_database.templ`, Line: 178, Col: 77}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_database.templ`, Line: 178, Col: 84}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var36)
 			if templ_7745c5c3_Err != nil {

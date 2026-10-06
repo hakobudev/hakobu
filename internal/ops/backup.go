@@ -191,7 +191,7 @@ type DBJob struct {
 
 var (
 	dbJobsMu sync.Mutex
-	dbJobs   = map[string]*DBJob{}
+	dbJobs   = map[string]*DBJob{} // by dbJobKey or volumeJob
 )
 
 func dbJobsRunning() bool {
@@ -205,37 +205,42 @@ func dbJobsRunning() bool {
 	return false
 }
 
-func DatabaseJob(name string) DBJob {
+func DatabaseJob(id int64) DBJob { return jobOf(dbJobKey(id)) }
+
+// dbJobKey is a database's in dbJobs.
+func dbJobKey(id int64) string { return fmt.Sprintf("db:%d", id) }
+
+func jobOf(key string) DBJob {
 	dbJobsMu.Lock()
 	defer dbJobsMu.Unlock()
-	if j := dbJobs[name]; j != nil {
+	if j := dbJobs[key]; j != nil {
 		return *j
 	}
 	return DBJob{}
 }
 
-func reserveDB(name, what string) error {
+func reserveDB(key, what string) error {
 	if err := jobsClosed(); err != nil {
 		return err
 	}
 	dbJobsMu.Lock()
 	defer dbJobsMu.Unlock()
-	j := dbJobs[name]
+	j := dbJobs[key]
 	if j == nil {
 		j = &DBJob{}
-		dbJobs[name] = j
+		dbJobs[key] = j
 	}
 	if j.Running != "" {
-		return fmt.Errorf("%s is busy %s, try again when it finishes", name, j.Running)
+		return fmt.Errorf("the database is busy %s, try again when it finishes", j.Running)
 	}
 	j.Running = what
 	return nil
 }
 
-func finishDB(name, what string, err error) {
+func finishDB(key, what string, err error) {
 	dbJobsMu.Lock()
 	defer dbJobsMu.Unlock()
-	j := dbJobs[name]
+	j := dbJobs[key]
 	j.Running, j.Failed = "", err != nil
 	j.Last = time.Now().Format("2006-01-02 15:04") + ": " + what + " "
 	if err != nil {
@@ -245,71 +250,71 @@ func finishDB(name, what string, err error) {
 	}
 }
 
-func runDBJob(name, what string, fn func() error) error {
-	if err := reserveDB(name, what); err != nil {
+func runDBJob(key, what string, fn func() error) error {
+	if err := reserveDB(key, what); err != nil {
 		return err
 	}
 	err := fn()
-	finishDB(name, what, err)
+	finishDB(key, what, err)
 	return err
 }
 
 // startDBJob runs the job in the background; it fails at once if the
 // database is busy.
-func startDBJob(name, what string, fn func() error) error {
-	if err := reserveDB(name, what); err != nil {
+func startDBJob(key, what string, fn func() error) error {
+	if err := reserveDB(key, what); err != nil {
 		return err
 	}
-	go func() { finishDB(name, what, fn()) }()
+	go func() { finishDB(key, what, fn()) }()
 	return nil
 }
 
 // StartBackup backs the database up in the background.
-func StartBackup(s *store.Store, dbName string) error {
-	if _, err := s.GetDatabase(ctx(), dbName); err != nil {
+func StartBackup(s *store.Store, dbID int64) error {
+	if _, err := s.GetDatabaseByID(ctx(), dbID); err != nil {
 		return err
 	}
-	return startDBJob(dbName, "backing up", func() error { return backupAndCheck(s, dbName) })
+	return startDBJob(dbJobKey(dbID), "backing up", func() error { return backupAndCheck(s, dbID) })
 }
 
 // StartVerify restores a backup into a scratch database in the background.
-func StartVerify(s *store.Store, dbName string, backupID int64) error {
-	b, err := dbBackup(s, dbName, backupID)
+func StartVerify(s *store.Store, dbID, backupID int64) error {
+	b, err := dbBackup(s, dbID, backupID)
 	if err != nil {
 		return err
 	}
-	return startDBJob(dbName, "checking a backup", func() error { return VerifyBackup(s, b.ID) })
+	return startDBJob(dbJobKey(dbID), "checking a backup", func() error { return VerifyBackup(s, b.ID) })
 }
 
 // StartRestore replaces the database's content with a backup in the
 // background.
-func StartRestore(s *store.Store, dbName string, backupID int64) error {
-	b, err := dbBackup(s, dbName, backupID)
+func StartRestore(s *store.Store, dbID, backupID int64) error {
+	b, err := dbBackup(s, dbID, backupID)
 	if err != nil {
 		return err
 	}
-	return startDBJob(dbName, "restoring the backup of "+b.CreatedAt, func() error { return restoreBackup(s, b) })
+	return startDBJob(dbJobKey(dbID), "restoring the backup of "+b.CreatedAt, func() error { return restoreBackup(s, b) })
 }
 
-// dbBackup looks up a backup and makes sure it belongs to dbName.
-func dbBackup(s *store.Store, dbName string, id int64) (store.Backup, error) {
+// dbBackup looks up a backup and makes sure it belongs to the database.
+func dbBackup(s *store.Store, dbID, id int64) (store.Backup, error) {
 	b, err := s.GetBackup(ctx(), id)
-	if err != nil || b.Database != dbName {
-		return b, fmt.Errorf("no such backup of %s", dbName)
+	if err != nil || b.DatabaseID != dbID {
+		return b, fmt.Errorf("no such backup of the database")
 	}
 	return b, nil
 }
 
 // backupAndCheck uploads a backup, restores it into a scratch database to
 // prove it's usable, then drops old backups.
-func backupAndCheck(s *store.Store, dbName string) error {
-	id, err := BackupDatabase(s, dbName)
+func backupAndCheck(s *store.Store, dbID int64) error {
+	id, err := BackupDatabase(s, dbID)
 	if err != nil {
 		return err
 	}
 	verifyErr := VerifyBackup(s, id)
-	if err := RotateBackups(s, dbName, time.Now()); err != nil {
-		panellog.Error("backup rotation of", dbName, "failed:", err)
+	if err := RotateBackups(s, dbID, time.Now()); err != nil {
+		panellog.Error("backup rotation of database", dbID, "failed:", err)
 	}
 	if verifyErr != nil {
 		return fmt.Errorf("the backup was uploaded, but restoring it failed: %w", verifyErr)
@@ -319,8 +324,8 @@ func backupAndCheck(s *store.Store, dbName string) error {
 
 // BackupDatabase has the database's node upload a sealed pg_dump straight
 // to the project's backup bucket.
-func BackupDatabase(s *store.Store, dbName string) (id int64, err error) {
-	d, err := s.GetDatabase(ctx(), dbName)
+func BackupDatabase(s *store.Store, dbID int64) (id int64, err error) {
+	d, err := s.GetDatabaseByID(ctx(), dbID)
 	if err != nil {
 		return 0, err
 	}
@@ -332,7 +337,7 @@ func BackupDatabase(s *store.Store, dbName string) (id int64, err error) {
 	if err != nil {
 		return 0, err
 	}
-	key := fmt.Sprintf("%s/%s.dump.enc", d.Name, time.Now().UTC().Format("20060102-150405"))
+	key := fmt.Sprintf("%s/%s.dump.enc", d.Key(), time.Now().UTC().Format("20060102-150405"))
 	up, err := newUpload(s, target, key)
 	if err != nil {
 		return 0, err
@@ -342,7 +347,7 @@ func BackupDatabase(s *store.Store, dbName string) (id int64, err error) {
 		return 0, err
 	}
 	return s.CreateBackup(ctx(), store.CreateBackupParams{
-		Database: d.Name, ObjectKey: key, Parts: int64(obj.Parts), SizeBytes: obj.Size, SHA256: obj.SHA256, KeyFingerprint: obj.KeyFingerprint,
+		DatabaseID: d.ID, ObjectKey: key, Parts: int64(obj.Parts), SizeBytes: obj.Size, SHA256: obj.SHA256, KeyFingerprint: obj.KeyFingerprint,
 		AccountID: target.AccountID, Bucket: target.Bucket,
 	})
 }
@@ -477,7 +482,7 @@ func VerifyBackup(s *store.Store, id int64) error {
 }
 
 func verify(s *store.Store, b store.Backup) (tables int, err error) {
-	d, err := s.GetDatabase(ctx(), b.Database)
+	d, err := s.GetDatabaseByID(ctx(), b.DatabaseID)
 	if err != nil {
 		return 0, err
 	}
@@ -495,7 +500,7 @@ func verify(s *store.Store, b store.Backup) (tables int, err error) {
 // restoreBackup replaces its database's content with a backup; a backup
 // that doesn't restore changes nothing.
 func restoreBackup(s *store.Store, b store.Backup) error {
-	d, err := s.GetDatabase(ctx(), b.Database)
+	d, err := s.GetDatabaseByID(ctx(), b.DatabaseID)
 	if err != nil {
 		return err
 	}
@@ -519,8 +524,8 @@ const keepWeeks = 4
 
 // RotateBackups deletes the backups the rotation no longer keeps, from R2
 // and the list.
-func RotateBackups(s *store.Store, dbName string, now time.Time) error {
-	all, err := s.ListAllBackups(ctx(), dbName)
+func RotateBackups(s *store.Store, dbID int64, now time.Time) error {
+	all, err := s.ListAllBackups(ctx(), dbID)
 	if err != nil {
 		return err
 	}
@@ -594,8 +599,9 @@ func backupsToDrop[B any](backups []B, age func(B) (int64, string, bool), keepLa
 }
 
 // BackupDue backs up, checks and rotates every database whose last backup
-// is older than config.BackupEvery. It's called every hour, so restarts of
-// the agent don't postpone backups.
+// is older than config.BackupEvery, keyed by dbJobKey like NoteBackup wants
+// them. It's called every hour, so restarts of the agent don't postpone
+// backups.
 func BackupDue(s *store.Store) map[string]error {
 	results := map[string]error{}
 	dbs, err := s.ListDatabases(ctx())
@@ -603,13 +609,13 @@ func BackupDue(s *store.Store) map[string]error {
 		return results
 	}
 	for _, d := range dbs {
-		last, err := s.ListBackups(ctx(), store.ListBackupsParams{Database: d.Name, Limit: 1})
+		last, err := s.ListBackups(ctx(), store.ListBackupsParams{DatabaseID: d.ID, Limit: 1})
 		if err == nil && len(last) > 0 {
 			if t, err := time.Parse("2006-01-02T15:04:05Z", last[0].CreatedAt); err == nil && time.Since(t) < config.BackupEvery {
 				continue
 			}
 		}
-		results[d.Name] = runDBJob(d.Name, "backing up (scheduled)", func() error { return backupAndCheck(s, d.Name) })
+		results[dbJobKey(d.ID)] = runDBJob(dbJobKey(d.ID), "backing up (scheduled)", func() error { return backupAndCheck(s, d.ID) })
 	}
 	return results
 }

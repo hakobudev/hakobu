@@ -22,24 +22,24 @@ var Tel *teldb.Queries
 type TelemetryKeeper interface {
 	// AppEvents is an app's telemetry, newest first: with logs, or only
 	// what went wrong (errors, crashes, out-of-memory kills, health).
-	AppEvents(ctx context.Context, app string, logs bool, limit int64) ([]teldb.TelemetryEvent, error)
-	AppEvent(ctx context.Context, app string, id int64) (teldb.TelemetryEvent, error)
+	AppEvents(ctx context.Context, app int64, logs bool, limit int64) ([]teldb.TelemetryEvent, error)
+	AppEvent(ctx context.Context, app int64, id int64) (teldb.TelemetryEvent, error)
 	// AddAppEvent records what the panel saw of an app: a crash, an
 	// out-of-memory kill, a health check.
 	AddAppEvent(ctx context.Context, e teldb.CreateTelemetryEventParams) error
 	// LastAppEvent is when the app last had an event of kind, "" if none.
-	LastAppEvent(ctx context.Context, app, kind string) (string, error)
-	AppTraces(ctx context.Context, app string, limit int64) ([]teldb.ListTracesRow, error)
-	AppTrace(ctx context.Context, app string, id int64) (teldb.Trace, error)
+	LastAppEvent(ctx context.Context, app int64, kind string) (string, error)
+	AppTraces(ctx context.Context, app int64, limit int64) ([]teldb.ListTracesRow, error)
+	AppTrace(ctx context.Context, app int64, id int64) (teldb.Trace, error)
 	// TraceByID is the kept trace of app with the SDK's trace ID.
-	TraceByID(ctx context.Context, app, traceID string) (int64, error)
+	TraceByID(ctx context.Context, app int64, traceID string) (int64, error)
 	// TraceRoutes is the app's requests counted by route and hour, from
 	// the hour since (Unix) on.
-	TraceRoutes(ctx context.Context, app string, since int64) ([]teldb.TraceRoute, error)
-	DropTelemetry(ctx context.Context, app string) error
+	TraceRoutes(ctx context.Context, app int64, since int64) ([]teldb.TraceRoute, error)
+	DropTelemetry(ctx context.Context, app int64) error
 	// StoreEnvelope keeps what a Sentry envelope of app holds: errors,
 	// logs and traces; other items are dropped.
-	StoreEnvelope(ctx context.Context, app string, body []byte) error
+	StoreEnvelope(ctx context.Context, app int64, body []byte) error
 }
 
 // Telemetry is a TelemetryKeeper over a telemetry.db.
@@ -56,23 +56,23 @@ func (t Telemetry) q() (*teldb.Queries, error) {
 	return t.Q, nil
 }
 
-func (t Telemetry) AppEvents(ctx context.Context, app string, logs bool, limit int64) ([]teldb.TelemetryEvent, error) {
+func (t Telemetry) AppEvents(ctx context.Context, app int64, logs bool, limit int64) ([]teldb.TelemetryEvent, error) {
 	q, err := t.q()
 	if err != nil {
 		return nil, err
 	}
 	if logs {
-		return q.ListTelemetryEvents(ctx, teldb.ListTelemetryEventsParams{AppName: app, Limit: limit})
+		return q.ListTelemetryEvents(ctx, teldb.ListTelemetryEventsParams{AppID: app, Limit: limit})
 	}
-	return q.ListProblems(ctx, teldb.ListProblemsParams{AppName: app, Limit: limit})
+	return q.ListProblems(ctx, teldb.ListProblemsParams{AppID: app, Limit: limit})
 }
 
-func (t Telemetry) AppEvent(ctx context.Context, app string, id int64) (teldb.TelemetryEvent, error) {
+func (t Telemetry) AppEvent(ctx context.Context, app int64, id int64) (teldb.TelemetryEvent, error) {
 	q, err := t.q()
 	if err != nil {
 		return teldb.TelemetryEvent{}, err
 	}
-	return q.GetTelemetryEvent(ctx, teldb.GetTelemetryEventParams{ID: id, AppName: app})
+	return q.GetTelemetryEvent(ctx, teldb.GetTelemetryEventParams{ID: id, AppID: app})
 }
 
 func (t Telemetry) AddAppEvent(ctx context.Context, e teldb.CreateTelemetryEventParams) error {
@@ -83,52 +83,52 @@ func (t Telemetry) AddAppEvent(ctx context.Context, e teldb.CreateTelemetryEvent
 	return q.CreateTelemetryEvent(ctx, e)
 }
 
-func (t Telemetry) LastAppEvent(ctx context.Context, app, kind string) (string, error) {
+func (t Telemetry) LastAppEvent(ctx context.Context, app int64, kind string) (string, error) {
 	q, err := t.q()
 	if err != nil {
 		return "", err
 	}
-	return q.LastTelemetryOfKind(ctx, teldb.LastTelemetryOfKindParams{AppName: app, Kind: kind})
+	return q.LastTelemetryOfKind(ctx, teldb.LastTelemetryOfKindParams{AppID: app, Kind: kind})
 }
 
-func (t Telemetry) AppTraces(ctx context.Context, app string, limit int64) ([]teldb.ListTracesRow, error) {
+func (t Telemetry) AppTraces(ctx context.Context, app int64, limit int64) ([]teldb.ListTracesRow, error) {
 	q, err := t.q()
 	if err != nil {
 		return nil, err
 	}
-	return q.ListTraces(ctx, teldb.ListTracesParams{AppName: app, Limit: limit})
+	return q.ListTraces(ctx, teldb.ListTracesParams{AppID: app, Limit: limit})
 }
 
-func (t Telemetry) AppTrace(ctx context.Context, app string, id int64) (teldb.Trace, error) {
+func (t Telemetry) AppTrace(ctx context.Context, app int64, id int64) (teldb.Trace, error) {
 	q, err := t.q()
 	if err != nil {
 		return teldb.Trace{}, err
 	}
-	return q.GetTrace(ctx, teldb.GetTraceParams{ID: id, AppName: app})
+	return q.GetTrace(ctx, teldb.GetTraceParams{ID: id, AppID: app})
 }
 
-func (t Telemetry) TraceByID(ctx context.Context, app, traceID string) (int64, error) {
+func (t Telemetry) TraceByID(ctx context.Context, app int64, traceID string) (int64, error) {
 	q, err := t.q()
 	if err != nil {
 		return 0, err
 	}
-	return q.TraceByTraceID(ctx, teldb.TraceByTraceIDParams{AppName: app, TraceID: traceID})
+	return q.TraceByTraceID(ctx, teldb.TraceByTraceIDParams{AppID: app, TraceID: traceID})
 }
 
-func (t Telemetry) TraceRoutes(ctx context.Context, app string, since int64) ([]teldb.TraceRoute, error) {
+func (t Telemetry) TraceRoutes(ctx context.Context, app int64, since int64) ([]teldb.TraceRoute, error) {
 	q, err := t.q()
 	if err != nil {
 		return nil, err
 	}
-	return q.ListTraceRoutes(ctx, teldb.ListTraceRoutesParams{AppName: app, Hour: since})
+	return q.ListTraceRoutes(ctx, teldb.ListTraceRoutesParams{AppID: app, Hour: since})
 }
 
-func (t Telemetry) DropTelemetry(ctx context.Context, app string) error {
+func (t Telemetry) DropTelemetry(ctx context.Context, app int64) error {
 	q, err := t.q()
 	if err != nil {
 		return err
 	}
-	for _, del := range []func(context.Context, string) error{q.DeleteTracesOfApp, q.DeleteTraceRoutesOfApp, q.DeleteTelemetryOfApp} {
+	for _, del := range []func(context.Context, int64) error{q.DeleteTracesOfApp, q.DeleteTraceRoutesOfApp, q.DeleteTelemetryOfApp} {
 		if err := del(ctx, app); err != nil {
 			return err
 		}
@@ -140,7 +140,7 @@ func (t Telemetry) DropTelemetry(ctx context.Context, app string) error {
 // most 100 log records, and each record is a row of its own.
 const maxEventsPerEnvelope = 1000
 
-func (t Telemetry) StoreEnvelope(ctx context.Context, app string, body []byte) error {
+func (t Telemetry) StoreEnvelope(ctx context.Context, app int64, body []byte) error {
 	q, err := t.q()
 	if err != nil {
 		return err
@@ -155,7 +155,7 @@ func (t Telemetry) StoreEnvelope(ctx context.Context, app string, body []byte) e
 		if saved++; saved > maxEventsPerEnvelope {
 			return
 		}
-		if err := q.CreateTelemetryEvent(ctx, teldb.CreateTelemetryEventParams{AppName: app, Kind: kind, Level: sum.Level, Message: secret.String(sum.Message), Payload: secret.String(payload), TraceID: sum.TraceID}); err != nil {
+		if err := q.CreateTelemetryEvent(ctx, teldb.CreateTelemetryEventParams{AppID: app, Kind: kind, Level: sum.Level, Message: secret.String(sum.Message), Payload: secret.String(payload), TraceID: sum.TraceID}); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -211,12 +211,12 @@ func bucketOf(ms int64) int64 {
 
 // RecordTransaction counts a transaction of app and keeps it whole if it
 // was slow or failed.
-func RecordTransaction(ctx context.Context, q *teldb.Queries, app string, tx ingest.Transaction, payload []byte) error {
+func RecordTransaction(ctx context.Context, q *teldb.Queries, app int64, tx ingest.Transaction, payload []byte) error {
 	now := time.Now()
 	hour := now.Truncate(time.Hour).Unix()
 	name := tx.Name
-	if known, err := q.HasTraceRoute(ctx, teldb.HasTraceRouteParams{AppName: app, Hour: hour, Name: name}); err == nil && !known {
-		if n, err := q.CountTraceRoutes(ctx, teldb.CountTraceRoutesParams{AppName: app, Hour: hour}); err == nil && n >= MaxRoutesPerHour {
+	if known, err := q.HasTraceRoute(ctx, teldb.HasTraceRouteParams{AppID: app, Hour: hour, Name: name}); err == nil && !known {
+		if n, err := q.CountTraceRoutes(ctx, teldb.CountTraceRoutesParams{AppID: app, Hour: hour}); err == nil && n >= MaxRoutesPerHour {
 			name = OtherRoute
 		}
 	}
@@ -225,7 +225,7 @@ func RecordTransaction(ctx context.Context, q *teldb.Queries, app string, tx ing
 	if tx.Failed() {
 		failed = 1
 	}
-	if err := q.CountTrace(ctx, teldb.CountTraceParams{AppName: app, Name: name, Hour: hour, Errors: failed, Ms: ms, Bucket: bucketOf(ms)}); err != nil {
+	if err := q.CountTrace(ctx, teldb.CountTraceParams{AppID: app, Name: name, Hour: hour, Errors: failed, Ms: ms, Bucket: bucketOf(ms)}); err != nil {
 		return err
 	}
 	if !tx.Failed() && tx.Duration < slowTrace {
@@ -236,18 +236,18 @@ func RecordTransaction(ctx context.Context, q *teldb.Queries, app string, tx ing
 		slow = fmt.Sprintf("%s %s (%d ms)", span.Op, span.Description, span.Duration.Milliseconds())
 	}
 	return q.CreateTrace(ctx, teldb.CreateTraceParams{
-		AppName: app, TraceID: tx.TraceID, Name: tx.Name, Status: tx.Status, HttpStatus: int64(tx.HTTPStatus),
+		AppID: app, TraceID: tx.TraceID, Name: tx.Name, Status: tx.Status, HttpStatus: int64(tx.HTTPStatus),
 		DurationMs: ms, SlowSpan: secret.String(slow), Payload: secret.String(payload), CreatedAt: now.Unix(),
 	})
 }
 
 // Local keeps telemetry in Tel.
 
-func (Local) AppEvents(ctx context.Context, app string, logs bool, limit int64) ([]teldb.TelemetryEvent, error) {
+func (Local) AppEvents(ctx context.Context, app int64, logs bool, limit int64) ([]teldb.TelemetryEvent, error) {
 	return Telemetry{Tel}.AppEvents(ctx, app, logs, limit)
 }
 
-func (Local) AppEvent(ctx context.Context, app string, id int64) (teldb.TelemetryEvent, error) {
+func (Local) AppEvent(ctx context.Context, app int64, id int64) (teldb.TelemetryEvent, error) {
 	return Telemetry{Tel}.AppEvent(ctx, app, id)
 }
 
@@ -255,30 +255,30 @@ func (Local) AddAppEvent(ctx context.Context, e teldb.CreateTelemetryEventParams
 	return Telemetry{Tel}.AddAppEvent(ctx, e)
 }
 
-func (Local) LastAppEvent(ctx context.Context, app, kind string) (string, error) {
+func (Local) LastAppEvent(ctx context.Context, app int64, kind string) (string, error) {
 	return Telemetry{Tel}.LastAppEvent(ctx, app, kind)
 }
 
-func (Local) AppTraces(ctx context.Context, app string, limit int64) ([]teldb.ListTracesRow, error) {
+func (Local) AppTraces(ctx context.Context, app int64, limit int64) ([]teldb.ListTracesRow, error) {
 	return Telemetry{Tel}.AppTraces(ctx, app, limit)
 }
 
-func (Local) AppTrace(ctx context.Context, app string, id int64) (teldb.Trace, error) {
+func (Local) AppTrace(ctx context.Context, app int64, id int64) (teldb.Trace, error) {
 	return Telemetry{Tel}.AppTrace(ctx, app, id)
 }
 
-func (Local) TraceByID(ctx context.Context, app, traceID string) (int64, error) {
+func (Local) TraceByID(ctx context.Context, app int64, traceID string) (int64, error) {
 	return Telemetry{Tel}.TraceByID(ctx, app, traceID)
 }
 
-func (Local) TraceRoutes(ctx context.Context, app string, since int64) ([]teldb.TraceRoute, error) {
+func (Local) TraceRoutes(ctx context.Context, app int64, since int64) ([]teldb.TraceRoute, error) {
 	return Telemetry{Tel}.TraceRoutes(ctx, app, since)
 }
 
-func (Local) DropTelemetry(ctx context.Context, app string) error {
+func (Local) DropTelemetry(ctx context.Context, app int64) error {
 	return Telemetry{Tel}.DropTelemetry(ctx, app)
 }
 
-func (Local) StoreEnvelope(ctx context.Context, app string, body []byte) error {
+func (Local) StoreEnvelope(ctx context.Context, app int64, body []byte) error {
 	return Telemetry{Tel}.StoreEnvelope(ctx, app, body)
 }

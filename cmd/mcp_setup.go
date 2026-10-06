@@ -80,12 +80,12 @@ func addSetupTools(server *mcp.Server, s *store.Store, getApp func(context.Conte
 						mp.Account = a.Name
 					}
 				}
-				if zones, _, err := ops.ProjectZones(s, p.Name); err == nil {
+				if zones, _, err := ops.ProjectZones(s, p); err == nil {
 					mp.Domains = zones
 				}
 				if apps, err := s.ListAppsByProject(ctx, p.ID); err == nil {
 					for _, a := range apps {
-						mp.Apps = append(mp.Apps, a.Name)
+						mp.Apps = append(mp.Apps, p.Name+"/"+a.Name)
 					}
 				}
 				if dbs, err := s.ListDatabasesByProject(ctx, p.ID); err == nil {
@@ -146,7 +146,7 @@ func addSetupTools(server *mcp.Server, s *store.Store, getApp func(context.Conte
 				return nil, mcpDone{}, err
 			}
 			name := strings.TrimSpace(in.Name)
-			if err := ops.CreateProjectOn(s, mcpUserOf(ctx).ID, name, in.Server, in.Account); err != nil {
+			if _, err := ops.CreateProjectOn(s, mcpUserOf(ctx).ID, name, in.Server, in.Account); err != nil {
 				return nil, mcpDone{}, err
 			}
 			return nil, mcpDone{Done: "created project " + name, Next: "create_database if the app needs PostgreSQL, then create_app"}, nil
@@ -155,7 +155,7 @@ func addSetupTools(server *mcp.Server, s *store.Store, getApp func(context.Conte
 	mcp.AddTool(server, &mcp.Tool{Name: "create_app", Description: "Create an app from a repository and start its first deploy: pushes to the default branch deploy it from then on. Take build_path and build_strategy from scan_repo. The app listens on the PORT variable it gets. Link a database, add volumes and set variables before (the first deploy may fail without them, then deploy again) or right after. Follow with wait_for_deploy.", Annotations: creates},
 		func(ctx context.Context, req *mcp.CallToolRequest, in struct {
 			Project      string `json:"project"`
-			Name         string `json:"name" jsonschema:"lowercase letters, digits and dashes; unique in the panel"`
+			Name         string `json:"name" jsonschema:"lowercase letters, digits and dashes; unique in its project"`
 			Repo         string `json:"repo" jsonschema:"owner/name, from list_repos"`
 			BuildPath    string `json:"build_path,omitempty" jsonschema:"from scan_repo; empty for the repo's root"`
 			Strategy     string `json:"build_strategy,omitempty" jsonschema:"railpack (default) or dockerfile"`
@@ -165,34 +165,46 @@ func addSetupTools(server *mcp.Server, s *store.Store, getApp func(context.Conte
 			if err := mayDeploy(req); err != nil {
 				return nil, mcpDone{}, err
 			}
-			app := store.CreateAppParams{Name: strings.TrimSpace(in.Name), Repo: strings.TrimSpace(in.Repo), BuildStrategy: in.Strategy}
+			p, err := findMCPProject(ctx, s, mcpUserOf(ctx), in.Project)
+			if err != nil {
+				return nil, mcpDone{}, err
+			}
+			app := store.CreateAppParams{ProjectID: p.ID, Name: strings.TrimSpace(in.Name), Repo: strings.TrimSpace(in.Repo), BuildStrategy: in.Strategy}
 			if err := ops.CheckRepo(s, mcpUserOf(ctx).GitHubID, app.Repo); err != nil {
 				return nil, mcpDone{}, err
 			}
 			app.BuildPath = in.BuildPath
-			if err := ops.CreateAppWith(s, in.Project, app, strings.TrimSpace(in.Domain), in.StartCommand); err != nil {
+			if _, err := ops.CreateAppWith(s, app, strings.TrimSpace(in.Domain), in.StartCommand); err != nil {
 				return nil, mcpDone{}, err
 			}
-			return nil, mcpDone{Done: "created " + app.Name + " and started its first deploy", Next: "wait_for_deploy, then get_app_logs"}, nil
+			return nil, mcpDone{Done: "created " + p.Name + "/" + app.Name + " and started its first deploy", Next: "wait_for_deploy, then get_app_logs"}, nil
 		})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "create_database", Description: "Create a PostgreSQL database in a project and link it to an app there: the app gets DATABASE_URL and POSTGRES_* on its next deploy. Its password is generated and never shown. For SQLite use add_volume instead.", Annotations: creates},
 		func(ctx context.Context, req *mcp.CallToolRequest, in struct {
 			Project string `json:"project"`
 			Name    string `json:"name" jsonschema:"lowercase letters, digits, dashes and underscores"`
-			App     string `json:"app,omitempty" jsonschema:"an app of the project to link it to"`
+			App     string `json:"app,omitempty" jsonschema:"an app of the project to link it to, by its name there"`
 		}) (*mcp.CallToolResult, mcpDone, error) {
 			if err := mayDeploy(req); err != nil {
 				return nil, mcpDone{}, err
 			}
+			p, err := findMCPProject(ctx, s, mcpUserOf(ctx), in.Project)
+			if err != nil {
+				return nil, mcpDone{}, err
+			}
 			name := strings.TrimSpace(in.Name)
-			if err := ops.CreateDatabase(s, in.Project, name); err != nil {
+			if _, err := ops.CreateDatabase(s, p.ID, name); err != nil {
 				return nil, mcpDone{}, err
 			}
 			if in.App == "" {
 				return nil, mcpDone{Done: "created database " + name, Next: "link_database to an app"}, nil
 			}
-			if err := ops.LinkDatabase(s, in.App, name); err != nil {
+			app, err := getApp(ctx, p.Name+"/"+in.App)
+			if err != nil {
+				return nil, mcpDone{}, err
+			}
+			if err := ops.LinkDatabase(s, app, name); err != nil {
 				return nil, mcpDone{}, err
 			}
 			return nil, mcpDone{Done: "created database " + name + " and linked it to " + in.App, Next: "deploy " + in.App + " for it to get DATABASE_URL"}, nil
@@ -200,13 +212,17 @@ func addSetupTools(server *mcp.Server, s *store.Store, getApp func(context.Conte
 
 	mcp.AddTool(server, &mcp.Tool{Name: "link_database", Description: "Link one of the project's databases to an app (\"\" unlinks): it gets DATABASE_URL and POSTGRES_* on its next deploy.", Annotations: &mcp.ToolAnnotations{DestructiveHint: new(false), IdempotentHint: true, OpenWorldHint: new(false)}},
 		func(ctx context.Context, req *mcp.CallToolRequest, in struct {
-			App      string `json:"app"`
-			Database string `json:"database"`
+			App      string `json:"app" jsonschema:"project/app"`
+			Database string `json:"database" jsonschema:"a database of the app's project, by its name there"`
 		}) (*mcp.CallToolResult, mcpDone, error) {
 			if err := mayDeploy(req); err != nil {
 				return nil, mcpDone{}, err
 			}
-			if err := ops.LinkDatabase(s, in.App, in.Database); err != nil {
+			app, err := getApp(ctx, in.App)
+			if err != nil {
+				return nil, mcpDone{}, err
+			}
+			if err := ops.LinkDatabase(s, app, in.Database); err != nil {
 				return nil, mcpDone{}, err
 			}
 			return nil, mcpDone{Done: "linked", Next: "deploy " + in.App}, nil
@@ -214,32 +230,37 @@ func addSetupTools(server *mcp.Server, s *store.Store, getApp func(context.Conte
 
 	mcp.AddTool(server, &mcp.Tool{Name: "add_volume", Description: "Give an app a volume: a directory kept across deploys and restarts, and backed up, for files like an SQLite database or uploads. An app with volumes stops its old version before starting a new one, so a deploy has a short downtime. Applies on the next deploy.", Annotations: creates},
 		func(ctx context.Context, req *mcp.CallToolRequest, in struct {
-			App       string `json:"app"`
+			App       string `json:"app" jsonschema:"project/app"`
 			Name      string `json:"name" jsonschema:"e.g. data"`
 			MountPath string `json:"mount_path" jsonschema:"absolute path in the container, e.g. /data"`
 		}) (*mcp.CallToolResult, mcpDone, error) {
 			if err := mayDeploy(req); err != nil {
 				return nil, mcpDone{}, err
 			}
-			if err := ops.AddVolume(s, in.App, strings.TrimSpace(in.Name), in.MountPath); err != nil {
+			app, err := getApp(ctx, in.App)
+			if err != nil {
+				return nil, mcpDone{}, err
+			}
+			if err := ops.AddVolume(s, app.ID, strings.TrimSpace(in.Name), in.MountPath); err != nil {
 				return nil, mcpDone{}, err
 			}
 			return nil, mcpDone{Done: "added volume " + in.Name + " at " + in.MountPath, Next: "point the app at it (e.g. set_env DATABASE_PATH=" + strings.TrimRight(in.MountPath, "/") + "/app.db), then deploy"}, nil
 		})
 
-	mcp.AddTool(server, &mcp.Tool{Name: "set_env", Description: "Set or remove some of an app's variables; the others stay. Only for settings that aren't secret: the values are visible in the panel and pass through this chat. For a secret (API key, password, token) don't ask the user for it here: tell them to add it under Sealed variables at the app's panel_url instead. A value can refer to another app of the project: ${{api.URL}} (its public address, for a browser), ${{api.HOST}}, ${{api.PRIVATE_URL}} (http://api.hakobu:port inside the project, for a server). VITE_, NEXT_PUBLIC_, PUBLIC_, REACT_APP_ and RAILPACK_ variables also reach the build. Applies on the next deploy.", Annotations: &mcp.ToolAnnotations{DestructiveHint: new(false), IdempotentHint: true, OpenWorldHint: new(false)}},
+	mcp.AddTool(server, &mcp.Tool{Name: "set_env", Description: "Set or remove some of an app's variables; the others stay. Only for settings that aren't secret: the values are visible in the panel and pass through this chat. For a secret (API key, password, token) don't ask the user for it here: tell them to add it under Sealed variables at the app's panel_url instead. A value can refer to another app of the project: ${{api.URL}} (its public address, for a browser), ${{api.HOST}}, ${{api.PRIVATE_URL}} (its address inside the project, for a server). VITE_, NEXT_PUBLIC_, PUBLIC_, REACT_APP_ and RAILPACK_ variables also reach the build. Applies on the next deploy.", Annotations: &mcp.ToolAnnotations{DestructiveHint: new(false), IdempotentHint: true, OpenWorldHint: new(false)}},
 		func(ctx context.Context, req *mcp.CallToolRequest, in struct {
-			App   string            `json:"app"`
+			App   string            `json:"app" jsonschema:"project/app"`
 			Set   map[string]string `json:"set,omitempty" jsonschema:"NAME: value"`
 			Unset []string          `json:"unset,omitempty" jsonschema:"names to remove"`
 		}) (*mcp.CallToolResult, mcpDone, error) {
 			if err := mayDeploy(req); err != nil {
 				return nil, mcpDone{}, err
 			}
-			if _, err := getApp(ctx, in.App); err != nil {
+			app, err := getApp(ctx, in.App)
+			if err != nil {
 				return nil, mcpDone{}, err
 			}
-			if err := ops.ChangeAppVars(s, in.App, in.Set, in.Unset); err != nil {
+			if err := ops.ChangeAppVars(s, app.ID, in.Set, in.Unset); err != nil {
 				return nil, mcpDone{}, err
 			}
 			return nil, mcpDone{Done: fmt.Sprintf("set %d, removed %d", len(in.Set), len(in.Unset)), Next: "deploy " + in.App}, nil
@@ -247,14 +268,18 @@ func addSetupTools(server *mcp.Server, s *store.Store, getApp func(context.Conte
 
 	mcp.AddTool(server, &mcp.Tool{Name: "set_route", Description: "Serve a path of an app's address by another app of its project, like a proxy in front of both: with path /api and target api, shop.example.com/api/... reaches api and the rest the shop. One address for a frontend and its API: no CORS, shared cookies. The target sees the whole path, /api included, and needs no address of its own. target \"\" removes the route. Applies within seconds.", Annotations: &mcp.ToolAnnotations{DestructiveHint: new(false), IdempotentHint: true, OpenWorldHint: new(false)}},
 		func(ctx context.Context, req *mcp.CallToolRequest, in struct {
-			App    string `json:"app" jsonschema:"the app whose address it is"`
+			App    string `json:"app" jsonschema:"project/app, the app whose address it is"`
 			Path   string `json:"path" jsonschema:"a prefix like /api"`
-			Target string `json:"target" jsonschema:"another app of the project; empty to remove the route"`
+			Target string `json:"target" jsonschema:"another app of the project, by its name there; empty to remove the route"`
 		}) (*mcp.CallToolResult, mcpDone, error) {
 			if err := mayDeploy(req); err != nil {
 				return nil, mcpDone{}, err
 			}
-			if err := ops.SetAppRoute(s, in.App, in.Path, in.Target); err != nil {
+			app, err := getApp(ctx, in.App)
+			if err != nil {
+				return nil, mcpDone{}, err
+			}
+			if err := ops.SetAppRoute(s, app, in.Path, in.Target); err != nil {
 				return nil, mcpDone{}, err
 			}
 			if in.Target == "" {

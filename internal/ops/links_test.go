@@ -56,7 +56,7 @@ func TestServerJoinsAndServes(t *testing.T) {
 	f := nodetest.New()
 	f.Containers["web-blue"] = "running"
 	go func() { _ = node.Serve(sess, f, sess.Open) }()
-	n := waitServer(t, "client-a")
+	n := waitServer(t, s, "client-a")
 	if st := n.State(ctx, "web-blue"); st.Status != "running" {
 		t.Errorf("state over the link: %+v", st)
 	}
@@ -75,7 +75,8 @@ func TestServerJoinsAndServes(t *testing.T) {
 	}
 
 	// Removed, it's dropped and its key admits it no more.
-	if err := RemoveServer(s, "client-a"); err != nil {
+	clientA := serverNamed(s, "client-a")
+	if err := RemoveServer(s, clientA.ID); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -83,7 +84,7 @@ func TestServerJoinsAndServes(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Error("the removed server's link stayed up")
 	}
-	if _, err := serverNode("client-a"); !errors.Is(err, node.ErrUnreachable) {
+	if _, err := serverNode(clientA); !errors.Is(err, node.ErrUnreachable) {
 		t.Errorf("a removed server is reachable: %v", err)
 	}
 	if _, _, err := link.Dial(ctx, srv.URL, key, tok.PanelKey, "", "v1"); err == nil {
@@ -101,7 +102,7 @@ func TestJoinTokenExpires(t *testing.T) {
 		t.Fatal(err)
 	}
 	tok, _ := link.ParseToken(token)
-	if err := s.SetNodeJoin(ctx(), store.SetNodeJoinParams{JoinSecretHash: secretHash(tok.Secret), JoinExpires: time.Now().Add(-time.Minute).UTC().Format(time.RFC3339), Name: "late"}); err != nil {
+	if err := s.SetNodeJoin(ctx(), store.SetNodeJoinParams{JoinSecretHash: secretHash(tok.Secret), JoinExpires: time.Now().Add(-time.Minute).UTC().Format(time.RFC3339), ID: serverNamed(s, "late").ID}); err != nil {
 		t.Fatal(err)
 	}
 	key, _ := link.NewKey()
@@ -113,10 +114,10 @@ func TestJoinTokenExpires(t *testing.T) {
 	}
 }
 
-func waitServer(t *testing.T, name string) node.Node {
+func waitServer(t *testing.T, s *store.Store, name string) node.Node {
 	t.Helper()
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
-		if n, err := serverNode(name); err == nil {
+		if n, err := serverNode(serverNamed(s, name)); err == nil {
 			return n
 		}
 	}
@@ -152,26 +153,26 @@ func TestServerKeepsItsAppsTelemetry(t *testing.T) {
 	}
 	far.Tel = farTel.Q
 	go func() { _ = node.Serve(sess, far, sess.Open) }()
-	waitServer(t, "far")
+	waitServer(t, s, "far")
 
 	for _, p := range []string{"there", "here"} {
 		server := ""
 		if p == "there" {
 			server = "far"
 		}
-		if err := CreateProjectOn(s, 0, p, server, ""); err != nil {
+		if _, err := CreateProjectOn(s, 0, p, server, ""); err != nil {
 			t.Fatal(err)
 		}
-		pr, _ := s.GetProject(ctx(), p)
-		if err := s.CreateApp(ctx(), store.CreateAppParams{ProjectID: pr.ID, Name: p + "-app", BuildStrategy: "dockerfile"}); err != nil {
+		pr, _ := getProject(s, p)
+		if err := createApp(s, store.CreateAppParams{ProjectID: pr.ID, Name: p + "-app", BuildStrategy: "dockerfile"}); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.SetAppSentryKey(ctx(), store.SetAppSentryKeyParams{Name: p + "-app", SentryKey: secret.String(p + "-key")}); err != nil {
+		if err := s.SetAppSentryKey(ctx(), store.SetAppSentryKeyParams{ID: appID(t, s, p+"-app"), SentryKey: secret.String(p + "-key")}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	there, _ := s.GetApp(ctx(), "there-app")
-	here, _ := s.GetApp(ctx(), "here-app")
+	there, _ := getApp(s, "there-app")
+	here, _ := getApp(s, "here-app")
 	toPanel := &http.Client{Transport: &http.Transport{DialContext: func(context.Context, string, string) (net.Conn, error) { return sess.Open() }}}
 	ask := func(id int64) (IngestApp, int) {
 		resp, err := toPanel.Get(fmt.Sprintf("http://panel/ingest/apps/%d", id))
@@ -183,7 +184,7 @@ func TestServerKeepsItsAppsTelemetry(t *testing.T) {
 		_ = json.NewDecoder(resp.Body).Decode(&a)
 		return a, resp.StatusCode
 	}
-	if a, code := ask(there.ID); code != http.StatusOK || a != (IngestApp{"there-app", "there-key"}) {
+	if a, code := ask(there.ID); code != http.StatusOK || a != (IngestApp{there.ID, "there-key"}) {
 		t.Errorf("its own app: %d %+v", code, a)
 	}
 	if a, code := ask(here.ID); code != http.StatusNotFound || a.Key != "" {
@@ -194,21 +195,21 @@ func TestServerKeepsItsAppsTelemetry(t *testing.T) {
 {"type":"event"}
 {"event_id":"9ec79c33ec9942ab8353589fcb2e04dc","level":"error","message":"boom"}
 `)
-	for _, app := range []string{"there-app", "here-app"} {
-		if err := StoreEnvelope(s, app, envelope); err != nil {
+	for _, app := range []store.App{there, here} {
+		if err := StoreEnvelope(s, app.ID, envelope); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if events, err := AppEvents(s, "there-app", true, 10); err != nil || len(events) != 1 {
+	if events, err := AppEvents(s, there, true, 10); err != nil || len(events) != 1 {
 		t.Errorf("there-app's events: %+v, %v", events, err)
 	}
-	if kept, _ := s.Tel.ListTelemetryEvents(ctx(), teldb.ListTelemetryEventsParams{AppName: "there-app", Limit: 10}); len(kept) != 0 {
+	if kept, _ := s.Tel.ListTelemetryEvents(ctx(), teldb.ListTelemetryEventsParams{AppID: there.ID, Limit: 10}); len(kept) != 0 {
 		t.Errorf("the panel kept there-app's events: %+v", kept)
 	}
-	if kept, _ := farTel.Q.ListTelemetryEvents(ctx(), teldb.ListTelemetryEventsParams{AppName: "here-app", Limit: 10}); len(kept) != 0 {
+	if kept, _ := farTel.Q.ListTelemetryEvents(ctx(), teldb.ListTelemetryEventsParams{AppID: here.ID, Limit: 10}); len(kept) != 0 {
 		t.Errorf("the server kept here-app's events: %+v", kept)
 	}
-	if events, _ := AppEvents(s, "here-app", true, 10); len(events) != 1 {
+	if events, _ := AppEvents(s, here, true, 10); len(events) != 1 {
 		t.Errorf("here-app's events: %+v", events)
 	}
 }
@@ -252,7 +253,7 @@ func TestServersFollowThePanel(t *testing.T) {
 	node.PanelMoved = func(url string) error { told <- url; return nil }
 	t.Cleanup(func() { node.PanelMoved = nil })
 	go func() { _ = node.Serve(sess, nodetest.New(), sess.Open) }()
-	waitServer(t, "follower")
+	waitServer(t, s, "follower")
 	tellServersPanelURL("https://panel.example.net")
 	select {
 	case url := <-told:

@@ -1,8 +1,6 @@
 package ops
 
 import (
-	"database/sql"
-	"errors"
 	"fmt"
 
 	"github.com/x0ryz/hakobu/internal/node"
@@ -17,8 +15,8 @@ func projectEdge(project string) string    { return node.ProjectEdge(project) }
 // ensureProjectNetworks creates the project's networks on its server and
 // connects the shared containers to them; the tunnels' cloudflared follow
 // which account the project is in (see node.Local.EnsureProjectNetworks).
-func ensureProjectNetworks(s *store.Store, project string) error {
-	p, err := s.GetProject(ctx(), project)
+func ensureProjectNetworks(s *store.Store, projectID int64) error {
+	p, err := s.GetProjectByID(ctx(), projectID)
 	if err != nil {
 		return err
 	}
@@ -26,11 +24,11 @@ func ensureProjectNetworks(s *store.Store, project string) error {
 	if err != nil {
 		return err
 	}
-	tunnels, err := tunnelSpecs(s, sv, "")
+	tunnels, err := tunnelSpecs(s, sv, 0)
 	if err != nil {
 		return err
 	}
-	return sv.node().EnsureProjectNetworks(ctx(), project, tunnels)
+	return sv.node().EnsureProjectNetworks(ctx(), p.Key(), tunnels)
 }
 
 // ensureServerNetworks is ensureProjectNetworks for every project on the
@@ -44,7 +42,7 @@ func ensureServerNetworks(s *store.Store, sv server) error {
 		if p.NodeID.Int64 != sv.ID {
 			continue
 		}
-		if err := ensureProjectNetworks(s, p.Name); err != nil {
+		if err := ensureProjectNetworks(s, p.ID); err != nil {
 			return fmt.Errorf("networks of project %s: %w", p.Name, err)
 		}
 	}
@@ -52,20 +50,15 @@ func ensureServerNetworks(s *store.Store, sv server) error {
 }
 
 // removeProjectNetworks takes the shared containers off a deleted
-// project's networks and removes them; a project already gone from the
-// records was on the panel's server.
-func removeProjectNetworks(s *store.Store, project string) error {
-	var sv server
-	if p, err := s.GetProject(ctx(), project); err == nil {
-		if sv, err = projectServer(s, p); err != nil {
-			return err
-		}
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
-	tunnels, err := tunnelSpecs(s, sv, project)
+// project's networks and removes them.
+func removeProjectNetworks(s *store.Store, p store.Project) error {
+	sv, err := projectServer(s, p)
 	if err != nil {
 		return err
 	}
-	return sv.node().RemoveProjectNetworks(ctx(), project, tunnels)
+	tunnels, err := tunnelSpecs(s, sv, p.ID)
+	if err != nil {
+		return err
+	}
+	return sv.node().RemoveProjectNetworks(ctx(), p.Key(), tunnels)
 }

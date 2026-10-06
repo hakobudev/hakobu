@@ -655,7 +655,7 @@ func tracePage(t traceView) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = shell(t.Name, crumb{Label: t.AppName, Href: "/apps/" + t.AppName, Icon: "box"}, crumb{Label: "Performance", Href: "/apps/" + t.AppName + "/performance", Icon: "gauge"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var24), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = shell(t.Name, crumb{Label: t.App.Name, Href: appURL(t.App), Icon: "box"}, crumb{Label: "Performance", Href: appURL(t.App) + "/performance", Icon: "gauge"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var24), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

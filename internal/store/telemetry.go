@@ -105,13 +105,13 @@ func (s *Store) dropTelemetry() {
 }
 
 // deleteTelemetryOf removes the telemetry of a deleted app.
-func (s *Store) deleteTelemetryOf(ctx context.Context, app string) error {
-	for _, target := range []string{"app:" + app, "worker:" + app} {
+func (s *Store) deleteTelemetryOf(ctx context.Context, app int64) error {
+	for _, target := range []string{fmt.Sprintf("app:%d", app), fmt.Sprintf("worker:%d", app)} {
 		if err := s.Tel.DeleteSamplesOf(ctx, target); err != nil {
 			return err
 		}
 	}
-	for _, del := range []func(context.Context, string) error{s.Tel.DeleteTracesOfApp, s.Tel.DeleteTraceRoutesOfApp, s.Tel.DeleteTelemetryOfApp} {
+	for _, del := range []func(context.Context, int64) error{s.Tel.DeleteTracesOfApp, s.Tel.DeleteTraceRoutesOfApp, s.Tel.DeleteTelemetryOfApp} {
 		if err := del(ctx, app); err != nil {
 			return err
 		}

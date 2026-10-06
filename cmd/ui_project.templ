@@ -232,11 +232,11 @@ templ projectCanvas(v projectView) {
 			<div class="canvas-col">
 				<div class="canvas-col-title"><span>Data</span></div>
 				for _, d := range v.Databases {
-					@databaseNode(d, v.LastBackup, v.BackupBucket != "")
+					@databaseNode(v.Project.Name, d, v.LastBackup, v.BackupBucket != "")
 				}
 				for _, a := range v.Apps {
 					for _, vol := range v.Volumes[a.Name] {
-						@volumeNode(a.Name, vol, v.BackupBucket != "")
+						@volumeNode(v.Project.Name, a.Name, vol, v.BackupBucket != "")
 					}
 				}
 				for _, st := range v.Storages {
@@ -289,8 +289,8 @@ templ tunnelNode(v projectView) {
 	</div>
 }
 
-templ volumeNode(app string, vol volumeCard, backupsOn bool) {
-	<a href={ "/apps/" + app + "/settings#volumes" } id={ "vol-" + app + "-" + vol.Name } class="node" data-links={ backupLink(backupsOn, "bk-vol-"+app+"-"+vol.Name) }>
+templ volumeNode(project, app string, vol volumeCard, backupsOn bool) {
+	<a href={ templ.SafeURL(appPath(project, app) + "/settings#volumes") } id={ "vol-" + app + "-" + vol.Name } class="node" data-links={ backupLink(backupsOn, "bk-vol-"+app+"-"+vol.Name) }>
 		<div class="node-head">
 			<span class="icon-tile">
 				@ic("hard-drive")
@@ -361,7 +361,7 @@ templ backupsNode(v projectView) {
 				</div>
 			</div>
 			for _, d := range v.Databases {
-				<a href={ "/databases/" + d.Name + "#backups" } id={ "bk-db-" + d.Name } class="node-item">
+				<a href={ templ.SafeURL(dbURL(v.Project.Name, d.Name) + "#backups") } id={ "bk-db-" + d.Name } class="node-item">
 					<span class="meta-item min-w-0">
 						@ic("database", "icon-sm icon-muted")
 						<span class="truncate">{ d.Name }</span>
@@ -375,7 +375,7 @@ templ backupsNode(v projectView) {
 			}
 			for _, a := range v.Apps {
 				for _, vol := range v.Volumes[a.Name] {
-					<a href={ "/apps/" + a.Name + "/settings#volumes" } id={ "bk-vol-" + a.Name + "-" + vol.Name } class="node-item">
+					<a href={ templ.SafeURL(appURL(a.App) + "/settings#volumes") } id={ "bk-vol-" + a.Name + "-" + vol.Name } class="node-item">
 						<span class="meta-item min-w-0">
 							@ic("hard-drive", "icon-sm icon-muted")
 							<span class="truncate">{ a.Name + "/" + vol.Name }</span>
@@ -415,7 +415,7 @@ templ backupState(verifiedAt, verifyError, createdAt string) {
 
 templ appNode(v projectView, a appView) {
 	<div id={ "app-" + a.Name } class="node" data-links={ v.appLinksOf(a) } data-calls={ v.callsOf(a.Name) }>
-		<a href={ "/apps/" + a.Name } class="node-link">
+		<a href={ templ.SafeURL(appURL(a.App)) } class="node-link">
 			<div class="node-head">
 				@tile(appLogo(a.App), appIcon(a))
 				<div class="min-w-0 flex-1">
@@ -461,7 +461,7 @@ templ appNode(v projectView, a appView) {
 			</div>
 		</a>
 		if w, ok := v.Workers[a.Name]; ok {
-			<a href={ "/apps/" + a.Name + "/logs?worker=1" } id={ "wk-" + a.Name } class="node-item" title="The app's worker: same image and links, its own process">
+			<a href={ templ.SafeURL(appURL(a.App) + "/logs?worker=1") } id={ "wk-" + a.Name } class="node-item" title="The app's worker: same image and links, its own process">
 				<span class="meta-item min-w-0">
 					if l := workerLogo(a.App, w.Command); l != "" {
 						@logo(l)
@@ -477,8 +477,8 @@ templ appNode(v projectView, a appView) {
 	</div>
 }
 
-templ databaseNode(d store.Database, last map[string]store.Backup, backupsOn bool) {
-	<a href={ "/databases/" + d.Name } id={ "db-" + d.Name } class="node" data-links={ backupLink(backupsOn, "bk-db-"+d.Name) }>
+templ databaseNode(project string, d store.Database, last map[string]store.Backup, backupsOn bool) {
+	<a href={ templ.SafeURL(dbURL(project, d.Name)) } id={ "db-" + d.Name } class="node" data-links={ backupLink(backupsOn, "bk-db-"+d.Name) }>
 		<div class="node-head">
 			@tile("postgresql", "database")
 			<div class="min-w-0 flex-1">
@@ -517,7 +517,7 @@ templ databaseNode(d store.Database, last map[string]store.Backup, backupsOn boo
 }
 
 templ storageNode(v projectView, st store.Storage) {
-	<a href={ "/storages/" + st.Name } id={ "st-" + st.Name } class="node">
+	<a href={ templ.SafeURL(storageURL(v.Project.Name, st.Name)) } id={ "st-" + st.Name } class="node">
 		<div class="node-head">
 			@tile(storageLogo(st), "archive")
 			<div class="min-w-0 flex-1">
@@ -555,7 +555,7 @@ templ projectVariables(v projectView) {
 				@submit("Save", true)
 			}
 		</form>
-		@sealedVars("project", v.Project.Name, v.Sealed)
+		@sealedVars(v.path("") + "/sealed", v.Sealed)
 	</div>
 }
 

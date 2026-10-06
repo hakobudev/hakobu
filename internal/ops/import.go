@@ -25,10 +25,10 @@ import (
 // The panel can't seal it with the key of the database's server, which it
 // never has: it uploads it sealed with a key of its own, and the server
 // opens that and seals it again as a backup of its own (Reseal).
-func ImportDump(s *store.Store, dbName string, dump io.Reader) (id int64, err error) {
-	d, err := s.GetDatabase(ctx(), dbName)
+func ImportDump(s *store.Store, dbID int64, dump io.Reader) (id int64, err error) {
+	d, err := s.GetDatabaseByID(ctx(), dbID)
 	if err != nil {
-		return 0, fmt.Errorf("database %q not found: %w", dbName, err)
+		return 0, fmt.Errorf("database not found: %w", err)
 	}
 	r := bufio.NewReader(dump)
 	if magic, _ := r.Peek(5); !bytes.Equal(magic, []byte("PGDMP")) {
@@ -71,7 +71,7 @@ func ImportDump(s *store.Store, dbName string, dump io.Reader) (id int64, err er
 		return 0, err
 	}
 	stamp := time.Now().UTC().Format("20060102-150405")
-	sent := fmt.Sprintf("uploads/%s/%s-import.enc", d.Name, stamp)
+	sent := fmt.Sprintf("uploads/%s/%s-import.enc", d.Key(), stamp)
 	parts, err := uploadParts(s, target, sent, f, info.Size())
 	if err != nil {
 		return 0, err
@@ -86,7 +86,7 @@ func ImportDump(s *store.Store, dbName string, dump io.Reader) (id int64, err er
 		return 0, err
 	}
 	dl.FileKey = fileKey
-	key := fmt.Sprintf("%s/%s-import.dump.enc", d.Name, stamp)
+	key := fmt.Sprintf("%s/%s-import.dump.enc", d.Key(), stamp)
 	up, err := newUpload(s, target, key)
 	if err != nil {
 		return 0, err
@@ -96,7 +96,7 @@ func ImportDump(s *store.Store, dbName string, dump io.Reader) (id int64, err er
 		return 0, err
 	}
 	return s.CreateBackup(ctx(), store.CreateBackupParams{
-		Database: d.Name, ObjectKey: key, Parts: int64(obj.Parts), SizeBytes: obj.Size, SHA256: obj.SHA256, KeyFingerprint: obj.KeyFingerprint,
+		DatabaseID: d.ID, ObjectKey: key, Parts: int64(obj.Parts), SizeBytes: obj.Size, SHA256: obj.SHA256, KeyFingerprint: obj.KeyFingerprint,
 		AccountID: target.AccountID, Bucket: target.Bucket,
 	})
 }

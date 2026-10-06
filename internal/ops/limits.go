@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/x0ryz/hakobu/internal/node"
@@ -15,7 +16,7 @@ import (
 
 // SetLimits caps the memory and CPUs of the app and its worker from the
 // next deploy on; 0 removes a limit.
-func SetLimits(s *store.Store, app string, memoryMB int64, cpus float64) error {
+func SetLimits(s *store.Store, appID int64, memoryMB int64, cpus float64) error {
 	if memoryMB != 0 && memoryMB < 16 {
 		return fmt.Errorf("memory limit must be at least 16 MB, or empty for no limit")
 	}
@@ -25,7 +26,7 @@ func SetLimits(s *store.Store, app string, memoryMB int64, cpus float64) error {
 	if cpus != 0 && cpus < 0.01 {
 		return fmt.Errorf("CPU limit must be at least 0.01")
 	}
-	return s.SetAppLimits(ctx(), store.SetAppLimitsParams{Name: app, MemoryMB: memoryMB, Cpus: cpus})
+	return s.SetAppLimits(ctx(), store.SetAppLimitsParams{ID: appID, MemoryMB: memoryMB, Cpus: cpus})
 }
 
 func oomText(app store.App) string { return node.OOMText(app.MemoryMB) }
@@ -46,14 +47,16 @@ func WatchDeaths(s *store.Store) {
 
 // recordDeath puts an out-of-memory kill of an app or worker container, or
 // a crash of a live one, in the app's Errors tab and emails the owner.
-func recordDeath(s *store.Store, sv server, container, appName string, d node.Death) {
-	app, err := s.GetApp(ctx(), appName)
-	if on, ok := appServer(s, app); err == nil && (!ok || on.ID != sv.ID) {
+// appKey is the app's on its server (store.AppKey).
+func recordDeath(s *store.Store, sv server, container, appKey string, d node.Death) {
+	id, known := store.ParseAppKey(appKey)
+	app, err := s.GetAppByID(ctx(), id)
+	if on, ok := appServer(s, app); known && err == nil && (!ok || on.ID != sv.ID) {
 		// A server tells only of its own apps: it could belong to
 		// someone else.
 		return
 	}
-	if err != nil {
+	if !known || err != nil {
 		if d.OOM {
 			panellog.Warn(container, "was killed, most likely out of memory")
 		}
@@ -62,35 +65,38 @@ func recordDeath(s *store.Store, sv server, container, appName string, d node.De
 	var kind, message string
 	switch {
 	case d.OOM && d.Sure:
-		kind, message = "oom", fmt.Sprintf("%s was killed: %s. Docker restarts it.", container, oomText(app))
+		kind, message = "oom", fmt.Sprintf("%s was killed: %s. Docker restarts it.", app.Name, oomText(app))
 	case d.OOM:
-		kind, message = "oom", fmt.Sprintf("%s was killed (exit 137), most likely because %s. Docker restarts it.", container, oomText(app))
-	case container == app.Name+"-"+app.ActiveSlot || container == app.Name+"-worker":
+		kind, message = "oom", fmt.Sprintf("%s was killed (exit 137), most likely because %s. Docker restarts it.", app.Name, oomText(app))
+	case container == app.ContainerName() || container == node.WorkerContainer(app.Key()):
 		// A candidate that crashes while starting fails its deploy,
 		// which says so itself.
-		kind, message = "crash", fmt.Sprintf("%s exited with code %s. Docker restarts it; its output says why.", container, d.ExitCode)
+		kind, message = "crash", fmt.Sprintf("%s exited with code %s. Docker restarts it; its output says why.", app.Name, d.ExitCode)
 	default:
 		return
 	}
+	if strings.HasSuffix(container, "-worker") {
+		message = "The worker of " + message
+	}
 	if err := addAppEvent(s, teldb.CreateTelemetryEventParams{
-		AppName: app.Name, Kind: kind, Level: "fatal", Message: secret.String(message),
+		AppID: app.ID, Kind: kind, Level: "fatal", Message: secret.String(message),
 	}); err != nil {
-		panellog.Error("failed to record that", container, "stopped:", err)
+		panellog.Error("failed to record that", app.Name, "stopped:", err)
 	}
 	if kind == "oom" {
-		noteOOM(s, app.Name, message)
+		noteOOM(s, app, message)
 	} else {
-		noteCrash(s, app.Name, message)
+		noteCrash(s, app, message)
 	}
 }
 
 // LastOOM is when the app or its worker last ran out of memory, "" if not
 // within the retention period.
-func LastOOM(s *store.Store, app string) string {
+func LastOOM(s *store.Store, app store.App) string {
 	t, err := appTelemetry(s, app)
 	if err != nil {
 		return ""
 	}
-	at, _ := t.LastAppEvent(ctx(), app, "oom")
+	at, _ := t.LastAppEvent(ctx(), app.ID, "oom")
 	return at
 }

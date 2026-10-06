@@ -229,7 +229,7 @@ func runProxyPoller(s *store.Store) {
 	for {
 		if apps, err := s.ListApps(context.Background()); err == nil {
 			for _, a := range apps {
-				if !ops.IsDeploying(a.Name) { // a running job (or deletion) owns the proxy
+				if !ops.IsDeploying(a.ID) { // a running job (or deletion) owns the proxy
 					ops.EnsureProxy(s, a)
 				}
 			}
@@ -363,7 +363,7 @@ func webhookHandler(s *store.Store) http.HandlerFunc {
 			return
 		}
 		for _, a := range apps {
-			if err := ops.StartDeploy(s, a.Name, "push"); err != nil {
+			if err := ops.StartDeploy(s, a.ID, "push"); err != nil {
 				panellog.Warn("push deploy of", a.Name, "skipped:", err)
 			}
 		}

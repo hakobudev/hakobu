@@ -31,10 +31,10 @@ func (sv server) label() string {
 // node is the server's node: local, the connected server's, or one whose
 // every call fails with node.ErrUnreachable while it isn't connected.
 func (sv server) node() node.Node {
-	if sv.Name == "" {
+	if sv.ID == 0 {
 		return local
 	}
-	if n, err := serverNode(sv.Name); err == nil {
+	if n, err := serverNode(sv); err == nil {
 		return n
 	}
 	return offline(sv.Name)
@@ -59,8 +59,8 @@ func projectServer(s *store.Store, p store.Project) (server, error) {
 }
 
 // ProjectNode is the node the project's apps, databases and volumes are on.
-func ProjectNode(s *store.Store, project string) node.Node {
-	p, err := s.GetProject(ctx(), project)
+func ProjectNode(s *store.Store, projectID int64) node.Node {
+	p, err := s.GetProjectByID(ctx(), projectID)
 	if err != nil {
 		return local
 	}
@@ -73,12 +73,12 @@ func ProjectNode(s *store.Store, project string) node.Node {
 
 // AppNode is ProjectNode for the app's project.
 func AppNode(s *store.Store, app store.App) node.Node {
-	return ProjectNode(s, app.ProjectName)
+	return ProjectNode(s, app.ProjectID)
 }
 
 // onLocal reports whether the app runs on the panel's server.
 func onLocal(s *store.Store, app store.App) bool {
-	p, err := s.GetProject(ctx(), app.ProjectName)
+	p, err := s.GetProjectByID(ctx(), app.ProjectID)
 	return err == nil && !p.NodeID.Valid
 }
 
@@ -98,28 +98,30 @@ func allNodes(s *store.Store) []placedNode {
 		return out
 	}
 	for _, r := range rows {
-		if n, err := serverNode(r.Name); err == nil {
-			out = append(out, placedNode{server{ID: r.ID, Name: r.Name}, n})
+		sv := server{ID: r.ID, Name: r.Name}
+		if n, err := serverNode(sv); err == nil {
+			out = append(out, placedNode{sv, n})
 		}
 	}
 	return out
 }
 
-// SetProjectServer moves a project to a server ("" for the panel's), only
-// while it has no apps or databases: their data would stay behind.
-func SetProjectServer(s *store.Store, project, serverName string) error {
-	p, err := s.GetProject(ctx(), project)
+// SetProjectServer moves a project to a server of its owner's, by its
+// name ("" for the panel's), only while it has no apps or databases: their
+// data would stay behind.
+func SetProjectServer(s *store.Store, projectID int64, serverName string) error {
+	p, err := s.GetProjectByID(ctx(), projectID)
 	if err != nil {
-		return fmt.Errorf("project %q not found: %w", project, err)
+		return fmt.Errorf("project not found: %w", err)
 	}
 	if config.PanelOnly && serverName == "" {
 		return errPanelOnly
 	}
 	var id sql.NullInt64
 	if serverName != "" {
-		n, err := s.GetNodeByName(ctx(), serverName)
-		if err != nil || n.UserID != p.UserID {
-			return fmt.Errorf("server %q not found", serverName)
+		n, err := UserServer(s, p.UserID, serverName)
+		if err != nil {
+			return err
 		}
 		if n.PublicKey == "" {
 			return fmt.Errorf("server %s hasn't joined yet", serverName)

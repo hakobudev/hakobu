@@ -25,7 +25,7 @@ import (
 // errors, and (with the deploy scope) deploy and roll back. Nothing here
 // deletes or reveals secrets: logs and errors are written by the apps, so
 // a client reading them can be talked into anything a tool allows.
-const mcpInstructions = `Hakobu deploys apps from GitHub repos to the owner's server. Each app belongs to a project; pushes to a repo's default branch deploy its apps automatically, with zero downtime.
+const mcpInstructions = `Hakobu deploys apps from GitHub repos to the owner's server. Each app belongs to a project, and tools name it as project/app (as list_apps does); pushes to a repo's default branch deploy its apps automatically, with zero downtime.
 
 To ship a change: push it to GitHub, then call wait_for_deploy on the app; if the deploy failed, read its log with get_deploy_log. After a deploy, check get_app_logs and list_errors for problems. rollback returns the app to the build before the live one.
 
@@ -107,7 +107,7 @@ type mcpError struct {
 }
 
 type appArg struct {
-	App string `json:"app" jsonschema:"the app's name, from list_apps"`
+	App string `json:"app" jsonschema:"the app as project/app, from list_apps"`
 }
 
 func newMCPServer(s *store.Store) *mcp.Server {
@@ -115,11 +115,7 @@ func newMCPServer(s *store.Store) *mcp.Server {
 	readOnly := &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: new(false)}
 
 	getApp := func(ctx context.Context, name string) (store.App, error) {
-		app, err := s.GetApp(ctx, name)
-		if err != nil {
-			return app, fmt.Errorf("no app named %q: list_apps lists them", name)
-		}
-		return app, nil
+		return findMCPApp(ctx, s, mcpUserOf(ctx), name)
 	}
 	// The tools act for the user whose token calls them, on their own apps
 	// only: an app of someone else's is answered as if it didn't exist.
@@ -175,14 +171,18 @@ func newMCPServer(s *store.Store) *mcp.Server {
 			}
 			d := mcpAppDetail{
 				mcpApp: appSummary(ctx, s, app), Domain: app.Domain, BuildPath: app.BuildPath, Strategy: app.BuildStrategy, StartCommand: app.StartCommand,
-				PanelURL:    "https://" + config.PublicHost() + "/apps/" + app.Name + "/variables",
-				HealthCheck: app.HealthCheckPath, MemoryMB: app.MemoryMB, CPUs: app.Cpus, LastOOM: ops.LastOOM(s, app.Name),
-				Database: app.LinkedDB, Storage: app.LinkedStorage, EnvKeys: []string{},
+				PanelURL:    "https://" + config.PublicHost() + ops.AppPath(app) + "/variables",
+				HealthCheck: app.HealthCheckPath, MemoryMB: app.MemoryMB, CPUs: app.Cpus, LastOOM: ops.LastOOM(s, app),
+				EnvKeys: []string{},
 				CanRollBack: ops.DataRollbackBlocker(s, app) == "", RecentDeploy: []mcpDeploy{},
 			}
-			if routes, err := s.ListAppRoutes(ctx, app.Name); err == nil {
+			linked := linkedView(ctx, s, app)
+			d.Database, d.Storage = linked.LinkedDB, linked.LinkedStorage
+			if routes, err := s.ListAppRoutes(ctx, app.ID); err == nil {
 				for _, r := range routes {
-					d.Routes = append(d.Routes, r.Path+" → "+r.Target)
+					if t, err := s.GetAppByID(ctx, r.TargetID); err == nil {
+						d.Routes = append(d.Routes, r.Path+" → "+t.Name)
+					}
 				}
 			}
 			if env, err := ops.EffectiveEnv(s, app); err == nil {
@@ -190,15 +190,15 @@ func newMCPServer(s *store.Store) *mcp.Server {
 					d.EnvKeys = append(d.EnvKeys, v.Key)
 				}
 			}
-			if vols, err := s.ListVolumes(ctx, app.Name); err == nil {
+			if vols, err := s.ListVolumes(ctx, app.ID); err == nil {
 				for _, v := range vols {
 					d.Volumes = append(d.Volumes, v.MountPath)
 				}
 			}
-			if wk, err := s.GetWorker(ctx, app.Name); err == nil {
+			if wk, err := s.GetWorker(ctx, app.ID); err == nil {
 				d.Worker = ops.AppNode(s, app).State(ctx, wk.ContainerName()).Status
 			}
-			if logs, err := s.ListDeployLogs(ctx, store.ListDeployLogsParams{AppName: app.Name, Limit: 5}); err == nil {
+			if logs, err := s.ListDeployLogs(ctx, store.ListDeployLogsParams{AppID: app.ID, Limit: 5}); err == nil {
 				for _, l := range logs {
 					d.RecentDeploy = append(d.RecentDeploy, deploySummary(l, 0))
 				}
@@ -208,13 +208,14 @@ func newMCPServer(s *store.Store) *mcp.Server {
 
 	mcp.AddTool(server, &mcp.Tool{Name: "get_deploy_log", Description: "Read the output of an app's deploy: the build and roll-out log. Without deploy_id, the latest deploy.", Annotations: readOnly},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
-			App      string `json:"app" jsonschema:"the app's name"`
+			App      string `json:"app" jsonschema:"the app as project/app"`
 			DeployID int64  `json:"deploy_id,omitempty" jsonschema:"from get_app's recent_deploys; the latest if omitted"`
 		}) (*mcp.CallToolResult, mcpDeploy, error) {
-			if _, err := getApp(ctx, in.App); err != nil {
+			app, err := getApp(ctx, in.App)
+			if err != nil {
 				return nil, mcpDeploy{}, err
 			}
-			logs, err := s.ListDeployLogs(ctx, store.ListDeployLogsParams{AppName: in.App, Limit: 50})
+			logs, err := s.ListDeployLogs(ctx, store.ListDeployLogsParams{AppID: app.ID, Limit: 50})
 			if err != nil {
 				return nil, mcpDeploy{}, err
 			}
@@ -228,7 +229,7 @@ func newMCPServer(s *store.Store) *mcp.Server {
 
 	mcp.AddTool(server, &mcp.Tool{Name: "get_app_logs", Description: "Read the last lines an app's container (or its worker's) wrote to stdout and stderr, with timestamps.", Annotations: readOnly},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
-			App    string `json:"app" jsonschema:"the app's name"`
+			App    string `json:"app" jsonschema:"the app as project/app"`
 			Worker bool   `json:"worker,omitempty" jsonschema:"read the app's worker instead"`
 			Lines  int    `json:"lines,omitempty" jsonschema:"how many lines, up to 1000; default 200"`
 		}) (*mcp.CallToolResult, struct {
@@ -263,14 +264,22 @@ func newMCPServer(s *store.Store) *mcp.Server {
 			var target string
 			switch in.Target {
 			case "server", "host", "postgres":
-				target = ops.HostTarget
+				var serverID int64
 				if in.Server != "" {
-					target += ":" + in.Server
+					n, err := ops.UserServer(s, mcpUserOf(ctx).ID, in.Server)
+					if err != nil {
+						return nil, mcpUsage{}, err
+					}
+					serverID = n.ID
 				}
-				if in.Target == "postgres" {
-					target = ops.ServiceTarget("postgres", in.Server)
+				target = ops.ServiceTarget("postgres", serverID)
+				if in.Target != "postgres" {
+					target = ops.HostTarget
+					if serverID != 0 {
+						target = fmt.Sprintf("%s:%d", ops.HostTarget, serverID)
+					}
 				}
-				if checkTarget(ctx, s, mcpUserOf(ctx), target, nil) != nil {
+				if checkTarget(ctx, s, mcpUserOf(ctx), target) != nil {
 					return nil, mcpUsage{}, fmt.Errorf("server %q not found", in.Server)
 				}
 			default:
@@ -278,9 +287,9 @@ func newMCPServer(s *store.Store) *mcp.Server {
 				if err != nil {
 					return nil, mcpUsage{}, err
 				}
-				target = "app:" + app.Name
+				target = ops.AppTarget(app.ID)
 				if in.Worker {
-					target = "worker:" + app.Name
+					target = ops.WorkerTarget(app.ID)
 				}
 			}
 			rng := in.Range
@@ -297,7 +306,7 @@ func newMCPServer(s *store.Store) *mcp.Server {
 
 	mcp.AddTool(server, &mcp.Tool{Name: "slow_routes", Description: "List an app's routes (requests and tasks its Sentry SDK traced) with how many ran, p50/p95/average durations and the share that failed, the ones that took the most time in all first; and the latest slow (1 s and over) or failed requests kept whole, for get_trace. Needs traces_sample_rate set in the app's Sentry SDK.", Annotations: readOnly},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
-			App   string `json:"app" jsonschema:"the app's name"`
+			App   string `json:"app" jsonschema:"the app as project/app"`
 			Range string `json:"range,omitempty" jsonschema:"24h (default) or 7d"`
 		}) (*mcp.CallToolResult, mcpRoutes, error) {
 			out := mcpRoutes{Routes: []mcpRoute{}, Kept: []mcpKeptTrace{}}
@@ -309,14 +318,14 @@ func newMCPServer(s *store.Store) *mcp.Server {
 			if out.Range != "7d" {
 				out.Range = "24h"
 			}
-			routes, err := ops.RoutesOf(s, app.Name, ops.MetricRanges[out.Range])
+			routes, err := ops.RoutesOf(s, app, ops.MetricRanges[out.Range])
 			if err != nil {
 				return nil, out, err
 			}
 			for _, r := range routes[:min(len(routes), 50)] {
 				out.Routes = append(out.Routes, mcpRoute{Name: r.Name, Count: r.Count, P50: r.P50Ms, P95: r.P95Ms, P95Over: r.P95Over, Avg: r.AvgMs, FailedPct: math.Round(r.ErrorPct()*10) / 10})
 			}
-			kept, err := ops.AppTraces(s, app.Name, 20)
+			kept, err := ops.AppTraces(s, app, 20)
 			if err != nil {
 				return nil, out, err
 			}
@@ -328,10 +337,14 @@ func newMCPServer(s *store.Store) *mcp.Server {
 
 	mcp.AddTool(server, &mcp.Tool{Name: "get_trace", Description: "Read a slow or failed request of an app kept whole, from slow_routes: its spans (database queries, HTTP calls, ...) with when each started and how long it took, to see where the time went.", Annotations: readOnly},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
-			App string `json:"app" jsonschema:"the app's name"`
+			App string `json:"app" jsonschema:"the app as project/app"`
 			ID  int64  `json:"id" jsonschema:"the trace's id from slow_routes"`
 		}) (*mcp.CallToolResult, mcpTrace, error) {
-			t, err := ops.TraceOf(s, in.App, in.ID)
+			app, err := getApp(ctx, in.App)
+			if err != nil {
+				return nil, mcpTrace{}, err
+			}
+			t, err := ops.TraceOf(s, app, in.ID)
 			if err != nil {
 				return nil, mcpTrace{}, err
 			}
@@ -344,7 +357,7 @@ func newMCPServer(s *store.Store) *mcp.Server {
 
 	mcp.AddTool(server, &mcp.Tool{Name: "list_errors", Description: "List the latest errors, crashes, out-of-memory kills and health check outages of an app, newest first: what its Sentry SDK sent and what hakobu saw. With include_logs, the logs its SDK sent too.", Annotations: readOnly},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
-			App         string `json:"app" jsonschema:"the app's name"`
+			App         string `json:"app" jsonschema:"the app as project/app"`
 			Limit       int    `json:"limit,omitempty" jsonschema:"up to 100; default 20"`
 			IncludeLogs bool   `json:"include_logs,omitempty" jsonschema:"also the logs the app's Sentry SDK sent"`
 		}) (*mcp.CallToolResult, struct {
@@ -353,14 +366,15 @@ func newMCPServer(s *store.Store) *mcp.Server {
 			var out struct {
 				Errors []mcpError `json:"errors"`
 			}
-			if _, err := getApp(ctx, in.App); err != nil {
+			app, err := getApp(ctx, in.App)
+			if err != nil {
 				return nil, out, err
 			}
 			limit := in.Limit
 			if limit <= 0 {
 				limit = 20
 			}
-			events, err := ops.AppEvents(s, in.App, in.IncludeLogs, int64(min(limit, 100)))
+			events, err := ops.AppEvents(s, app, in.IncludeLogs, int64(min(limit, 100)))
 			if err != nil {
 				return nil, out, err
 			}
@@ -373,10 +387,14 @@ func newMCPServer(s *store.Store) *mcp.Server {
 
 	mcp.AddTool(server, &mcp.Tool{Name: "get_error", Description: "Read one error of an app in full, with its stack trace, from list_errors.", Annotations: readOnly},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
-			App string `json:"app" jsonschema:"the app's name"`
+			App string `json:"app" jsonschema:"the app as project/app"`
 			ID  int64  `json:"id" jsonschema:"the error's id from list_errors"`
 		}) (*mcp.CallToolResult, mcpError, error) {
-			e, err := ops.AppEvent(s, in.App, in.ID)
+			app, err := getApp(ctx, in.App)
+			if err != nil {
+				return nil, mcpError{}, err
+			}
+			e, err := ops.AppEvent(s, app, in.ID)
 			if err != nil {
 				return nil, mcpError{}, fmt.Errorf("no error %d of %s", in.ID, in.App)
 			}
@@ -385,10 +403,11 @@ func newMCPServer(s *store.Store) *mcp.Server {
 
 	mcp.AddTool(server, &mcp.Tool{Name: "wait_for_deploy", Description: "Wait until the app's running deploy or rollback finishes (up to 90 seconds per call; call again if it's still running) and return how it ended, with the log's end if it failed. Use after a push or deploy.", Annotations: readOnly},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
-			App     string `json:"app" jsonschema:"the app's name"`
+			App     string `json:"app" jsonschema:"the app as project/app"`
 			Seconds int    `json:"seconds,omitempty" jsonschema:"how long to wait, up to 90; default 90"`
 		}) (*mcp.CallToolResult, mcpDeploy, error) {
-			if _, err := getApp(ctx, in.App); err != nil {
+			app, err := getApp(ctx, in.App)
+			if err != nil {
 				return nil, mcpDeploy{}, err
 			}
 			wait := mcpWaitMax
@@ -396,14 +415,14 @@ func newMCPServer(s *store.Store) *mcp.Server {
 				wait = min(time.Duration(in.Seconds)*time.Second, mcpWaitMax)
 			}
 			deadline := time.Now().Add(wait)
-			for ops.IsDeploying(in.App) && time.Now().Before(deadline) {
+			for ops.IsDeploying(app.ID) && time.Now().Before(deadline) {
 				select {
 				case <-ctx.Done():
 					return nil, mcpDeploy{}, ctx.Err()
 				case <-time.After(2 * time.Second):
 				}
 			}
-			logs, err := s.ListDeployLogs(ctx, store.ListDeployLogsParams{AppName: in.App, Limit: 1})
+			logs, err := s.ListDeployLogs(ctx, store.ListDeployLogsParams{AppID: app.ID, Limit: 1})
 			if err != nil || len(logs) == 0 {
 				return nil, mcpDeploy{}, fmt.Errorf("%s has no deploys yet", in.App)
 			}
@@ -428,7 +447,7 @@ func newMCPServer(s *store.Store) *mcp.Server {
 			if err := run(ctx, app, in); err != nil {
 				return nil, mcpDeploy{}, err
 			}
-			logs, err := s.ListDeployLogs(ctx, store.ListDeployLogsParams{AppName: app.Name, Limit: 1})
+			logs, err := s.ListDeployLogs(ctx, store.ListDeployLogsParams{AppID: app.ID, Limit: 1})
 			if err != nil || len(logs) == 0 {
 				return nil, mcpDeploy{Status: "started"}, nil
 			}
@@ -437,11 +456,11 @@ func newMCPServer(s *store.Store) *mcp.Server {
 	}
 	deployTool(&mcp.Tool{Name: "deploy", Description: "Build the latest commit of the app's default branch and roll it out with zero downtime. Returns at once; follow with wait_for_deploy. Pushes deploy by themselves, so this is for redeploying (e.g. after changing variables in the panel).",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: new(false), OpenWorldHint: new(false)}},
-		func(_ context.Context, app store.App, _ deployArgs) error { return ops.StartDeploy(s, app.Name, "mcp") })
+		func(_ context.Context, app store.App, _ deployArgs) error { return ops.StartDeploy(s, app.ID, "mcp") })
 	deployTool(&mcp.Tool{Name: "rollback", Description: "Return the app to the build before the live one. With with_data, also restore its database to the snapshot taken before the live build's deploy: rows written since are lost. Returns at once; follow with wait_for_deploy.",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: new(true), OpenWorldHint: new(false)}},
 		func(_ context.Context, app store.App, in deployArgs) error {
-			return ops.StartRollback(s, app.Name, in.WithData)
+			return ops.StartRollback(s, app.ID, in.WithData)
 		})
 	deployTool(&mcp.Tool{Name: "restart_worker", Description: "Restart the app's worker container.",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: new(false), IdempotentHint: true, OpenWorldHint: new(false)}},
@@ -452,7 +471,7 @@ func newMCPServer(s *store.Store) *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{Name: "set_build", Description: "Change how the app is built and started: its start command (a shell command run instead of what the image starts, \"\" for the image's own), build method or path in the repo. Fields left out stay as they are. Applies on the next deploy: follow with deploy. Railpack also reads the app's RAILPACK_* variables (set in the panel) and a railpack.json or Procfile in the repo.",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: new(false), IdempotentHint: true, OpenWorldHint: new(false)}},
 		func(ctx context.Context, req *mcp.CallToolRequest, in struct {
-			App          string  `json:"app" jsonschema:"the app's name"`
+			App          string  `json:"app" jsonschema:"the app as project/app"`
 			StartCommand *string `json:"start_command,omitempty" jsonschema:"e.g. npm run migrate && node server.js; \"\" for the image's own start"`
 			Strategy     *string `json:"build_strategy,omitempty" jsonschema:"railpack or dockerfile"`
 			BuildPath    *string `json:"build_path,omitempty" jsonschema:"the directory to build, inside the repo; \"\" for its root"`
@@ -474,10 +493,10 @@ func newMCPServer(s *store.Store) *mcp.Server {
 			if in.BuildPath != nil {
 				path = *in.BuildPath
 			}
-			if err := ops.SetAppBuild(s, app.Name, path, strategy, start); err != nil {
+			if err := ops.SetAppBuild(s, app.ID, path, strategy, start); err != nil {
 				return nil, mcpBuild{}, err
 			}
-			if app, err = getApp(ctx, app.Name); err != nil {
+			if app, err = s.GetAppByID(ctx, app.ID); err != nil {
 				return nil, mcpBuild{}, err
 			}
 			return nil, mcpBuild{StartCommand: app.StartCommand, Strategy: app.BuildStrategy, BuildPath: app.BuildPath}, nil
@@ -494,17 +513,17 @@ type mcpBuild struct {
 }
 
 type deployArgs struct {
-	App      string `json:"app" jsonschema:"the app's name"`
+	App      string `json:"app" jsonschema:"the app as project/app"`
 	WithData bool   `json:"with_data,omitempty" jsonschema:"rollback only: also restore the database snapshot, losing rows written since"`
 }
 
 func appSummary(ctx context.Context, s *store.Store, a store.App) mcpApp {
 	st := ops.AppNode(s, a).State(ctx, a.ContainerName())
-	out := mcpApp{Name: a.Name, Project: a.ProjectName, Repo: a.Repo, Status: st.Status, Restarts: st.Restarts, OOM: st.OOMKilled, Deploying: ops.IsDeploying(a.Name)}
+	out := mcpApp{Name: a.ProjectName + "/" + a.Name, Project: a.ProjectName, Repo: a.Repo, Status: st.Status, Restarts: st.Restarts, OOM: st.OOMKilled, Deploying: ops.IsDeploying(a.ID)}
 	if a.Domain != "" {
 		out.URL = ops.PublicURL(a)
 	}
-	if logs, err := s.ListDeployLogs(ctx, store.ListDeployLogsParams{AppName: a.Name, Limit: 1}); err == nil && len(logs) > 0 {
+	if logs, err := s.ListDeployLogs(ctx, store.ListDeployLogsParams{AppID: a.ID, Limit: 1}); err == nil && len(logs) > 0 {
 		d := deploySummary(logs[0], 0)
 		out.LastDeploy = &d
 	}
@@ -645,39 +664,52 @@ func head(s string, n int) string {
 	return strings.ToValidUTF8(s[:n], "") + "…"
 }
 
-// checkMCPArgs answers a tool call that names something of someone else's
-// (an app, project, database, server or Cloudflare account, by the
-// argument names the tools share) as if it didn't exist.
+// findMCPApp is the user's app named project/app.
+func findMCPApp(ctx context.Context, s *store.Store, u store.User, name string) (store.App, error) {
+	project, app, ok := strings.Cut(name, "/")
+	if ok {
+		if p, err := s.GetProject(ctx, store.GetProjectParams{UserID: u.ID, Name: project}); err == nil {
+			if a, err := s.GetApp(ctx, store.GetAppParams{ProjectID: p.ID, Name: app}); err == nil {
+				return a, nil
+			}
+		}
+	}
+	return store.App{}, fmt.Errorf("no app %q: name it as project/app, as list_apps does", name)
+}
+
+// findMCPProject is the user's project named name.
+func findMCPProject(ctx context.Context, s *store.Store, u store.User, name string) (store.Project, error) {
+	p, err := s.GetProject(ctx, store.GetProjectParams{UserID: u.ID, Name: name})
+	if err != nil {
+		return p, fmt.Errorf("no project named %q: list_projects lists them", name)
+	}
+	return p, nil
+}
+
+// checkMCPArgs answers a tool call that names something the user doesn't
+// have (an app, project, server or Cloudflare account, by the argument
+// names the tools share) as if it didn't exist: names are looked up among
+// the user's own, so someone else's is never found.
 func checkMCPArgs(ctx context.Context, s *store.Store, u store.User, raw json.RawMessage) error {
 	var args struct {
-		App      string `json:"app"`
-		Project  string `json:"project"`
-		Database string `json:"database"`
-		Server   string `json:"server"`
-		Account  string `json:"cloudflare_account"`
+		App     string `json:"app"`
+		Project string `json:"project"`
+		Server  string `json:"server"`
+		Account string `json:"cloudflare_account"`
 	}
 	_ = json.Unmarshal(raw, &args)
-	owns := func(projectID int64) bool {
-		p, err := s.GetProjectByID(ctx, projectID)
-		return err == nil && p.UserID == u.ID
-	}
 	if args.App != "" {
-		if a, err := s.GetApp(ctx, args.App); err != nil || !owns(a.ProjectID) {
-			return fmt.Errorf("no app named %q: list_apps lists them", args.App)
+		if _, err := findMCPApp(ctx, s, u, args.App); err != nil {
+			return err
 		}
 	}
 	if args.Project != "" {
-		if p, err := s.GetProject(ctx, args.Project); err != nil || p.UserID != u.ID {
-			return fmt.Errorf("no project named %q: list_projects lists them", args.Project)
-		}
-	}
-	if args.Database != "" {
-		if d, err := s.GetDatabase(ctx, args.Database); err != nil || !owns(d.ProjectID) {
-			return fmt.Errorf("no database named %q: list_projects lists them", args.Database)
+		if _, err := findMCPProject(ctx, s, u, args.Project); err != nil {
+			return err
 		}
 	}
 	if args.Server != "" {
-		if n, err := s.GetNodeByName(ctx, args.Server); err != nil || n.UserID != u.ID {
+		if _, err := ops.UserServer(s, u.ID, args.Server); err != nil {
 			return fmt.Errorf("no server named %q: list_projects lists them", args.Server)
 		}
 	}
