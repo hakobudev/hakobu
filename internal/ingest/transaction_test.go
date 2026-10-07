@@ -126,4 +126,9 @@ func TestErrorFromALogRecord(t *testing.T) {
 	if sum := ExtractEventSummary(Item{Type: "event", Payload: []byte(payload)}); sum.Message != "ConnectionRefusedError: refused" {
 		t.Errorf("summary %+v", sum)
 	}
+	// sentry-go sends the exceptions as a list, without "values".
+	payload = `{"level":"error","exception":[{"type":"*errors.errorString","value":"boom"}]}`
+	if sum := ExtractEventSummary(Item{Type: "event", Payload: []byte(payload)}); sum.Message != "*errors.errorString: boom" {
+		t.Errorf("sentry-go summary %+v", sum)
+	}
 }

@@ -87,14 +87,9 @@ func ExtractEventSummary(item Item) Summary {
 			Message   string `json:"message"`
 			Formatted string `json:"formatted"`
 		} `json:"logentry"`
-		Level     string `json:"level"`
-		Exception struct {
-			Values []struct {
-				Type  string `json:"type"`
-				Value string `json:"value"`
-			} `json:"values"`
-		} `json:"exception"`
-		Contexts struct {
+		Level     string          `json:"level"`
+		Exception json.RawMessage `json:"exception"` // {"values": [...]}, or the list itself (sentry-go)
+		Contexts  struct {
 			Trace struct {
 				TraceID string `json:"trace_id"`
 			} `json:"trace"`
@@ -108,8 +103,18 @@ func ExtractEventSummary(item Item) Summary {
 	if json.Unmarshal(e.Message, &msg) != nil {
 		_ = json.Unmarshal(e.Message, &e.LogEntry) // an object, or nothing
 	}
-	if msg == "" && len(e.Exception.Values) > 0 {
-		v := e.Exception.Values[0]
+	type exception struct {
+		Type  string `json:"type"`
+		Value string `json:"value"`
+	}
+	var exceptions struct {
+		Values []exception `json:"values"`
+	}
+	if json.Unmarshal(e.Exception, &exceptions) != nil {
+		_ = json.Unmarshal(e.Exception, &exceptions.Values)
+	}
+	if msg == "" && len(exceptions.Values) > 0 {
+		v := exceptions.Values[0]
 		msg = v.Type + ": " + v.Value
 	}
 	if msg == "" {
