@@ -24,7 +24,7 @@ templ signinMark(title, subtitle string) {
 	</div>
 }
 
-templ loginPage(connected bool, errMsg string) {
+templ loginPage(connected, openSignup bool, errMsg string) {
 	@centered("Sign in") {
 		@signinMark("Sign in", "")
 		if errMsg != "" {
@@ -39,7 +39,11 @@ templ loginPage(connected bool, errMsg string) {
 						@ic("github")
 						Continue with GitHub
 					</a>
-					<p class="field-hint text-center">Only this panel's users can sign in; anyone else needs an invite link from its admin.</p>
+					if openSignup {
+						<p class="field-hint text-center">New here? Signing in makes your account.</p>
+					} else {
+						<p class="field-hint text-center">Only this panel's users can sign in; anyone else needs an invite link from its admin.</p>
+					}
 				} else {
 					<p>Setup isn't finished. Open the setup link the installer printed:</p>
 					<pre class="console">journalctl -u hakobu | grep setup</pre>

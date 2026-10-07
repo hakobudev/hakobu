@@ -239,7 +239,8 @@ Environment=HAKOBU_PANEL_ONLY=1
 
 Then every project runs on a server of its owner's (Settings → Servers) and in a
 Cloudflare account of theirs (Settings → Cloudflare), with its domains, storages
-and backups there; the panel's server and account serve only the panel.
+and backups there; the panel's server and account serve only the panel. Anyone with a
+GitHub account signs up by signing in: no invites.
 
 ## Using it
 

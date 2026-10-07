@@ -45,8 +45,9 @@ func fakeGitHubUsers(t *testing.T, users map[string]int64) {
 }
 
 // The installer's setup link makes the first user the admin; anyone else
-// gets in only with an invite, which works once; a removed user is out at
-// once; only the admin reaches the panel's own settings.
+// gets in only with an invite, which works once, except on a panel-only
+// panel, which anyone signs up to; a removed user is out at once; only the
+// admin reaches the panel's own settings.
 func TestUsersSignIn(t *testing.T) {
 	t.Chdir(t.TempDir())
 	if err := config.PrepareDataDir(); err != nil {
@@ -163,6 +164,22 @@ func TestUsersSignIn(t *testing.T) {
 	}
 	if w := do("GET", "/settings", cookie(sessionCookie, friend)); w.Code != http.StatusSeeOther {
 		t.Errorf("a removed user's session still works: %d", w.Code)
+	}
+
+	if sess, _ := signIn("stranger"); sess != "" {
+		t.Error("a stranger signed up without an invite")
+	}
+	config.PanelOnly = true
+	t.Cleanup(func() { config.PanelOnly = false })
+	if w := do("GET", "/login"); !strings.Contains(w.Body.String(), "Signing in makes your account") {
+		t.Error("a panel-only login page doesn't say anyone can sign up")
+	}
+	stranger, _ := signIn("stranger")
+	if u, err := s.GetUserByGitHubID(ctx, 9); stranger == "" || err != nil || u.Admin != 0 {
+		t.Fatalf("a panel-only panel didn't sign a stranger up: %+v, %v", u, err)
+	}
+	if w := do("GET", "/settings", cookie(sessionCookie, admin)); strings.Contains(w.Body.String(), `hx-post="/settings/invites"`) || !strings.Contains(w.Body.String(), "Sign-ups don't work yet") {
+		t.Error("a panel-only panel's settings offer invites")
 	}
 }
 

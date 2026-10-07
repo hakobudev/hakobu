@@ -954,7 +954,10 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			v.PanelLog, _ = ops.PanelLog(s, level, 200)
 			v.PanelLogErrors = ops.PanelErrorsToday(s)
 			v.Users, _ = s.ListUsers(r.Context())
-			v.Invites, _ = s.LiveInvites(r.Context())
+			v.OpenSignup = config.PanelOnly
+			if !v.OpenSignup {
+				v.Invites, _ = s.LiveInvites(r.Context())
+			}
 			if v.GitHubSlug != "" {
 				ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 				public, err := github.AppPublic(ctx, v.GitHubSlug)
@@ -1205,7 +1208,7 @@ func registerAuthRoutes(mux *http.ServeMux, s *store.Store) {
 
 	mux.HandleFunc("GET /login", func(w http.ResponseWriter, r *http.Request) {
 		_, err := s.GetGitHubApp(r.Context())
-		renderPage(w, r, loginPage(err == nil, r.URL.Query().Get("error")))
+		renderPage(w, r, loginPage(err == nil, config.PanelOnly, r.URL.Query().Get("error")))
 	})
 
 	mux.HandleFunc("GET /auth/login", func(w http.ResponseWriter, r *http.Request) {
@@ -1256,6 +1259,9 @@ func registerAuthRoutes(mux *http.ServeMux, s *store.Store) {
 				deny("the panel has no admin yet, sign in through the installer's setup link")
 				return
 			case isAdmin:
+			case config.PanelOnly:
+				// Open to anyone with GitHub: each runs only on their own
+				// servers, in their own Cloudflare accounts.
 			case cerr != nil:
 				deny("GitHub account " + user.Login + " has no access to this panel: ask its admin for an invite")
 				return

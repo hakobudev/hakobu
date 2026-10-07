@@ -80,8 +80,9 @@ func TestPagesRender(t *testing.T) {
 		Update:      ops.UpdateInfo{Current: "v0.6.0", Latest: "v0.7.0", CheckedAt: "2026-10-02 12:00 UTC", Available: true, Updater: true, HasLast: true, Last: update.Status{State: "running", To: "v0.7.0", Message: "downloading"}}}
 
 	pages := map[string]templ.Component{
-		"login":            loginPage(true, "nope"),
-		"login, no app":    loginPage(false, ""),
+		"login":            loginPage(true, false, "nope"),
+		"login, no app":    loginPage(false, false, ""),
+		"login, open":      loginPage(true, true, ""),
 		"invite":           invitePage(invitePageData{Host: "hakobu.example.com", By: "x0ryz", Valid: true}),
 		"invite, used":     invitePage(invitePageData{Host: "hakobu.example.com"}),
 		"setup":            setupPage(setupView{Host: "p.example.com", Manifest: `{"a":1}`, State: "s", Action: "https://github.com/settings/apps/new"}),
@@ -225,7 +226,7 @@ func TestPanelRejectsOtherOrigins(t *testing.T) {
 }
 
 func TestStaticFiles(t *testing.T) {
-	page := renders(t, "login", loginPage(true, ""))
+	page := renders(t, "login", loginPage(true, false, ""))
 	if strings.Contains(page, "https://") {
 		t.Error("the login page loads something from another site")
 	}
