@@ -360,7 +360,7 @@ templ appVolumes(p appPage) {
 			</form>
 			<div class="box-body">
 				if p.BackupBucket != "" {
-					<p class="field-hint">Backed up daily to R2 (<span class="mono">{ p.BackupBucket }</span>), sealed with the master key and read back right after upload. While a volume is copied, the app and its worker are paused for the seconds it takes. None can be deleted in its first 7 days.</p>
+					<p class="field-hint">Backed up daily to R2 (<span class="mono">{ p.BackupBucket }</span>), sealed with the key of the server it runs on and read back right after upload. While a volume is copied, the app and its worker are paused for the seconds it takes. None can be deleted in its first 7 days.</p>
 				} else {
 					<p class="field-hint">Volumes aren't backed up yet: <a href="/settings#backups">turn backups on in Settings</a>.</p>
 				}

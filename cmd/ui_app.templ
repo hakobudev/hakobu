@@ -108,6 +108,8 @@ templ appStatus(a appView) {
 			<span class="badge badge-accent"><span class="dot dot-accent dot-pulse"></span>Deploying</span>
 		} else if a.Status == "running" {
 			<span class="badge badge-success"><span class="dot dot-success"></span>Running</span>
+		} else if a.Status == "unknown" {
+			<span class="badge" title="Its server doesn't answer now"><span class="dot"></span>unknown</span>
 		} else {
 			<span class="badge badge-danger"><span class="dot dot-danger"></span>{ a.Status }</span>
 		}
@@ -505,7 +507,7 @@ templ appErrors(p appPage) {
 				{ p.Away }
 			}
 		}
-		<div class="box">
+		<div class="box" hidden?={ p.Away != "" && len(p.Events) == 0 }>
 			if len(p.Events) == 0 {
 				if p.Logs {
 					@blankslate("Nothing received yet.")
@@ -551,7 +553,9 @@ templ appPerformance(p appPage) {
 				{ p.Away }
 			}
 		}
-		if len(p.Routes) == 0 {
+		if p.Away != "" && len(p.Routes) == 0 {
+			// Nothing to say until the server is back.
+		} else if len(p.Routes) == 0 {
 			<div class="box">
 				<div class="blankslate">
 					{ noTracesText(p.Range) } To send them, set <span class="mono">traces_sample_rate</span> (e.g. 0.1, or 1.0 for every request) in the Sentry SDK's init.

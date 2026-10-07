@@ -53,3 +53,18 @@ func TestSummarizeUsageForMCP(t *testing.T) {
 		t.Error("no samples should still be an empty list, not null")
 	}
 }
+
+// A service's charts are titled the same on any server: the server's ID in
+// its target isn't for people.
+func TestTargetTitle(t *testing.T) {
+	for target, want := range map[string]string{
+		"service:postgres":      "PostgreSQL, all databases",
+		"service:postgres:3":    "PostgreSQL, all databases",
+		"service:cloudflared:3": "cloudflared",
+		"host:3":                "Server",
+	} {
+		if got := targetTitle(target); got != want {
+			t.Errorf("targetTitle(%q) = %q, want %q", target, got, want)
+		}
+	}
+}

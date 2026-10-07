@@ -9,12 +9,12 @@ import (
 
 // homeProject is a project's card on the home page.
 type homeProject struct {
-	Name                       string
-	Apps, Databases, Storages  int
-	Down                       int // apps not running
-	Deploying                  int
-	Logos                      []string // what it's made of, at most five
-	Server                     string   // "" for the panel's
+	Name                              string
+	Apps, Databases, Caches, Storages int
+	Down                              int // apps not running
+	Deploying                         int
+	Logos                             []string // what it's made of, at most five
+	Server                            string   // "" for the panel's
 }
 
 templ lackingFlash(lacking []cloudflare.Permission) {
@@ -70,7 +70,11 @@ templ homePage(projects []homeProject, lacking []cloudflare.Permission, expiring
 							<div class="min-w-0 flex-1">
 								<div class="node-title">{ p.Name }</div>
 								<div class="node-kind">
-									{ plural(p.Apps, "app", "apps") } · { plural(p.Databases, "database", "databases") } · { plural(p.Storages, "storage", "storages") }
+									{ plural(p.Apps, "app", "apps") } · { plural(p.Databases, "database", "databases") }
+									if p.Caches > 0 {
+										· { plural(p.Caches, "cache", "caches") }
+									}
+									· { plural(p.Storages, "storage", "storages") }
 									if p.Server != "" {
 										· on { p.Server }
 									}

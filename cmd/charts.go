@@ -156,6 +156,7 @@ func targetTitle(target string) string {
 	case "worker":
 		return "Worker"
 	case "service":
+		name, _, _ = strings.Cut(name, ":") // service:<name>:<server ID> on other servers
 		if name == "postgres" {
 			return "PostgreSQL, all databases"
 		}

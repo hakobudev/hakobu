@@ -323,8 +323,9 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 				}
 			}
 			dbs, _ := s.ListDatabasesByProject(r.Context(), p.ID)
+			caches, _ := s.ListCachesByProject(r.Context(), p.ID)
 			storages, _ := s.ListStoragesByProject(r.Context(), p.ID)
-			card.Databases, card.Storages = len(dbs), len(storages)
+			card.Databases, card.Caches, card.Storages = len(dbs), len(caches), len(storages)
 			if len(dbs) > 0 {
 				addLogo("postgresql")
 			}

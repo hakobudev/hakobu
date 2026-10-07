@@ -17,12 +17,22 @@ func appTelemetry(s *store.Store, app store.App) (node.TelemetryKeeper, error) {
 	if sv, ok := appServer(s, app); ok && sv.ID != 0 {
 		n, err := serverNode(sv)
 		if err != nil {
-			return nil, fmt.Errorf("%s keeps its errors and logs on %s, which isn't connected: %w", app.Name, sv.label(), err)
+			return nil, awayError{fmt.Sprintf("%s keeps its errors and logs on %s, which isn't connected: they show here once it's back.", app.Name, sv.label()), err}
 		}
 		return n, nil
 	}
 	return node.Telemetry{Q: s.Tel}, nil
 }
+
+// awayError says where an app's telemetry is while that server is away,
+// without repeating why it can't be reached; it still is ErrUnreachable.
+type awayError struct {
+	msg string
+	err error
+}
+
+func (e awayError) Error() string { return e.msg }
+func (e awayError) Unwrap() error { return e.err }
 
 // appTelemetryByID is appTelemetry for the app with ID id; an app the
 // panel doesn't know (deleted since) is on no other server.

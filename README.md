@@ -30,7 +30,3 @@ go build -o hakobu . && just check
 ```
 
 See [Development](https://hakobu.dev/docs/development/) for running it locally, tests, the panel's pages and releases. The docs are `docs/*.md`, built into `site/docs/` with `just docs`; the landing page is `site/`.
-
-## License
-
-[MIT](LICENSE)

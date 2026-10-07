@@ -20,7 +20,7 @@ templ usageFragment(v usageView) {
 			<div>
 				<div class="flex flex-wrap items-baseline justify-between gap-x-3 small">
 					<span class="strong">{ c.Title }</span>
-					<span class="mono muted">{ c.Now } · peak { c.Peak }</span>
+					<span class="mono muted">{ c.Now } · { c.Peak }</span>
 				</div>
 				@templ.Raw(string(c.SVG))
 			</div>

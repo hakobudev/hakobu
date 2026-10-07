@@ -473,7 +473,7 @@ templ settingsBackups(v settingsPage) {
 		<div class="box">
 			<div class="box-body">
 				if v.BackupBucket != "" {
-					<p>Every database, every app's volumes and the panel itself are backed up daily to the R2 bucket <span class="mono">{ v.BackupBucket }</span> in your Cloudflare account, sealed with the master key.</p>
+					<p>Every database, every app's volumes and the panel itself are backed up daily to the R2 bucket <span class="mono">{ v.BackupBucket }</span> in your Cloudflare account, each sealed with the key of the server it's on: the panel's master key here, another server's own key there.</p>
 					if len(v.Clients) > 0 {
 						<p class="field-hint">The databases and volumes of a client's projects go to a bucket of their own in the client's account instead, sealed the same way.</p>
 					}

@@ -85,6 +85,8 @@ func dotClass(status string) string {
 		return "dot dot-attention"
 	case "deploying":
 		return "dot dot-accent dot-pulse"
+	case "unknown": // its server or Docker doesn't answer: it may well be running
+		return "dot"
 	}
 	return "dot dot-danger"
 }
