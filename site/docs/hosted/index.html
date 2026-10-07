@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hosted panel · hakobu docs</title>
+<meta name="description" content="dash.hakobu.dev is a hakobu panel for everyone. It runs no apps itself: your projects run on servers you add, in your Cloudflare account.">
+<meta name="color-scheme" content="light dark">
+<link rel="preload" href="/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/style.css?v=de065d1f">
+<link rel="stylesheet" href="/docs.css?v=de065d1f">
+</head>
+<body class="docs">
+<header class="topbar">
+  <div class="wrap docs-wrap topbar-inner">
+    <span class="docs-brand"><a href="/" class="wordmark">hakobu</a><a href="/docs/" class="docs-label">Docs</a></span>
+    <nav class="nav">
+      <a class="nav-link nav-hide" href="/#self-host">Self-host</a>
+      <a class="nav-link" href="https://github.com/x0ryz/hakobu" aria-label="GitHub"><svg class="icon" viewBox="0 0 24 24"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg></a>
+      <a class="btn" href="https://dash.hakobu.dev">Sign in</a>
+    </nav>
+  </div>
+</header>
+<div class="wrap docs-wrap docs-layout">
+  <details class="docs-menu" open>
+    <summary>Menu</summary>
+    <nav class="docs-nav" aria-label="Documentation">
+      <div class="docs-nav-section">Getting started</div>
+      <a href="/docs/">Introduction</a>
+      <a href="/docs/hosted/" aria-current="page">Hosted panel</a>
+      <a href="/docs/install/">Self-hosting</a>
+      <div class="docs-nav-section">Guides</div>
+      <a href="/docs/apps/">Apps</a>
+      <a href="/docs/apps-calling-apps/">Apps calling apps</a>
+      <a href="/docs/variables/">Variables and secrets</a>
+      <a href="/docs/databases/">Databases</a>
+      <a href="/docs/caches/">Caches</a>
+      <a href="/docs/storages/">Storages</a>
+      <a href="/docs/volumes/">Volumes</a>
+      <a href="/docs/observability/">Errors, logs and alerts</a>
+      <a href="/docs/claude/">Claude (MCP)</a>
+      <div class="docs-nav-section">Operating</div>
+      <a href="/docs/servers/">Servers</a>
+      <a href="/docs/cloudflare/">Cloudflare accounts</a>
+      <a href="/docs/backups/">Backups and recovery</a>
+      <a href="/docs/updates/">Updates</a>
+      <a href="/docs/sharing/">Sharing a panel</a>
+      <a href="/docs/security/">Security</a>
+      <div class="docs-nav-section">Contributing</div>
+      <a href="/docs/development/">Development</a>
+    </nav>
+  </details>
+  <main class="docs-main">
+    <article class="prose">
+      <h1>Hosted panel</h1>
+      <p><a href="https://dash.hakobu.dev">dash.hakobu.dev</a> is a hakobu panel for everyone. It runs no apps itself: your projects run on servers you add, in your Cloudflare account.</p>
+<h2 id="sign-in">Sign in</h2>
+<p>Sign in with GitHub. Your first sign-in makes your account; there's nothing else to fill in. To deploy a repository, install the panel's GitHub App on your account (or an organization) and pick the repositories it may read; <strong>New app</strong> links there when it has none. It reaches only the repositories you pick.</p>
+<h2 id="add-a-server">Add a server</h2>
+<p>Under <strong>Settings → Servers</strong>, add a server and give it a name. You get a command to run on it, as root:</p>
+<pre><code class="language-bash">curl -fsSL https://hakobu.dev/install.sh | sudo HAKOBU_PANEL=https://dash.hakobu.dev HAKOBU_JOIN_TOKEN=… bash
+</code></pre>
+<p>It installs Docker and hakobu there and connects the server to the panel. The token in it works once, for an hour. The server dials out to the panel, so it needs no open port, and what goes between them is encrypted end to end.</p>
+<p>Then keep a copy of the server's key away from it, as the panel asks: see <a href="/docs/servers/#server-keys">Server keys</a>.</p>
+<h2 id="connect-cloudflare">Connect Cloudflare</h2>
+<p>Under <strong>Settings → Cloudflare</strong>, the link opens a new API token in your Cloudflare profile with what hakobu needs. Select <strong>Continue to summary</strong> → <strong>Create Token</strong> and paste it into the panel. hakobu connects every account the token reaches, yours and your clients' (see <a href="/docs/cloudflare/">Cloudflare accounts</a>).</p>
+<p>Nothing is made in your account until a project needs it: a tunnel with its first domain, a bucket with its first backup.</p>
+<h2 id="create-a-project">Create a project</h2>
+<p><strong>New project</strong> asks for a name, the server it runs on and the Cloudflare account its domains are in. Then add an app from a repository: see <a href="/docs/apps/">Apps</a>.</p>
+<h2 id="what-the-panel-sees">What the panel sees</h2>
+<p>The panel keeps your projects' settings and variables, encrypted, and runs your deploys. It can't open your backups: they're sealed with your server's own key, which never leaves the server. Your apps' logs, errors and traces stay on your server; the panel reads them while you look.</p>
+
+    </article>
+    <nav class="docs-pager" aria-label="Pages"><a class="docs-prev" href="/docs/"><span>Previous</span>Introduction</a><a class="docs-next" href="/docs/install/"><span>Next</span>Self-hosting</a>
+    </nav>
+  </main>
+  <aside class="docs-toc">
+    <div class="docs-toc-title">On this page</div>
+    <a href="#sign-in" class="toc-2">Sign in</a>
+    <a href="#add-a-server" class="toc-2">Add a server</a>
+    <a href="#connect-cloudflare" class="toc-2">Connect Cloudflare</a>
+    <a href="#create-a-project" class="toc-2">Create a project</a>
+    <a href="#what-the-panel-sees" class="toc-2">What the panel sees</a>
+  </aside>
+</div>
+<footer class="footer">
+  <div class="wrap docs-wrap footer-inner">
+    <span><span class="wordmark">hakobu</span>&nbsp; Open source, MIT</span>
+    <nav>
+      <a href="https://github.com/x0ryz/hakobu">GitHub</a>
+      <a href="/docs/">Docs</a>
+      <a href="/privacy">Privacy</a>
+      <a href="/terms">Terms</a>
+    </nav>
+  </div>
+</footer>
+<script>
+
+const menu = document.querySelector(".docs-menu");
+if (matchMedia("(max-width: 860px)").matches) menu.open = false;
+</script>
+</body>
+</html>

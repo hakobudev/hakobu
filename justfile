@@ -22,6 +22,10 @@ test-js:
 gen:
     sqlc generate
 
+# Rebuild hakobu.dev/docs (site/docs) from docs/*.md
+docs:
+    go run ./tools/docsgen
+
 # Lint; pass --new-from-rev=main to see only new issues
 lint *args:
     golangci-lint run ./... {{args}}

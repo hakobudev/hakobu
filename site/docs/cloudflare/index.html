@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cloudflare accounts · hakobu docs</title>
+<meta name="description" content="hakobu works in your Cloudflare accounts with one API token of yours: it reads your domains, manages their DNS records, creates tunnels, keeps backups in R2 and sends you email.">
+<meta name="color-scheme" content="light dark">
+<link rel="preload" href="/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/style.css?v=de065d1f">
+<link rel="stylesheet" href="/docs.css?v=de065d1f">
+</head>
+<body class="docs">
+<header class="topbar">
+  <div class="wrap docs-wrap topbar-inner">
+    <span class="docs-brand"><a href="/" class="wordmark">hakobu</a><a href="/docs/" class="docs-label">Docs</a></span>
+    <nav class="nav">
+      <a class="nav-link nav-hide" href="/#self-host">Self-host</a>
+      <a class="nav-link" href="https://github.com/x0ryz/hakobu" aria-label="GitHub"><svg class="icon" viewBox="0 0 24 24"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg></a>
+      <a class="btn" href="https://dash.hakobu.dev">Sign in</a>
+    </nav>
+  </div>
+</header>
+<div class="wrap docs-wrap docs-layout">
+  <details class="docs-menu" open>
+    <summary>Menu</summary>
+    <nav class="docs-nav" aria-label="Documentation">
+      <div class="docs-nav-section">Getting started</div>
+      <a href="/docs/">Introduction</a>
+      <a href="/docs/hosted/">Hosted panel</a>
+      <a href="/docs/install/">Self-hosting</a>
+      <div class="docs-nav-section">Guides</div>
+      <a href="/docs/apps/">Apps</a>
+      <a href="/docs/apps-calling-apps/">Apps calling apps</a>
+      <a href="/docs/variables/">Variables and secrets</a>
+      <a href="/docs/databases/">Databases</a>
+      <a href="/docs/caches/">Caches</a>
+      <a href="/docs/storages/">Storages</a>
+      <a href="/docs/volumes/">Volumes</a>
+      <a href="/docs/observability/">Errors, logs and alerts</a>
+      <a href="/docs/claude/">Claude (MCP)</a>
+      <div class="docs-nav-section">Operating</div>
+      <a href="/docs/servers/">Servers</a>
+      <a href="/docs/cloudflare/" aria-current="page">Cloudflare accounts</a>
+      <a href="/docs/backups/">Backups and recovery</a>
+      <a href="/docs/updates/">Updates</a>
+      <a href="/docs/sharing/">Sharing a panel</a>
+      <a href="/docs/security/">Security</a>
+      <div class="docs-nav-section">Contributing</div>
+      <a href="/docs/development/">Development</a>
+    </nav>
+  </details>
+  <main class="docs-main">
+    <article class="prose">
+      <h1>Cloudflare accounts</h1>
+      <p>hakobu works in your Cloudflare accounts with one API token of yours: it reads your domains, manages their DNS records, creates tunnels, keeps backups in R2 and sends you email.</p>
+<h2 id="yours-and-your-clients">Yours and your clients'</h2>
+<p>A project can live in another Cloudflare account than the panel's: yours, or a client's, who keeps it. Clients invite you to theirs (<strong>Manage Account → Members</strong>); your token then reaches them all. hakobu checks it can do what it needs in each account and connects them, listed under <strong>Settings → Cloudflare</strong>. It keeps up every ten minutes: a client who invites you later shows up by itself, one who removes you goes (or, while a project still uses their account, you get an email). To leave an account out, leave it out of the token. <strong>Replace token</strong> swaps it for all of them.</p>
+<p>Other users of a shared panel connect their accounts the same way, with a token of their own made with the link under <strong>Settings → Cloudflare</strong>.</p>
+<h2 id="whats-made-in-an-account">What's made in an account</h2>
+<p>Nothing, until a project there needs it. With the first domain of a project in it on a server, hakobu creates a tunnel there, which only that account's projects on that server go through, with no way to the panel. Their domains, R2 storages and database and volume backups are in the account; the buckets stay when the account goes from hakobu.</p>
+<h2 id="why-a-token-not-sign-in-with-cloudflare">Why a token, not &quot;Sign in with Cloudflare&quot;</h2>
+<p>A sign-in gives no keys for R2's S3 API, which backups go through, and Cloudflare's sign-in turns server networks away (Hetzner's always; see <a href="https://github.com/cloudflare/workers-sdk/issues/11081">workers-sdk#11081</a>), so the panel couldn't keep it alive by itself. A token goes straight from the dashboard to your panel, never needs renewing and works from any network.</p>
+
+    </article>
+    <nav class="docs-pager" aria-label="Pages"><a class="docs-prev" href="/docs/servers/"><span>Previous</span>Servers</a><a class="docs-next" href="/docs/backups/"><span>Next</span>Backups and recovery</a>
+    </nav>
+  </main>
+  <aside class="docs-toc">
+    <div class="docs-toc-title">On this page</div>
+    <a href="#yours-and-your-clients" class="toc-2">Yours and your clients&#39;</a>
+    <a href="#whats-made-in-an-account" class="toc-2">What&#39;s made in an account</a>
+    <a href="#why-a-token-not-sign-in-with-cloudflare" class="toc-2">Why a token, not &#34;Sign in with Cloudflare&#34;</a>
+  </aside>
+</div>
+<footer class="footer">
+  <div class="wrap docs-wrap footer-inner">
+    <span><span class="wordmark">hakobu</span>&nbsp; Open source, MIT</span>
+    <nav>
+      <a href="https://github.com/x0ryz/hakobu">GitHub</a>
+      <a href="/docs/">Docs</a>
+      <a href="/privacy">Privacy</a>
+      <a href="/terms">Terms</a>
+    </nav>
+  </div>
+</footer>
+<script>
+
+const menu = document.querySelector(".docs-menu");
+if (matchMedia("(max-width: 860px)").matches) menu.open = false;
+</script>
+</body>
+</html>
