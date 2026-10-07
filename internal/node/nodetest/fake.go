@@ -16,8 +16,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/x0ryz/hakobu/internal/node"
-	"github.com/x0ryz/hakobu/internal/store/teldb"
+	"github.com/hakobudev/hakobu/internal/node"
+	"github.com/hakobudev/hakobu/internal/store/teldb"
 )
 
 // Fake is a node whose containers, builds, databases, dumps and volumes are

@@ -13,7 +13,7 @@
 #   curl -fsSL https://hakobu.dev/install.sh | sudo bash
 #
 # Optional: CLOUDFLARE_API_TOKEN (skips the token prompt),
-#           HAKOBU_VERSION (default: latest release), HAKOBU_REPO (default: x0ryz/hakobu),
+#           HAKOBU_VERSION (default: latest release), HAKOBU_REPO (default: hakobudev/hakobu),
 #           HAKOBU_BINARY (install this local binary instead of downloading one),
 #           HAKOBU_FROM_SOURCE=1 (build the main branch instead of a release),
 #           HAKOBU_RESTORE=<key file> (bring back a panel from its backup, with the
@@ -29,7 +29,7 @@
 # Later updates: Settings → Updates in the panel, or sudo /opt/hakobu/hakobu update.
 set -euo pipefail
 
-HAKOBU_REPO="${HAKOBU_REPO:-x0ryz/hakobu}"
+HAKOBU_REPO="${HAKOBU_REPO:-hakobudev/hakobu}"
 # Releases are signed (scripts/sign-release.sh); a download is installed
 # only with a signature by this key over "hakobu <version>" and its
 # checksums. The same key is in internal/update for `hakobu update`.
@@ -40,7 +40,7 @@ DATA=/opt/hakobu/data
 KEY_DIR=/opt/hakobu/key # the master key, apart from data/
 
 if [ "$(id -u)" -ne 0 ]; then
-  if [ "$HAKOBU_REPO" = "x0ryz/hakobu" ]; then
+  if [ "$HAKOBU_REPO" = "hakobudev/hakobu" ]; then
     echo "run as root: curl -fsSL https://hakobu.dev/install.sh | sudo bash"
   else
     echo "run as root: curl -fsSL https://raw.githubusercontent.com/${HAKOBU_REPO}/main/install.sh | sudo bash"

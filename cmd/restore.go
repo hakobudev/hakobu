@@ -8,9 +8,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/x0ryz/hakobu/internal/cloudflare"
-	"github.com/x0ryz/hakobu/internal/config"
-	"github.com/x0ryz/hakobu/internal/ops"
+	"github.com/hakobudev/hakobu/internal/cloudflare"
+	"github.com/hakobudev/hakobu/internal/config"
+	"github.com/hakobudev/hakobu/internal/ops"
 )
 
 var (

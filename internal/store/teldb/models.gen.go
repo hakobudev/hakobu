@@ -5,7 +5,7 @@
 package teldb
 
 import (
-	"github.com/x0ryz/hakobu/internal/secret"
+	"github.com/hakobudev/hakobu/internal/secret"
 )
 
 type PanelLog struct {

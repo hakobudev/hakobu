@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/config"
+	"github.com/hakobudev/hakobu/internal/config"
 )
 
 // BuildWithStrategy builds sourceDir into imageTag. env ("NAME=value")

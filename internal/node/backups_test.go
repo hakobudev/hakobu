@@ -14,7 +14,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/x0ryz/hakobu/internal/secret"
+	"github.com/hakobudev/hakobu/internal/secret"
 )
 
 // bucket is a store of objects by URL path that takes PUTs and GETs, as

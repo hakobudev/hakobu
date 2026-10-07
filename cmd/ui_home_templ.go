@@ -11,8 +11,8 @@ import templruntime "github.com/a-h/templ/runtime"
 import (
 	"strings"
 
-	"github.com/x0ryz/hakobu/internal/cloudflare"
-	"github.com/x0ryz/hakobu/internal/ops"
+	"github.com/hakobudev/hakobu/internal/cloudflare"
+	"github.com/hakobudev/hakobu/internal/ops"
 )
 
 // homeProject is a project's card on the home page.

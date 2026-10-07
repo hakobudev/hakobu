@@ -16,7 +16,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/store"
 )
 
 // The panel can't update hakobu itself: it runs as the unprivileged user

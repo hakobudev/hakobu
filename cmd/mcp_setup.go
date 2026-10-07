@@ -7,9 +7,9 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/x0ryz/hakobu/internal/config"
-	"github.com/x0ryz/hakobu/internal/ops"
-	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/config"
+	"github.com/hakobudev/hakobu/internal/ops"
+	"github.com/hakobudev/hakobu/internal/store"
 )
 
 // Setting up: tools an AI app uses to deploy a repo from nothing, as the

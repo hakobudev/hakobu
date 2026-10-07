@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/x0ryz/hakobu/internal/update"
+	"github.com/hakobudev/hakobu/internal/update"
 )
 
 // The button asks GitHub right away, not after the hourly check.

@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/config"
-	"github.com/x0ryz/hakobu/internal/deploy"
-	"github.com/x0ryz/hakobu/internal/node"
-	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/config"
+	"github.com/hakobudev/hakobu/internal/deploy"
+	"github.com/hakobudev/hakobu/internal/node"
+	"github.com/hakobudev/hakobu/internal/store"
 )
 
 // TestDockerDeploys runs real containers: HAKOBU_DOCKER_TEST=1 go test ./internal/ops -run Docker -v

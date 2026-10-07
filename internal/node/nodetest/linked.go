@@ -7,7 +7,7 @@ import (
 
 	"github.com/hashicorp/yamux"
 
-	"github.com/x0ryz/hakobu/internal/node"
+	"github.com/hakobudev/hakobu/internal/node"
 )
 
 // Linked is n as the panel reaches a node on another server: a

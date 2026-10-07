@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/x0ryz/hakobu/internal/cloudflare"
-	"github.com/x0ryz/hakobu/internal/s3"
-	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/cloudflare"
+	"github.com/hakobudev/hakobu/internal/s3"
+	"github.com/hakobudev/hakobu/internal/store"
 )
 
 func TestR2Storages(t *testing.T) {

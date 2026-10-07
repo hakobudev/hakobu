@@ -2,12 +2,12 @@ package ops
 
 import (
 	"fmt"
-	"github.com/x0ryz/hakobu/internal/node"
+	"github.com/hakobudev/hakobu/internal/node"
 	"testing"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/ingest"
-	"github.com/x0ryz/hakobu/internal/store/teldb"
+	"github.com/hakobudev/hakobu/internal/ingest"
+	"github.com/hakobudev/hakobu/internal/store/teldb"
 )
 
 func TestTracesCountedAndSlowOnesKept(t *testing.T) {

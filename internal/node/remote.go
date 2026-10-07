@@ -14,7 +14,7 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/x0ryz/hakobu/internal/store/teldb"
+	"github.com/hakobudev/hakobu/internal/store/teldb"
 )
 
 // Remote is a node on another server as the panel calls it, over the

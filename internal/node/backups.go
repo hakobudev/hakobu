@@ -12,11 +12,11 @@ import (
 	"os"
 	"slices"
 
-	"github.com/x0ryz/hakobu/internal/backup"
-	"github.com/x0ryz/hakobu/internal/config"
-	"github.com/x0ryz/hakobu/internal/deploy"
-	"github.com/x0ryz/hakobu/internal/panellog"
-	"github.com/x0ryz/hakobu/internal/secret"
+	"github.com/hakobudev/hakobu/internal/backup"
+	"github.com/hakobudev/hakobu/internal/config"
+	"github.com/hakobudev/hakobu/internal/deploy"
+	"github.com/hakobudev/hakobu/internal/panellog"
+	"github.com/hakobudev/hakobu/internal/secret"
 )
 
 // Backups of databases and volumes go from the node straight to R2,

@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/panellog"
-	"github.com/x0ryz/hakobu/internal/store/teldb"
+	"github.com/hakobudev/hakobu/internal/panellog"
+	"github.com/hakobudev/hakobu/internal/store/teldb"
 )
 
 // The apps' telemetry lives in telemetry.db next to the panel's database:

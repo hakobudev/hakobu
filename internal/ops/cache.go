@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/x0ryz/hakobu/internal/node"
-	"github.com/x0ryz/hakobu/internal/secret"
-	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/node"
+	"github.com/hakobudev/hakobu/internal/secret"
+	"github.com/hakobudev/hakobu/internal/store"
 )
 
 // Caches are Valkey servers (Redis-compatible), one container each on its

@@ -18,14 +18,14 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/x0ryz/hakobu/internal/config"
-	"github.com/x0ryz/hakobu/internal/edge"
-	"github.com/x0ryz/hakobu/internal/link"
-	"github.com/x0ryz/hakobu/internal/ops"
-	"github.com/x0ryz/hakobu/internal/panellog"
-	"github.com/x0ryz/hakobu/internal/secret"
-	"github.com/x0ryz/hakobu/internal/store"
-	"github.com/x0ryz/hakobu/internal/store/teldb"
+	"github.com/hakobudev/hakobu/internal/config"
+	"github.com/hakobudev/hakobu/internal/edge"
+	"github.com/hakobudev/hakobu/internal/link"
+	"github.com/hakobudev/hakobu/internal/ops"
+	"github.com/hakobudev/hakobu/internal/panellog"
+	"github.com/hakobudev/hakobu/internal/secret"
+	"github.com/hakobudev/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/store/teldb"
 )
 
 var (

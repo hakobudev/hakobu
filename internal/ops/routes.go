@@ -7,9 +7,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/x0ryz/hakobu/internal/cloudflare"
-	"github.com/x0ryz/hakobu/internal/panellog"
-	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/cloudflare"
+	"github.com/hakobudev/hakobu/internal/panellog"
+	"github.com/hakobudev/hakobu/internal/store"
 )
 
 // Routes put another app of the project behind a path of an app's

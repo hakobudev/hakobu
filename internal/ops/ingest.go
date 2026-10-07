@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/node"
-	"github.com/x0ryz/hakobu/internal/panellog"
-	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/node"
+	"github.com/hakobudev/hakobu/internal/panellog"
+	"github.com/hakobudev/hakobu/internal/store"
 )
 
 // Apps reach hakobu's ingest endpoint inside the server, through the ingest

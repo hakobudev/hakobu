@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/config"
-	"github.com/x0ryz/hakobu/internal/deploy"
+	"github.com/hakobudev/hakobu/internal/config"
+	"github.com/hakobudev/hakobu/internal/deploy"
 )
 
 // CacheSpec is a cache as its node runs it: a Valkey server of its own,

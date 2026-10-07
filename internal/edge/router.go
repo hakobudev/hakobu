@@ -12,7 +12,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/store"
 )
 
 func Router(s *store.Store, panel http.Handler) http.Handler {

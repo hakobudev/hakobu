@@ -3,7 +3,7 @@ package cmd
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/x0ryz/hakobu/internal/deploy"
+	"github.com/hakobudev/hakobu/internal/deploy"
 )
 
 // dialerCmd runs as the Docker user's service when Docker runs as a user of

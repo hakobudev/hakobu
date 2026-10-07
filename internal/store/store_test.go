@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/secret"
-	"github.com/x0ryz/hakobu/internal/store/teldb"
+	"github.com/hakobudev/hakobu/internal/secret"
+	"github.com/hakobudev/hakobu/internal/store/teldb"
 )
 
 func TestStore(t *testing.T) {

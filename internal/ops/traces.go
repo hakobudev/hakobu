@@ -5,10 +5,10 @@ import (
 	"slices"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/ingest"
-	"github.com/x0ryz/hakobu/internal/node"
-	"github.com/x0ryz/hakobu/internal/store"
-	"github.com/x0ryz/hakobu/internal/store/teldb"
+	"github.com/hakobudev/hakobu/internal/ingest"
+	"github.com/hakobudev/hakobu/internal/node"
+	"github.com/hakobudev/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/store/teldb"
 )
 
 // Apps' traces are counted and kept on their server (node.Telemetry);

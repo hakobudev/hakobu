@@ -1,4 +1,4 @@
-module github.com/x0ryz/hakobu
+module github.com/hakobudev/hakobu
 
 go 1.27.1
 

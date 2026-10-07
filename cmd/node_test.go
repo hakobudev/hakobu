@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/ops"
+	"github.com/hakobudev/hakobu/internal/ops"
 )
 
 // A node knows its apps' DSN keys from the panel, asked once a minute at

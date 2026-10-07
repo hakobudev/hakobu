@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/x0ryz/hakobu/internal/cloudflare"
-	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/cloudflare"
+	"github.com/hakobudev/hakobu/internal/store"
 )
 
 // A fresh panel has no account saved yet, so a refused tunnel is checked

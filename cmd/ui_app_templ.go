@@ -11,9 +11,9 @@ import templruntime "github.com/a-h/templ/runtime"
 import (
 	"fmt"
 
-	"github.com/x0ryz/hakobu/internal/ops"
-	"github.com/x0ryz/hakobu/internal/store"
-	"github.com/x0ryz/hakobu/internal/store/teldb"
+	"github.com/hakobudev/hakobu/internal/ops"
+	"github.com/hakobudev/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/store/teldb"
 )
 
 // appPage is an app's pages, one per tab; each fills what it shows.

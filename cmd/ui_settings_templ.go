@@ -11,9 +11,9 @@ import templruntime "github.com/a-h/templ/runtime"
 import (
 	"strings"
 
-	"github.com/x0ryz/hakobu/internal/cloudflare"
-	"github.com/x0ryz/hakobu/internal/ops"
-	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/cloudflare"
+	"github.com/hakobudev/hakobu/internal/ops"
+	"github.com/hakobudev/hakobu/internal/store"
 )
 
 type settingsPage struct {
@@ -1199,9 +1199,9 @@ func settingsUpdate(u ops.UpdateInfo) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var42 templ.SafeURL
-			templ_7745c5c3_Var42, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL("https://github.com/x0ryz/hakobu/releases/tag/" + u.Latest))
+			templ_7745c5c3_Var42, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL("https://github.com/hakobudev/hakobu/releases/tag/" + u.Latest))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_settings.templ`, Line: 353, Col: 148}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_settings.templ`, Line: 353, Col: 152}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var42))
 			if templ_7745c5c3_Err != nil {
@@ -1214,7 +1214,7 @@ func settingsUpdate(u ops.UpdateInfo) templ.Component {
 			var templ_7745c5c3_Var43 string
 			templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.JoinStringErrs(u.Latest)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_settings.templ`, Line: 353, Col: 205}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_settings.templ`, Line: 353, Col: 209}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var43))
 			if templ_7745c5c3_Err != nil {

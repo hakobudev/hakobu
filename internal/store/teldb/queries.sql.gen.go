@@ -8,7 +8,7 @@ package teldb
 import (
 	"context"
 
-	"github.com/x0ryz/hakobu/internal/secret"
+	"github.com/hakobudev/hakobu/internal/secret"
 )
 
 const addPanelLog = `-- name: AddPanelLog :exec

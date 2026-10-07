@@ -13,7 +13,7 @@ import (
 	"context"
 	"io"
 
-	"github.com/x0ryz/hakobu/internal/deploy"
+	"github.com/hakobudev/hakobu/internal/deploy"
 )
 
 // State is what the panel shows about a container.

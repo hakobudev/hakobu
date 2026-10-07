@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/store"
 )
 
 // References, like Railway's: a variable's value can name another app of

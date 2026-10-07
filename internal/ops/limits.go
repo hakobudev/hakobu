@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/node"
-	"github.com/x0ryz/hakobu/internal/panellog"
-	"github.com/x0ryz/hakobu/internal/secret"
-	"github.com/x0ryz/hakobu/internal/store"
-	"github.com/x0ryz/hakobu/internal/store/teldb"
+	"github.com/hakobudev/hakobu/internal/node"
+	"github.com/hakobudev/hakobu/internal/panellog"
+	"github.com/hakobudev/hakobu/internal/secret"
+	"github.com/hakobudev/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/store/teldb"
 )
 
 // SetLimits caps the memory and CPUs of the app and its worker from the

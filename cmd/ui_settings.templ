@@ -3,9 +3,9 @@ package cmd
 import (
 	"strings"
 
-	"github.com/x0ryz/hakobu/internal/cloudflare"
-	"github.com/x0ryz/hakobu/internal/ops"
-	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/cloudflare"
+	"github.com/hakobudev/hakobu/internal/ops"
+	"github.com/hakobudev/hakobu/internal/store"
 )
 
 type settingsPage struct {
@@ -350,7 +350,7 @@ templ settingsUpdate(u ops.UpdateInfo) {
 			<div class="box-row">
 				<div>
 					if u.Available {
-						<p>This is hakobu <span class="mono">{ u.Current }</span>; <a href={ templ.SafeURL("https://github.com/x0ryz/hakobu/releases/tag/" + u.Latest) } target="_blank" rel="noopener" class="mono">{ u.Latest }</a> is out.</p>
+						<p>This is hakobu <span class="mono">{ u.Current }</span>; <a href={ templ.SafeURL("https://github.com/hakobudev/hakobu/releases/tag/" + u.Latest) } target="_blank" rel="noopener" class="mono">{ u.Latest }</a> is out.</p>
 					} else if u.FromSource {
 						<p>This is hakobu <span class="mono">{ u.Current }</span>, built from source: the panel offers it no release, as one may not open a database a newer build made.</p>
 					} else if u.Latest != "" {

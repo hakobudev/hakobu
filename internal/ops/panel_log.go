@@ -3,9 +3,9 @@ package ops
 import (
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/panellog"
-	"github.com/x0ryz/hakobu/internal/store"
-	"github.com/x0ryz/hakobu/internal/store/teldb"
+	"github.com/hakobudev/hakobu/internal/panellog"
+	"github.com/hakobudev/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/store/teldb"
 )
 
 // PanelLogLine is a line of the panel's own log (internal/panellog).

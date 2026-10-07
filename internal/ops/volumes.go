@@ -5,8 +5,8 @@ import (
 	"path"
 	"strings"
 
-	"github.com/x0ryz/hakobu/internal/node"
-	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/node"
+	"github.com/hakobudev/hakobu/internal/store"
 )
 
 // appBinds mounts the app's volumes; the app and its worker share them.

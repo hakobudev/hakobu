@@ -9,7 +9,7 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/x0ryz/hakobu/internal/secret"
+	"github.com/hakobudev/hakobu/internal/secret"
 )
 
 const addPendingPromotion = `-- name: AddPendingPromotion :exec

@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/store"
-	"github.com/x0ryz/hakobu/internal/update"
+	"github.com/hakobudev/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/update"
 )
 
 // hakobu updates itself through systemd (internal/update): the panel only

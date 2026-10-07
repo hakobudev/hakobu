@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/backup"
-	"github.com/x0ryz/hakobu/internal/config"
-	"github.com/x0ryz/hakobu/internal/deploy"
-	"github.com/x0ryz/hakobu/internal/panellog"
-	"github.com/x0ryz/hakobu/internal/secret"
+	"github.com/hakobudev/hakobu/internal/backup"
+	"github.com/hakobudev/hakobu/internal/config"
+	"github.com/hakobudev/hakobu/internal/deploy"
+	"github.com/hakobudev/hakobu/internal/panellog"
+	"github.com/hakobudev/hakobu/internal/secret"
 )
 
 // PostgresContainer is the node's one shared Postgres service; every

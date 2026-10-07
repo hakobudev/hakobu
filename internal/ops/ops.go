@@ -13,12 +13,12 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/x0ryz/hakobu/internal/config"
-	"github.com/x0ryz/hakobu/internal/detect"
-	"github.com/x0ryz/hakobu/internal/github"
-	"github.com/x0ryz/hakobu/internal/panellog"
-	"github.com/x0ryz/hakobu/internal/secret"
-	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/config"
+	"github.com/hakobudev/hakobu/internal/detect"
+	"github.com/hakobudev/hakobu/internal/github"
+	"github.com/hakobudev/hakobu/internal/panellog"
+	"github.com/hakobudev/hakobu/internal/secret"
+	"github.com/hakobudev/hakobu/internal/store"
 )
 
 func RandomHex(n int) (string, error) {

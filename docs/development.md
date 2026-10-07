@@ -1,6 +1,6 @@
 # Development
 
-hakobu is open source under the MIT license: [github.com/x0ryz/hakobu](https://github.com/x0ryz/hakobu).
+hakobu is open source under the MIT license: [github.com/hakobudev/hakobu](https://github.com/hakobudev/hakobu).
 
 ## Running it locally
 

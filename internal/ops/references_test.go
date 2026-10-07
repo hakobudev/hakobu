@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/store"
 )
 
 func TestReferences(t *testing.T) {

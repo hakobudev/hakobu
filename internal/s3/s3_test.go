@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/secret"
-	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/secret"
+	"github.com/hakobudev/hakobu/internal/store"
 )
 
 func TestCanList(t *testing.T) {

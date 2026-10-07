@@ -6,8 +6,8 @@ import (
 	"io"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/node"
-	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/node"
+	"github.com/hakobudev/hakobu/internal/store"
 )
 
 // Snapshots of an app's database for Rollback with data live on the app's

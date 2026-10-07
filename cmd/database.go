@@ -3,14 +3,14 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/store"
 	"io"
 	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 
-	"github.com/x0ryz/hakobu/internal/ops"
+	"github.com/hakobudev/hakobu/internal/ops"
 )
 
 // Databases from the command line, on the panel's server. A dump moving in

@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/store"
 )
 
 // defaultHTTP gives up on an endpoint that doesn't answer; the requests

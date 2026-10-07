@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/build"
-	"github.com/x0ryz/hakobu/internal/deploy"
-	"github.com/x0ryz/hakobu/internal/detect"
-	"github.com/x0ryz/hakobu/internal/panellog"
-	"github.com/x0ryz/hakobu/internal/proxy"
+	"github.com/hakobudev/hakobu/internal/build"
+	"github.com/hakobudev/hakobu/internal/deploy"
+	"github.com/hakobudev/hakobu/internal/detect"
+	"github.com/hakobudev/hakobu/internal/panellog"
+	"github.com/hakobudev/hakobu/internal/proxy"
 )
 
 // Names on a node. Each project has its own networks, so an app can't

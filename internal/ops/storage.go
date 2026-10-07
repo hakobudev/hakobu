@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/x0ryz/hakobu/internal/cloudflare"
+	"github.com/hakobudev/hakobu/internal/cloudflare"
 
-	"github.com/x0ryz/hakobu/internal/s3"
-	"github.com/x0ryz/hakobu/internal/secret"
-	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/s3"
+	"github.com/hakobudev/hakobu/internal/secret"
+	"github.com/hakobudev/hakobu/internal/store"
 )
 
 // Storages are buckets for the apps' files: R2 in the Cloudflare account of

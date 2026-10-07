@@ -11,9 +11,9 @@ import (
 
 	"golang.org/x/net/publicsuffix"
 
-	"github.com/x0ryz/hakobu/internal/config"
-	"github.com/x0ryz/hakobu/internal/panellog"
-	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/config"
+	"github.com/hakobudev/hakobu/internal/panellog"
+	"github.com/hakobudev/hakobu/internal/store"
 )
 
 // A domain that lapses takes the panel or the apps on it down with it, and

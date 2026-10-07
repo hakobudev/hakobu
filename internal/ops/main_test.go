@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/deploy"
-	"github.com/x0ryz/hakobu/internal/node"
-	"github.com/x0ryz/hakobu/internal/node/nodetest"
+	"github.com/hakobudev/hakobu/internal/deploy"
+	"github.com/hakobudev/hakobu/internal/node"
+	"github.com/hakobudev/hakobu/internal/node/nodetest"
 )
 
 // TestMain gives the shared containers and networks names of their own, so

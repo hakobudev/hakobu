@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/x0ryz/hakobu/internal/link"
-	"github.com/x0ryz/hakobu/internal/node"
-	"github.com/x0ryz/hakobu/internal/node/nodetest"
-	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/link"
+	"github.com/hakobudev/hakobu/internal/node"
+	"github.com/hakobudev/hakobu/internal/node/nodetest"
+	"github.com/hakobudev/hakobu/internal/store"
 )
 
 // joinServer makes server name joined and, with f, connected: its calls

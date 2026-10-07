@@ -6,8 +6,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/x0ryz/hakobu/internal/secret"
-	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/secret"
+	"github.com/hakobudev/hakobu/internal/store"
 )
 
 // Sealed variables, like Railway's: once saved, a value is only ever

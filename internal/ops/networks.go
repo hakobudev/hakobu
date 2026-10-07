@@ -3,8 +3,8 @@ package ops
 import (
 	"fmt"
 
-	"github.com/x0ryz/hakobu/internal/node"
-	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/node"
+	"github.com/hakobudev/hakobu/internal/store"
 )
 
 // Each project has its own networks on its node (see node.ProjectNetwork).

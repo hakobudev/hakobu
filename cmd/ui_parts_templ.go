@@ -8,7 +8,7 @@ package cmd
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
-import "github.com/x0ryz/hakobu/internal/store"
+import "github.com/hakobudev/hakobu/internal/store"
 
 // Parts more than one page uses.
 

@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/node"
-	"github.com/x0ryz/hakobu/internal/node/nodetest"
-	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/node"
+	"github.com/hakobudev/hakobu/internal/node/nodetest"
+	"github.com/hakobudev/hakobu/internal/store"
 )
 
 // The panel's side of deploys and rollbacks, on a node in memory: what it

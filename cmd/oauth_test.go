@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/config"
-	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/config"
+	"github.com/hakobudev/hakobu/internal/store"
 )
 
 // TestOAuthAndMCP walks Claude's way in: discovery from a 401, a client

@@ -30,7 +30,7 @@ import (
 )
 
 // Repo is where releases come from.
-const Repo = "x0ryz/hakobu"
+const Repo = "hakobudev/hakobu"
 
 // publicKeys verify release signatures (raw Ed25519 keys, base64). A new
 // key is added here in a release signed with the old one, which goes once

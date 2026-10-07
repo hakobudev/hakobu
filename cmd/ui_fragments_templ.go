@@ -11,8 +11,8 @@ import templruntime "github.com/a-h/templ/runtime"
 import (
 	"fmt"
 
-	"github.com/x0ryz/hakobu/internal/detect"
-	"github.com/x0ryz/hakobu/internal/ops"
+	"github.com/hakobudev/hakobu/internal/detect"
+	"github.com/hakobudev/hakobu/internal/ops"
 )
 
 // Parts that htmx loads into a page.

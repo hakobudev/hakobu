@@ -7,7 +7,7 @@ package store
 import (
 	"database/sql"
 
-	"github.com/x0ryz/hakobu/internal/secret"
+	"github.com/hakobudev/hakobu/internal/secret"
 )
 
 type App struct {

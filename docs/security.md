@@ -30,4 +30,4 @@ Signed, and installed only by a root service that checks the signature: see [Upd
 
 ## Reporting a problem
 
-Found a vulnerability? Please report it privately through [GitHub's security advisories](https://github.com/x0ryz/hakobu/security/advisories/new) rather than in an issue.
+Found a vulnerability? Please report it privately through [GitHub's security advisories](https://github.com/hakobudev/hakobu/security/advisories/new) rather than in an issue.

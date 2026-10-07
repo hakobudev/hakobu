@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/x0ryz/hakobu/internal/store/teldb"
+	"github.com/hakobudev/hakobu/internal/store/teldb"
 )
 
 func TestHealthOutages(t *testing.T) {

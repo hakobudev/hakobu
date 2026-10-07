@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/deploy"
+	"github.com/hakobudev/hakobu/internal/deploy"
 )
 
 // The node's machine: what it uses, cleaning up after deleted apps, and

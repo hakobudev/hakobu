@@ -12,10 +12,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/ingest"
-	"github.com/x0ryz/hakobu/internal/ops"
-	"github.com/x0ryz/hakobu/internal/panellog"
-	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/ingest"
+	"github.com/hakobudev/hakobu/internal/ops"
+	"github.com/hakobudev/hakobu/internal/panellog"
+	"github.com/hakobudev/hakobu/internal/store"
 )
 
 // maxEnvelopeBytes caps the decompressed size, guarding against gzip bombs.

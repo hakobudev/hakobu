@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/config"
-	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/config"
+	"github.com/hakobudev/hakobu/internal/store"
 )
 
 // The domains of the panel and the apps are looked up at their registries

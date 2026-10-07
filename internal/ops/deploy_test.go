@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/store"
 )
 
 func TestJobReservation(t *testing.T) {

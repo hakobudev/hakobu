@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/config"
-	"github.com/x0ryz/hakobu/internal/github"
-	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/config"
+	"github.com/hakobudev/hakobu/internal/github"
+	"github.com/hakobudev/hakobu/internal/store"
 )
 
 // fakeGitHubUsers signs in the GitHub account named by the OAuth code.

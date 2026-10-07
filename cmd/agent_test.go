@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/store"
 )
 
 func TestWebhookRefusesReplays(t *testing.T) {

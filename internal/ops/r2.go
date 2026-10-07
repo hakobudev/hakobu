@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/cloudflare"
-	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/cloudflare"
+	"github.com/hakobudev/hakobu/internal/store"
 )
 
 // R2 has to be turned on in a Cloudflare account by its owner, in the

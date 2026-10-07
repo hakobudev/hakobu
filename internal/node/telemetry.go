@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/ingest"
-	"github.com/x0ryz/hakobu/internal/secret"
-	"github.com/x0ryz/hakobu/internal/store/teldb"
+	"github.com/hakobudev/hakobu/internal/ingest"
+	"github.com/hakobudev/hakobu/internal/secret"
+	"github.com/hakobudev/hakobu/internal/store/teldb"
 )
 
 // Apps' errors, logs and traces are kept on the server they run on, in its

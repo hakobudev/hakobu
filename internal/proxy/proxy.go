@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/x0ryz/hakobu/internal/deploy"
-	"github.com/x0ryz/hakobu/internal/panellog"
+	"github.com/hakobudev/hakobu/internal/deploy"
+	"github.com/hakobudev/hakobu/internal/panellog"
 )
 
 // transport reaches the containers; tests point it at local backends.

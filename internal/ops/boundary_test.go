@@ -25,7 +25,7 @@ func TestOpsReachesMachinesThroughNodes(t *testing.T) {
 		for _, imp := range parsed.Imports {
 			path, _ := strconv.Unquote(imp.Path.Value)
 			for _, m := range []string{"deploy", "build", "backup", "proxy", "edge"} {
-				if path == "github.com/x0ryz/hakobu/internal/"+m {
+				if path == "github.com/hakobudev/hakobu/internal/"+m {
 					t.Errorf("%s imports %s: go through the project's node (internal/node) instead", f, path)
 				}
 			}

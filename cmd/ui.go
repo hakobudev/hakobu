@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/a-h/templ"
-	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/store"
 )
 
 // The panel's pages are templ components (ui_*.templ, generated into

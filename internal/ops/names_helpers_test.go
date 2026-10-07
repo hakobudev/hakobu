@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/x0ryz/hakobu/internal/store"
+	"github.com/hakobudev/hakobu/internal/store"
 )
 
 // Tests name things the way people do; their names are unique across the

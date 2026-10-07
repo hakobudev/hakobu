@@ -5,8 +5,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/x0ryz/hakobu/internal/config"
-	"github.com/x0ryz/hakobu/internal/secret"
+	"github.com/hakobudev/hakobu/internal/config"
+	"github.com/hakobudev/hakobu/internal/secret"
 )
 
 // A node's own keys seal its backups and snapshots and never leave it
