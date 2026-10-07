@@ -280,6 +280,9 @@ func (p *panelApps) find(ctx context.Context, id int64) (ingestApp, bool) {
 	k, ok := p.known[id]
 	p.mu.Unlock()
 	c := p.toPanel.Load()
+	if !ok && c == nil {
+		c = p.awaitPanel(ctx) // just started, say: the link comes up in a moment
+	}
 	if ok && time.Since(k.at) < time.Minute || c == nil {
 		return k.app, ok
 	}
@@ -307,6 +310,25 @@ func (p *panelApps) find(ctx context.Context, id int64) (ingestApp, bool) {
 	p.known[id] = knownApp{app, time.Now()}
 	p.mu.Unlock()
 	return app, true
+}
+
+// panelWait is how long an envelope of an app not known yet waits for the
+// link to the panel, which comes up a moment after this server starts.
+var panelWait = 15 * time.Second
+
+func (p *panelApps) awaitPanel(ctx context.Context) *http.Client {
+	ctx, cancel := context.WithTimeout(ctx, panelWait)
+	defer cancel()
+	for {
+		if c := p.toPanel.Load(); c != nil {
+			return c
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
 }
 
 // noteLinked marks the link up (an update waits for it, see

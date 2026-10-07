@@ -46,13 +46,35 @@ func init() {
 // envelopePath is the only thing the relay passes on.
 var envelopePath = regexp.MustCompile(`^/api/[0-9]+/envelope/?$`)
 
+// relayWait is how long an envelope waits for hakobu to listen again: it
+// restarts for an update, say, and the SDKs don't send one again.
+var relayWait = 20 * time.Second
+
+// dialWaiting dials the socket, again until relayWait is up while nothing
+// listens on it. Nothing of the request is sent before, so none is sent twice.
+func dialWaiting(ctx context.Context, socket string) (net.Conn, error) {
+	ctx, cancel := context.WithTimeout(ctx, relayWait)
+	defer cancel()
+	for {
+		c, err := (&net.Dialer{}).DialContext(ctx, "unix", socket)
+		if err == nil || ctx.Err() != nil {
+			return c, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, err
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+}
+
 // ingestRelay proxies envelope requests to the unix socket.
 func ingestRelay(socket string) http.Handler {
 	target, _ := url.Parse("http://hakobu")
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	proxy.Transport = &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return (&net.Dialer{}).DialContext(ctx, "unix", socket)
+			return dialWaiting(ctx, socket)
 		},
 		MaxIdleConns:    16,
 		IdleConnTimeout: time.Minute,

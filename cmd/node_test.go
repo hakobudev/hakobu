@@ -75,3 +75,21 @@ func (r rewriteHost) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	return http.DefaultTransport.RoundTrip(out)
 }
+
+// Just started, a node gets envelopes before its link to the panel is up:
+// it waits a moment for the link rather than refuse apps it doesn't know yet.
+func TestNodeWaitsForTheLinkToKnowAnApp(t *testing.T) {
+	panel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(ops.IngestApp{ID: 7, Key: "k"})
+	}))
+	defer panel.Close()
+	var toPanel atomic.Pointer[http.Client]
+	apps := &panelApps{toPanel: &toPanel, known: map[int64]knownApp{}}
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		toPanel.Store(&http.Client{Transport: rewriteHost{panel.URL}})
+	}()
+	if a, ok := apps.find(context.Background(), 7); !ok || a != (ingestApp{7, "k"}) {
+		t.Errorf("find before the link: %+v %v", a, ok)
+	}
+}
