@@ -207,7 +207,7 @@ templ appOverview(p appPage) {
 							<span>From outside</span>
 							<span class="row-meta">checked every minute by the watchdog</span>
 						</div>
-						<div class="box-body" hx-get={ "/uptime?target=app:" + p.App.Name } hx-trigger="load" hx-swap="innerHTML">
+						<div class="box-body" hx-get={ "/uptime?target=app:" + itoa(p.App.ID) } hx-trigger="load" hx-swap="innerHTML">
 							@skeleton(2, false)
 						</div>
 					</div>
@@ -254,9 +254,9 @@ templ appOverview(p appPage) {
 }
 
 func usageQuery(p appPage) string {
-	q := "/usage?target=app:" + p.App.Name
+	q := "/usage?target=app:" + itoa(p.App.ID)
 	if p.Worker != nil {
-		q += "&target=worker:" + p.App.Name
+		q += "&target=worker:" + itoa(p.App.ID)
 	}
 	return q + "&range=24h"
 }

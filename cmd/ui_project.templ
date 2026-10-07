@@ -29,7 +29,6 @@ type projectView struct {
 	BackupBucket     string
 	Volumes          map[string][]volumeCard // by app
 	Calls            map[string][]string     // app → apps whose address its variables name
-	Watchdog         bool
 	Client           string   // the client whose Cloudflare account the project is in, "" for yours
 	Clients          []string // every client, to move the project to
 	Server           string   // the server it runs on, "" for the panel's
@@ -43,14 +42,6 @@ type volumeCard struct {
 	HasLast bool
 }
 
-// backedUp reports whether the project has anything backups cover.
-func (v projectView) backedUp() bool {
-	n := len(v.Databases)
-	for _, vols := range v.Volumes {
-		n += len(vols)
-	}
-	return n > 0
-}
 
 // empty reports whether the project has no data at all.
 func (v projectView) empty() bool {
@@ -61,14 +52,6 @@ func (v projectView) empty() bool {
 	return n == 0
 }
 
-func (v projectView) hasPublic() bool {
-	for _, a := range v.Apps {
-		if a.Domain != "" {
-			return true
-		}
-	}
-	return false
-}
 
 // appLinksOf is what an app's card draws lines to: its database, storage
 // and volumes.
@@ -181,12 +164,13 @@ func builder(a appView) string {
 	return "Railpack"
 }
 
+// appKind is what the app's card says under its name; its address has a
+// row of its own.
 func appKind(a appView) string {
-	kind := builder(a)
 	if a.Domain != "" {
-		return kind + " · " + a.Domain
+		return builder(a)
 	}
-	return kind + " · private"
+	return builder(a) + " · private"
 }
 
 func storageKind(st store.Storage) string {
@@ -289,20 +273,15 @@ templ projectNew(v projectView) {
 	}
 }
 
-// projectCanvas reads left to right like a request: the internet, through
-// the tunnel, to the apps (those called by others right of their callers),
-// to their data, to the backups off the server.
-// The outer columns show on wide screens only; the cards repeat what they
-// say (domains, backups) for narrower ones.
+// projectCanvas reads left to right like a request: the apps (those called
+// by others right of their callers), then their data. An app's card has
+// its address with its uptime and its problems of the last day; a data
+// card says how its latest backup went.
 templ projectCanvas(v projectView) {
 	{{ tiers := v.appTiers() }}
 	<div class="canvas">
 		<svg class="canvas-lines" aria-hidden="true"></svg>
-		<div class={ "canvas-cols canvas-cols-wide", templ.KV("canvas-cols-tiers", len(tiers) > 1) }>
-			<div class="canvas-col canvas-col-edge">
-				<div class="canvas-col-title"><span>Internet</span></div>
-				@tunnelNode(v)
-			</div>
+		<div class={ "canvas-cols", templ.KV("canvas-cols-tiers", len(tiers) > 1) }>
 			<div class="canvas-col">
 				<div class="canvas-col-title"><span>Apps</span></div>
 				if len(tiers) > 1 {
@@ -341,54 +320,15 @@ templ projectCanvas(v projectView) {
 					@storageNode(v, st)
 				}
 				if v.empty() {
-					<p class="field-hint">No databases, volumes or storages yet: add a database or storage with New.</p>
+					<p class="field-hint">No databases, caches, volumes or storages yet: add one with New.</p>
 				}
 			</div>
-			<div class="canvas-col canvas-col-edge">
-				<div class="canvas-col-title"><span>Off the server</span></div>
-				@backupsNode(v)
-			</div>
-		</div>
-	</div>
-}
-
-// tunnelNode is the one way in: Cloudflare's tunnel, with a row per domain
-// it routes to an app.
-templ tunnelNode(v projectView) {
-	<div class="node" id="tunnel">
-		<div class="node-head">
-			@tile("cloudflare", "cloud")
-			<div class="min-w-0">
-				<div class="node-title">Cloudflare Tunnel</div>
-				<div class="node-kind">HTTPS in, no open ports</div>
-			</div>
-		</div>
-		for _, a := range v.Apps {
-			if a.Domain != "" {
-				<a href={ templ.SafeURL("https://" + a.Domain) } target="_blank" rel="noopener" id={ "dom-" + a.Name } class="node-item" data-links={ "app-" + a.Name }>
-					<span class="row-title" title={ a.Domain }>{ a.Domain }</span>
-					<span class="node-item-meta" hx-get={ "/uptime?target=app:" + a.Name + "&compact=1" } hx-trigger="load" hx-swap="innerHTML"></span>
-				</a>
-			}
-		}
-		if !v.hasPublic() {
-			<div class="node-row">No app has a domain yet</div>
-		}
-		<div class="node-row">
-			if v.Watchdog {
-				<span class="meta-item">
-					@ic("activity", "icon-sm text-success")
-					Checked from outside every minute
-				</span>
-			} else {
-				<span>No watchdog checking from outside</span>
-			}
 		</div>
 	</div>
 }
 
 templ volumeNode(project, app string, vol volumeCard, backupsOn bool) {
-	<a href={ templ.SafeURL(appPath(project, app) + "/settings#volumes") } id={ "vol-" + app + "-" + vol.Name } class="node" data-links={ backupLink(backupsOn, "bk-vol-"+app+"-"+vol.Name) }>
+	<a href={ templ.SafeURL(appPath(project, app) + "/settings#volumes") } id={ "vol-" + app + "-" + vol.Name } class="node">
 		<div class="node-head">
 			<span class="icon-tile">
 				@ic("hard-drive")
@@ -426,89 +366,6 @@ templ volumeNode(project, app string, vol volumeCard, backupsOn bool) {
 			}
 		</div>
 	</a>
-}
-
-// backupsNode is where the data goes off the server: a row per database
-// and volume, each the end of its line, with how its latest backup went.
-templ backupsNode(v projectView) {
-	if v.BackupBucket == "" {
-		<a href="/settings#backups" id="backups" class="node node-warn">
-			<div class="node-head">
-				<span class="icon-tile">
-					@ic("archive")
-				</span>
-				<div class="min-w-0">
-					<div class="node-title">Backups are off</div>
-					<div class="node-kind">The data lives only on this server</div>
-				</div>
-			</div>
-			<div class="node-row">
-				<span class="meta-item">
-					@ic("triangle-alert", "icon-sm text-attention")
-					Turn on in Settings
-				</span>
-			</div>
-		</a>
-	} else {
-		<div class="node" id="backups">
-			<div class="node-head">
-				@tile("cloudflare", "archive")
-				<div class="min-w-0">
-					<div class="node-title">Backups</div>
-					<div class="node-kind">R2 · { v.BackupBucket }</div>
-				</div>
-			</div>
-			for _, d := range v.Databases {
-				<a href={ templ.SafeURL(dbURL(v.Project.Name, d.Name) + "#backups") } id={ "bk-db-" + d.Name } class="node-item">
-					<span class="meta-item min-w-0">
-						@ic("database", "icon-sm icon-muted")
-						<span class="truncate">{ d.Name }</span>
-					</span>
-					if b, ok := v.LastBackup[d.Name]; ok {
-						@backupState(b.VerifiedAt, b.VerifyError, b.CreatedAt)
-					} else {
-						<span class="node-item-meta muted">none yet</span>
-					}
-				</a>
-			}
-			for _, a := range v.Apps {
-				for _, vol := range v.Volumes[a.Name] {
-					<a href={ templ.SafeURL(appURL(a.App) + "/settings#volumes") } id={ "bk-vol-" + a.Name + "-" + vol.Name } class="node-item">
-						<span class="meta-item min-w-0">
-							@ic("hard-drive", "icon-sm icon-muted")
-							<span class="truncate">{ a.Name + "/" + vol.Name }</span>
-						</span>
-						if vol.HasLast {
-							@backupState(vol.Last.VerifiedAt, vol.Last.VerifyError, vol.Last.CreatedAt)
-						} else {
-							<span class="node-item-meta muted">none yet</span>
-						}
-					</a>
-				}
-			}
-			<div class="node-row">
-				if v.backedUp() {
-					<span>Daily · sealed · checked after upload · locked 7 days</span>
-				} else {
-					<span>Nothing to back up yet: backups cover databases and volumes</span>
-				}
-			</div>
-		</div>
-	}
-}
-
-// backupState is a backup's check and age, in a row of the backups card.
-templ backupState(verifiedAt, verifyError, createdAt string) {
-	<span class="node-item-meta meta-item">
-		if verifyError != "" {
-			@ic("circle-x", "icon-sm text-danger")
-		} else if verifiedAt != "" {
-			@ic("circle-check", "icon-sm text-success")
-		} else {
-			@ic("clock", "icon-sm icon-muted")
-		}
-		@timeAgo(createdAt)
-	</span>
 }
 
 templ appNode(v projectView, a appView) {
@@ -564,6 +421,16 @@ templ appNode(v projectView, a appView) {
 				}
 			</div>
 		</a>
+		if a.Domain != "" {
+			<a href={ templ.SafeURL("https://" + a.Domain) } target="_blank" rel="noopener" class="node-item">
+				<span class="meta-item min-w-0">
+					@ic("globe", "icon-sm icon-muted")
+					<span class="truncate">{ a.Domain }</span>
+				</span>
+				<span class="node-item-meta" hx-get={ "/uptime?target=app:" + itoa(a.ID) + "&compact=1" } hx-trigger="load" hx-swap="innerHTML"></span>
+			</a>
+		}
+		<span hx-get={ appURL(a.App) + "/problems" } hx-trigger="load" hx-swap="outerHTML"></span>
 		if w, ok := v.Workers[a.Name]; ok {
 			<a href={ templ.SafeURL(appURL(a.App) + "/logs?worker=1") } id={ "wk-" + a.Name } class="node-item" title="The app's worker: same image and links, its own process">
 				<span class="meta-item min-w-0">
@@ -582,7 +449,7 @@ templ appNode(v projectView, a appView) {
 }
 
 templ databaseNode(project string, d store.Database, last map[string]store.Backup, backupsOn bool) {
-	<a href={ templ.SafeURL(dbURL(project, d.Name)) } id={ "db-" + d.Name } class="node" data-links={ backupLink(backupsOn, "bk-db-"+d.Name) }>
+	<a href={ templ.SafeURL(dbURL(project, d.Name)) } id={ "db-" + d.Name } class="node">
 		<div class="node-head">
 			@tile("postgresql", "database")
 			<div class="min-w-0 flex-1">
@@ -824,4 +691,24 @@ func r2Owner(client string) string {
 
 func r2Option(client string) string {
 	return "Cloudflare R2 in " + accountName(client)
+}
+
+// appProblems is the row of an app's card counting its problems (errors,
+// crashes, out-of-memory kills, failed health checks) of the last day.
+templ appProblems(href string, n int, more bool) {
+	if n > 0 {
+		<a href={ templ.SafeURL(href) } class="node-item node-item-danger">
+			<span class="meta-item">
+				@ic("triangle-alert", "icon-sm")
+				if more {
+					{ fmt.Sprintf("%d+ problems in the last day", n) }
+				} else if n == 1 {
+					1 problem in the last day
+				} else {
+					{ fmt.Sprintf("%d problems in the last day", n) }
+				}
+			</span>
+			@ic("chevron-right", "icon-sm")
+		</a>
+	}
 }

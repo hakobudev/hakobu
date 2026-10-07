@@ -246,14 +246,6 @@ func noTracesText(rng string) string {
 	return "No traces received."
 }
 
-// backupLink is the line from a database's or volume's card to its row
-// in the backups card, when backups are on.
-func backupLink(backupsOn bool, row string) string {
-	if backupsOn {
-		return row
-	}
-	return ""
-}
 
 // logo draws a technology's logo from the sprite (logos.svg).
 func logo(slug string) templ.Component {

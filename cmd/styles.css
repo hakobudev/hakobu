@@ -358,14 +358,10 @@
   .canvas { border: 1px solid var(--border); border-radius: var(--radius-lg); background-color: var(--bg-muted); background-image: radial-gradient(var(--border) 1px, transparent 1px); background-size: 16px 16px; @apply relative overflow-hidden p-6 sm:p-8; }
   .canvas-cols { @apply relative grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)] md:gap-x-28; }
   .canvas-cols-3 { @apply md:grid-cols-[minmax(0,0.85fr)_minmax(0,1.1fr)_minmax(0,1fr)] md:gap-x-14 lg:gap-x-20; }
-  .canvas-cols-wide { @apply xl:grid-cols-[220px_minmax(0,1fr)_minmax(0,1fr)_200px] xl:gap-x-14; }
   /* Apps in two columns, callers and called, on wide screens; stacked below */
-  /* The backups column gives way: each data card's row says how its backup went */
-  .canvas-cols-tiers { @apply xl:grid-cols-[220px_minmax(0,2fr)_minmax(0,1fr)] xl:gap-x-14; }
-  .canvas-cols-tiers > .canvas-col-edge:last-child { @apply xl:hidden; }
-  .canvas-tiers { @apply flex flex-col gap-4 xl:grid xl:grid-cols-2 xl:gap-x-14 xl:items-start; }
+  .canvas-cols-tiers { @apply lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] lg:gap-x-20; }
+  .canvas-tiers { @apply flex flex-col gap-4 lg:grid lg:grid-cols-2 lg:gap-x-20 lg:items-start; }
   .canvas-tier { @apply space-y-4 min-w-0; }
-  .canvas-col-edge { @apply hidden xl:block; }
   .canvas-col { @apply space-y-4 min-w-0; }
   .canvas-col-title { color: var(--fg-muted); font-size: 12px; font-weight: 600; @apply flex items-center justify-between; }
   .canvas-lines { @apply absolute inset-0 w-full h-full pointer-events-none hidden md:block; }
@@ -388,6 +384,8 @@
   .node-warn { border-color: color-mix(in srgb, var(--attention) 50%, var(--border)); }
   .node-item { border-top: 1px solid var(--border); color: var(--fg); transition: background .15s, opacity .15s; @apply flex items-center justify-between gap-2 px-3 py-2.5 min-w-0; }
   .node-item:hover, .node-item.is-focus { background: var(--accent-subtle); text-decoration: none; }
+  .node-item-danger { color: var(--danger); }
+  .node-item-danger:hover { background: var(--danger-subtle); }
   .node-item-meta { font-size: 12px; @apply shrink-0 tabular-nums; }
   .canvas[data-focus] .node-item:not(.is-related) { opacity: .45; }
 

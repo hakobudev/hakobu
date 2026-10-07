@@ -723,9 +723,9 @@ func appOverview(p appPage) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var31 string
-				templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.ResolveAttributeValue("/uptime?target=app:" + p.App.Name)
+				templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.ResolveAttributeValue("/uptime?target=app:" + itoa(p.App.ID))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app.templ`, Line: 210, Col: 71}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `ui_app.templ`, Line: 210, Col: 75}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var31)
 				if templ_7745c5c3_Err != nil {
@@ -894,9 +894,9 @@ func appOverview(p appPage) templ.Component {
 }
 
 func usageQuery(p appPage) string {
-	q := "/usage?target=app:" + p.App.Name
+	q := "/usage?target=app:" + itoa(p.App.ID)
 	if p.Worker != nil {
-		q += "&target=worker:" + p.App.Name
+		q += "&target=worker:" + itoa(p.App.ID)
 	}
 	return q + "&range=24h"
 }

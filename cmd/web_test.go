@@ -48,7 +48,7 @@ func TestPagesRender(t *testing.T) {
 
 	pv := projectView{Project: project, Apps: []appView{app, {App: store.App{Name: "api", ProjectName: "demo"}, Deploying: true}}, Workers: map[string]workerCard{"web": {Name: "worker", Command: "taskiq worker app.tasks:broker", Status: "running"}},
 		LastDeploy: map[string]store.DeployLog{"web": deploys[0]}, Databases: []store.Database{db, {Name: "other"}}, LastBackup: map[string]store.Backup{"main": {VerifiedAt: "t"}},
-		Storages: storages, Sealed: []string{"P"}, SuggestedDB: "demo", BackupBucket: "hakobu-backups-1", Watchdog: true,
+		Storages: storages, Sealed: []string{"P"}, SuggestedDB: "demo", BackupBucket: "hakobu-backups-1",
 		Volumes: map[string][]volumeCard{"web": {{Volume: store.Volume{Name: "data", MountPath: "/data"}}, {Volume: store.Volume{Name: "up"}, HasLast: true, Last: store.VolumeBackup{VerifiedAt: "t"}}}},
 		Calls:   map[string][]string{"api": {"web"}}, Caches: []store.Cache{{ID: 3, Name: "cache", MemoryMB: 256}}}
 	ap := appPage{App: app, Project: project, PathRoutes: []pathRoute{{Path: "/api", Target: "api"}}, Siblings: []string{"api", "admin"}, Worker: worker, WorkerStatus: "running", DataRollbackBlocker: "", LastOOM: "2026-09-29T10:00:00Z",
@@ -133,6 +133,8 @@ func TestPagesRender(t *testing.T) {
 	pages["switch projects"] = switchProjects([]store.Project{project, {Name: "b"}}, "demo")
 	pages["switch resources"] = switchResources("demo", []store.App{app.App, {Name: "x", BuildStrategy: "dockerfile"}}, []store.Database{db}, []store.Cache{{ID: 3, Name: "cache"}}, storages, "web")
 	pages["cache"] = cacheView(cachePage{Cache: store.Cache{ID: 3, Name: "cache", MemoryMB: 256}, Project: project, Status: "running", Env: splitEnv([]string{"REDIS_URL=redis://default:x@cache-3:6379/0"}), UsedBy: []string{"web"}})
+	pages["app problems"] = appProblems("/x/errors", 3, false)
+	pages["app problems, more"] = appProblems("/x/errors", 100, true)
 	pages["cache, unused and down"] = cacheView(cachePage{Cache: store.Cache{ID: 3, Name: "cache", MemoryMB: 64}, Project: project, Status: "exited"})
 	pages["storage"] = storageView(storagePage{Storage: storages[0], Project: project, UsedBy: []string{"web"}})
 	pages["storage, keys, unused"] = storageView(storagePage{Storage: store.Storage{Name: "media", Provider: "s3", Bucket: "m", AccessKeyID: "k", Endpoint: "https://s3.example.com"}, Project: project})

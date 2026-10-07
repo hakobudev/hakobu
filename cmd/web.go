@@ -397,7 +397,6 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			}
 			routes, _ := s.ListAllAppRoutes(r.Context())
 			v.Calls = appCalls(apps, routes)
-			v.Watchdog = ops.Watchdog(s).On
 			v.Server, v.Servers = ops.ProjectServerName(s, p), joinedServers(s, requestUser(r))
 			v.PanelOnly = config.PanelOnly
 			if !v.PanelOnly {
@@ -691,6 +690,21 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			return
 		}
 		renderPage(w, r, deployItem(app, d))
+	})
+
+	// The app's problems of the last day, for its card on the project
+	// canvas: nothing when there are none or its server is away.
+	handle("GET "+appRoute+"/problems", func(w http.ResponseWriter, r *http.Request) {
+		app := reqApp(r)
+		events, err := ops.AppEvents(s, app, false, 100)
+		n, since := 0, time.Now().Add(-24*time.Hour).UTC().Format("2006-01-02T15:04:05Z")
+		for _, e := range events {
+			if err == nil && eventIsProblem(e) && e.CreatedAt >= since {
+				n++
+			}
+		}
+		// All of the 100 fetched in the day: there may be more.
+		renderPage(w, r, appProblems(appURL(app)+"/errors", n, n == 100))
 	})
 
 	handle("GET "+appRoute+"/status", func(w http.ResponseWriter, r *http.Request) {
