@@ -299,6 +299,47 @@ func TestMasterKeyNeedsFreshSignIn(t *testing.T) {
 	}
 }
 
+// Apps stand right of their callers, except ones that call each other.
+func TestAppTiers(t *testing.T) {
+	tiers := func(calls map[string][]string, names ...string) string {
+		v := projectView{Calls: calls}
+		for _, n := range names {
+			v.Apps = append(v.Apps, appView{App: store.App{Name: n}})
+		}
+		var out []string
+		for _, tier := range v.appTiers() {
+			var col []string
+			for _, a := range tier {
+				col = append(col, a.Name)
+			}
+			out = append(out, strings.Join(col, " "))
+		}
+		return strings.Join(out, " | ")
+	}
+	for _, c := range []struct {
+		calls map[string][]string
+		want  string
+	}{
+		{nil, "web api"},
+		{map[string][]string{"web": {"api"}, "api": {"search"}}, "web | api search"},
+		{map[string][]string{"web": {"api"}, "api": {"web"}}, "web api"},                    // CORS names the frontend
+		{map[string][]string{"web": {"api"}, "api": {"web", "search"}}, "web api | search"}, // still, search is called
+		{map[string][]string{"admin": {"api"}, "web": {"api"}}, "web admin | api"},
+		{map[string][]string{"web": {"api"}}, "web | api admin"}, // admin calls no one: next to the data
+	} {
+		names := []string{"web", "api"}
+		if strings.Contains(c.want, "search") {
+			names = append(names, "search")
+		}
+		if strings.Contains(c.want, "admin") {
+			names = append(names, "admin")
+		}
+		if got := tiers(c.calls, names...); got != c.want {
+			t.Errorf("calls %v: tiers %q, want %q", c.calls, got, c.want)
+		}
+	}
+}
+
 func TestAppCalls(t *testing.T) {
 	apps := []store.App{
 		{ID: 1, Name: "web", Domain: "acme.example.com", Env: "VITE_API_URL=https://api.acme.example.com\nSITE=acme.example.com"},

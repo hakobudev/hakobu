@@ -359,6 +359,12 @@
   .canvas-cols { @apply relative grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)] md:gap-x-28; }
   .canvas-cols-3 { @apply md:grid-cols-[minmax(0,0.85fr)_minmax(0,1.1fr)_minmax(0,1fr)] md:gap-x-14 lg:gap-x-20; }
   .canvas-cols-wide { @apply xl:grid-cols-[220px_minmax(0,1fr)_minmax(0,1fr)_200px] xl:gap-x-14; }
+  /* Apps in two columns, callers and called, on wide screens; stacked below */
+  /* The backups column gives way: each data card's row says how its backup went */
+  .canvas-cols-tiers { @apply xl:grid-cols-[220px_minmax(0,2fr)_minmax(0,1fr)] xl:gap-x-14; }
+  .canvas-cols-tiers > .canvas-col-edge:last-child { @apply xl:hidden; }
+  .canvas-tiers { @apply flex flex-col gap-4 xl:grid xl:grid-cols-2 xl:gap-x-14 xl:items-start; }
+  .canvas-tier { @apply space-y-4 min-w-0; }
   .canvas-col-edge { @apply hidden xl:block; }
   .canvas-col { @apply space-y-4 min-w-0; }
   .canvas-col-title { color: var(--fg-muted); font-size: 12px; font-weight: 600; @apply flex items-center justify-between; }

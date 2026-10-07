@@ -82,6 +82,64 @@ func (v projectView) callsOf(app string) string {
 	return ids
 }
 
+// appTiers lays the apps out left to right the way requests go: the apps
+// that call others, and aren't called by any, on the left; the rest, next
+// to the data, on the right. Apps that call each other (a frontend and the
+// API that names it for CORS, say) count as one and stay together. One
+// column when no app calls another across.
+func (v projectView) appTiers() [][]appView {
+	n := len(v.Apps)
+	idx := make(map[string]int, n)
+	for i, a := range v.Apps {
+		idx[a.Name] = i
+	}
+	calls, reach := make([][]bool, n), make([][]bool, n)
+	for i, a := range v.Apps {
+		calls[i], reach[i] = make([]bool, n), make([]bool, n)
+		for _, b := range v.Calls[a.Name] {
+			if j, ok := idx[b]; ok && j != i {
+				calls[i][j], reach[i][j] = true, true
+			}
+		}
+	}
+	for k := range n {
+		for i := range n {
+			for j := range n {
+				reach[i][j] = reach[i][j] || reach[i][k] && reach[k][j]
+			}
+		}
+	}
+	// group[i]: the apps i calls and is called by, itself included.
+	group := func(i int) []int {
+		g := []int{i}
+		for j := range n {
+			if j != i && reach[i][j] && reach[j][i] {
+				g = append(g, j)
+			}
+		}
+		return g
+	}
+	var tiers [2][]appView
+	for i, a := range v.Apps {
+		caller, called := false, false
+		for _, m := range group(i) {
+			for j := range n {
+				caller = caller || calls[m][j] && !reach[j][m]
+				called = called || calls[j][m] && !reach[m][j]
+			}
+		}
+		if caller && !called {
+			tiers[0] = append(tiers[0], a)
+		} else {
+			tiers[1] = append(tiers[1], a)
+		}
+	}
+	if len(tiers[0]) == 0 {
+		return [][]appView{tiers[1]}
+	}
+	return tiers[:]
+}
+
 func (v projectView) path(tab string) string {
 	if tab == "" {
 		return "/projects/" + v.Project.Name
@@ -209,21 +267,35 @@ templ projectNew(v projectView) {
 }
 
 // projectCanvas reads left to right like a request: the internet, through
-// the tunnel, to the apps, to their data, to the backups off the server.
+// the tunnel, to the apps (those called by others right of their callers),
+// to their data, to the backups off the server.
 // The outer columns show on wide screens only; the cards repeat what they
 // say (domains, backups) for narrower ones.
 templ projectCanvas(v projectView) {
+	{{ tiers := v.appTiers() }}
 	<div class="canvas">
 		<svg class="canvas-lines" aria-hidden="true"></svg>
-		<div class="canvas-cols canvas-cols-wide">
+		<div class={ "canvas-cols canvas-cols-wide", templ.KV("canvas-cols-tiers", len(tiers) > 1) }>
 			<div class="canvas-col canvas-col-edge">
 				<div class="canvas-col-title"><span>Internet</span></div>
 				@tunnelNode(v)
 			</div>
 			<div class="canvas-col">
 				<div class="canvas-col-title"><span>Apps</span></div>
-				for _, a := range v.Apps {
-					@appNode(v, a)
+				if len(tiers) > 1 {
+					<div class="canvas-tiers">
+						for _, tier := range tiers {
+							<div class="canvas-tier">
+								for _, a := range tier {
+									@appNode(v, a)
+								}
+							</div>
+						}
+					</div>
+				} else {
+					for _, a := range v.Apps {
+						@appNode(v, a)
+					}
 				}
 				if len(v.Apps) == 0 {
 					<p class="field-hint">No apps yet: add one from a GitHub repo with New.</p>
