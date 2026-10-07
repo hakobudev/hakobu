@@ -381,6 +381,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 				}
 			}
 			v.Storages, _ = s.ListStoragesByProject(r.Context(), p.ID)
+			v.Caches, _ = s.ListCachesByProject(r.Context(), p.ID)
 			v.Volumes = map[string][]volumeCard{}
 			for _, a := range apps {
 				vols, _ := s.ListVolumes(r.Context(), a.ID)
@@ -416,6 +417,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			v.Sealed = ops.SealedKeys(s, "project", p.ID)
 			v.SuggestedDB = ops.SuggestDatabaseName(s, p)
 			v.SuggestedStorage = ops.SuggestStorageName(s, p)
+			v.SuggestedCache = ops.SuggestCacheName(s, p)
 			v.R2Off, v.R2URL = ops.ProjectR2Off(s, p)
 			v.BackupBucket = ops.BackupBucket(s)
 			renderPage(w, r, projectPage(v))
@@ -440,7 +442,8 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 		apps, _ := s.ListAppsByProject(r.Context(), p.ID)
 		dbs, _ := s.ListDatabasesByProject(r.Context(), p.ID)
 		storages, _ := s.ListStoragesByProject(r.Context(), p.ID)
-		renderPage(w, r, switchResources(p.Name, apps, dbs, storages, r.URL.Query().Get("current")))
+		caches, _ := s.ListCachesByProject(r.Context(), p.ID)
+		renderPage(w, r, switchResources(p.Name, apps, dbs, caches, storages, r.URL.Query().Get("current")))
 	})
 
 	handle("GET /projects/{p}", projectPageHandler(""))
@@ -547,6 +550,31 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 		return projectPath(reqProject(r).Name), ops.DeleteStorage(s, reqStorage(r).ID)
 	})
 
+	action("POST /projects/{p}/caches", func(r *http.Request) (string, error) {
+		_, err := ops.CreateCache(s, reqProject(r).ID, strings.TrimSpace(r.FormValue("name")))
+		return "", err
+	})
+
+	handle("GET /projects/{p}/caches/{cache}", func(w http.ResponseWriter, r *http.Request) {
+		c := reqCache(r)
+		v := cachePage{Cache: c, Project: reqProject(r), Env: splitEnv(ops.CacheEnv(c))}
+		v.UsedBy, _ = s.AppsUsingCache(r.Context(), sql.NullInt64{Int64: c.ID, Valid: true})
+		v.Status = ops.ProjectNode(s, c.ProjectID).State(r.Context(), c.Key()).Status
+		renderPage(w, r, cacheView(v))
+	})
+
+	action("POST /projects/{p}/caches/{cache}/memory", func(r *http.Request) (string, error) {
+		mb, err := strconv.ParseInt(strings.TrimSpace(r.FormValue("memory_mb")), 10, 64)
+		if err != nil {
+			return "", fmt.Errorf("memory must be a number of MB")
+		}
+		return "", ops.SetCacheMemory(s, reqCache(r).ID, mb)
+	})
+
+	action("DELETE /projects/{p}/caches/{cache}", func(r *http.Request) (string, error) {
+		return projectPath(reqProject(r).Name), ops.DeleteCache(s, reqCache(r).ID)
+	})
+
 	// Apps.
 
 	// An app's pages: the header's data, then what the tab shows.
@@ -619,6 +647,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			case "settings":
 				p.Databases, _ = s.ListDatabasesByProject(r.Context(), app.ProjectID)
 				p.Storages, _ = s.ListStoragesByProject(r.Context(), app.ProjectID)
+				p.Caches, _ = s.ListCachesByProject(r.Context(), app.ProjectID)
 				p.Zones, _, _ = ops.ProjectZones(s, p.Project)
 				p.Sub, p.Zone = splitDomain(app.Domain, p.Zones)
 				p.Volumes, _ = s.ListVolumes(r.Context(), app.ID)
@@ -771,6 +800,9 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 	action("POST "+appRoute+"/links", func(r *http.Request) (string, error) {
 		app := reqApp(r)
 		if err := ops.LinkDatabase(s, app, r.FormValue("database")); err != nil {
+			return "", err
+		}
+		if err := ops.LinkCache(s, app, r.FormValue("cache")); err != nil {
 			return "", err
 		}
 		return "", ops.LinkStorage(s, app, r.FormValue("storage"))
@@ -1343,8 +1375,8 @@ type appView struct {
 	store.App
 	node.State
 	Deploying bool
-	// The names of its linked database and storage, "" for none.
-	LinkedDB, LinkedStorage string
+	// The names of its linked database, storage and cache, "" for none.
+	LinkedDB, LinkedStorage, LinkedCache string
 }
 
 // volumeBackups is one volume's part of the Backups card on an app's page.
@@ -1374,6 +1406,11 @@ func linkedView(ctx context.Context, s *store.Store, a store.App) appView {
 			v.LinkedStorage = st.Name
 		}
 	}
+	if a.LinkedCacheID.Valid {
+		if c, err := s.GetCacheByID(ctx, a.LinkedCacheID.Int64); err == nil {
+			v.LinkedCache = c.Name
+		}
+	}
 	return v
 }
 
@@ -1383,6 +1420,11 @@ func appURL(a store.App) string { return ops.AppPath(a) }
 
 func dbURL(project, name string) string {
 	return projectPath(project) + "/databases/" + url.PathEscape(name)
+}
+
+// cacheURL is a cache's page in the user's project.
+func cacheURL(project, name string) string {
+	return projectPath(project) + "/caches/" + url.PathEscape(name)
 }
 
 func storageURL(project, name string) string {

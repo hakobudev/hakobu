@@ -1,6 +1,10 @@
 package cmd
 
-import "github.com/x0ryz/hakobu/internal/store"
+import (
+	"fmt"
+
+	"github.com/x0ryz/hakobu/internal/store"
+)
 
 // projectView is a project's pages: its canvas, shared variables
 // and settings.
@@ -15,9 +19,11 @@ type projectView struct {
 	Databases        []store.Database
 	LastBackup       map[string]store.Backup
 	Storages         []store.Storage
+	Caches           []store.Cache
 	Sealed           []string
 	SuggestedDB      string
 	SuggestedStorage string
+	SuggestedCache   string
 	R2Off            bool   // R2 isn't on in the project's account
 	R2URL            string // where it's turned on
 	BackupBucket     string
@@ -48,7 +54,7 @@ func (v projectView) backedUp() bool {
 
 // empty reports whether the project has no data at all.
 func (v projectView) empty() bool {
-	n := len(v.Databases) + len(v.Storages)
+	n := len(v.Databases) + len(v.Storages) + len(v.Caches)
 	for _, vols := range v.Volumes {
 		n += len(vols)
 	}
@@ -161,6 +167,9 @@ func appLinks(a appView) string {
 	if a.LinkedStorage != "" {
 		links += " st-" + a.LinkedStorage
 	}
+	if a.LinkedCache != "" {
+		links += " cache-" + a.LinkedCache
+	}
 	return links
 }
 
@@ -219,6 +228,12 @@ templ projectMeta(v projectView) {
 		@ic("database")
 		{ plural(len(v.Databases), "database", "databases") }
 	</span>
+	if n := len(v.Caches); n > 0 {
+		<span class="meta-item">
+			@ic("zap")
+			{ plural(n, "cache", "caches") }
+		</span>
+	}
 	<span class="meta-item">
 		@ic("archive")
 		{ plural(len(v.Storages), "storage", "storages") }
@@ -254,6 +269,14 @@ templ projectNew(v projectView) {
 			</span>
 			<br/>
 			<span class="muted small">PostgreSQL, backed up daily</span>
+		</button>
+		<button type="button" class="menu-item" data-dialog="new-cache">
+			<span class="meta-item strong">
+				@ic("zap")
+				Cache
+			</span>
+			<br/>
+			<span class="muted small">Valkey, Redis-compatible: caches, queues, sessions</span>
 		</button>
 		<button type="button" class="menu-item" data-dialog="new-storage">
 			<span class="meta-item strong">
@@ -310,6 +333,9 @@ templ projectCanvas(v projectView) {
 					for _, vol := range v.Volumes[a.Name] {
 						@volumeNode(v.Project.Name, a.Name, vol, v.BackupBucket != "")
 					}
+				}
+				for _, c := range v.Caches {
+					@cacheNode(v.Project.Name, c)
 				}
 				for _, st := range v.Storages {
 					@storageNode(v, st)
@@ -502,7 +528,7 @@ templ appNode(v projectView, a appView) {
 					<div class="node-kind">{ appKind(a) }</div>
 				</div>
 			</div>
-			if a.LinkedDB != "" || a.LinkedStorage != "" {
+			if a.LinkedDB != "" || a.LinkedStorage != "" || a.LinkedCache != "" {
 				<div class="node-chips">
 					if a.LinkedDB != "" {
 						<span class="badge">
@@ -514,6 +540,12 @@ templ appNode(v projectView, a appView) {
 						<span class="badge">
 							@ic("archive", "icon-sm")
 							{ a.LinkedStorage }
+						</span>
+					}
+					if a.LinkedCache != "" {
+						<span class="badge">
+							@ic("zap", "icon-sm")
+							{ a.LinkedCache }
 						</span>
 					}
 				</div>
@@ -584,6 +616,27 @@ templ databaseNode(project string, d store.Database, last map[string]store.Backu
 					Backups are off
 				</span>
 			}
+		</div>
+	</a>
+}
+
+templ cacheNode(project string, c store.Cache) {
+	<a href={ templ.SafeURL(cacheURL(project, c.Name)) } id={ "cache-" + c.Name } class="node">
+		<div class="node-head">
+			<span class="icon-tile">
+				@ic("zap")
+			</span>
+			<div class="min-w-0 flex-1">
+				<div class="node-title">{ c.Name }</div>
+				<div class="node-kind">Valkey · Redis-compatible</div>
+			</div>
+		</div>
+		<div class="node-row">
+			<span class="meta-item">
+				@ic("memory-stick", "icon-sm")
+				{ fmt.Sprintf("%d MB", c.MemoryMB) }
+			</span>
+			<span>not backed up</span>
 		</div>
 	</a>
 }
@@ -707,6 +760,18 @@ templ projectDialogs(v projectView) {
 			<button class="btn btn-primary btn-block">
 				@ic("loader-circle", "btn-spinner")
 				Create database
+			</button>
+		</form>
+	}
+	@dialog("new-cache", "New cache") {
+		<form hx-post={ "/projects/" + v.Project.Name + "/caches" } class="space-y-4">
+			@field("Name", "Lowercase letters, digits and dashes, starting with a letter.") {
+				<input name="name" class="input mono" placeholder={ namePlaceholder(v.SuggestedCache, "e.g. cache") } required?={ v.SuggestedCache == "" } pattern="[a-z][a-z0-9\-]{0,39}"/>
+			}
+			<p class="field-hint">A Valkey server of its own, Redis-compatible, with 256 MB to start. Link it from an app's settings to give the app REDIS_URL. Its data outlives restarts but isn't backed up.</p>
+			<button class="btn btn-primary btn-block">
+				@ic("loader-circle", "btn-spinner")
+				Create cache
 			</button>
 		</form>
 	}

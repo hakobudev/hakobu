@@ -310,6 +310,16 @@ func (r *Remote) SetPassword(ctx context.Context, d DBSpec) error {
 	return r.call(ctx, "SetPassword", nil, nil, []any{d})
 }
 
+// Caches.
+
+func (r *Remote) EnsureCache(ctx context.Context, c CacheSpec) error {
+	return r.call(ctx, "EnsureCache", nil, nil, []any{c})
+}
+
+func (r *Remote) DropCache(ctx context.Context, name string) error {
+	return r.call(ctx, "DropCache", nil, nil, []any{name})
+}
+
 // Backups.
 
 func (r *Remote) BackupDatabase(ctx context.Context, d DBSpec, up Upload) (u Uploaded, err error) {

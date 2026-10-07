@@ -105,6 +105,7 @@ var secretColumns = map[string][]string{
 	"workers":             {"env", "command"},
 	"databases":           {"db_password"},
 	"storages":            {"secret_access_key"},
+	"caches":              {"password"},
 	"github_app":          {"private_key", "webhook_secret", "client_secret"},
 	"cloudflare":          {"api_token", "tunnel_token"},
 	"cloudflare_accounts": {"api_token", "tunnel_token"},
@@ -240,6 +241,9 @@ func (a App) Key() string { return AppKey(a.ID) }
 
 // Key is the database's name in Postgres, and its role's.
 func (d Database) Key() string { return fmt.Sprintf("db_%d", d.ID) }
+
+// Key is the cache's container, and its name on its project's network.
+func (c Cache) Key() string { return fmt.Sprintf("cache-%d", c.ID) }
 
 func (a App) ContainerName() string {
 	slot := a.ActiveSlot

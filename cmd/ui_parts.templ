@@ -117,7 +117,7 @@ templ switchProjects(projects []store.Project, current string) {
 }
 
 // switchResources is the top bar's menu of a project's apps and data.
-templ switchResources(project string, apps []store.App, dbs []store.Database, storages []store.Storage, current string) {
+templ switchResources(project string, apps []store.App, dbs []store.Database, caches []store.Cache, storages []store.Storage, current string) {
 	if len(apps) > 0 {
 		<div class="menu-heading">Apps</div>
 		for _, a := range apps {
@@ -128,6 +128,12 @@ templ switchResources(project string, apps []store.App, dbs []store.Database, st
 		<div class="menu-heading">Databases</div>
 		for _, d := range dbs {
 			@switchItem(dbURL(project, d.Name), d.Name, "postgresql", "database", d.Name == current)
+		}
+	}
+	if len(caches) > 0 {
+		<div class="menu-heading">Caches</div>
+		for _, c := range caches {
+			@switchItem(cacheURL(project, c.Name), c.Name, "", "zap", c.Name == current)
 		}
 	}
 	if len(storages) > 0 {

@@ -50,6 +50,9 @@ func TestMCPSetup(t *testing.T) {
 			if _, err := s.CreateDatabase(ctx, store.CreateDatabaseParams{ProjectID: p, Name: a.db, Password: "x"}); err != nil {
 				t.Fatal(err)
 			}
+			if _, err := s.CreateCache(ctx, store.CreateCacheParams{ProjectID: p, Name: "theircache", Password: "x", MemoryMB: 64}); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 	if err := s.CreateNode(ctx, store.CreateNodeParams{Name: "theirsrv", UserID: other}); err != nil {
@@ -97,6 +100,9 @@ func TestMCPSetup(t *testing.T) {
 		{"create_app", `{"project":"other","name":"x","repo":"o/r"}`, `no project named \"other\"`},
 		{"create_database", `{"project":"other","name":"d"}`, `no project named \"other\"`},
 		{"link_database", `{"app":"mine/web","database":"theirdb"}`, `database \"theirdb\" not found in project mine`},
+		{"create_cache", `{"project":"other","name":"c"}`, `no project named \"other\"`},
+		{"link_cache", `{"app":"mine/web","cache":"theircache"}`, `cache \"theircache\" not found in project mine`},
+		{"link_cache", `{"app":"other/theirs","cache":"theircache"}`, `no app \"other/theirs\"`},
 		{"set_env", `{"app":"other/theirs","set":{"A":"1"}}`, `no app \"other/theirs\"`},
 		{"add_volume", `{"app":"other/theirs","name":"data","mount_path":"/data"}`, `no app \"other/theirs\"`},
 		{"set_route", `{"app":"other/theirs","path":"/api","target":"web"}`, `no app \"other/theirs\"`},

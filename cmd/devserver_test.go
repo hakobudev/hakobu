@@ -65,6 +65,8 @@ func TestDevServer(t *testing.T) {
 	must(s.SaveWorker(ctx, store.SaveWorkerParams{AppID: apps["api"], Name: "worker", Command: "taskiq worker app.tasks:broker", Env: "CONCURRENCY=4"}))
 	must(s.AddVolume(ctx, store.AddVolumeParams{AppID: apps["api"], Name: "data", MountPath: "/app/data"}))
 	must(s.SetAppRoute(ctx, store.SetAppRouteParams{AppID: apps["web"], Path: "/api", TargetID: apps["api"]}))
+	cache := id(s.CreateCache(ctx, store.CreateCacheParams{Name: "cache", ProjectID: acmeID, Password: "dev", MemoryMB: 256}))
+	must(s.SetAppLinkedCache(ctx, store.SetAppLinkedCacheParams{ID: apps["api"], LinkedCacheID: ref(cache)}))
 	for _, l := range []struct {
 		level int64
 		msg   string

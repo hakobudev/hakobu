@@ -44,6 +44,7 @@ type Fake struct {
 	Tunnels    map[string]node.TunnelSpec       // container → spec
 	Edges      map[string][]string              // container → projects whose edge network it's on
 	Networks   map[string]bool                  // projects with networks
+	Caches     map[string]node.CacheSpec        // container → spec
 	Keys       node.KeyState                    // what KeyState tells
 	Tel        *teldb.Queries                   // where its apps' telemetry goes
 }
@@ -56,7 +57,7 @@ func New() *Fake {
 		Containers: map[string]string{}, Runs: map[string]string{}, Images: map[string]map[node.Image]string{},
 		Proxies: map[string]string{}, DBs: map[string]string{}, Passwords: map[string]string{},
 		Dumps: map[node.Dump]string{}, Volumes: map[string]string{}, Bucket: map[string]string{}, Tunnels: map[string]node.TunnelSpec{},
-		Edges: map[string][]string{}, Networks: map[string]bool{},
+		Edges: map[string][]string{}, Networks: map[string]bool{}, Caches: map[string]node.CacheSpec{},
 	}
 }
 
@@ -391,6 +392,26 @@ func (f *Fake) DropDatabase(ctx context.Context, d node.DBSpec) error {
 	if err == nil {
 		delete(f.DBs, d.Name)
 		delete(f.Passwords, d.User)
+	}
+	return err
+}
+
+func (f *Fake) EnsureCache(ctx context.Context, c node.CacheSpec) error {
+	unlock, err := f.call("EnsureCache")
+	defer unlock()
+	if err == nil {
+		f.Caches[c.Name] = c
+		f.Containers[c.Name] = "running"
+	}
+	return err
+}
+
+func (f *Fake) DropCache(ctx context.Context, name string) error {
+	unlock, err := f.call("DropCache")
+	defer unlock()
+	if err == nil {
+		delete(f.Caches, name)
+		delete(f.Containers, name)
 	}
 	return err
 }

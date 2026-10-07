@@ -108,6 +108,14 @@ templ appSettings(p appPage) {
 										}
 									</select>
 								}
+								@field("Cache", "Gives REDIS_URL and REDIS_*.") {
+									<select name="cache" class="input">
+										<option value="">none</option>
+										for _, c := range p.Caches {
+											<option value={ c.Name } selected?={ c.Name == p.App.LinkedCache }>{ c.Name }</option>
+										}
+									</select>
+								}
 								@field("Storage", "Gives S3_*.") {
 									<select name="storage" class="input">
 										<option value="">none</option>
@@ -119,7 +127,7 @@ templ appSettings(p appPage) {
 									</select>
 								}
 							</div>
-							<p class="field-hint">Create databases and storages on the <a href={ "/projects/" + p.App.ProjectName }>project</a>.</p>
+							<p class="field-hint">Create databases, caches and storages on the <a href={ "/projects/" + p.App.ProjectName }>project</a>.</p>
 						</div>
 						@boxFooter("Applies on the next deploy.") {
 							@submit("Save", false)

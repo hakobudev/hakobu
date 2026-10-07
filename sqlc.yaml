@@ -13,6 +13,7 @@ sql:
         rename:
           app: AppRecord
           app_view: App
+          cach: Cache
           github_app: GitHubApp
           db_user: User
           db_password: Password
@@ -46,6 +47,8 @@ sql:
           - column: databases.db_password
             go_type: {import: github.com/x0ryz/hakobu/internal/secret, type: String}
           - column: storages.secret_access_key
+            go_type: {import: github.com/x0ryz/hakobu/internal/secret, type: String}
+          - column: caches.password
             go_type: {import: github.com/x0ryz/hakobu/internal/secret, type: String}
           - column: github_app.private_key
             go_type: {import: github.com/x0ryz/hakobu/internal/secret, type: String}

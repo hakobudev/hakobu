@@ -39,7 +39,7 @@ func renders(t *testing.T, name string, c templ.Component) string {
 
 func TestPagesRender(t *testing.T) {
 	project := store.Project{ID: 1, Name: "demo", SharedEnv: "A=1"}
-	app := appView{App: store.App{ID: 1, Name: "web", ProjectName: "demo", Repo: "o/r", Stack: "Python · FastAPI", Domain: "web.example.com", Port: 8081, ContainerPort: 8080, Env: "B=2", MemoryMB: 512, Cpus: 0.5, SnapshotAt: "t"}, State: deploy.State{Status: "running", Restarts: 2, OOMKilled: true}, LinkedDB: "main", LinkedStorage: "files"}
+	app := appView{App: store.App{ID: 1, Name: "web", ProjectName: "demo", Repo: "o/r", Stack: "Python · FastAPI", Domain: "web.example.com", Port: 8081, ContainerPort: 8080, Env: "B=2", MemoryMB: 512, Cpus: 0.5, SnapshotAt: "t"}, State: deploy.State{Status: "running", Restarts: 2, OOMKilled: true}, LinkedDB: "main", LinkedStorage: "files", LinkedCache: "cache"}
 	worker := &store.Worker{AppID: 1, Name: "worker", Command: "run", Env: "C=3"}
 	db := store.Database{ID: 1, Name: "main"}
 	storages := []store.Storage{{Name: "files", Provider: "r2", Bucket: "hakobu-files-1", AccountID: "acc"}, {Name: "media", Provider: "s3", Bucket: "m", AccessKeyID: "k"}}
@@ -50,7 +50,7 @@ func TestPagesRender(t *testing.T) {
 		LastDeploy: map[string]store.DeployLog{"web": deploys[0]}, Databases: []store.Database{db, {Name: "other"}}, LastBackup: map[string]store.Backup{"main": {VerifiedAt: "t"}},
 		Storages: storages, Sealed: []string{"P"}, SuggestedDB: "demo", BackupBucket: "hakobu-backups-1", Watchdog: true,
 		Volumes: map[string][]volumeCard{"web": {{Volume: store.Volume{Name: "data", MountPath: "/data"}}, {Volume: store.Volume{Name: "up"}, HasLast: true, Last: store.VolumeBackup{VerifiedAt: "t"}}}},
-		Calls:   map[string][]string{"api": {"web"}}}
+		Calls:   map[string][]string{"api": {"web"}}, Caches: []store.Cache{{ID: 3, Name: "cache", MemoryMB: 256}}}
 	ap := appPage{App: app, Project: project, PathRoutes: []pathRoute{{Path: "/api", Target: "api"}}, Siblings: []string{"api", "admin"}, Worker: worker, WorkerStatus: "running", DataRollbackBlocker: "", LastOOM: "2026-09-29T10:00:00Z",
 		Deploys: deploys, Events: events, Output: "line", Range: "24h",
 		Routes:    []ops.RouteStats{{Name: "/orders/{id}", Count: 20, Errors: 1, AvgMs: 40, P50Ms: 20, P95Ms: 10000, P95Over: true}},
@@ -131,7 +131,9 @@ func TestPagesRender(t *testing.T) {
 		Clients: []ops.ClientAccount{{Name: "newco", Title: "New Co", Domains: "newco.com, newco.dev", AccountID: "n", Projects: []string{"shop"}}, {Name: "other", Title: "Other", Domains: "other.com", AccountID: "o"}}})
 	pages["settings, no accounts"] = settingsView(settingsPage{CloudflareConnected: true, UserTokenURL: "https://dash.cloudflare.com/profile/api-tokens"})
 	pages["switch projects"] = switchProjects([]store.Project{project, {Name: "b"}}, "demo")
-	pages["switch resources"] = switchResources("demo", []store.App{app.App, {Name: "x", BuildStrategy: "dockerfile"}}, []store.Database{db}, storages, "web")
+	pages["switch resources"] = switchResources("demo", []store.App{app.App, {Name: "x", BuildStrategy: "dockerfile"}}, []store.Database{db}, []store.Cache{{ID: 3, Name: "cache"}}, storages, "web")
+	pages["cache"] = cacheView(cachePage{Cache: store.Cache{ID: 3, Name: "cache", MemoryMB: 256}, Project: project, Status: "running", Env: splitEnv([]string{"REDIS_URL=redis://default:x@cache-3:6379/0"}), UsedBy: []string{"web"}})
+	pages["cache, unused and down"] = cacheView(cachePage{Cache: store.Cache{ID: 3, Name: "cache", MemoryMB: 64}, Project: project, Status: "exited"})
 	pages["storage"] = storageView(storagePage{Storage: storages[0], Project: project, UsedBy: []string{"web"}})
 	pages["storage, keys, unused"] = storageView(storagePage{Storage: store.Storage{Name: "media", Provider: "s3", Bucket: "m", AccessKeyID: "k", Endpoint: "https://s3.example.com"}, Project: project})
 	for name, page := range map[string]func(appPage) templ.Component{

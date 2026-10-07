@@ -250,6 +250,37 @@ func RunServiceContainer(ctx context.Context, name, image string, env []string, 
 	})
 }
 
+// RunCacheContainer runs a Valkey server for one cache on network, its
+// data in the volume <name>_data, capped at memoryMB: Valkey evicts
+// nothing at the cap (a queue mustn't lose jobs) but refuses writes, and
+// the container's own limit leaves it room for its overhead. stamp is kept
+// in its environment as HAKOBU_CACHE, to tell whether it runs as wanted.
+func RunCacheContainer(ctx context.Context, name, image, password string, memoryMB int64, network, stamp string) (string, error) {
+	if err := pullImageIfMissing(ctx, image); err != nil {
+		return "", fmt.Errorf("failed to pull image %q: %w", image, err)
+	}
+	limit := memoryMB + memoryMB/4 + 32
+	return runContainer(ctx, name, map[string]any{
+		"Image": image,
+		"Env":   []string{"HAKOBU_CACHE=" + stamp},
+		"Cmd": []string{"valkey-server", "--requirepass", password, "--appendonly", "yes",
+			"--maxmemory", fmt.Sprintf("%dmb", memoryMB), "--maxmemory-policy", "noeviction"},
+	}, map[string]any{
+		"NetworkMode": network,
+		"Binds":       []string{name + "_data:/data"},
+		"SecurityOpt": []string{"no-new-privileges"},
+		"CapDrop":     appCapDrop,
+		"Memory":      limit << 20,
+		"MemorySwap":  limit << 20,
+	})
+}
+
+// ValkeyReady reports whether the cache's Valkey answers PING.
+func ValkeyReady(ctx context.Context, name, password string) bool {
+	out, code, err := execInContainer(ctx, name, []string{"valkey-cli", "--no-auth-warning", "-a", password, "ping"})
+	return err == nil && code == 0 && strings.TrimSpace(out) == "PONG"
+}
+
 // RunTunnelContainer runs cloudflared for the tunnel with the given token on
 // network and, from the start, on edges: the edge networks of the projects
 // it serves. socketDir, holding the panel's unix socket, is mounted at

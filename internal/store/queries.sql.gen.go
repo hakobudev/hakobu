@@ -47,6 +47,33 @@ func (q *Queries) AllowWatchdog(ctx context.Context) error {
 	return err
 }
 
+const appsUsingCache = `-- name: AppsUsingCache :many
+SELECT name FROM apps WHERE linked_cache_id = ? ORDER BY name
+`
+
+func (q *Queries) AppsUsingCache(ctx context.Context, linkedCacheID sql.NullInt64) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, appsUsingCache, linkedCacheID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		items = append(items, name)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const appsUsingDatabase = `-- name: AppsUsingDatabase :many
 SELECT name FROM apps WHERE linked_db_id = ? ORDER BY name
 `
@@ -214,6 +241,31 @@ func (q *Queries) CreateBackup(ctx context.Context, arg CreateBackupParams) (int
 		arg.KeyFingerprint,
 		arg.AccountID,
 		arg.Bucket,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const createCache = `-- name: CreateCache :one
+
+INSERT INTO caches (name, project_id, password, memory_mb) VALUES (?, ?, ?, ?) RETURNING id
+`
+
+type CreateCacheParams struct {
+	Name      string
+	ProjectID int64
+	Password  secret.String
+	MemoryMB  int64
+}
+
+// Caches
+func (q *Queries) CreateCache(ctx context.Context, arg CreateCacheParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, createCache,
+		arg.Name,
+		arg.ProjectID,
+		arg.Password,
+		arg.MemoryMB,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -593,6 +645,15 @@ func (q *Queries) DeleteBackupsOf(ctx context.Context, databaseID int64) error {
 	return err
 }
 
+const deleteCache = `-- name: DeleteCache :exec
+DELETE FROM caches WHERE id = ?
+`
+
+func (q *Queries) DeleteCache(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteCache, id)
+	return err
+}
+
 const deleteCloudflareAccount = `-- name: DeleteCloudflareAccount :exec
 DELETE FROM cloudflare_accounts WHERE id = ?
 `
@@ -877,7 +938,7 @@ func (q *Queries) GetAdmin(ctx context.Context) (User, error) {
 }
 
 const getApp = `-- name: GetApp :one
-SELECT id, project_id, project_name, user_id, name, repo, domain, dns_zone_id, dns_record_id, port, container_port, live_port, build_path, build_strategy, active_slot, env, sentry_key, health_check_path, linked_db_id, linked_storage_id, share_volumes, memory_mb, cpus, snapshot_db_id, snapshot_at, stack, start_command FROM app_view WHERE project_id = ? AND name = ?
+SELECT id, project_id, project_name, user_id, name, repo, domain, dns_zone_id, dns_record_id, port, container_port, live_port, build_path, build_strategy, active_slot, env, sentry_key, health_check_path, linked_db_id, linked_storage_id, linked_cache_id, share_volumes, memory_mb, cpus, snapshot_db_id, snapshot_at, stack, start_command FROM app_view WHERE project_id = ? AND name = ?
 `
 
 type GetAppParams struct {
@@ -910,6 +971,7 @@ func (q *Queries) GetApp(ctx context.Context, arg GetAppParams) (App, error) {
 		&i.HealthCheckPath,
 		&i.LinkedDbID,
 		&i.LinkedStorageID,
+		&i.LinkedCacheID,
 		&i.ShareVolumes,
 		&i.MemoryMB,
 		&i.Cpus,
@@ -922,7 +984,7 @@ func (q *Queries) GetApp(ctx context.Context, arg GetAppParams) (App, error) {
 }
 
 const getAppByDomain = `-- name: GetAppByDomain :one
-SELECT id, project_id, project_name, user_id, name, repo, domain, dns_zone_id, dns_record_id, port, container_port, live_port, build_path, build_strategy, active_slot, env, sentry_key, health_check_path, linked_db_id, linked_storage_id, share_volumes, memory_mb, cpus, snapshot_db_id, snapshot_at, stack, start_command FROM app_view WHERE domain = ? AND domain != ''
+SELECT id, project_id, project_name, user_id, name, repo, domain, dns_zone_id, dns_record_id, port, container_port, live_port, build_path, build_strategy, active_slot, env, sentry_key, health_check_path, linked_db_id, linked_storage_id, linked_cache_id, share_volumes, memory_mb, cpus, snapshot_db_id, snapshot_at, stack, start_command FROM app_view WHERE domain = ? AND domain != ''
 `
 
 func (q *Queries) GetAppByDomain(ctx context.Context, domain string) (App, error) {
@@ -949,6 +1011,7 @@ func (q *Queries) GetAppByDomain(ctx context.Context, domain string) (App, error
 		&i.HealthCheckPath,
 		&i.LinkedDbID,
 		&i.LinkedStorageID,
+		&i.LinkedCacheID,
 		&i.ShareVolumes,
 		&i.MemoryMB,
 		&i.Cpus,
@@ -961,7 +1024,7 @@ func (q *Queries) GetAppByDomain(ctx context.Context, domain string) (App, error
 }
 
 const getAppByID = `-- name: GetAppByID :one
-SELECT id, project_id, project_name, user_id, name, repo, domain, dns_zone_id, dns_record_id, port, container_port, live_port, build_path, build_strategy, active_slot, env, sentry_key, health_check_path, linked_db_id, linked_storage_id, share_volumes, memory_mb, cpus, snapshot_db_id, snapshot_at, stack, start_command FROM app_view WHERE id = ?
+SELECT id, project_id, project_name, user_id, name, repo, domain, dns_zone_id, dns_record_id, port, container_port, live_port, build_path, build_strategy, active_slot, env, sentry_key, health_check_path, linked_db_id, linked_storage_id, linked_cache_id, share_volumes, memory_mb, cpus, snapshot_db_id, snapshot_at, stack, start_command FROM app_view WHERE id = ?
 `
 
 func (q *Queries) GetAppByID(ctx context.Context, id int64) (App, error) {
@@ -988,6 +1051,7 @@ func (q *Queries) GetAppByID(ctx context.Context, id int64) (App, error) {
 		&i.HealthCheckPath,
 		&i.LinkedDbID,
 		&i.LinkedStorageID,
+		&i.LinkedCacheID,
 		&i.ShareVolumes,
 		&i.MemoryMB,
 		&i.Cpus,
@@ -1020,6 +1084,46 @@ func (q *Queries) GetBackup(ctx context.Context, id int64) (Backup, error) {
 		&i.VerifiedAt,
 		&i.VerifyError,
 		&i.Tables,
+	)
+	return i, err
+}
+
+const getCache = `-- name: GetCache :one
+SELECT id, name, project_id, password, memory_mb FROM caches WHERE project_id = ? AND name = ?
+`
+
+type GetCacheParams struct {
+	ProjectID int64
+	Name      string
+}
+
+// A cache by its name in its project.
+func (q *Queries) GetCache(ctx context.Context, arg GetCacheParams) (Cache, error) {
+	row := q.db.QueryRowContext(ctx, getCache, arg.ProjectID, arg.Name)
+	var i Cache
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.ProjectID,
+		&i.Password,
+		&i.MemoryMB,
+	)
+	return i, err
+}
+
+const getCacheByID = `-- name: GetCacheByID :one
+SELECT id, name, project_id, password, memory_mb FROM caches WHERE id = ?
+`
+
+func (q *Queries) GetCacheByID(ctx context.Context, id int64) (Cache, error) {
+	row := q.db.QueryRowContext(ctx, getCacheByID, id)
+	var i Cache
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.ProjectID,
+		&i.Password,
+		&i.MemoryMB,
 	)
 	return i, err
 }
@@ -1836,7 +1940,7 @@ func (q *Queries) ListAppRoutes(ctx context.Context, appID int64) ([]AppRoute, e
 }
 
 const listApps = `-- name: ListApps :many
-SELECT id, project_id, project_name, user_id, name, repo, domain, dns_zone_id, dns_record_id, port, container_port, live_port, build_path, build_strategy, active_slot, env, sentry_key, health_check_path, linked_db_id, linked_storage_id, share_volumes, memory_mb, cpus, snapshot_db_id, snapshot_at, stack, start_command FROM app_view ORDER BY project_name, name
+SELECT id, project_id, project_name, user_id, name, repo, domain, dns_zone_id, dns_record_id, port, container_port, live_port, build_path, build_strategy, active_slot, env, sentry_key, health_check_path, linked_db_id, linked_storage_id, linked_cache_id, share_volumes, memory_mb, cpus, snapshot_db_id, snapshot_at, stack, start_command FROM app_view ORDER BY project_name, name
 `
 
 func (q *Queries) ListApps(ctx context.Context) ([]App, error) {
@@ -1869,6 +1973,7 @@ func (q *Queries) ListApps(ctx context.Context) ([]App, error) {
 			&i.HealthCheckPath,
 			&i.LinkedDbID,
 			&i.LinkedStorageID,
+			&i.LinkedCacheID,
 			&i.ShareVolumes,
 			&i.MemoryMB,
 			&i.Cpus,
@@ -1891,7 +1996,7 @@ func (q *Queries) ListApps(ctx context.Context) ([]App, error) {
 }
 
 const listAppsByProject = `-- name: ListAppsByProject :many
-SELECT id, project_id, project_name, user_id, name, repo, domain, dns_zone_id, dns_record_id, port, container_port, live_port, build_path, build_strategy, active_slot, env, sentry_key, health_check_path, linked_db_id, linked_storage_id, share_volumes, memory_mb, cpus, snapshot_db_id, snapshot_at, stack, start_command FROM app_view WHERE project_id = ? ORDER BY name
+SELECT id, project_id, project_name, user_id, name, repo, domain, dns_zone_id, dns_record_id, port, container_port, live_port, build_path, build_strategy, active_slot, env, sentry_key, health_check_path, linked_db_id, linked_storage_id, linked_cache_id, share_volumes, memory_mb, cpus, snapshot_db_id, snapshot_at, stack, start_command FROM app_view WHERE project_id = ? ORDER BY name
 `
 
 func (q *Queries) ListAppsByProject(ctx context.Context, projectID int64) ([]App, error) {
@@ -1924,6 +2029,7 @@ func (q *Queries) ListAppsByProject(ctx context.Context, projectID int64) ([]App
 			&i.HealthCheckPath,
 			&i.LinkedDbID,
 			&i.LinkedStorageID,
+			&i.LinkedCacheID,
 			&i.ShareVolumes,
 			&i.MemoryMB,
 			&i.Cpus,
@@ -1946,7 +2052,7 @@ func (q *Queries) ListAppsByProject(ctx context.Context, projectID int64) ([]App
 }
 
 const listAppsByRepo = `-- name: ListAppsByRepo :many
-SELECT id, project_id, project_name, user_id, name, repo, domain, dns_zone_id, dns_record_id, port, container_port, live_port, build_path, build_strategy, active_slot, env, sentry_key, health_check_path, linked_db_id, linked_storage_id, share_volumes, memory_mb, cpus, snapshot_db_id, snapshot_at, stack, start_command FROM app_view WHERE repo = ?
+SELECT id, project_id, project_name, user_id, name, repo, domain, dns_zone_id, dns_record_id, port, container_port, live_port, build_path, build_strategy, active_slot, env, sentry_key, health_check_path, linked_db_id, linked_storage_id, linked_cache_id, share_volumes, memory_mb, cpus, snapshot_db_id, snapshot_at, stack, start_command FROM app_view WHERE repo = ?
 `
 
 func (q *Queries) ListAppsByRepo(ctx context.Context, repo string) ([]App, error) {
@@ -1979,6 +2085,7 @@ func (q *Queries) ListAppsByRepo(ctx context.Context, repo string) ([]App, error
 			&i.HealthCheckPath,
 			&i.LinkedDbID,
 			&i.LinkedStorageID,
+			&i.LinkedCacheID,
 			&i.ShareVolumes,
 			&i.MemoryMB,
 			&i.Cpus,
@@ -2032,6 +2139,72 @@ func (q *Queries) ListBackups(ctx context.Context, arg ListBackupsParams) ([]Bac
 			&i.VerifiedAt,
 			&i.VerifyError,
 			&i.Tables,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCaches = `-- name: ListCaches :many
+SELECT id, name, project_id, password, memory_mb FROM caches ORDER BY id
+`
+
+func (q *Queries) ListCaches(ctx context.Context) ([]Cache, error) {
+	rows, err := q.db.QueryContext(ctx, listCaches)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Cache
+	for rows.Next() {
+		var i Cache
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.ProjectID,
+			&i.Password,
+			&i.MemoryMB,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCachesByProject = `-- name: ListCachesByProject :many
+SELECT id, name, project_id, password, memory_mb FROM caches WHERE project_id = ? ORDER BY name
+`
+
+func (q *Queries) ListCachesByProject(ctx context.Context, projectID int64) ([]Cache, error) {
+	rows, err := q.db.QueryContext(ctx, listCachesByProject, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Cache
+	for rows.Next() {
+		var i Cache
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.ProjectID,
+			&i.Password,
+			&i.MemoryMB,
 		); err != nil {
 			return nil, err
 		}
@@ -3113,6 +3286,20 @@ func (q *Queries) SetAppLimits(ctx context.Context, arg SetAppLimitsParams) erro
 	return err
 }
 
+const setAppLinkedCache = `-- name: SetAppLinkedCache :exec
+UPDATE apps SET linked_cache_id = ? WHERE id = ?
+`
+
+type SetAppLinkedCacheParams struct {
+	LinkedCacheID sql.NullInt64
+	ID            int64
+}
+
+func (q *Queries) SetAppLinkedCache(ctx context.Context, arg SetAppLinkedCacheParams) error {
+	_, err := q.db.ExecContext(ctx, setAppLinkedCache, arg.LinkedCacheID, arg.ID)
+	return err
+}
+
 const setAppLinkedDB = `-- name: SetAppLinkedDB :exec
 UPDATE apps SET linked_db_id = ? WHERE id = ?
 `
@@ -3271,6 +3458,34 @@ func (q *Queries) SetBackupVerified(ctx context.Context, arg SetBackupVerifiedPa
 		arg.Tables,
 		arg.ID,
 	)
+	return err
+}
+
+const setCacheMemory = `-- name: SetCacheMemory :exec
+UPDATE caches SET memory_mb = ? WHERE id = ?
+`
+
+type SetCacheMemoryParams struct {
+	MemoryMB int64
+	ID       int64
+}
+
+func (q *Queries) SetCacheMemory(ctx context.Context, arg SetCacheMemoryParams) error {
+	_, err := q.db.ExecContext(ctx, setCacheMemory, arg.MemoryMB, arg.ID)
+	return err
+}
+
+const setCachePassword = `-- name: SetCachePassword :exec
+UPDATE caches SET password = ? WHERE id = ?
+`
+
+type SetCachePasswordParams struct {
+	Password secret.String
+	ID       int64
+}
+
+func (q *Queries) SetCachePassword(ctx context.Context, arg SetCachePasswordParams) error {
+	_, err := q.db.ExecContext(ctx, setCachePassword, arg.Password, arg.ID)
 	return err
 }
 

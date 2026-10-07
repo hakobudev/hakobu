@@ -21,9 +21,14 @@ hakobu rebuilds and rolls out the new version with zero downtime.
   for 7 days even from a bug in hakobu. It doesn't stop someone who has taken over the server: the token
   can change the lock. Each backup's SHA-256 is kept and checked before a restore; each is test-restored
   into a temporary database right after upload, and old ones are rotated (the last 7, one a week for a month).
+- **Caches**: a [Valkey](https://valkey.io) server per cache (Redis-compatible, BSD-licensed), its own container on the
+  project's network with a generated password and a memory cap (256 MB to start). A linked app gets `REDIS_URL` and
+  `REDIS_*`, which any Redis client reads, for caching, queues (Celery, BullMQ, Sidekiq) and sessions. Its data is
+  kept across restarts (append-only file in a volume) but not backed up; when it's full, writes fail rather than
+  evict, so a queue never silently loses jobs.
 - **Storages** for your apps' files: an R2 bucket hakobu creates in your Cloudflare account (you give it the keys of
   a token for that bucket alone; hakobu checks they can't reach the backups), or any S3-compatible bucket.
-- **Variables**: shared per project and per service; linked databases/storages inject `DATABASE_URL`, `POSTGRES_*`, `S3_*`.
+- **Variables**: shared per project and per service; linked databases/caches/storages inject `DATABASE_URL`, `POSTGRES_*`, `REDIS_URL`, `S3_*`.
 - **Logs**: build/deploy logs, container output, and errors, logs and traces via an auto-injected `SENTRY_DSN`,
   kept on the server the app runs on (another server's in its own `telemetry.db`, sealed with its key): the panel reads
   them while that server is connected and keeps none.
@@ -114,7 +119,7 @@ Its tools list apps and show one in detail (variable names, never values), read 
 output and errors with stack traces, and wait for a deploy to finish, so Claude can push a fix and check it
 landed. With the **Deploy and set up** box ticked when you allow the app, it can also deploy, roll back
 and restart workers, and set a repo up from nothing: make a project on your server, the app, a PostgreSQL
-database or a volume, set variables and how the app builds and starts. Tell your agent "deploy this repo"
+database, a cache or a volume, set variables and how the app builds and starts. Tell your agent "deploy this repo"
 and it can do the rest. Nothing deletes anything or reveals a secret: secrets you add yourself as sealed
 variables (the agent is told to ask you). The logs and errors Claude reads are written by
 your apps, and text in them could try to steer it. You're emailed when an app connects; **Settings → AI apps**

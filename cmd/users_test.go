@@ -184,7 +184,7 @@ func TestUsersSignIn(t *testing.T) {
 }
 
 // A user reaches nothing of someone else's: every route that names a
-// project, app, database, storage, server, Cloudflare account or sealed
+// project, app, database, cache, storage, server, Cloudflare account or sealed
 // variables answers 404 for another user's, and so do their charts. The
 // routes are read from web.go, so a new one is checked too.
 func TestUsersSeeOnlyTheirOwn(t *testing.T) {
@@ -220,6 +220,8 @@ func TestUsersSeeOnlyTheirOwn(t *testing.T) {
 	must(err)
 	_, err = s.CreateStorage(ctx, store.CreateStorageParams{Name: "adminst", ProjectID: p.ID, Provider: "r2", SecretAccessKey: "x"})
 	must(err)
+	_, err = s.CreateCache(ctx, store.CreateCacheParams{Name: "admincache", ProjectID: p.ID, Password: "x", MemoryMB: 64})
+	must(err)
 	must(s.CreateNode(ctx, store.CreateNodeParams{Name: "adminsrv", UserID: admin}))
 	_, err = s.CreateCloudflareAccount(ctx, store.CreateCloudflareAccountParams{Name: "adminclient", ApiToken: "x", AccountID: "acc", UserID: admin})
 	must(err)
@@ -232,13 +234,13 @@ func TestUsersSeeOnlyTheirOwn(t *testing.T) {
 	src := strings.NewReplacer(`"+appRoute+"`, "/projects/{p}/apps/{a}", `"+appRoute)`, `/projects/{p}/apps/{a}")`,
 		`"+dbRoute+"`, "/projects/{p}/databases/{d}", `"+dbRoute)`, `/projects/{p}/databases/{d}")`).Replace(string(b))
 	names := map[string]string{
-		"{p}": "adminp", "{a}": "adminapp", "{d}": "admindb", "{st}": "adminst", "{name}": "adminsrv", "{c}": "adminclient",
+		"{p}": "adminp", "{a}": "adminapp", "{d}": "admindb", "{st}": "adminst", "{cache}": "admincache", "{name}": "adminsrv", "{c}": "adminclient",
 		"{scope}": "app", "{key}": "K", "{v}": "data", "{id}": "1", "{trace}": "t",
 	}
 	checked := 0
 	for _, m := range regexp.MustCompile(`(?:handle|action)\("(GET|POST|DELETE) ([^"]+)"`).FindAllStringSubmatch(src, -1) {
 		method, path := m[1], m[2]
-		if !regexp.MustCompile(`\{(p|a|d|st|name|c)\}`).MatchString(path) {
+		if !regexp.MustCompile(`\{(p|a|d|st|cache|name|c)\}`).MatchString(path) {
 			continue
 		}
 		for k, v := range names {

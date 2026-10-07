@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/x0ryz/hakobu/internal/config"
 	"github.com/x0ryz/hakobu/internal/deploy"
 	"github.com/x0ryz/hakobu/internal/node"
 	"github.com/x0ryz/hakobu/internal/store"
@@ -841,4 +842,57 @@ func checkStats(t *testing.T, s *store.Store, app store.App) {
 		return
 	}
 	t.Errorf("%s isn't among the running containers", app.ContainerName())
+}
+
+// TestDockerCache runs a real Valkey: reachable with its password from its
+// project's network only, its data kept when it restarts with a new cap,
+// and gone with it.
+func TestDockerCache(t *testing.T) {
+	if os.Getenv("HAKOBU_DOCKER_TEST") == "" {
+		t.Skip("set HAKOBU_DOCKER_TEST=1 to run against the local Docker")
+	}
+	s, err := store.Open(filepath.Join(t.TempDir(), "hakobu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, b := newDockerTestApp(t, s), newDockerTestApp(t, s)
+	id, err := CreateCache(s, a.ProjectID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, _ := s.GetCacheByID(ctx(), id)
+	t.Cleanup(func() { _ = local.DropCache(ctx(), c.Key()) })
+	cli := func(network, password string, args ...string) (string, error) {
+		cmd := append([]string{"run", "--rm", "--network", network, config.ValkeyImage, "valkey-cli", "--no-auth-warning", "-h", c.Key(), "-a", password}, args...)
+		out, err := exec.Command("docker", cmd...).CombinedOutput()
+		return strings.TrimSpace(string(out)), err
+	}
+	own := ProjectNetwork(a.ProjectKey())
+	if out, err := cli(own, string(c.Password), "set", "k", "v"); err != nil || out != "OK" {
+		t.Fatalf("set from its project: %q %v", out, err)
+	}
+	if out, _ := cli(own, "wrong", "get", "k"); strings.Contains(out, "v") && !strings.Contains(out, "WRONGPASS") {
+		t.Errorf("read with a wrong password: %q", out)
+	}
+	if out, _ := cli(ProjectNetwork(b.ProjectKey()), string(c.Password), "get", "k"); out == "v" {
+		t.Error("another project reaches the cache")
+	}
+	if err := SetCacheMemory(s, id, 64); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := cli(own, string(c.Password), "config", "get", "maxmemory"); err != nil || !strings.Contains(out, "67108864") {
+		t.Errorf("maxmemory after the change: %q %v", out, err)
+	}
+	if out, err := cli(own, string(c.Password), "get", "k"); err != nil || out != "v" {
+		t.Errorf("data after a restart: %q %v", out, err)
+	}
+	if err := DeleteCache(s, id); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := deploy.ContainerStatus(ctx(), c.Key()); st != "not found" {
+		t.Errorf("the deleted cache's container is %s", st)
+	}
+	if ok, _ := deploy.VolumeExists(ctx(), c.Key()+"_data"); ok {
+		t.Error("the deleted cache's data is left")
+	}
 }

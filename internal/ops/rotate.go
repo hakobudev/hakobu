@@ -113,6 +113,13 @@ func rotateSecrets(s *store.Store, out io.Writer) (manual []string, failures int
 		}
 	}
 
+	// Caches: new passwords; they restart with their data.
+	if caches, err := s.ListCaches(ctx()); err == nil {
+		for _, c := range caches {
+			step("password of cache "+c.Name, rotateCachePassword(s, c))
+		}
+	}
+
 	// Storage keys are the owner's, made at the provider.
 	if storages, err := s.ListStorages(ctx()); err == nil {
 		for _, st := range storages {
@@ -131,8 +138,8 @@ func rotateSecrets(s *store.Store, out io.Writer) (manual []string, failures int
 			}
 			step("Sentry DSN key of "+a.Name, err)
 		}
-		// Every app restarts, getting its new key and its database's new
-		// password.
+		// Every app restarts, getting its new key and its database's and
+		// cache's new passwords.
 		for _, a := range apps {
 			step("restart "+a.Name+" with the new values", restartApp(s, a.ID))
 		}

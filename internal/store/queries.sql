@@ -84,6 +84,12 @@ SELECT name FROM apps WHERE linked_db_id = ? ORDER BY name;
 -- name: AppsUsingStorage :many
 SELECT name FROM apps WHERE linked_storage_id = ? ORDER BY name;
 
+-- name: SetAppLinkedCache :exec
+UPDATE apps SET linked_cache_id = ? WHERE id = ?;
+
+-- name: AppsUsingCache :many
+SELECT name FROM apps WHERE linked_cache_id = ? ORDER BY name;
+
 -- name: RenameApp :exec
 UPDATE apps SET name = ? WHERE id = ?;
 
@@ -213,6 +219,33 @@ SELECT * FROM storages ORDER BY id;
 
 -- name: DeleteStorage :exec
 DELETE FROM storages WHERE id = ?;
+
+-- Caches
+
+-- name: CreateCache :one
+INSERT INTO caches (name, project_id, password, memory_mb) VALUES (?, ?, ?, ?) RETURNING id;
+
+-- name: GetCache :one
+-- A cache by its name in its project.
+SELECT * FROM caches WHERE project_id = ? AND name = ?;
+
+-- name: GetCacheByID :one
+SELECT * FROM caches WHERE id = ?;
+
+-- name: ListCachesByProject :many
+SELECT * FROM caches WHERE project_id = ? ORDER BY name;
+
+-- name: ListCaches :many
+SELECT * FROM caches ORDER BY id;
+
+-- name: SetCacheMemory :exec
+UPDATE caches SET memory_mb = ? WHERE id = ?;
+
+-- name: SetCachePassword :exec
+UPDATE caches SET password = ? WHERE id = ?;
+
+-- name: DeleteCache :exec
+DELETE FROM caches WHERE id = ?;
 
 -- Backups
 

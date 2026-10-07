@@ -38,6 +38,7 @@ type appPage struct {
 	Sub, Zone        string
 	Databases        []store.Database
 	Storages         []store.Storage
+	Caches           []store.Cache
 	Volumes          []store.Volume
 	VolumeBackups    []volumeBackups
 	VolumeJobRunning bool
@@ -326,8 +327,14 @@ templ productionBox(p appPage) {
 							{ p.App.LinkedStorage }
 						</a>
 					}
-					if p.App.LinkedDB == "" && p.App.LinkedStorage == "" {
-						<a href={ p.path("settings") + "#resources" } class="muted">nothing, link a database or storage</a>
+					if p.App.LinkedCache != "" {
+						<a href={ templ.SafeURL(cacheURL(p.App.ProjectName, p.App.LinkedCache)) } class="badge">
+							@ic("zap", "icon-sm")
+							{ p.App.LinkedCache }
+						</a>
+					}
+					if p.App.LinkedDB == "" && p.App.LinkedStorage == "" && p.App.LinkedCache == "" {
+						<a href={ p.path("settings") + "#resources" } class="muted">nothing, link a database, cache or storage</a>
 					}
 				</span>
 				if p.App.MemoryMB > 0 || p.App.Cpus > 0 {

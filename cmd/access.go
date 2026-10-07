@@ -29,6 +29,7 @@ type resolved struct {
 	app     *store.App
 	db      *store.Database
 	storage *store.Storage
+	cache   *store.Cache
 }
 
 type resolvedKey struct{}
@@ -63,6 +64,13 @@ func resolve(r *http.Request, s *store.Store) (*http.Request, error) {
 				return r, errNotFound
 			}
 			res.storage = &st
+		}
+		if name := r.PathValue("cache"); name != "" {
+			c, err := s.GetCache(ctx, store.GetCacheParams{ProjectID: p.ID, Name: name})
+			if err != nil {
+				return r, errNotFound
+			}
+			res.cache = &c
 		}
 	}
 	// /settings/servers/{name} and /settings/clients/{c}.
@@ -104,6 +112,9 @@ func reqDB(r *http.Request) store.Database { return *requestResolved(r).db }
 
 // reqStorage is the storage the request's path names ({p} and {st}).
 func reqStorage(r *http.Request) store.Storage { return *requestResolved(r).storage }
+
+// reqCache is the cache the request's path names ({p} and {cache}).
+func reqCache(r *http.Request) store.Cache { return *requestResolved(r).cache }
 
 // checkTarget lets a user see the charts of their apps and servers (and
 // hakobu's services on them), and of what the panel's server shares with

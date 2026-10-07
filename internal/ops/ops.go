@@ -135,6 +135,15 @@ func DeleteProject(s *store.Store, id int64) error {
 			return err
 		}
 	}
+	caches, err := s.ListCachesByProject(ctx(), p.ID)
+	if err != nil {
+		return err
+	}
+	for _, c := range caches {
+		if err := DeleteCache(s, c.ID); err != nil {
+			return err
+		}
+	}
 	if err := s.DeleteSealedVarsOf(ctx(), store.DeleteSealedVarsOfParams{Scope: "project", OwnerID: p.ID}); err != nil {
 		return err
 	}
@@ -316,7 +325,7 @@ func LinkStorage(s *store.Store, app store.App, storageName string) error {
 }
 
 // Environment. Later entries win on duplicate keys, so the order is:
-// PORT, linked database, linked storage, SENTRY_DSN, project shared
+// PORT, linked database, storage and cache, SENTRY_DSN, project shared
 // variables (visible, then sealed), then the service's own (likewise).
 
 // baseEnv starts with PORT unless port is 0 (workers).
@@ -338,6 +347,13 @@ func baseEnv(s *store.Store, app store.App, port int64) ([]string, error) {
 			return nil, fmt.Errorf("linked storage not found: %w", err)
 		}
 		env = append(env, storageEnv(st)...)
+	}
+	if app.LinkedCacheID.Valid {
+		c, err := s.GetCacheByID(ctx(), app.LinkedCacheID.Int64)
+		if err != nil {
+			return nil, fmt.Errorf("linked cache not found: %w", err)
+		}
+		env = append(env, CacheEnv(c)...)
 	}
 	if host := config.PublicHost(); host != "" {
 		key := string(app.SentryKey)

@@ -34,6 +34,7 @@ type mcpProject struct {
 	Domains   []string `json:"domains" jsonschema:"zones an app's address can be in"`
 	Apps      []string `json:"apps"`
 	Databases []string `json:"databases"`
+	Caches    []string `json:"caches"`
 }
 
 type mcpPreset struct {
@@ -74,7 +75,7 @@ func addSetupTools(server *mcp.Server, s *store.Store, getApp func(context.Conte
 				return nil, out, err
 			}
 			for _, p := range projects {
-				mp := mcpProject{Name: p.Name, Server: ops.ProjectServerName(s, p), Domains: []string{}, Apps: []string{}, Databases: []string{}}
+				mp := mcpProject{Name: p.Name, Server: ops.ProjectServerName(s, p), Domains: []string{}, Apps: []string{}, Databases: []string{}, Caches: []string{}}
 				if p.CloudflareAccountID.Valid {
 					if a, err := s.GetCloudflareAccount(ctx, p.CloudflareAccountID.Int64); err == nil {
 						mp.Account = a.Name
@@ -91,6 +92,11 @@ func addSetupTools(server *mcp.Server, s *store.Store, getApp func(context.Conte
 				if dbs, err := s.ListDatabasesByProject(ctx, p.ID); err == nil {
 					for _, d := range dbs {
 						mp.Databases = append(mp.Databases, d.Name)
+					}
+				}
+				if caches, err := s.ListCachesByProject(ctx, p.ID); err == nil {
+					for _, c := range caches {
+						mp.Caches = append(mp.Caches, c.Name)
 					}
 				}
 				out.Projects = append(out.Projects, mp)
@@ -223,6 +229,58 @@ func addSetupTools(server *mcp.Server, s *store.Store, getApp func(context.Conte
 				return nil, mcpDone{}, err
 			}
 			if err := ops.LinkDatabase(s, app, in.Database); err != nil {
+				return nil, mcpDone{}, err
+			}
+			return nil, mcpDone{Done: "linked", Next: "deploy " + in.App}, nil
+		})
+
+	mcp.AddTool(server, &mcp.Tool{Name: "create_cache", Description: "Create a cache in a project and link it to an app there: a Valkey server of its own (Redis-compatible, 256 MB), for caching, queues (Celery, BullMQ, Sidekiq) and sessions. The app gets REDIS_URL and REDIS_* on its next deploy. Its data outlives restarts but isn't backed up: keep nothing there that can't be rebuilt.", Annotations: creates},
+		func(ctx context.Context, req *mcp.CallToolRequest, in struct {
+			Project string `json:"project"`
+			Name    string `json:"name,omitempty" jsonschema:"lowercase letters, digits and dashes; empty for a suggested one"`
+			App     string `json:"app,omitempty" jsonschema:"an app of the project to link it to, by its name there"`
+		}) (*mcp.CallToolResult, mcpDone, error) {
+			if err := mayDeploy(req); err != nil {
+				return nil, mcpDone{}, err
+			}
+			p, err := findMCPProject(ctx, s, mcpUserOf(ctx), in.Project)
+			if err != nil {
+				return nil, mcpDone{}, err
+			}
+			id, err := ops.CreateCache(s, p.ID, strings.TrimSpace(in.Name))
+			if err != nil {
+				return nil, mcpDone{}, err
+			}
+			c, err := s.GetCacheByID(ctx, id)
+			if err != nil {
+				return nil, mcpDone{}, err
+			}
+			if in.App == "" {
+				return nil, mcpDone{Done: "created cache " + c.Name, Next: "link_cache to an app"}, nil
+			}
+			app, err := getApp(ctx, p.Name+"/"+in.App)
+			if err != nil {
+				return nil, mcpDone{}, err
+			}
+			if err := ops.LinkCache(s, app, c.Name); err != nil {
+				return nil, mcpDone{}, err
+			}
+			return nil, mcpDone{Done: "created cache " + c.Name + " and linked it to " + in.App, Next: "deploy " + in.App + " for it to get REDIS_URL"}, nil
+		})
+
+	mcp.AddTool(server, &mcp.Tool{Name: "link_cache", Description: "Link one of the project's caches to an app (\"\" unlinks): it gets REDIS_URL and REDIS_* on its next deploy.", Annotations: &mcp.ToolAnnotations{DestructiveHint: new(false), IdempotentHint: true, OpenWorldHint: new(false)}},
+		func(ctx context.Context, req *mcp.CallToolRequest, in struct {
+			App   string `json:"app" jsonschema:"project/app"`
+			Cache string `json:"cache" jsonschema:"a cache of the app's project, by its name there"`
+		}) (*mcp.CallToolResult, mcpDone, error) {
+			if err := mayDeploy(req); err != nil {
+				return nil, mcpDone{}, err
+			}
+			app, err := getApp(ctx, in.App)
+			if err != nil {
+				return nil, mcpDone{}, err
+			}
+			if err := ops.LinkCache(s, app, in.Cache); err != nil {
 				return nil, mcpDone{}, err
 			}
 			return nil, mcpDone{Done: "linked", Next: "deploy " + in.App}, nil

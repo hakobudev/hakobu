@@ -31,6 +31,7 @@ type App struct {
 	HealthCheckPath string
 	LinkedDbID      sql.NullInt64
 	LinkedStorageID sql.NullInt64
+	LinkedCacheID   sql.NullInt64
 	ShareVolumes    int64
 	MemoryMB        int64
 	Cpus            float64
@@ -59,6 +60,7 @@ type AppRecord struct {
 	HealthCheckPath string
 	LinkedDbID      sql.NullInt64
 	LinkedStorageID sql.NullInt64
+	LinkedCacheID   sql.NullInt64
 	ShareVolumes    int64
 	MemoryMB        int64
 	Cpus            float64
@@ -88,6 +90,14 @@ type Backup struct {
 	VerifiedAt     string
 	VerifyError    string
 	Tables         int64
+}
+
+type Cache struct {
+	ID        int64
+	Name      string
+	ProjectID int64
+	Password  secret.String
+	MemoryMB  int64
 }
 
 type Cloudflare struct {
