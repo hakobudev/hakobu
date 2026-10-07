@@ -332,6 +332,11 @@ func Servers(s *store.Store) ([]Server, error) {
 		out[i] = Server{ID: n.ID, UserID: n.UserID, Name: n.Name, Joined: n.PublicKey != "", Version: n.Version, LastSeen: n.LastSeen}
 		if c, ok := links.get(n.ID); ok {
 			out[i].Connected, out[i].Version = true, c.version
+			// The owner exports the key on the server, so ask again while
+			// it's asked for: the page shows it gone right after.
+			if k, known := knownServerKeys(n.ID); !known || !k.Exported {
+				noteServerKeys(n.ID, c.remote)
+			}
 		}
 		out[i].Key, out[i].KeyKnown = knownServerKeys(n.ID)
 	}
