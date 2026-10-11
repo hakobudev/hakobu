@@ -1,0 +1,556 @@
+# Introduction
+
+hakobu deploys apps from GitHub to servers you own. Push to the default branch and it builds the new version and swaps it in with no downtime, behind Cloudflare, so nothing on your servers is open to the internet.
+
+## What it does
+
+- **Apps** come from GitHub repositories, built with their Dockerfile or detected by [Railpack](https://railpack.com). Every push to the default branch deploys; a deploy goes live once it answers its health check, and **Rollback** returns to the build before.
+- **Projects** group apps with their [databases](https://hakobu.dev/docs/databases/index.md) (PostgreSQL), [caches](https://hakobu.dev/docs/caches/index.md) (Valkey, Redis-compatible), [storages](https://hakobu.dev/docs/storages/index.md) (R2 or S3) and [volumes](https://hakobu.dev/docs/volumes/index.md). Each project has its own Docker networks: an app reaches its project's apps and data, never another project's.
+- **Domains and HTTPS** through a Cloudflare Tunnel: hakobu creates the DNS records, and the server needs no public IP and no open port.
+- **Backups** of databases and volumes go to R2 in your Cloudflare account every day, sealed with the server's own key, and each is restored into a scratch database right after upload to prove it restores.
+- **Errors, logs and traces**: any Sentry SDK works, and what your apps send stays on the server they run on.
+- **Claude** can read your apps' logs and errors, deploy and roll back, through hakobu's [MCP server](https://hakobu.dev/docs/claude/index.md).
+- **One binary**: hakobu is a single Go program with SQLite. It needs Docker, which the installer sets up rootless.
+
+## Two ways to run it
+
+The same program runs both.
+
+- **The hosted panel** at [dash.hakobu.dev](https://dash.hakobu.dev): sign in with GitHub and add your servers. The panel runs no apps of its own and can't open your backups. See [Hosted panel](https://hakobu.dev/docs/hosted/index.md).
+- **Self-hosted**: install the panel on your own server with one command. See [Self-hosting](https://hakobu.dev/docs/install/index.md).
+
+Either way your apps run on your servers, and their domains, files and backups are in your Cloudflare account.
+
+## What you need
+
+- A Linux server (amd64 or arm64). Any VPS works; it needs no public IP.
+- A domain on Cloudflare. The free plan is enough.
+- A GitHub account, and the repositories you want to deploy.
+
+# Hosted panel
+
+[dash.hakobu.dev](https://dash.hakobu.dev) is a hakobu panel for everyone. It runs no apps itself: your projects run on servers you add, in your Cloudflare account.
+
+## Sign in
+
+Sign in with GitHub. Your first sign-in makes your account; there's nothing else to fill in. To deploy a repository, install the panel's GitHub App on your account (or an organization) and pick the repositories it may read; **New app** links there when it has none. It reaches only the repositories you pick.
+
+## Add a server
+
+Under **Settings → Servers**, add a server and give it a name. You get a command to run on it, as root:
+
+```bash
+curl -fsSL https://hakobu.dev/install.sh | sudo HAKOBU_PANEL=https://dash.hakobu.dev HAKOBU_JOIN_TOKEN=… bash
+```
+
+It installs Docker and hakobu there and connects the server to the panel. The token in it works once, for an hour. The server dials out to the panel, so it needs no open port, and what goes between them is encrypted end to end.
+
+Then keep a copy of the server's key away from it, as the panel asks: see [Server keys](https://hakobu.dev/docs/servers/index.md).
+
+## Connect Cloudflare
+
+Under **Settings → Cloudflare**, the link opens a new API token in your Cloudflare profile with what hakobu needs. Select **Continue to summary** → **Create Token** and paste it into the panel. hakobu connects every account the token reaches, yours and your clients' (see [Cloudflare accounts](https://hakobu.dev/docs/cloudflare/index.md)).
+
+Nothing is made in your account until a project needs it: a tunnel with its first domain, a bucket with its first backup.
+
+## Create a project
+
+**New project** asks for a name, the server it runs on and the Cloudflare account its domains are in. Then add an app from a repository: see [Apps](https://hakobu.dev/docs/apps/index.md).
+
+## What the panel sees
+
+The panel keeps your projects' settings and variables, encrypted, and runs your deploys. It can't open your backups: they're sealed with your server's own key, which never leaves the server. Your apps' logs, errors and traces stay on your server; the panel reads them while you look.
+
+# Self-hosting
+
+You need a Linux server and a domain on Cloudflare (the free plan is enough). The server needs no public IP or open ports: everything goes through a Cloudflare Tunnel.
+
+```bash
+curl -fsSL https://hakobu.dev/install.sh | sudo bash
+```
+
+1. The installer shows a Cloudflare link to a new API token of yours with hakobu's permissions filled in: read your domains, manage their DNS records, create a tunnel, keep database backups in R2, email you when something needs you and run a Worker that watches the panel from outside. It's for every account you're a member of: the panel's, and your clients' (see [Cloudflare accounts](https://hakobu.dev/docs/cloudflare/index.md)), so it's the only token you give hakobu. Select **Continue to summary** → **Create Token**, copy the token and paste it into the terminal (it isn't echoed). Or set `CLOUDFLARE_API_TOKEN` before running the installer.
+2. Pick one of your domains from the list and the panel's subdomain (default `hakobu`). hakobu creates the tunnel and a DNS record for the panel, in that domain's account: the panel's account.
+3. Open the printed link, `https://hakobu.example.com/setup?token=…`, click **Connect GitHub** (this registers a GitHub App for your panel; under it you can put the app on an organization and name it, as people see that name when they sign in), sign in with GitHub and you are the admin. Only that link can claim a fresh panel.
+
+Every app then gets its own address in any domain of the account (`app.example.com`, `myapp.dev`, …); hakobu creates and removes the DNS records itself.
+
+## Narrowing the token
+
+Under **Account Resources** and **Zone Resources** you can narrow the token to the accounts and domains hakobu should use: whoever takes over the server gets the token, and with it the DNS of every domain it covers. **Client IP Address Filtering** makes a copy of the token that leaks elsewhere useless: list both of the server's addresses, the IPv6 one as its `/64`, since the server reaches Cloudflare over IPv6 when it has it.
+
+## If something goes wrong
+
+Lost the setup link: `journalctl -u hakobu | grep setup`.
+
+Give hakobu a new Cloudflare token (after rolling it, say):
+
+```bash
+cd /opt/hakobu && sudo -u hakobu ./hakobu setup --reconnect
+```
+
+## Email notifications
+
+**Settings → Notifications**: enter your address and confirm it from the email Cloudflare sends. See [Errors, logs and alerts](https://hakobu.dev/docs/observability/index.md).
+
+## Next
+
+- Add [other servers](https://hakobu.dev/docs/servers/index.md), a client's say.
+- Let friends deploy on your panel: [Sharing a panel](https://hakobu.dev/docs/sharing/index.md).
+- Keep the master key safe: [Backups and recovery](https://hakobu.dev/docs/backups/index.md).
+
+# Apps
+
+An app is a GitHub repository that hakobu builds and runs. Every push to its default branch deploys it.
+
+## Add an app
+
+1. Open a project and choose **New → App**.
+2. Pick a repository (give the GitHub App access to it first) and check the detected stack. The name and the `<app>.<your domain>` address are filled in; pick another domain from the list, or **private** for an app with no address.
+3. The first deploy starts right away.
+
+Link a [database](https://hakobu.dev/docs/databases/index.md), [cache](https://hakobu.dev/docs/caches/index.md) or [storage](https://hakobu.dev/docs/storages/index.md) in the app's **Settings → Resources**, and set its [variables](https://hakobu.dev/docs/variables/index.md). Changes apply on the next deploy.
+
+## Build and start
+
+[Railpack](https://railpack.com) detects how to build and start the app, or a Dockerfile builds it (**Settings → Build**, with the path in the repo for a monorepo). Railpack also reads a `railpack.json` or `Procfile` in the repo, and the app's `RAILPACK_*` variables (`RAILPACK_NODE_VERSION`, `RAILPACK_START_CMD`, …).
+
+Variables frontend tools build into the browser's JavaScript (`VITE_*`, `NEXT_PUBLIC_*`, `PUBLIC_*`, `REACT_APP_*`) reach the build as well, also as a Dockerfile's `ARG`s; no other variable does.
+
+**Start command** runs with `sh` instead of whatever the image starts, Railpack's or a Dockerfile's: `npm run migrate && node server.js`, say.
+
+The app gets `PORT` to listen on; hakobu detects the port it actually listens on either way.
+
+## Deploys without downtime
+
+A deploy builds the new image, snapshots the app's database (so a rollback can undo a migration), starts the new version next to the running one and checks its health: any response for `/`, or a 2xx for the **Health check path** you set. Only then does traffic switch, and the old version stops. A version that doesn't come up never gets traffic, and the deploy's log says why.
+
+An app with [volumes](https://hakobu.dev/docs/volumes/index.md) is stopped before the new version starts (a few seconds of downtime), unless you let both versions share them.
+
+**Redeploy** rebuilds the latest commit. **Rollback** returns to the build before; with **with data** it also restores the database snapshot taken before the live build's deploy, so a bad migration is undone too (rows written since are lost).
+
+## Worker
+
+**Settings → Worker** runs a background process from the app's image with its own start command and no port: a queue consumer like `celery -A tasks worker`. It gets the app's variables and links, plus its own **Worker variables**, and restarts after every deploy.
+
+## Limits
+
+**Settings → Limits** caps the app's memory and CPUs. An app killed for running out of memory shows it on its page, and you're emailed.
+
+## Domains
+
+**Settings → General → Address** puts the app on any domain of the project's Cloudflare account; hakobu manages the DNS record and HTTPS works right away. Leave the subdomain empty for the root domain. A **private** app has no address: other apps of the project reach it on the project's network (see [Apps calling apps](https://hakobu.dev/docs/apps-calling-apps/index.md)).
+
+## Disk
+
+Each app keeps only its live image and one for rollback, and unused build cache is dropped daily. You're emailed when the disk is almost full.
+
+# Apps calling apps
+
+Apps of one project reach each other on the project's network, and the project's page draws them left to right: apps that call others before the apps they call.
+
+## Referring to another app
+
+A variable can refer to another app of the project, filled in when the app deploys:
+
+- `VITE_API_URL=${{api.URL}}`: its public address, `https://api.example.com`, for a browser. `${{api.HOST}}` is the host alone.
+- `API_URL=${{api.PRIVATE_URL}}`: its address inside the project (`http://app-12.hakobu:8080`), from a server: quicker and never through Cloudflare.
+
+## One address for two apps
+
+An app can serve a path of its address by another app of the project, like a proxy in front of both (app **Settings → Routes**). With `/api` → `api`, `shop.example.com/api/…` reaches the api and the rest the shop.
+
+One address, so the browser needs no CORS and shares cookies. The api sees the whole path, `/api` included, and needs no address of its own.
+
+# Variables and secrets
+
+## Where they're set
+
+- **Shared variables** on the project's page go to every app of the project.
+- An app's **Variables** tab has its own, on top of the shared ones; its worker can have more (**Settings → Worker**).
+- Linked resources add theirs: `DATABASE_URL` and `POSTGRES_*` from a [database](https://hakobu.dev/docs/databases/index.md), `REDIS_URL` and `REDIS_*` from a [cache](https://hakobu.dev/docs/caches/index.md), `S3_*` from a [storage](https://hakobu.dev/docs/storages/index.md). hakobu also sets `PORT` and `SENTRY_DSN`.
+
+When a name is set in more than one place, the app's own value wins over the shared one, which wins over the linked ones. The **Variables** tab shows what the app gets in the end.
+
+Changes apply on the next deploy.
+
+## Sealed variables
+
+A secret (an API key, a payment provider's token) belongs in a **sealed variable**. Its value is passed to the containers but never shown again, not even to you: someone who gets into the panel can't copy it. Seal the same name again to replace a value. Projects, apps and workers each have their own.
+
+Claude never sets a secret: it asks you to seal it (see [Claude](https://hakobu.dev/docs/claude/index.md)).
+
+## Encrypted at rest
+
+Every variable, sealed or not, is encrypted in the panel's database with its master key, kept apart from the data: a copy of the database alone reads nothing. See [Security](https://hakobu.dev/docs/security/index.md).
+
+# Databases
+
+A database is a PostgreSQL database with a role of its own, in one shared PostgreSQL server on the project's server. Only its project's apps reach it.
+
+## Create and link
+
+**New → Database** on the project's page. Link it to an app in the app's **Settings → Resources**: the app gets `DATABASE_URL`, `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER` and `POSTGRES_PASSWORD` on its next deploy. The password is generated.
+
+## Backups
+
+With backups on (one click in **Settings**), every database is backed up daily to a private R2 bucket hakobu creates in your Cloudflare account. Each backup is:
+
+- **sealed** by the server the database runs on, with that server's own key, which the panel never has;
+- **checked**: its SHA-256 is kept and verified before a restore, and it's restored into a scratch database right after upload, counting its tables;
+- **locked** for 7 days by the bucket, even against a bug in hakobu;
+- **rotated**: the last 7 are kept, and one a week for a month.
+
+The database's page lists its backups, makes one now, checks one again and restores one. See [Backups and recovery](https://hakobu.dev/docs/backups/index.md) for the whole picture.
+
+## Rollback with data
+
+Before each deploy of an app, its database is snapshotted on the server. **Rollback with data** puts the snapshot back with the build before, so a migration that went wrong is undone. Rows written since are lost.
+
+## Moving a database in
+
+A database from another host comes in as a backup of a hakobu database. With backups on, on the panel's server:
+
+```bash
+ssh old-host 'pg_dump -Fc -U postgres mydb' | sudo -u hakobu /opt/hakobu/hakobu database import shop/mydb -
+```
+
+naming the database by its project, `shop`; when several users have a project of that name, `--user <GitHub login>` says whose.
+
+Only pg_dump's custom format (`-Fc`) is taken. On the database's page, **Check** restores the dump into a scratch database and counts its tables; **Restore** replaces the database's data with it (objects become the database role's, grants are dropped). A restore that fails changes nothing, so a trial move and the real one later are the same two steps.
+
+# Caches
+
+A cache is a [Valkey](https://valkey.io) server of its own: Redis-compatible, BSD-licensed, for caching, queues (Celery, BullMQ, Sidekiq, arq) and sessions. Any Redis client works with it.
+
+## Create and link
+
+**New → Cache** on the project's page. Link it to an app in the app's **Settings → Resources**: on its next deploy the app gets
+
+| Variable | Value |
+| --- | --- |
+| `REDIS_URL` | `redis://default:<password>@cache-12:6379/0` |
+| `VALKEY_URL` | the same |
+| `REDIS_HOST` | `cache-12` |
+| `REDIS_PORT` | `6379` |
+| `REDIS_PASSWORD` | the generated password |
+
+Each cache runs in its own container on its project's network: only that project's apps reach it, and only with its password.
+
+## Memory
+
+A cache starts with 256 MB; change it on its page, and it restarts with its data. When it's full, writes fail and nothing is evicted, so a queue never silently loses jobs. For a plain cache, give keys a TTL.
+
+## Its data
+
+What's in a cache outlives restarts and redeploys (an append-only file in a volume), but it isn't backed up. Keep nothing there you can't rebuild; put it in a [database](https://hakobu.dev/docs/databases/index.md).
+
+**Replace all secrets** gives every cache a new password; it restarts with its data, and its apps get the password on their restart.
+
+# Storages
+
+A storage is a bucket for your apps' files: R2 in the project's Cloudflare account, or any S3-compatible service (AWS, Backblaze, MinIO, …).
+
+## R2
+
+**New → Storage** with R2: hakobu creates the bucket in the project's Cloudflare account. The keys the app gets come from an R2 API token you make for that bucket alone, as the storage's page shows step by step:
+
+1. In Cloudflare, open **R2 → API tokens** and create an **Account API token**.
+2. Permissions: **Object Read & Write**; buckets: **Apply to specific buckets only**, with the storage's bucket.
+3. Paste its Access Key ID and Secret Access Key on the storage's page.
+
+hakobu checks the keys reach their bucket and not the backups, before it saves them. (Its own token can't make such keys, and its keys would reach every bucket, the backups included.) R2's free plan includes 10 GB, and downloads are free.
+
+## S3-compatible
+
+Give the endpoint, bucket, keys and region (default `auto`) when you create the storage.
+
+## Linking
+
+Link a storage in the app's **Settings → Resources**. The app gets `S3_ENDPOINT`, `S3_BUCKET_NAME`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` and `S3_REGION` on its next deploy.
+
+Removing a storage only makes hakobu forget it: the bucket and its files stay.
+
+# Volumes
+
+A volume is a directory that survives redeploys, shared by the app and its worker: for an SQLite database, uploads or anything else on disk. Everything else in the container is reset on every deploy.
+
+Add one in the app's **Settings → Volumes** with its mount path, `/app/data` say.
+
+## Deploys
+
+An app with volumes is stopped before its new version starts, so two versions never write the same files: a few seconds of downtime. If your app can share them safely, let both versions share the volumes and keep deploys without downtime.
+
+## Backups
+
+With backups on, each volume is backed up daily to the backup bucket, like a database. The app and its worker are paused for the seconds tar takes to read it, so an SQLite file and its journal are copied as of one moment. Each backup is sealed with the server's key, read back after upload, and can't be deleted in its first 7 days. One click on the app's page puts a backup back.
+
+## Uploading a file
+
+An SQLite database (or any file) goes into a volume from the panel: app **Settings → Volumes → Upload a file**, with its path in the volume, e.g. `app.db`. The volume is backed up first, then the app stops while the file is written in place of one of that name, owned as the volume is. It goes to the app's server through the backup bucket, sealed, so backups must be on. Cloudflare passes up to 100 MB in one upload.
+
+# Errors, logs and alerts
+
+## Logs
+
+An app's **Logs** tab has its output and its worker's, and every deploy's build log is on **Deployments**.
+
+## Errors and traces
+
+hakobu speaks Sentry's protocol: every app gets `SENTRY_DSN` (and `SENTRY_PUBLIC_DSN` for browser SDKs), so any Sentry SDK reports to hakobu with no account anywhere. The app's **Errors** tab groups exceptions with their stack traces; **Performance** shows requests by route, with slow and failed ones kept whole for a week to see where the time went.
+
+What your apps send is kept on the server they run on, in its own database sealed with its key. The panel reads it while that server is connected and keeps none.
+
+The project's page counts each app's problems of the last day (errors, crashes, out-of-memory kills, failed health checks) on its card.
+
+## Email alerts
+
+**Settings → Notifications**: enter your address and confirm it from the email Cloudflare sends. hakobu then emails you when a deploy after a push fails, a backup fails, an app crashes or runs out of memory, the disk is almost full or the master key isn't downloaded; each problem once, again only if it's still there hours later, and once more when it's gone. It goes through Cloudflare Email Service, free for a confirmed address.
+
+## Watched from outside
+
+When the server, hakobu or the tunnel is down, hakobu can't email you itself. While emails are on, hakobu sets up a **watchdog**: a Worker in your Cloudflare account, free plan included, that asks the panel's `/healthz` and each app's address from outside every minute and emails the same address when one stops answering and when it's back. With D1 Edit on the token it keeps 30 days of that, which the app pages and Settings show as uptime and outages, including while the server was down. You can turn it off in **Settings → Notifications**.
+
+# Claude (MCP)
+
+hakobu is an MCP server at `https://<panel address>/mcp` (on the hosted panel, `https://dash.hakobu.dev/mcp`), with its own OAuth: an app asking for access sends you to the panel, you sign in with GitHub and allow it.
+
+## Connect
+
+- **claude.ai**, the desktop and mobile apps: Settings → Connectors → Add custom connector, with that address.
+- **Claude Code**:
+
+  ```bash
+  claude mcp add --transport http hakobu https://dash.hakobu.dev/mcp
+  ```
+
+  then `/mcp` to sign in.
+- **VS Code** (Copilot's agent mode): **MCP: Add Server** → HTTP, with that address.
+
+## What it can do
+
+Its tools list apps and show one in detail (variable names, never values), read deploy logs, the apps' output and errors with stack traces, and wait for a deploy to finish, so Claude can push a fix and check it landed.
+
+With the **Deploy and set up** box ticked when you allow the app, it can also deploy, roll back and restart workers, and set a repository up from nothing: make a project, the app, a PostgreSQL database, a cache or a volume, set variables and how the app builds and starts. Tell your agent "deploy this repo" and it can do the rest.
+
+## What it can't
+
+Nothing deletes anything or reveals a secret. Secrets you add yourself as [sealed variables](https://hakobu.dev/docs/variables/index.md); the agent is told to ask you.
+
+The logs and errors Claude reads are written by your apps, and text in them could try to steer it. You're emailed when an app connects; **Settings → AI apps** lists them and disconnects one, and **Replace all secrets** disconnects all. Tokens last an hour and are renewed for up to 30 days of disuse; a renewal token used twice disconnects its app.
+
+## Self-hosted panels
+
+The panel's Cloudflare zone must let Anthropic's servers (`160.79.104.0/21`) reach `/mcp`, `/oauth/*` and `/.well-known/*`: a WAF rule, Bot Fight Mode or Cloudflare Access in front of the panel blocks them.
+
+# Servers
+
+One panel runs projects on several servers: yours, or a client's. A self-hosted panel's own server runs projects too; the hosted panel's runs none.
+
+## Add a server
+
+Under **Settings → Servers**, add one and run the command it shows on the new server, as root:
+
+```bash
+curl -fsSL https://hakobu.dev/install.sh | sudo HAKOBU_PANEL=https://hakobu.example.com HAKOBU_JOIN_TOKEN=… bash
+```
+
+It installs Docker and hakobu there and joins the panel; the token works once, within an hour.
+
+The server needs no open port: it connects to the panel through the panel's tunnel, and what goes between them is encrypted end to end, so Cloudflare doesn't see the variables and passwords it carries.
+
+## Projects on a server
+
+A project is put on a server when it's made; it can move only while it has no apps or databases. Its apps, databases, caches and volumes run there, reached through a tunnel of their Cloudflare account on that server, and its backups go from that server straight to R2 through URLs the panel signs for each part.
+
+A server gets nothing of the panel's: not its master key or tokens, and for builds a GitHub token for the one repository.
+
+## Server keys
+
+Each server has keys of its own, which the panel never sees: they seal its backups and its apps' telemetry. Keep a copy away from the server; the panel asks for it (Settings → Servers, and by email) until you run, on the server,
+
+```bash
+cd /opt/hakobu && sudo ./hakobu key export > ~/hakobu-$(hostname).key
+```
+
+A new server takes a lost one's keys with `HAKOBU_NODE_KEYS=<that file>` next to the join command, or later with `sudo ./hakobu key import <file>` and a restart. A key that's replaced stays in the server's keyring, so what it sealed still opens.
+
+> Without its key, a lost server's backups can't be opened by anyone: not you, not the panel.
+
+# Cloudflare accounts
+
+hakobu works in your Cloudflare accounts with one API token of yours: it reads your domains, manages their DNS records, creates tunnels, keeps backups in R2 and sends you email.
+
+## Yours and your clients'
+
+A project can live in another Cloudflare account than the panel's: yours, or a client's, who keeps it. Clients invite you to theirs (**Manage Account → Members**); your token then reaches them all. hakobu checks it can do what it needs in each account and connects them, listed under **Settings → Cloudflare**. It keeps up every ten minutes: a client who invites you later shows up by itself, one who removes you goes (or, while a project still uses their account, you get an email). To leave an account out, leave it out of the token. **Replace token** swaps it for all of them.
+
+Other users of a shared panel connect their accounts the same way, with a token of their own made with the link under **Settings → Cloudflare**.
+
+## What's made in an account
+
+Nothing, until a project there needs it. With the first domain of a project in it on a server, hakobu creates a tunnel there, which only that account's projects on that server go through, with no way to the panel. Their domains, R2 storages and database and volume backups are in the account; the buckets stay when the account goes from hakobu.
+
+## Why a token, not "Sign in with Cloudflare"
+
+A sign-in gives no keys for R2's S3 API, which backups go through, and Cloudflare's sign-in turns server networks away (Hetzner's always; see [workers-sdk#11081](https://github.com/cloudflare/workers-sdk/issues/11081)), so the panel couldn't keep it alive by itself. A token goes straight from the dashboard to your panel, never needs renewing and works from any network.
+
+# Backups and recovery
+
+## Turning backups on
+
+One click in **Settings**: hakobu creates a private R2 bucket in the Cloudflare account, and from then on backs up every [database](https://hakobu.dev/docs/databases/index.md) and [volume](https://hakobu.dev/docs/volumes/index.md) daily. No S3 keys exist for it: hakobu writes with its Cloudflare token.
+
+## What a backup is
+
+- **Sealed** by the server the data lives on, with that server's own key, which the panel never has. A leak of the panel's database, of the bucket or of the panel's disk exposes nothing.
+- **Checked**: its SHA-256 is kept and verified before a restore, and it's restored into a scratch database (or read back, for a volume) right after upload.
+- **Locked** for 7 days by the bucket's lock, even against a bug in hakobu. It doesn't stop someone who has taken over the server: the token can change the lock.
+- **Rotated**: the last 7, and one a week for a month.
+
+A key that's replaced stays in the server's keyring, so older backups still restore. Keep each server's key away from it: see [Server keys](https://hakobu.dev/docs/servers/index.md).
+
+## The panel's own backup
+
+A self-hosted panel backs up its own database to the bucket daily too, sealed with its master key. The key stays off the bucket: download it from **Settings → Security → Download master key** (it asks you to sign in with GitHub again) and keep the file away from the server; download it again after **Replace all secrets**.
+
+## Bringing a panel back on a new server
+
+```sh
+curl -fsSL https://hakobu.dev/install.sh -o install.sh
+sudo HAKOBU_RESTORE=hakobu-master-key-hakobu.example.com.txt bash install.sh
+```
+
+It asks for a Cloudflare API token that can read R2 (or takes `CLOUDFLARE_API_TOKEN`), restores the newest panel backup and starts the panel on its old address, with its tunnel, GitHub App, projects and owner. Then restore each database from its backup page and each volume from its app's page, and redeploy the apps. If the old Cloudflare token was rolled since, run `setup --reconnect` (see [Self-hosting](https://hakobu.dev/docs/install/index.md)).
+
+Caches aren't backed up: a cache's data comes back empty.
+
+# Updates
+
+**Settings → Updates** shows when a new release is out; **Update** installs it. Over SSH:
+
+```bash
+sudo /opt/hakobu/hakobu update
+```
+
+Apps keep running; the panel is down for the minute it restarts. If the new version doesn't come up, the previous one is put back by itself, and **Roll back** in the same place (or `sudo /opt/hakobu/hakobu rollback`) goes back to it later. A rollback past an update that changed the panel's database also puts back the copy of the database made just before it (what changed in the panel since is lost; the newer database is kept beside it).
+
+A panel installed before v0.24.0 can't update to it or later: their databases have nothing in common. It refuses to start, and the update puts the old version back by itself. Install anew.
+
+## Signed releases
+
+Releases are signed with an Ed25519 key that never leaves the release workflow: hakobu and install.sh install a release only if its signature over `hakobu <version>` and its checksums is by that key, so neither a tampered download nor an older release under a newer name gets in.
+
+The panel can't update itself: it runs as `hakobu`, which can't write its own program, and only asks; a root service (`hakobu-update.path`, `hakobu-rollback.path`) then installs the latest signed release or puts back the one from before the last update, whatever the request said. Installing any other version takes `sudo /opt/hakobu/hakobu update --to vX.Y.Z`.
+
+# Sharing a panel
+
+A self-hosted panel can have more users than you: friends or a team who deploy on it without asking you each time.
+
+## Users
+
+Everyone signs in with GitHub. Each user sees only their own projects, servers and Cloudflare accounts. You, the first user, are the admin and keep the panel's own settings: updates, backups, notifications, secrets, the master key and users. **Settings → Users** makes another user an admin, or removes one.
+
+Someone joins with an invite link from **Settings → Users → Invite**: it works once, within a week. Others need the panel's GitHub App to be public to sign in: the panel tells you when it isn't, with the link to make it so. The app then reaches only the repositories each user picks.
+
+By default, users deploy on the panel's server and in its Cloudflare account, as well as on their own.
+
+## Panel-only
+
+A panel shared with people whose apps you don't want on your server, a hosted one say, runs none on its own. Set it in a drop-in (`sudo systemctl edit hakobu`):
+
+```ini
+[Service]
+Environment=HAKOBU_PANEL_ONLY=1
+```
+
+Then every project runs on a server of its owner's (**Settings → Servers**) and in a Cloudflare account of theirs (**Settings → Cloudflare**), with its domains, storages and backups there; the panel's server and account serve only the panel. Anyone with a GitHub account signs up by signing in: no invites. [dash.hakobu.dev](https://hakobu.dev/docs/hosted/index.md) is such a panel.
+
+# Security
+
+What hakobu does to keep your apps and data yours, and what it doesn't promise.
+
+## Nothing open
+
+Servers need no public IP and no open port. Apps are served through a Cloudflare Tunnel; servers connect to the panel through the panel's tunnel, end to end encrypted. cloudflared runs in its own container and sends app traffic straight to the app's container.
+
+## Isolation
+
+Each project has its own Docker networks: an app reaches its project's apps, databases and caches, never another project's. Each database has its own PostgreSQL role, and each cache its own server and password. On a shared panel, every page, API call and MCP tool finds only what the signed-in user owns; anything else answers as if it didn't exist.
+
+hakobu runs as the unprivileged `hakobu` user, and [rootless Docker](https://docs.docker.com/engine/security/rootless/) as another one, `hakobu-docker`: neither a break-in into hakobu nor a container escape gets root on the server, and an escape can't read hakobu's data. Containers run with `no-new-privileges` and without raw sockets.
+
+## Secrets
+
+Variables, database and cache passwords, storage keys and tokens, but also build logs, worker commands and your apps' errors and logs, are encrypted in the panel's database with a master key kept apart from the data. Without the key nothing secret can be read, and hakobu refuses to start rather than make a new key over data it can't read.
+
+[Sealed variables](https://hakobu.dev/docs/variables/index.md) are never shown again, not even to you.
+
+**Settings → Security → Replace all secrets** gives every database and cache a new password, every app a new Sentry key, every tunnel a new token, signs everyone out, disconnects AI apps and rotates the master key; it lists what only you can replace (the GitHub App's key, the Cloudflare token).
+
+## Backups
+
+Sealed by each server's own key, which the panel never has: see [Backups and recovery](https://hakobu.dev/docs/backups/index.md). A leak of the panel's database, the backup bucket or the panel's disk exposes nothing of them. A malicious operator of a panel still commands its servers; a self-hosted panel is the way not to trust one.
+
+## Releases
+
+Signed, and installed only by a root service that checks the signature: see [Updates](https://hakobu.dev/docs/updates/index.md).
+
+## Reporting a problem
+
+Found a vulnerability? Please report it privately through [GitHub's security advisories](https://github.com/hakobudev/hakobu/security/advisories/new) rather than in an issue.
+
+# Development
+
+hakobu is open source under the MIT license: [github.com/hakobudev/hakobu](https://github.com/hakobudev/hakobu).
+
+## Running it locally
+
+```bash
+go build -o hakobu . && ./hakobu agent --public-host <host that reaches 127.0.0.1:9000 over https>
+# e.g. cloudflared tunnel --url http://127.0.0.1:9000 for a throwaway host
+```
+
+Requires Go 1.27+ and Docker (plus Railpack and a `buildkit` container for non-Dockerfile builds). State lives in `data/` (SQLite, clones) and its master key in `key/`; `run/` holds the panel's socket for cloudflared.
+
+To look at the pages with made-up data, without GitHub or Cloudflare:
+
+```bash
+HAKOBU_UI_DEV=127.0.0.1:8090 go test ./cmd -run TestDevServer -timeout 0
+```
+
+## Tests
+
+`just check` runs what CI runs: build, tests, govulncheck, golangci-lint and `sqlc diff`. Tests that need Docker (they start their own containers) run with `HAKOBU_DOCKER_TEST=1 go test ./...`; with `HAKOBU_TEST_LINK=1` too, the panel reaches the local machine as it would another server.
+
+## The panel's pages
+
+Its scripts, styles, fonts and icons are embedded in the binary (`cmd/static/`, `cmd/icons.svg`), so it loads nothing from other sites. Its pages are [templ](https://templ.guide) components (`cmd/ui_*.templ`) built from the design system in `cmd/ui_kit.templ` and `cmd/styles.css`; a test fails on colors or sizes written into a page instead. After changing a `.templ` file or classes, run `go generate ./cmd`: it generates the components and rebuilds the stylesheet (needs [bun](https://bun.sh)).
+
+## The database
+
+- Schema: `internal/store/migrations/`, applied at startup.
+- Queries: `internal/store/queries.sql`, compiled by [sqlc](https://sqlc.dev) into `internal/store/*.gen.go`: run `just gen` after changing either.
+
+## These docs
+
+The pages of hakobu.dev/docs are made from `docs/*.md` (the menu is `docs/nav.md`) by `go run ./tools/docsgen` into `site/docs/`; a test fails when they're behind the Markdown.
+
+## Releases
+
+Pushing a `vX.Y.Z` tag builds and publishes a release (`.github/workflows/release.yml`), signed with the key in the `HAKOBU_SIGNING_KEY` secret of the `release` environment; without it the release fails rather than going out unsigned. `just release-check` builds a snapshot without signing.
+
+## Layout
+
+- `cmd/`: CLI, web panel, GitHub webhook, Sentry ingest, MCP
+- `internal/ops/`: projects, apps, deploys, databases, caches, storages, backups
+- `internal/node/`: what runs on a server, locally or over the link to another one
+- `internal/deploy/`: Docker Engine API client
+- `internal/proxy/`: per-app reverse proxy
+- `internal/cloudflare/`: Cloudflare API
+- `internal/build/`, `internal/detect/`: cloning and building repositories
+- `internal/github/`: GitHub App, OAuth
+- `internal/store/`: SQLite: schema, sqlc queries
+- `internal/secret/`: encryption of secrets
+- `internal/update/`: signed releases
+- `internal/backup/`: pg_dump/restore and volume archives

@@ -7,8 +7,8 @@
 <meta name="description" content="A storage is a bucket for your apps&#39; files: R2 in the project&#39;s Cloudflare account, or any S3-compatible service (AWS, Backblaze, MinIO, …).">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/style.css?v=de065d1f">
-<link rel="stylesheet" href="/docs.css?v=de065d1f">
+<link rel="stylesheet" href="/style.css?v=576bf412">
+<link rel="stylesheet" href="/docs.css?v=576bf412">
 </head>
 <body class="docs">
 <header class="topbar">
@@ -52,7 +52,13 @@
   </details>
   <main class="docs-main">
     <article class="prose">
-      <h1>Storages</h1>
+      <div class="docs-head">
+        <h1>Storages</h1>
+        <div class="docs-md">
+          <button type="button" class="btn btn-sm" id="copy-md">Copy as Markdown</button>
+          <a class="btn btn-sm" href="index.md">View as Markdown</a>
+        </div>
+      </div>
       <p>A storage is a bucket for your apps' files: R2 in the project's Cloudflare account, or any S3-compatible service (AWS, Backblaze, MinIO, …).</p>
 <h2 id="r2">R2</h2>
 <p><strong>New → Storage</strong> with R2: hakobu creates the bucket in the project's Cloudflare account. The keys the app gets come from an R2 API token you make for that bucket alone, as the storage's page shows step by step:</p>
@@ -94,6 +100,19 @@
 
 const menu = document.querySelector(".docs-menu");
 if (matchMedia("(max-width: 860px)").matches) menu.open = false;
+
+
+const copy = document.querySelector("#copy-md");
+copy.addEventListener("click", async () => {
+  try {
+    const md = await (await fetch("index.md")).text();
+    await navigator.clipboard.writeText(md);
+    copy.textContent = "Copied";
+  } catch {
+    copy.textContent = "Couldn't copy";
+  }
+  setTimeout(() => { copy.textContent = "Copy as Markdown"; }, 1500);
+});
 </script>
 </body>
 </html>

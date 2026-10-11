@@ -7,8 +7,8 @@
 <meta name="description" content="hakobu works in your Cloudflare accounts with one API token of yours: it reads your domains, manages their DNS records, creates tunnels, keeps backups in R2 and sends you email.">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/style.css?v=de065d1f">
-<link rel="stylesheet" href="/docs.css?v=de065d1f">
+<link rel="stylesheet" href="/style.css?v=576bf412">
+<link rel="stylesheet" href="/docs.css?v=576bf412">
 </head>
 <body class="docs">
 <header class="topbar">
@@ -52,7 +52,13 @@
   </details>
   <main class="docs-main">
     <article class="prose">
-      <h1>Cloudflare accounts</h1>
+      <div class="docs-head">
+        <h1>Cloudflare accounts</h1>
+        <div class="docs-md">
+          <button type="button" class="btn btn-sm" id="copy-md">Copy as Markdown</button>
+          <a class="btn btn-sm" href="index.md">View as Markdown</a>
+        </div>
+      </div>
       <p>hakobu works in your Cloudflare accounts with one API token of yours: it reads your domains, manages their DNS records, creates tunnels, keeps backups in R2 and sends you email.</p>
 <h2 id="yours-and-your-clients">Yours and your clients'</h2>
 <p>A project can live in another Cloudflare account than the panel's: yours, or a client's, who keeps it. Clients invite you to theirs (<strong>Manage Account → Members</strong>); your token then reaches them all. hakobu checks it can do what it needs in each account and connects them, listed under <strong>Settings → Cloudflare</strong>. It keeps up every ten minutes: a client who invites you later shows up by itself, one who removes you goes (or, while a project still uses their account, you get an email). To leave an account out, leave it out of the token. <strong>Replace token</strong> swaps it for all of them.</p>
@@ -88,6 +94,19 @@
 
 const menu = document.querySelector(".docs-menu");
 if (matchMedia("(max-width: 860px)").matches) menu.open = false;
+
+
+const copy = document.querySelector("#copy-md");
+copy.addEventListener("click", async () => {
+  try {
+    const md = await (await fetch("index.md")).text();
+    await navigator.clipboard.writeText(md);
+    copy.textContent = "Copied";
+  } catch {
+    copy.textContent = "Couldn't copy";
+  }
+  setTimeout(() => { copy.textContent = "Copy as Markdown"; }, 1500);
+});
 </script>
 </body>
 </html>

@@ -33,6 +33,14 @@ func main() {
 	if err := build("docs", "site/docs", "site"); err != nil {
 		log.Fatal(err)
 	}
+	// AI assistants look for llms.txt at the root.
+	b, err := os.ReadFile("site/docs/llms.txt")
+	if err == nil {
+		err = os.WriteFile("site/llms.txt", b, 0o644)
+	}
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 // navItem is a page in the menu, under its section.
@@ -67,6 +75,9 @@ func readNav(path string) ([]navItem, error) {
 }
 
 // url is where a page is served.
+// siteURL is where the docs are published.
+const siteURL = "https://hakobu.dev"
+
 func url(name string) string {
 	if name == "index" {
 		return "/docs/"
@@ -172,6 +183,9 @@ func build(src, out, site string) error {
 	if err := os.RemoveAll(out); err != nil {
 		return err
 	}
+	var index, full bytes.Buffer
+	index.WriteString("# hakobu\n\n> hakobu deploys apps from GitHub to servers you own, behind Cloudflare: builds, zero-downtime swaps, databases, backups only your servers can open, errors and traces, and an MCP server for Claude.\n")
+	section := ""
 	for i, it := range items {
 		raw, err := os.ReadFile(filepath.Join(src, it.Name+".md"))
 		if err != nil {
@@ -199,6 +213,22 @@ func build(src, out, site string) error {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}
+		// The page as Markdown, for AI assistants: links point at the
+		// other pages' Markdown on hakobu.dev.
+		md := linkInMD.ReplaceAllFunc(raw, func(m []byte) []byte {
+			sub := linkInMD.FindSubmatch(m)
+			return []byte("](" + siteURL + url(string(sub[1])) + "index.md)")
+		})
+		if err := os.WriteFile(filepath.Join(dir, "index.md"), md, 0o644); err != nil {
+			return err
+		}
+		if it.Section != section {
+			section = it.Section
+			fmt.Fprintf(&index, "\n## %s\n\n", section)
+		}
+		fmt.Fprintf(&index, "- [%s](%s%sindex.md): %s\n", title, siteURL, url(it.Name), p.Description)
+		full.Write(bytes.TrimSpace(md))
+		full.WriteString("\n\n")
 		var b bytes.Buffer
 		if err := tmpl.Execute(&b, p); err != nil {
 			return err
@@ -207,7 +237,12 @@ func build(src, out, site string) error {
 			return err
 		}
 	}
-	return nil
+	// llms.txt: what the docs hold, for AI assistants; llms-full.txt: all
+	// of it in one file.
+	if err := os.WriteFile(filepath.Join(out, "llms.txt"), index.Bytes(), 0o644); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(out, "llms-full.txt"), bytes.TrimSpace(full.Bytes()), 0o644)
 }
 
 // describe is a page's first paragraph, as plain text, for its meta
@@ -287,7 +322,13 @@ const pageTemplate = `<!doctype html>
   </details>
   <main class="docs-main">
     <article class="prose">
-      <h1>{{.Title}}</h1>
+      <div class="docs-head">
+        <h1>{{.Title}}</h1>
+        <div class="docs-md">
+          <button type="button" class="btn btn-sm" id="copy-md">Copy as Markdown</button>
+          <a class="btn btn-sm" href="index.md">View as Markdown</a>
+        </div>
+      </div>
       {{.Body}}
     </article>
     <nav class="docs-pager" aria-label="Pages">
@@ -319,6 +360,19 @@ const pageTemplate = `<!doctype html>
 // The menu is open on wide screens, a toggle on narrow ones.
 const menu = document.querySelector(".docs-menu");
 if (matchMedia("(max-width: 860px)").matches) menu.open = false;
+
+// The page as Markdown, to paste into an AI assistant.
+const copy = document.querySelector("#copy-md");
+copy.addEventListener("click", async () => {
+  try {
+    const md = await (await fetch("index.md")).text();
+    await navigator.clipboard.writeText(md);
+    copy.textContent = "Copied";
+  } catch {
+    copy.textContent = "Couldn't copy";
+  }
+  setTimeout(() => { copy.textContent = "Copy as Markdown"; }, 1500);
+});
 </script>
 </body>
 </html>

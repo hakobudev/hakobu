@@ -7,8 +7,8 @@
 <meta name="description" content="One click in Settings: hakobu creates a private R2 bucket in the Cloudflare account, and from then on backs up every database and volume daily. No S3 keys exist for it: hakobu writes with its…">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/style.css?v=de065d1f">
-<link rel="stylesheet" href="/docs.css?v=de065d1f">
+<link rel="stylesheet" href="/style.css?v=576bf412">
+<link rel="stylesheet" href="/docs.css?v=576bf412">
 </head>
 <body class="docs">
 <header class="topbar">
@@ -52,7 +52,13 @@
   </details>
   <main class="docs-main">
     <article class="prose">
-      <h1>Backups and recovery</h1>
+      <div class="docs-head">
+        <h1>Backups and recovery</h1>
+        <div class="docs-md">
+          <button type="button" class="btn btn-sm" id="copy-md">Copy as Markdown</button>
+          <a class="btn btn-sm" href="index.md">View as Markdown</a>
+        </div>
+      </div>
       <h2 id="turning-backups-on">Turning backups on</h2>
 <p>One click in <strong>Settings</strong>: hakobu creates a private R2 bucket in the Cloudflare account, and from then on backs up every <a href="/docs/databases/">database</a> and <a href="/docs/volumes/">volume</a> daily. No S3 keys exist for it: hakobu writes with its Cloudflare token.</p>
 <h2 id="what-a-backup-is">What a backup is</h2>
@@ -99,6 +105,19 @@ sudo HAKOBU_RESTORE=hakobu-master-key-hakobu.example.com.txt bash install.sh
 
 const menu = document.querySelector(".docs-menu");
 if (matchMedia("(max-width: 860px)").matches) menu.open = false;
+
+
+const copy = document.querySelector("#copy-md");
+copy.addEventListener("click", async () => {
+  try {
+    const md = await (await fetch("index.md")).text();
+    await navigator.clipboard.writeText(md);
+    copy.textContent = "Copied";
+  } catch {
+    copy.textContent = "Couldn't copy";
+  }
+  setTimeout(() => { copy.textContent = "Copy as Markdown"; }, 1500);
+});
 </script>
 </body>
 </html>

@@ -7,8 +7,8 @@
 <meta name="description" content="A database is a PostgreSQL database with a role of its own, in one shared PostgreSQL server on the project&#39;s server. Only its project&#39;s apps reach it.">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/style.css?v=de065d1f">
-<link rel="stylesheet" href="/docs.css?v=de065d1f">
+<link rel="stylesheet" href="/style.css?v=576bf412">
+<link rel="stylesheet" href="/docs.css?v=576bf412">
 </head>
 <body class="docs">
 <header class="topbar">
@@ -52,7 +52,13 @@
   </details>
   <main class="docs-main">
     <article class="prose">
-      <h1>Databases</h1>
+      <div class="docs-head">
+        <h1>Databases</h1>
+        <div class="docs-md">
+          <button type="button" class="btn btn-sm" id="copy-md">Copy as Markdown</button>
+          <a class="btn btn-sm" href="index.md">View as Markdown</a>
+        </div>
+      </div>
       <p>A database is a PostgreSQL database with a role of its own, in one shared PostgreSQL server on the project's server. Only its project's apps reach it.</p>
 <h2 id="create-and-link">Create and link</h2>
 <p><strong>New → Database</strong> on the project's page. Link it to an app in the app's <strong>Settings → Resources</strong>: the app gets <code>DATABASE_URL</code>, <code>POSTGRES_HOST</code>, <code>POSTGRES_PORT</code>, <code>POSTGRES_DB</code>, <code>POSTGRES_USER</code> and <code>POSTGRES_PASSWORD</code> on its next deploy. The password is generated.</p>
@@ -101,6 +107,19 @@
 
 const menu = document.querySelector(".docs-menu");
 if (matchMedia("(max-width: 860px)").matches) menu.open = false;
+
+
+const copy = document.querySelector("#copy-md");
+copy.addEventListener("click", async () => {
+  try {
+    const md = await (await fetch("index.md")).text();
+    await navigator.clipboard.writeText(md);
+    copy.textContent = "Copied";
+  } catch {
+    copy.textContent = "Couldn't copy";
+  }
+  setTimeout(() => { copy.textContent = "Copy as Markdown"; }, 1500);
+});
 </script>
 </body>
 </html>

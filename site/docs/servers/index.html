@@ -7,8 +7,8 @@
 <meta name="description" content="One panel runs projects on several servers: yours, or a client&#39;s. A self-hosted panel&#39;s own server runs projects too; the hosted panel&#39;s runs none.">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/style.css?v=de065d1f">
-<link rel="stylesheet" href="/docs.css?v=de065d1f">
+<link rel="stylesheet" href="/style.css?v=576bf412">
+<link rel="stylesheet" href="/docs.css?v=576bf412">
 </head>
 <body class="docs">
 <header class="topbar">
@@ -52,7 +52,13 @@
   </details>
   <main class="docs-main">
     <article class="prose">
-      <h1>Servers</h1>
+      <div class="docs-head">
+        <h1>Servers</h1>
+        <div class="docs-md">
+          <button type="button" class="btn btn-sm" id="copy-md">Copy as Markdown</button>
+          <a class="btn btn-sm" href="index.md">View as Markdown</a>
+        </div>
+      </div>
       <p>One panel runs projects on several servers: yours, or a client's. A self-hosted panel's own server runs projects too; the hosted panel's runs none.</p>
 <h2 id="add-a-server">Add a server</h2>
 <p>Under <strong>Settings → Servers</strong>, add one and run the command it shows on the new server, as root:</p>
@@ -98,6 +104,19 @@
 
 const menu = document.querySelector(".docs-menu");
 if (matchMedia("(max-width: 860px)").matches) menu.open = false;
+
+
+const copy = document.querySelector("#copy-md");
+copy.addEventListener("click", async () => {
+  try {
+    const md = await (await fetch("index.md")).text();
+    await navigator.clipboard.writeText(md);
+    copy.textContent = "Copied";
+  } catch {
+    copy.textContent = "Couldn't copy";
+  }
+  setTimeout(() => { copy.textContent = "Copy as Markdown"; }, 1500);
+});
 </script>
 </body>
 </html>

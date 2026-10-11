@@ -63,3 +63,8 @@
   .docs-menu[open] > summary { border-bottom: 1px solid var(--border); }
   .docs-menu .docs-nav { padding: 8px; }
 }
+
+/* Title, and the page as Markdown for AI assistants */
+.docs-head { margin-bottom: 20px; display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px 24px; }
+.docs-head h1 { margin: 0; }
+.docs-md { display: flex; gap: 8px; margin-top: 6px; }

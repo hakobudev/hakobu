@@ -7,8 +7,8 @@
 <meta name="description" content="A self-hosted panel can have more users than you: friends or a team who deploy on it without asking you each time.">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/style.css?v=de065d1f">
-<link rel="stylesheet" href="/docs.css?v=de065d1f">
+<link rel="stylesheet" href="/style.css?v=576bf412">
+<link rel="stylesheet" href="/docs.css?v=576bf412">
 </head>
 <body class="docs">
 <header class="topbar">
@@ -52,7 +52,13 @@
   </details>
   <main class="docs-main">
     <article class="prose">
-      <h1>Sharing a panel</h1>
+      <div class="docs-head">
+        <h1>Sharing a panel</h1>
+        <div class="docs-md">
+          <button type="button" class="btn btn-sm" id="copy-md">Copy as Markdown</button>
+          <a class="btn btn-sm" href="index.md">View as Markdown</a>
+        </div>
+      </div>
       <p>A self-hosted panel can have more users than you: friends or a team who deploy on it without asking you each time.</p>
 <h2 id="users">Users</h2>
 <p>Everyone signs in with GitHub. Each user sees only their own projects, servers and Cloudflare accounts. You, the first user, are the admin and keep the panel's own settings: updates, backups, notifications, secrets, the master key and users. <strong>Settings → Users</strong> makes another user an admin, or removes one.</p>
@@ -90,6 +96,19 @@ Environment=HAKOBU_PANEL_ONLY=1
 
 const menu = document.querySelector(".docs-menu");
 if (matchMedia("(max-width: 860px)").matches) menu.open = false;
+
+
+const copy = document.querySelector("#copy-md");
+copy.addEventListener("click", async () => {
+  try {
+    const md = await (await fetch("index.md")).text();
+    await navigator.clipboard.writeText(md);
+    copy.textContent = "Copied";
+  } catch {
+    copy.textContent = "Couldn't copy";
+  }
+  setTimeout(() => { copy.textContent = "Copy as Markdown"; }, 1500);
+});
 </script>
 </body>
 </html>

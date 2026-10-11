@@ -7,8 +7,8 @@
 <meta name="description" content="hakobu is an MCP server at https://&lt;panel address&gt;/mcp (on the hosted panel, https://dash.hakobu.dev/mcp), with its own OAuth: an app asking for access sends you to the panel, you sign in with GitHub…">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/style.css?v=de065d1f">
-<link rel="stylesheet" href="/docs.css?v=de065d1f">
+<link rel="stylesheet" href="/style.css?v=576bf412">
+<link rel="stylesheet" href="/docs.css?v=576bf412">
 </head>
 <body class="docs">
 <header class="topbar">
@@ -52,7 +52,13 @@
   </details>
   <main class="docs-main">
     <article class="prose">
-      <h1>Claude (MCP)</h1>
+      <div class="docs-head">
+        <h1>Claude (MCP)</h1>
+        <div class="docs-md">
+          <button type="button" class="btn btn-sm" id="copy-md">Copy as Markdown</button>
+          <a class="btn btn-sm" href="index.md">View as Markdown</a>
+        </div>
+      </div>
       <p>hakobu is an MCP server at <code>https://&lt;panel address&gt;/mcp</code> (on the hosted panel, <code>https://dash.hakobu.dev/mcp</code>), with its own OAuth: an app asking for access sends you to the panel, you sign in with GitHub and allow it.</p>
 <h2 id="connect">Connect</h2>
 <ul>
@@ -105,6 +111,19 @@
 
 const menu = document.querySelector(".docs-menu");
 if (matchMedia("(max-width: 860px)").matches) menu.open = false;
+
+
+const copy = document.querySelector("#copy-md");
+copy.addEventListener("click", async () => {
+  try {
+    const md = await (await fetch("index.md")).text();
+    await navigator.clipboard.writeText(md);
+    copy.textContent = "Copied";
+  } catch {
+    copy.textContent = "Couldn't copy";
+  }
+  setTimeout(() => { copy.textContent = "Copy as Markdown"; }, 1500);
+});
 </script>
 </body>
 </html>

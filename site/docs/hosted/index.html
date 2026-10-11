@@ -7,8 +7,8 @@
 <meta name="description" content="dash.hakobu.dev is a hakobu panel for everyone. It runs no apps itself: your projects run on servers you add, in your Cloudflare account.">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/style.css?v=de065d1f">
-<link rel="stylesheet" href="/docs.css?v=de065d1f">
+<link rel="stylesheet" href="/style.css?v=576bf412">
+<link rel="stylesheet" href="/docs.css?v=576bf412">
 </head>
 <body class="docs">
 <header class="topbar">
@@ -52,7 +52,13 @@
   </details>
   <main class="docs-main">
     <article class="prose">
-      <h1>Hosted panel</h1>
+      <div class="docs-head">
+        <h1>Hosted panel</h1>
+        <div class="docs-md">
+          <button type="button" class="btn btn-sm" id="copy-md">Copy as Markdown</button>
+          <a class="btn btn-sm" href="index.md">View as Markdown</a>
+        </div>
+      </div>
       <p><a href="https://dash.hakobu.dev">dash.hakobu.dev</a> is a hakobu panel for everyone. It runs no apps itself: your projects run on servers you add, in your Cloudflare account.</p>
 <h2 id="sign-in">Sign in</h2>
 <p>Sign in with GitHub. Your first sign-in makes your account; there's nothing else to fill in. To deploy a repository, install the panel's GitHub App on your account (or an organization) and pick the repositories it may read; <strong>New app</strong> links there when it has none. It reaches only the repositories you pick.</p>
@@ -98,6 +104,19 @@
 
 const menu = document.querySelector(".docs-menu");
 if (matchMedia("(max-width: 860px)").matches) menu.open = false;
+
+
+const copy = document.querySelector("#copy-md");
+copy.addEventListener("click", async () => {
+  try {
+    const md = await (await fetch("index.md")).text();
+    await navigator.clipboard.writeText(md);
+    copy.textContent = "Copied";
+  } catch {
+    copy.textContent = "Couldn't copy";
+  }
+  setTimeout(() => { copy.textContent = "Copy as Markdown"; }, 1500);
+});
 </script>
 </body>
 </html>

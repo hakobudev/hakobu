@@ -1,0 +1,34 @@
+# hakobu
+
+> hakobu deploys apps from GitHub to servers you own, behind Cloudflare: builds, zero-downtime swaps, databases, backups only your servers can open, errors and traces, and an MCP server for Claude.
+
+## Getting started
+
+- [Introduction](https://hakobu.dev/docs/index.md): hakobu deploys apps from GitHub to servers you own. Push to the default branch and it builds the new version and swaps it in with no downtime, behind Cloudflare, so nothing on your servers is open to…
+- [Hosted panel](https://hakobu.dev/docs/hosted/index.md): dash.hakobu.dev is a hakobu panel for everyone. It runs no apps itself: your projects run on servers you add, in your Cloudflare account.
+- [Self-hosting](https://hakobu.dev/docs/install/index.md): You need a Linux server and a domain on Cloudflare (the free plan is enough). The server needs no public IP or open ports: everything goes through a Cloudflare Tunnel.
+
+## Guides
+
+- [Apps](https://hakobu.dev/docs/apps/index.md): An app is a GitHub repository that hakobu builds and runs. Every push to its default branch deploys it.
+- [Apps calling apps](https://hakobu.dev/docs/apps-calling-apps/index.md): Apps of one project reach each other on the project's network, and the project's page draws them left to right: apps that call others before the apps they call.
+- [Variables and secrets](https://hakobu.dev/docs/variables/index.md): When a name is set in more than one place, the app's own value wins over the shared one, which wins over the linked ones. The Variables tab shows what the app gets in the end.
+- [Databases](https://hakobu.dev/docs/databases/index.md): A database is a PostgreSQL database with a role of its own, in one shared PostgreSQL server on the project's server. Only its project's apps reach it.
+- [Caches](https://hakobu.dev/docs/caches/index.md): A cache is a Valkey server of its own: Redis-compatible, BSD-licensed, for caching, queues (Celery, BullMQ, Sidekiq, arq) and sessions. Any Redis client works with it.
+- [Storages](https://hakobu.dev/docs/storages/index.md): A storage is a bucket for your apps' files: R2 in the project's Cloudflare account, or any S3-compatible service (AWS, Backblaze, MinIO, …).
+- [Volumes](https://hakobu.dev/docs/volumes/index.md): A volume is a directory that survives redeploys, shared by the app and its worker: for an SQLite database, uploads or anything else on disk. Everything else in the container is reset on every deploy.
+- [Errors, logs and alerts](https://hakobu.dev/docs/observability/index.md): An app's Logs tab has its output and its worker's, and every deploy's build log is on Deployments.
+- [Claude (MCP)](https://hakobu.dev/docs/claude/index.md): hakobu is an MCP server at https://<panel address>/mcp (on the hosted panel, https://dash.hakobu.dev/mcp), with its own OAuth: an app asking for access sends you to the panel, you sign in with GitHub…
+
+## Operating
+
+- [Servers](https://hakobu.dev/docs/servers/index.md): One panel runs projects on several servers: yours, or a client's. A self-hosted panel's own server runs projects too; the hosted panel's runs none.
+- [Cloudflare accounts](https://hakobu.dev/docs/cloudflare/index.md): hakobu works in your Cloudflare accounts with one API token of yours: it reads your domains, manages their DNS records, creates tunnels, keeps backups in R2 and sends you email.
+- [Backups and recovery](https://hakobu.dev/docs/backups/index.md): One click in Settings: hakobu creates a private R2 bucket in the Cloudflare account, and from then on backs up every database and volume daily. No S3 keys exist for it: hakobu writes with its…
+- [Updates](https://hakobu.dev/docs/updates/index.md): Settings → Updates shows when a new release is out; Update installs it. Over SSH:
+- [Sharing a panel](https://hakobu.dev/docs/sharing/index.md): A self-hosted panel can have more users than you: friends or a team who deploy on it without asking you each time.
+- [Security](https://hakobu.dev/docs/security/index.md): What hakobu does to keep your apps and data yours, and what it doesn't promise.
+
+## Contributing
+
+- [Development](https://hakobu.dev/docs/development/index.md): hakobu is open source under the MIT license: github.com/hakobudev/hakobu.
