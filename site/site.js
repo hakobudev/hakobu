@@ -78,7 +78,7 @@ const APPS = {
     vars: [["DATABASE_URL", "from app-db", true], ["DJANGO_SECRET_KEY", null], ["ALLOWED_HOSTS", "admin.acme.dev"]],
   },
   api: {
-    logo: "fastapi", build: "Railpack", repo: "acme/api", private: "http://api.hakobu:8000", linked: ["app-db", "queue", "files"], worker: "arq jobs.WorkerSettings",
+    logo: "fastapi", build: "Railpack", repo: "acme/api", private: "http://api.hakobu:8000", linked: ["app-db", "queue", "files"], worker: "arq jobs.Worker",
     deploys: [
       { sha: "9e41b7c", msg: "Stream replies", when: "4 min ago", status: "live" },
       { sha: "7d20e4a", msg: "Rename messages.body", when: "yesterday", status: "ok" },
@@ -142,7 +142,7 @@ function deployRows(a) {
     const st = d.status === "building" ? icon("loader-circle", "spin") : d.status === "failed" ? icon("circle-x", "text-danger") : icon("circle-check", "text-success");
     const tag = d.status === "live" ? `<span class="live-tag">Live</span>` : d.status === "building" ? `<span class="muted small">Building</span>` : d.status === "failed" ? `<span class="muted small">Failed</span>` : "";
     const lines = d.log || BUILD_LOG.map(l => l.replace("{sha}", d.sha).replace("{repo}", a.repo).replace("{build}", a.build));
-    const log = open === i ? `<span class="deploy-log mono block">${lines.map(l => `<span class="block">${l}</span>`).join("")}${d.note ? `<span class="note block">${d.note}</span>` : ""}</span>` : "";
+    const log = open === i ? `<span class="deploy-log mono block">${lines.map((l, k) => `<span class="block${d.status === "building" && k === lines.length - 1 ? " is-new" : ""}">${l}</span>`).join("")}${d.note ? `<span class="note block">${d.note}</span>` : ""}</span>` : "";
     return `<button type="button" class="list-row list-row-2 row-btn" data-act="open" data-i="${i}">${st}<span class="min-w-0 flex-1">
       <span class="deploy-line"><span class="mono muted">${d.sha}</span><span class="truncate flex-1">${d.msg}</span>${tag}<span class="muted small">${d.when}</span></span>${log}</span></button>`;
   }).join("");
@@ -222,11 +222,50 @@ function render() {
   body.innerHTML = view.kind === "app" ? appPage(name, view.tab) : view.kind === "db" ? dbPage() : view.kind === "cache" ? cachePage() : storagePage();
 }
 
+// Moving around the demo: a new page fades in; on the same page a new tab
+// slides the underline over and fades in what's below the tabs.
+const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+function fadeIn(els) {
+  if (still) return;
+  for (const el of els) el.animate([{ opacity: 0, transform: "translateY(4px)" }, { opacity: 1, transform: "none" }], { duration: 200, easing: "ease-out" });
+}
+
+function slideInk(from) {
+  const tabs = body.querySelector(".tabs"), cur = tabs?.querySelector(".tab.is-current");
+  if (still || !cur || !from) return;
+  const ink = document.createElement("span");
+  ink.className = "tab-ink";
+  ink.style.left = from.left + "px";
+  ink.style.width = from.width + "px";
+  tabs.append(ink);
+  tabs.classList.add("has-ink");
+  ink.getBoundingClientRect();
+  ink.style.left = cur.offsetLeft + "px";
+  ink.style.width = cur.offsetWidth + "px";
+  ink.addEventListener("transitionend", () => { ink.remove(); tabs.classList.remove("has-ink"); }, { once: true });
+}
+
 function go(v) {
+  const samePage = v.kind === view.kind && v.name === view.name;
+  const old = body.querySelector(".tab.is-current");
+  const from = samePage && old ? { left: old.offsetLeft, width: old.offsetWidth } : null;
   view = v;
   open = null;
   render();
+  if (from) {
+    const tabs = body.querySelector(".tabs");
+    slideInk(from);
+    const below = [];
+    for (let el = tabs?.nextElementSibling; el; el = el.nextElementSibling) below.push(el);
+    fadeIn(below);
+  } else {
+    fadeIn([body]);
+  }
 }
+
+// Keep the window as tall as the project page, so pages don't make it jump.
+if (matchMedia("(min-width: 761px)").matches) body.style.minHeight = body.offsetHeight + "px";
 
 const SHAS = ["b81c0d4", "e2f7a91", "5a0c3be", "0d9e6f3"];
 
@@ -301,12 +340,6 @@ $("#rollback")?.addEventListener("click", () => {
     d.classList.toggle("is-undone", i < live);
   });
   $("#rollback-label").textContent = live === deploys.length - 1 ? "Start over" : "Roll back";
-});
-
-// g, or ?grid in the address, shows the page's columns.
-if (new URLSearchParams(location.search).has("grid")) document.body.classList.add("show-grid");
-addEventListener("keydown", e => {
-  if (e.key === "g" && !e.target.closest("input, textarea, [contenteditable]")) document.body.classList.toggle("show-grid");
 });
 
 document.querySelectorAll("[data-copy]").forEach(b => b.addEventListener("click", () => {

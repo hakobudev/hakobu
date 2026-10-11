@@ -7,10 +7,11 @@
 <meta name="description" content="Push to GitHub and hakobu builds and rolls out your app on servers you own, behind Cloudflare: no open ports, backups only your servers can open, and Claude can deploy for you.">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="style.css?v=576bf412">
+<link rel="stylesheet" href="style.css?v=9ecfafa0">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+<marker id="arr" class="t-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path d="M2 1.5 8 5 2 8.5"/></marker><marker id="dot" class="t-dot" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="7" markerHeight="7" markerUnits="userSpaceOnUse"><circle cx="5" cy="5" r="3.5"/></marker>
 <symbol id="i-github" viewBox="0 0 24 24"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></symbol>
 <symbol id="i-server" viewBox="0 0 24 24"><rect width="20" height="8" x="2" y="2" rx="2" ry="2"/><rect width="20" height="8" x="2" y="14" rx="2" ry="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/></symbol>
 <symbol id="i-lock" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
@@ -150,7 +151,7 @@
                           <div class="min-w-0 flex-1"><div class="node-title">api <span class="dot dot-success" id="api-dot"></span></div><div class="node-kind">Railpack · private</div></div>
                         </div>
                         <div class="node-row"><span class="meta-item" id="api-state"><svg class="icon icon-sm text-success"><use href="#i-circle-check"/></svg><span>Deployed 9e41b7c</span></span><span class="tabular" id="api-when">4 min ago</span></div>
-                        <div class="node-item" id="wk-api"><span class="meta-item min-w-0"><svg class="logo"><use href="#l-python"/></svg><span class="strong">worker</span><span class="mono muted truncate">arq jobs.WorkerSettings</span></span><span class="dot dot-success"></span></div>
+                        <div class="node-item" id="wk-api"><span class="meta-item min-w-0"><svg class="logo"><use href="#l-python"/></svg><span class="strong">worker</span><span class="mono muted truncate">arq jobs.Worker</span></span><span class="dot dot-success"></span></div>
                       </div>
                     </div>
                   </div>
@@ -188,53 +189,86 @@
       </div>
     </div>
   </section>
-<section class="section"><div class="wrap"><div class="grid-12"><div class="section-head"><h2 class="section-title">The parts you'd otherwise build yourself.</h2></div></div><div class="grid-12 cards"><div class="card span-7 tint-blue"><h3>No open ports.<br>No public IP.</h3><p>Each server dials out to the panel and to Cloudflare; visitors come in through a Cloudflare Tunnel.</p><div class="card-viz"><div class="viz-out" aria-hidden="true">
-            <svg viewBox="0 0 440 220" class="out-svg">
-              <defs><marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10z" class="arr-head"/></marker></defs>
-              <path class="out-line" d="M180 110 C130 110 120 46 92 46" marker-end="url(#arr)"/>
-              <path class="out-line" d="M260 110 C310 110 320 46 348 46" marker-end="url(#arr)"/>
-              <path class="out-line" d="M260 110 C310 110 320 174 348 174" marker-end="url(#arr)"/>
-              <path class="in-line" d="M92 174 C130 174 150 124 178 116"/>
-              <g class="in-x" transform="translate(140 152)"><circle r="10"/><path d="M-4 -4 4 4M4 -4 -4 4"/></g>
+<section class="section"><div class="wrap"><div class="grid-12"><div class="section-head"><h2 class="section-title">The parts you'd otherwise build yourself.</h2></div></div><div class="grid-12 cards">
+        <div class="card span-7 tint-blue"><h3>No open ports.<br>No public IP.</h3><p>Each server dials out to the panel and to Cloudflare; visitors come in through a Cloudflare Tunnel.</p>
+          <div class="card-viz"><div class="viz viz-tunnel" aria-hidden="true">
+            <svg viewBox="0 0 560 250" class="tunnel tunnel-wide">
+              <path class="t-out" d="M199 118 C 170 118, 170 58, 140 58" marker-end="url(#arr)"/>
+              <path class="t-out" d="M361 118 C 392 118, 392 58, 424 58" marker-end="url(#arr)"/>
+              <path class="t-out" d="M361 132 C 392 132, 392 192, 424 192" marker-end="url(#arr)"/>
+              <path class="t-in" d="M140 192 C 170 192, 170 132, 199 132"/>
+              <g class="t-block" transform="translate(170 162)"><circle r="9"/><path d="M-3.5 -3.5 3.5 3.5M3.5 -3.5 -3.5 3.5"/></g>
+              <g class="t-node t-main"><rect class="t-halo" x="199" y="99" width="162" height="52" rx="26"/><rect x="205" y="105" width="150" height="40" rx="20"/><use href="#i-server" x="224" y="115" width="20" height="20"/><text x="252" y="130">your server</text></g>
+              <g class="t-node"><rect x="20" y="40" width="120" height="36" rx="18"/><text x="80" y="63" text-anchor="middle" class="t-brand">hakobu</text></g>
+              <g class="t-node"><rect x="424" y="40" width="128" height="36" rx="18"/><use href="#i-cloud" x="440" y="49" width="18" height="18"/><text x="464" y="63">Cloudflare</text></g>
+              <g class="t-node"><rect x="424" y="174" width="112" height="36" rx="18"/><use href="#i-github" x="440" y="183" width="18" height="18"/><text x="464" y="197">GitHub</text></g>
+              <g class="t-node t-off"><rect x="8" y="174" width="132" height="36" rx="18"/><text x="74" y="197" text-anchor="middle">the internet</text></g>
+              <text x="280" y="176" text-anchor="middle" class="t-cap">dials out, never listens</text>
             </svg>
-            <div class="out-node out-server"><svg class="icon"><use href="#i-server"/></svg>your server</div>
-            <div class="out-node out-a"><span class="wordmark">hakobu</span></div>
-            <div class="out-node out-b"><svg class="icon"><use href="#i-cloud"/></svg>Cloudflare</div>
-            <div class="out-node out-c"><svg class="icon"><use href="#i-github"/></svg>GitHub</div>
-            <div class="out-node out-d">the internet</div>
-          </div></div></div><div class="card span-5 tint-grey"><h3>Backups only your server can open.</h3><p>Sealed with its key, in your R2, each one test-restored.</p><div class="card-viz"><div class="viz viz-seal" aria-hidden="true">
+            <svg viewBox="0 0 320 296" class="tunnel tunnel-narrow">
+              <path class="t-out" d="M160 128 C 160 92, 76 96, 76 58" marker-end="url(#arr)"/>
+              <path class="t-out" d="M160 128 C 160 92, 242 96, 242 58" marker-end="url(#arr)"/>
+              <path class="t-out" d="M160 168 C 160 204, 247 206, 247 240" marker-end="url(#arr)"/>
+              <path class="t-in" d="M78 246 C 78 222, 96 206, 112 196"/>
+              <g class="t-block" transform="translate(118 192)"><circle r="9"/><path d="M-3.5 -3.5 3.5 3.5M3.5 -3.5 -3.5 3.5"/></g>
+              <g class="t-node t-main"><rect class="t-halo" x="70" y="122" width="180" height="52" rx="26"/><rect x="76" y="128" width="168" height="40" rx="20"/><use href="#i-server" x="96" y="138" width="20" height="20"/><text x="124" y="153">your server</text></g>
+              <g class="t-node"><rect x="16" y="20" width="120" height="36" rx="18"/><text x="76" y="43" text-anchor="middle" class="t-brand">hakobu</text></g>
+              <g class="t-node"><rect x="176" y="20" width="132" height="36" rx="18"/><use href="#i-cloud" x="192" y="29" width="18" height="18"/><text x="216" y="43">Cloudflare</text></g>
+              <g class="t-node"><rect x="190" y="242" width="114" height="36" rx="18"/><use href="#i-github" x="206" y="251" width="18" height="18"/><text x="230" y="265">GitHub</text></g>
+              <g class="t-node t-off"><rect x="16" y="246" width="124" height="36" rx="18"/><text x="78" y="269" text-anchor="middle">the internet</text></g>
+            </svg></div></div></div>
+        <div class="card span-5 tint-grey"><h3>Any server joins with one command.</h3><p>A VPS, a client's machine or a box under your desk.</p>
+          <div class="card-viz"><div class="viz viz-servers" aria-hidden="true">
+            <div class="deploys">
+              <div class="deploy"><span class="srv-dot is-on"></span><span class="deploy-msg">hetzner-1</span><span class="muted">3 projects</span></div>
+              <div class="deploy"><span class="srv-dot is-on"></span><span class="deploy-msg">client-box</span><span class="muted">1 project</span></div>
+              <div class="deploy"><span class="srv-dot"></span><span class="deploy-msg">home-lab</span><span class="muted">joining…</span></div>
+            </div>
+            <pre class="console console-xs"><span class="p">$</span> curl -fsSL https://hakobu.dev/install.sh \
+    | sudo HAKOBU_JOIN_TOKEN=… bash</pre></div></div></div>
+        <div class="card span-6 tint-grey"><h3>Backups only your server can open.</h3><p>Sealed with its key, in your R2, each one test-restored.</p>
+          <div class="card-viz"><div class="viz viz-seal" aria-hidden="true">
             <div class="seal-row">
-              <div class="seal-node"><span class="seal-ic"><svg class="icon"><use href="#i-server"/></svg><span class="key"><svg class="icon"><use href="#i-key-round"/></svg></span></span>server</div>
-              <div class="seal-pipe"><span class="seal-file"><svg class="icon"><use href="#i-lock"/></svg>app-db</span></div>
+              <div class="seal-node"><span class="seal-ic"><svg class="icon"><use href="#i-server"/></svg><span class="key"><svg class="icon"><use href="#i-key-round"/></svg></span></span>your server</div>
+              <div class="seal-pipe"><span class="seal-file"><svg class="icon"><use href="#i-lock"/></svg>app-db, sealed</span></div>
               <div class="seal-node"><span class="seal-ic"><svg class="icon"><use href="#i-archive"/></svg></span>your R2</div>
             </div>
-            <div class="seal-note"><span class="key key-off"><svg class="icon"><use href="#i-key-round"/></svg></span>The panel never has the key</div>
-            <div class="seal-note seal-ok"><svg class="icon"><use href="#i-check"/></svg>Test restore: 21 tables</div>
-          </div></div></div><div class="card span-5 tint-grey"><h3>Roll back the code and the data.</h3><p>A database snapshot before every deploy. Try it.</p><div class="card-viz"><div class="viz viz-roll">
+            <ul class="facts">
+              <li><svg class="icon"><use href="#i-key-round"/></svg>The key stays on the server. The panel never has it.</li>
+              <li><svg class="icon"><use href="#i-circle-check"/></svg>Restored into a scratch database: 21 tables</li>
+            </ul></div></div></div>
+        <div class="card span-6 tint-grey"><h3>Roll back the code and the data.</h3><p>A database snapshot before every deploy. Try it.</p>
+          <div class="card-viz"><div class="viz viz-roll">
             <div class="deploys" id="deploys">
-              <div class="deploy is-live"><span class="mono">b72e01d</span><span class="deploy-msg">Rename messages.body</span><span class="snap" title="Database snapshot"><svg class="icon"><use href="#i-database"/></svg></span><span class="live">Live</span></div>
-              <div class="deploy"><span class="mono">a1f3c9e</span><span class="deploy-msg">Stream replies</span><span class="snap" title="Database snapshot"><svg class="icon"><use href="#i-database"/></svg></span><span class="live">Live</span></div>
-              <div class="deploy"><span class="mono">9c04d1b</span><span class="deploy-msg">File uploads</span><span class="snap" title="Database snapshot"><svg class="icon"><use href="#i-database"/></svg></span><span class="live">Live</span></div>
+              <div class="deploy is-live"><span class="mono">b72e01d</span><span class="deploy-msg">Rename messages.body</span><span class="snap" title="Database snapshot"><svg class="icon"><use href="#i-database"/></svg></span><span class="live">Live</span><span class="when">4 min ago</span></div>
+              <div class="deploy"><span class="mono">a1f3c9e</span><span class="deploy-msg">Stream replies</span><span class="snap" title="Database snapshot"><svg class="icon"><use href="#i-database"/></svg></span><span class="live">Live</span><span class="when">yesterday</span></div>
+              <div class="deploy"><span class="mono">9c04d1b</span><span class="deploy-msg">File uploads</span><span class="snap" title="Database snapshot"><svg class="icon"><use href="#i-database"/></svg></span><span class="live">Live</span><span class="when">2 days ago</span></div>
             </div>
-            <button class="btn btn-sm" type="button" id="rollback"><svg class="icon"><use href="#i-history"/></svg><span id="rollback-label">Roll back</span></button>
-          </div></div></div><div class="card span-7 tint-blue"><h3>Errors, logs and traces, on your server.</h3><p>The Sentry SDK you know reports to the SENTRY_DSN hakobu sets. No account anywhere.</p><div class="card-viz"><div class="issue">
-      <div class="issue-head"><svg class="icon"><use href="#i-triangle-alert"/></svg><div><div class="issue-title">KeyError: 'body'</div><div class="issue-meta">api · 23 events · first 12:04, last 12:06</div></div><span class="issue-fixed">Fixed by c3d9a20</span></div>
-      <div class="issue-bars"><i class="z" style="height:8%"></i><i class="z" style="height:8%"></i><i class="z" style="height:8%"></i><i class="z" style="height:8%"></i><i class="z" style="height:8%"></i><i class="z" style="height:8%"></i><i style="height:40%"></i><i style="height:85%"></i><i style="height:100%"></i><i style="height:70%"></i><i style="height:55%"></i><i class="z" style="height:8%"></i><i class="z" style="height:8%"></i><i class="z" style="height:8%"></i><i class="z" style="height:8%"></i><i class="z" style="height:8%"></i></div>
-      <div class="issue-axis"><span>12:00</span><span>c3d9a20 live</span><span>12:15</span></div>
-      <div class="issue-stack"><div>chat/stream.py:42 in reply</div><div class="dim">routes/messages.py:17 in post</div></div>
-      <div class="issue-foot"><span><svg class="icon"><use href="#i-server"/></svg>kept on hetzner-1, sealed</span><span><svg class="icon"><use href="#i-box"/></svg>sentry-sdk 2.x</span></div>
-    </div></div></div><div class="card span-6 tint-grey"><h3>Any server joins with one command.</h3><p>A VPS, a client's machine or a box under your desk.</p><div class="card-viz"><div class="viz viz-servers" aria-hidden="true">
-            <div class="deploys">
-              <div class="deploy"><span class="dot dot-success"></span><span class="deploy-msg">hetzner-1</span><span class="muted">3 projects</span></div>
-              <div class="deploy"><span class="dot dot-success"></span><span class="deploy-msg">client-box</span><span class="muted">1 project</span></div>
-              <div class="deploy"><span class="dot"></span><span class="deploy-msg">home-lab</span><span class="muted">joining</span></div>
+            <div class="roll-foot"><button class="btn btn-sm" type="button" id="rollback"><svg class="icon"><use href="#i-history"/></svg><span id="rollback-label">Roll back</span></button><span class="legend"><svg class="icon"><use href="#i-database"/></svg>database snapshot</span></div></div></div></div>
+        <div class="card span-7 tint-blue"><h3>Errors, logs and traces, on your server.</h3><p>The Sentry SDK you know reports to the SENTRY_DSN hakobu sets. No account anywhere, and what your apps send never leaves your server.</p>
+          <div class="card-viz"><div class="issue">
+            <div class="issue-head"><svg class="icon"><use href="#i-triangle-alert"/></svg><div><div class="issue-title">KeyError: 'body'</div><div class="issue-meta">api · 23 events · first 12:04, last 12:06</div></div><span class="issue-fixed">Fixed by c3d9a20</span></div>
+            <div class="issue-chart">
+              <div class="issue-bars"><i class="z"></i><i class="z"></i><i class="z"></i><i class="z"></i><i class="z"></i><i class="z"></i><i style="height:40%"></i><i style="height:85%"></i><i style="height:100%"></i><i style="height:70%"></i><i style="height:55%"></i><i class="z"></i><i class="z"></i><i class="z"></i><i class="z"></i><i class="z"></i></div>
+              <span class="issue-mark" style="left:calc(11 / 16 * 100%)"><span>c3d9a20 live</span></span>
             </div>
-            <div class="console console-xs"><span class="p">$</span> curl -fsSL https://hakobu.dev/install.sh | sudo HAKOBU_JOIN_TOKEN=… bash</div>
-          </div></div></div><div class="card span-6 tint-grey"><h3>Ask Claude to fix it.</h3><p>It reads your errors through MCP, pushes the fix and checks it landed.</p><div class="card-viz"><div class="chat" aria-label="An example conversation with Claude">
-            <div class="msg msg-me">The chat is failing since the last deploy. Can you look?</div>
+            <div class="issue-axis"><span>12:00</span><span>12:15</span></div>
+            <div class="issue-stack"><div>chat/stream.py:42 in reply</div><div class="dim">routes/messages.py:17 in post</div></div>
+            <div class="issue-foot"><span><svg class="icon"><use href="#i-server"/></svg>kept on hetzner-1, sealed</span><span><svg class="icon"><use href="#i-box"/></svg>sentry-sdk 2.x</span></div></div></div></div>
+        <div class="card span-5 tint-grey"><h3>Ask Claude to fix it.</h3><p>Through MCP: it reads your errors and pushes the fix.</p>
+          <div class="card-viz"><div class="chat" aria-label="An example conversation with Claude">
+            <div class="turn turn-me"><div class="who">You</div>
+            <div class="msg msg-me">The chat is failing since the last deploy. Can you look?</div></div>
+            <div class="turn"><div class="who">Claude</div>
             <div class="tool"><svg class="icon"><use href="#i-check"/></svg>get_errors acme/api</div>
-            <div class="msg msg-ai">The migration renamed <code>messages.body</code>, but <code>stream.py</code> still reads the old column. I pushed a fix, and <span class="mono">c3d9a20</span> is live with no new errors.</div>
-          </div></div></div></div></div></section><section class="section"><div class="wrap">
+            <div class="msg msg-ai">The migration renamed <code>messages.body</code>, but <code>stream.py</code> still reads the old column. I pushed a fix, and <span class="mono">c3d9a20</span> is live with no new errors.</div></div>
+            <div class="composer">Reply to Claude…</div>
+          </div></div></div>
+        <div class="card span-12 tint-blue card-wide"><div class="card-text"><h3>Watched from outside, every minute.</h3><p>A watchdog in your Cloudflare account asks each app's address every minute and emails you when it stops answering, even while the server itself is down.</p></div>
+          <div class="card-viz"><div class="viz viz-uptime" aria-hidden="true"><div class="up-head"><span class="strong">chat.acme.dev</span><span class="up-stats"><span><b>99.95%</b> 30 days</span><span><b>86 ms</b> answers in</span></span></div>
+            <div class="days"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i class="is-down" title="Oct 3: 99.72%, down 4 min"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+            <div class="days-legend"><span>30 days ago</span><span>One outage, 4 min on Oct 3</span><span>Today</span></div></div></div></div>
+      </div></div></section><section class="section"><div class="wrap">
       <div class="grid-12"><div class="section-head"><h2 class="section-title">Where everything lives.</h2><p class="section-sub">The panel gives the orders, whether it's ours at dash.hakobu.dev or your own. Your apps, their data and their traffic stay with you.</p></div></div>
       <div class="grid-12 split">
         <div class="card tint-blue span-8 split-yours"><h3>Yours.</h3><p>On your servers and in your Cloudflare account.</p>
@@ -275,6 +309,6 @@
   </div>
 </footer>
 
-<script src="site.js?v=576bf412"></script>
+<script src="site.js?v=9ecfafa0"></script>
 </body>
 </html>
