@@ -1,0 +1,9 @@
+// hakobu.dev: the landing page and the docs in site/, served as static
+// files by Cloudflare (Workers Builds deploys it on every push to main).
+{
+  "name": "hakobu",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./site"
+  }
+}
