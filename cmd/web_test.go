@@ -114,6 +114,7 @@ func TestPagesRender(t *testing.T) {
 			RedirectHost: "localhost:3118", Loopback: true, Document: true, Deploy: true, PublicHost: "p"}),
 		"oauth-error": oauthErrorPage("boom"),
 		"uptime": uptimeFragment(uptimeView{Uptime: ops.Uptime{AvgMs: 120, Windows: []ops.UptimeWindow{{Label: "24 hours", Pct: 99.5, Checks: 1440}, {Label: "7 days", Pct: 100, Checks: 10}, {Label: "30 days", Pct: 100, Checks: 10}},
+			Days:    []ops.UptimeDay{{Day: time.Unix(0, 0), Pct: 100, Checks: 1440}, {Day: time.Unix(86400, 0), Pct: 99.7, Checks: 1440}, {Day: time.Unix(2*86400, 0)}},
 			Outages: []ops.Outage{{Start: time.Unix(1000, 0), End: time.Unix(1120, 0), Status: 530, Ongoing: true}, {Start: time.Unix(0, 0), End: time.Unix(0, 0)}}}}),
 		"trace": tracePage(traceView{ops.Waterfall{Trace: teldb.Trace{ID: 1, AppID: 1, Name: "/orders/{id}", DurationMs: 1500, HttpStatus: 200, Status: "ok", TraceID: "abc"},
 			Rows: []ops.WaterfallRow{{Op: "http.server", Description: "/orders/{id}", WidthPct: 100, Ms: 1500}, {Op: "db", Description: "SELECT 1", Depth: 1, LeftPct: 10, WidthPct: 50, Ms: 750, Status: "internal_error"}}}, app.App, "2026-10-02 12:00:00 UTC"}),

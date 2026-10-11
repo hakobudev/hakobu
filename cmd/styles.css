@@ -337,6 +337,12 @@
 
   /* Numbers at a glance */
   .tiles { @apply grid grid-cols-2 lg:grid-cols-4; }
+  /* Uptime day by day: a bar a day, orange on a day with any minute down */
+  .uptime-days { display: grid; grid-template-columns: repeat(30, minmax(0, 1fr)); gap: 3px; height: 28px; }
+  .uptime-days i { border-radius: 2px; background: color-mix(in srgb, var(--accent) 55%, var(--bg)); }
+  .uptime-days i.is-down { background: var(--attention); }
+  .uptime-days i.is-none { background: var(--border); }
+  .uptime-days-legend { @apply mt-1 flex justify-between text-xs; color: var(--fg-muted); }
   .tile { @apply px-4 py-3 min-w-0; }
   .tiles > .tile + .tile { border-left: 1px solid var(--border); }
   .tiles > .tile:nth-child(3) { @apply max-lg:border-l-0; }

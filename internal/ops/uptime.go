@@ -20,8 +20,19 @@ type Uptime struct {
 	Windows []UptimeWindow
 	AvgMs   int64 // over the last 24 hours
 	Outages []Outage
-	Last    time.Time // the latest check
+	Last    time.Time   // the latest check
+	Days    []UptimeDay // the last 30 days, oldest first, today last
 }
+
+// UptimeDay is one UTC day of checks.
+type UptimeDay struct {
+	Day    time.Time
+	Pct    float64
+	Checks int64
+}
+
+// uptimeDays is how many days the day by day record covers.
+const uptimeDays = 30
 
 // UptimeWindow is the share of minutes the target answered in a span.
 type UptimeWindow struct {
@@ -85,9 +96,12 @@ func UptimeOf(s *store.Store, target string) (Uptime, error) {
 			Params: []any{target, now.Add(-win.span).Unix()},
 		})
 	}
+	firstDay := dayOf(now).AddDate(0, 0, -(uptimeDays - 1))
+	downQ, lastQ, daysQ := len(queries), len(queries)+1, len(queries)+2
 	queries = append(queries,
 		cloudflare.D1Query{SQL: "SELECT ts, status FROM checks WHERE target = ? AND up = 0 AND ts >= ? ORDER BY ts DESC LIMIT 5000", Params: []any{target, now.Add(-30 * 24 * time.Hour).Unix()}},
 		cloudflare.D1Query{SQL: "SELECT coalesce(max(ts), 0) AS ts FROM checks WHERE target = ?", Params: []any{target}},
+		cloudflare.D1Query{SQL: "SELECT ts / 86400 AS day, count(*) AS n, coalesce(sum(up), 0) AS up FROM checks WHERE target = ? AND ts >= ? GROUP BY day", Params: []any{target, firstDay.Unix()}},
 	)
 	res, err := c.QueryD1(cf.AccountID, w.D1DatabaseID, queries...)
 	if err != nil {
@@ -111,16 +125,21 @@ func UptimeOf(s *store.Store, target string) (Uptime, error) {
 			u.AvgMs = int64(ms)
 		}
 	}
-	if len(res[len(res)-1]) == 1 {
-		if ts := int64(number(res[len(res)-1][0]["ts"])); ts > 0 {
+	if len(res[lastQ]) == 1 {
+		if ts := int64(number(res[lastQ][0]["ts"])); ts > 0 {
 			u.Last = time.Unix(ts, 0)
 		}
 	}
 	var down []struct{ ts, status int64 }
-	for _, r := range res[len(windows)] {
+	for _, r := range res[downQ] {
 		down = append(down, struct{ ts, status int64 }{int64(number(r["ts"])), int64(number(r["status"]))})
 	}
 	u.Outages = outages(down, u.Last)
+	var perDay []dayChecks
+	for _, r := range res[daysQ] {
+		perDay = append(perDay, dayChecks{int64(number(r["day"])), int64(number(r["n"])), int64(number(r["up"]))})
+	}
+	u.Days = days(perDay, now)
 
 	uptimeCache.Lock()
 	if uptimeCache.at == nil {
@@ -147,6 +166,34 @@ func outages(down []struct{ ts, status int64 }, last time.Time) []Outage {
 		out = append(out, Outage{Start: t, End: t, Status: d.status, Ongoing: !last.IsZero() && t.Equal(last)})
 	}
 	return out
+}
+
+// dayChecks is one UTC day's count of checks and of those answered.
+type dayChecks struct{ day, n, up int64 }
+
+// days lays the counts out over the last uptimeDays days, a day with no
+// checks left at zero.
+func days(rows []dayChecks, now time.Time) []UptimeDay {
+	byDay := map[int64]dayChecks{}
+	for _, r := range rows {
+		byDay[r.day] = r
+	}
+	out := make([]UptimeDay, uptimeDays)
+	first := dayOf(now).AddDate(0, 0, -(uptimeDays - 1))
+	for i := range out {
+		d := first.AddDate(0, 0, i)
+		out[i].Day = d
+		if r, ok := byDay[d.Unix()/86400]; ok && r.n > 0 {
+			out[i].Checks, out[i].Pct = r.n, float64(r.up)/float64(r.n)*100
+		}
+	}
+	return out
+}
+
+// dayOf is the start of t's day in UTC.
+func dayOf(t time.Time) time.Time {
+	t = t.UTC()
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
 }
 
 func number(raw json.RawMessage) float64 {

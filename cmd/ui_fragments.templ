@@ -47,6 +47,14 @@ templ uptimeBadge(v uptimeView) {
 	}
 }
 
+// dayTitle is what a day's bar says when pointed at.
+func dayTitle(d ops.UptimeDay) string {
+	if d.Checks == 0 {
+		return d.Day.Format("Jan 2") + ": no checks"
+	}
+	return fmt.Sprintf("%s: %.2f%%", d.Day.Format("Jan 2"), d.Pct)
+}
+
 type uptimeView struct {
 	Uptime    ops.Uptime
 	NoHistory bool
@@ -82,6 +90,16 @@ templ uptimeFragment(v uptimeView) {
 					</div>
 				}
 			</div>
+			if len(v.Uptime.Days) > 0 {
+				<div>
+					<div class="uptime-days">
+						for _, d := range v.Uptime.Days {
+							<i class={ templ.KV("is-down", d.Checks > 0 && d.Pct < 100), templ.KV("is-none", d.Checks == 0) } title={ dayTitle(d) }></i>
+						}
+					</div>
+					<div class="uptime-days-legend"><span>30 days ago</span><span>Today</span></div>
+				</div>
+			}
 			if len(v.Uptime.Outages) > 0 {
 				<ul class="space-y-1 small">
 					for _, o := range v.Uptime.Outages {
