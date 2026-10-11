@@ -1,6 +1,6 @@
 module github.com/hakobudev/hakobu
 
-go 1.27.1
+go 1.27.2
 
 require (
 	github.com/a-h/templ v0.3.1020
@@ -10,7 +10,7 @@ require (
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/spf13/cobra v1.10.2
 	github.com/yuin/goldmark v1.8.6
-	golang.org/x/net v0.58.0
+	golang.org/x/net v0.60.0
 	golang.org/x/term v0.46.0
 	modernc.org/sqlite v1.58.0
 )
