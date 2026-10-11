@@ -130,7 +130,7 @@ a.wordmark:hover { text-decoration: none; }
 .hero-install { width: auto; max-width: 100%; min-width: 0; text-align: left; }
 .hero-install .console { height: 40px; display: flex; align-items: center; padding: 0 44px 0 16px; font-size: 13px; border-radius: var(--radius); }
 .hero-install .copy { top: 6px; }
-@media (max-width: 560px) { .hero-install { width: 100%; } .hero-install .console { font-size: 11px; overflow-x: auto; scrollbar-width: none; } }
+@media (max-width: 560px) { .hero-install { width: 100%; } .hero-install .console { display: block; font-size: 12px; height: auto; padding: 10px 44px 10px 14px; white-space: pre-wrap; overflow-wrap: anywhere; overflow: hidden; } }
 
 /* On load, once: the hero's lines in turn, then the window */
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
@@ -290,7 +290,7 @@ a.wordmark:hover { text-decoration: none; }
 .viz-servers { gap: 14px; }
 .srv-dot { width: 8px; height: 8px; border-radius: 999px; border: 1.5px solid var(--border-strong); flex-shrink: 0; }
 .srv-dot.is-on { background: var(--accent); border-color: var(--accent); }
-.console-xs { margin: 0; font-size: 12px; line-height: 20px; padding: 10px 14px; white-space: pre; overflow-x: auto; }
+.console.console-xs { margin: 0; font-size: 12px; line-height: 20px; padding: 10px 14px; white-space: pre-wrap; overflow-wrap: anywhere; overflow: hidden; }
 
 /* Claude */
 .chat { border: 1px solid var(--border); border-radius: var(--radius-lg); background-color: var(--bg-muted); padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
