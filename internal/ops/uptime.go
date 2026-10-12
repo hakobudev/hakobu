@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -69,9 +71,9 @@ const maxOutages = 10
 // UptimeOf reads target's record ("panel" or AppTarget) from the
 // watchdog's history.
 func UptimeOf(s *store.Store, target string) (Uptime, error) {
-	w, err := s.GetWatchdog(ctx())
-	if err != nil || w.D1DatabaseID == "" {
-		return Uptime{}, ErrNoHistory
+	c, db, err := uptimeDB(s, target)
+	if err != nil {
+		return Uptime{}, err
 	}
 	uptimeCache.Lock()
 	if time.Since(uptimeCache.at[target]) < uptimeFresh {
@@ -80,10 +82,6 @@ func UptimeOf(s *store.Store, target string) (Uptime, error) {
 	}
 	uptimeCache.Unlock()
 
-	c, cf, err := cfClient(s)
-	if err != nil {
-		return Uptime{}, err
-	}
 	now := time.Now()
 	windows := []struct {
 		label string
@@ -103,7 +101,7 @@ func UptimeOf(s *store.Store, target string) (Uptime, error) {
 		cloudflare.D1Query{SQL: "SELECT coalesce(max(ts), 0) AS ts FROM checks WHERE target = ?", Params: []any{target}},
 		cloudflare.D1Query{SQL: "SELECT ts / 86400 AS day, count(*) AS n, coalesce(sum(up), 0) AS up FROM checks WHERE target = ? AND ts >= ? GROUP BY day", Params: []any{target, firstDay.Unix()}},
 	)
-	res, err := c.QueryD1(cf.AccountID, w.D1DatabaseID, queries...)
+	res, err := c.QueryD1(c.AccountID, db, queries...)
 	if err != nil {
 		return Uptime{}, err
 	}
@@ -148,6 +146,26 @@ func UptimeOf(s *store.Store, target string) (Uptime, error) {
 	uptimeCache.at[target], uptimeCache.val[target] = time.Now(), u
 	uptimeCache.Unlock()
 	return u, nil
+}
+
+// uptimeDB is the D1 database of the watchdog checking target: the client's
+// account's for an app there, the panel's otherwise.
+func uptimeDB(s *store.Store, target string) (cloudflare.Client, string, error) {
+	if rest, ok := strings.CutPrefix(target, "app:"); ok {
+		id, _ := strconv.ParseInt(rest, 10, 64)
+		if c, db, inClient := accountUptimeDB(s, id); inClient {
+			if db == "" {
+				return c, "", ErrNoHistory
+			}
+			return c, db, nil
+		}
+	}
+	w, err := s.GetWatchdog(ctx())
+	if err != nil || w.D1DatabaseID == "" {
+		return cloudflare.Client{}, "", ErrNoHistory
+	}
+	c, _, err := cfClient(s)
+	return c, w.D1DatabaseID, err
 }
 
 // outages groups the minutes down, newest first, into runs: minutes a

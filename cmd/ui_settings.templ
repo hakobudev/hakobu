@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/hakobudev/hakobu/internal/cloudflare"
@@ -938,23 +939,34 @@ templ myNotify(n ops.UserNotify, admin bool) {
 			<div class="box-header">Your own projects</div>
 		}
 		<div class="box-body space-y-3">
-			if !n.PanelOn {
-				<p class="muted">The panel doesn't send emails yet: its admin turns them on in Settings.</p>
+			if !n.CanSend() {
+				<p class="muted">Nothing sends your alerts yet: connect your Cloudflare account under Cloudflare. Alerts about a project come from the account it's in.</p>
 			} else {
 				if admin {
-					<p class="field-hint">Alerts about your projects go to the address above unless you give one of your own. Other users' alerts go to theirs.</p>
+					<p class="field-hint">Alerts about your projects go to the address above unless you give one of your own. Other users' alerts go to theirs. Those about a project in a client's account come from that account, whose watchdog checks its apps from outside every minute.</p>
+				} else {
+					<p class="field-hint">Alerts about a project come from the Cloudflare account it's in, whose watchdog also checks its apps from outside every minute. Cloudflare asks you once in each account to confirm the address.</p>
 				}
 				if n.Email != "" {
 					<p>Alerts about your projects go to <span class="mono">{ n.Email }</span>.</p>
-					if n.Err != "" {
-						@flash("danger") {
-							{ n.Err }
-						}
-					} else if !n.Verified {
-						@flash("warn") {
-							Waiting for you to confirm the address: open the email from Cloudflare and click <span class="mono">Verify email address</span>, then reload this page.
+					if n.InPanel {
+						if n.Err != "" {
+							@flash("danger") {
+								{ n.Err }
+							}
+						} else if !n.Verified {
+							@flash("warn") {
+								Waiting for you to confirm the address in the panel's account: open the email from Cloudflare and click <span class="mono">Verify email address</span>, then reload this page.
+							}
 						}
 					}
+				}
+				if len(n.Accounts) > 0 && (n.Email != "" || admin) {
+					<div class="space-y-2">
+						for _, a := range n.Accounts {
+							@accountAlerts(a)
+						}
+					</div>
 				}
 				<form hx-post="/settings/my-notify" class="space-y-3">
 					@field("Your email", "") {
@@ -970,6 +982,46 @@ templ myNotify(n ops.UserNotify, admin bool) {
 			}
 		</div>
 	</div>
+}
+
+// accountAlerts is how one of the user's Cloudflare accounts alerts them.
+templ accountAlerts(a ops.AccountAlertsInfo) {
+	<div class="kv">
+		<span class="kv-key">{ a.Title }</span>
+		<span class="space-y-1">
+			switch {
+				case a.Idle:
+					<span class="muted">Nothing set up: no project of yours is there.</span>
+				case a.From == "" && a.Err == "":
+					<span class="muted">Set up within the hour.</span>
+				case a.From != "":
+					<span class="block">From <span class="mono">{ a.From }</span>{ ", " + watching(a) }.</span>
+			}
+			if a.Err != "" {
+				@flash("danger") {
+					{ a.Err }
+				}
+			} else if a.From != "" && !a.Verified {
+				@flash("warn") {
+					Waiting for you to confirm the address in this account: open the email from Cloudflare and click <span class="mono">Verify email address</span>, then reload this page.
+				}
+			}
+		</span>
+	</div>
+}
+
+func watching(a ops.AccountAlertsInfo) string {
+	switch {
+	case a.Watching == 0:
+		return "no app with an address for the watchdog yet"
+	case a.Watching == 1 && a.History:
+		return "the watchdog checks 1 app and keeps its uptime"
+	case a.Watching == 1:
+		return "the watchdog checks 1 app"
+	case a.History:
+		return fmt.Sprintf("the watchdog checks %d apps and keeps their uptime", a.Watching)
+	}
+	return fmt.Sprintf("the watchdog checks %d apps", a.Watching)
 }
 
 func usersIntro(openSignup bool) string {

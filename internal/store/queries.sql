@@ -575,6 +575,28 @@ INSERT OR IGNORE INTO watchdog_off (id) VALUES (1);
 -- name: AllowWatchdog :exec
 DELETE FROM watchdog_off;
 
+-- Alerts from clients' accounts
+
+-- name: GetAccountAlerts :one
+SELECT * FROM account_alerts WHERE cloudflare_account_id = ?;
+
+-- name: ListAccountAlerts :many
+SELECT * FROM account_alerts ORDER BY cloudflare_account_id;
+
+-- name: SaveAccountEmail :exec
+INSERT INTO account_alerts (cloudflare_account_id, email, added_address, sender_domain, zone_id, routed_domain) VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT (cloudflare_account_id) DO UPDATE SET email = excluded.email, added_address = excluded.added_address,
+	sender_domain = excluded.sender_domain, zone_id = excluded.zone_id, routed_domain = excluded.routed_domain;
+
+-- name: SaveAccountWatchdog :exec
+UPDATE account_alerts SET script = ?, kv_namespace_id = ?, targets = ?, d1_database_id = ? WHERE cloudflare_account_id = ?;
+
+-- name: DeleteAccountAlerts :exec
+DELETE FROM account_alerts WHERE cloudflare_account_id = ?;
+
+-- name: ProjectIDsInCloudflareAccount :many
+SELECT id FROM projects WHERE cloudflare_account_id = ?;
+
 -- Nodes
 
 -- name: ListNodes :many

@@ -208,6 +208,7 @@ func LinkServer(s *store.Store, version string) (http.Handler, error) {
 		return nil, err
 	}
 	watchPanelURL.Do(func() { go tellPanelMoves(s, 10*time.Second) })
+	watchAway.Do(func() { go watchServersAway(s, 30*time.Second) })
 	return &link.Server{
 		Key: key, Version: version, URL: panelAddress,
 		Admit: func(k ed25519.PublicKey, joinSecret, v string) (string, error) { return admit(s, k, joinSecret, v) },
@@ -260,6 +261,75 @@ func panelAddress() string {
 }
 
 var watchPanelURL sync.Once
+
+var watchAway sync.Once
+
+// serverAwayAfter is how long a server may be away from the panel before
+// its owner hears of it: hakobu restarting on either side, or a network
+// blip, comes back well within it.
+const serverAwayAfter = 3 * time.Minute
+
+// watchServersAway mails a server's owner when it's been away from the
+// panel for serverAwayAfter, and when it's back. The watchdog in the
+// account of its projects tells whether their apps answer meanwhile; this
+// covers a server with no app to check, or whose apps answer while hakobu
+// on it can't deploy, back up or watch them.
+func watchServersAway(s *store.Store, every time.Duration) {
+	away := map[int64]time.Time{}
+	for ; ; time.Sleep(every) {
+		checkServersAway(s, away, time.Now())
+	}
+}
+
+// checkServersAway notes which joined servers are away since when, in
+// away, and mails those away long enough or back.
+func checkServersAway(s *store.Store, away map[int64]time.Time, now time.Time) {
+	nodes, err := s.ListNodes(ctx())
+	if err != nil {
+		return
+	}
+	joined := map[int64]bool{}
+	for _, n := range nodes {
+		if n.PublicKey == "" {
+			continue
+		}
+		joined[n.ID] = true
+		key := fmt.Sprintf("server:%d", n.ID)
+		since, wasAway := away[n.ID]
+		if _, ok := links.get(n.ID); ok {
+			if wasAway {
+				delete(away, n.ID)
+				solved(s, key, "Server "+n.Name+" is connected again",
+					fmt.Sprintf("Server %s is connected to the panel again, after at least %s away.", n.Name, awayFor(now.Sub(since))))
+			}
+			continue
+		}
+		if !wasAway {
+			away[n.ID] = now
+			continue
+		}
+		if now.Sub(since) >= serverAwayAfter {
+			problem(s, key, notifyAgain, "Server "+n.Name+" isn't connected",
+				fmt.Sprintf("Server %s hasn't been connected to the panel for %s. Its apps may still run, but hakobu can't deploy, back them up or watch them there until it's back.\n\n"+
+					"If the watchdog says its apps are unreachable too, the server itself is likely down; otherwise run `systemctl status hakobu` on it.\n\n%s",
+					n.Name, awayFor(now.Sub(since)), panelURL("/settings#servers")))
+		}
+	}
+	for id := range away {
+		if !joined[id] { // removed
+			delete(away, id)
+			solved(s, fmt.Sprintf("server:%d", id), "", "")
+		}
+	}
+}
+
+func awayFor(d time.Duration) string {
+	m := int(d.Round(time.Minute).Minutes())
+	if m < 60 {
+		return fmt.Sprintf("%d min", m)
+	}
+	return fmt.Sprintf("%d h %d min", m/60, m%60)
+}
 
 // tellPanelMoves follows `hakobu setup --domain` changing the panel's
 // address: it tells the connected servers, while their links still stand

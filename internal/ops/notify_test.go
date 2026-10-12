@@ -42,6 +42,9 @@ type fakeEmail struct {
 	noD1      bool                    // the token lacks D1 Edit
 	d1        map[string]string       // D1 database ID → name
 	d1SQL     []string                // statements run in D1
+	apex      string                  // the zone's name
+	account   string                  // its account's ID as the API shows it
+	client    *fakeEmail              // a client's account, cli, with zone z2, for the token ctok
 }
 
 // workerUpload is what a Worker was uploaded with.
@@ -52,10 +55,20 @@ type workerUpload struct {
 }
 
 func newFakeEmail(t *testing.T) *fakeEmail {
-	f := &fakeEmail{routed: map[string]bool{}, addresses: map[string]bool{}, txt: map[string][2]string{}, workers: map[string]workerUpload{}, kv: map[string]string{}, d1: map[string]string{}}
+	state := func(apex, account string) *fakeEmail {
+		return &fakeEmail{routed: map[string]bool{}, addresses: map[string]bool{}, txt: map[string][2]string{}, workers: map[string]workerUpload{}, kv: map[string]string{}, d1: map[string]string{}, apex: apex, account: account}
+	}
+	f := state("example.com", "acc")
+	f.client = state("client.com", "cli")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		defer f.mu.Unlock()
+		f := f
+		if strings.Contains(r.Header.Get("Authorization"), "ctok") {
+			// The client's account answers as the panel's would.
+			f = f.client
+			r.URL.Path = strings.Replace(strings.Replace(r.URL.Path, "/accounts/cli/", "/accounts/acc/", 1), "/zones/z2", "/zones/z1", 1)
+		}
 		var body map[string]string
 		b, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(b, &body)
@@ -63,7 +76,11 @@ func newFakeEmail(t *testing.T) *fakeEmail {
 		route := r.Method + " " + r.URL.Path
 		switch {
 		case route == "GET /zones":
-			ok([]map[string]any{{"id": "z1", "name": "example.com", "account": map[string]string{"id": "acc"}}})
+			id := "z1"
+			if f.account == "cli" {
+				id = "z2"
+			}
+			ok([]map[string]any{{"id": id, "name": f.apex, "account": map[string]string{"id": f.account}}})
 		case route == "GET /zones/z1/email/routing":
 			var subs []map[string]any
 			for n := range f.routed {
@@ -77,7 +94,7 @@ func newFakeEmail(t *testing.T) *fakeEmail {
 		case route == "POST /zones/z1/email/routing/dns":
 			f.zoneOn = true
 			switch body["name"] {
-			case "example.com":
+			case f.apex:
 				t.Error("named the apex, which the API refuses")
 			case "":
 				f.apexReady, f.mx = true, []string{"route1.mx.cloudflare.net"}
@@ -85,19 +102,19 @@ func newFakeEmail(t *testing.T) *fakeEmail {
 				f.routed[body["name"]] = true
 				f.addTXT(body["name"], cloudflare.CloudflareSPF)
 			}
-			if len(f.spf("example.com")) == 0 {
-				f.addTXT("example.com", cloudflare.CloudflareSPF)
+			if len(f.spf(f.apex)) == 0 {
+				f.addTXT(f.apex, cloudflare.CloudflareSPF)
 			}
 			ok(map[string]any{})
 		case route == "DELETE /zones/z1/email/routing/dns":
-			if body["name"] == "" || body["name"] == "example.com" {
+			if body["name"] == "" || body["name"] == f.apex {
 				t.Error("turned Email Routing off for the whole zone")
 			}
 			delete(f.routed, body["name"])
 			ok(map[string]any{})
 		case route == "GET /zones/z1/dns_records" && r.URL.Query().Get("type") == "MX":
 			var list []map[string]string
-			if r.URL.Query().Get("name") == "example.com" {
+			if r.URL.Query().Get("name") == f.apex {
 				for _, m := range f.mx {
 					list = append(list, map[string]string{"content": m})
 				}

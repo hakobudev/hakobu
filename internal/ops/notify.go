@@ -26,6 +26,9 @@ import (
 // hakobu enables it by turning it on for mail.<panel host>, which leaves
 // the mail of the domain itself alone.
 //
+// Alerts about a project in a client's Cloudflare account come from that
+// account instead (account_alerts.go).
+//
 // A problem is mailed once, then again only if it's still there hours
 // later; when it's gone, one more email says so. What was mailed is kept
 // in memory, so a restart may repeat an email.
@@ -240,6 +243,7 @@ func SetupNotifications(s *store.Store, email, name, from string) error {
 	if werr := EnsureWatchdog(s, true); werr != nil {
 		err = errors.Join(err, fmt.Errorf("the watchdog isn't set up: %w", werr))
 	}
+	async(func() { EnsureAccountAlerts(s) }) // admins' alerts go to the address
 	return err
 }
 
@@ -406,29 +410,17 @@ func mailOwner(s *store.Store, subject, text string) error {
 
 // mailTo sends an email from the panel's sender, if notifications are on.
 func mailTo(s *store.Store, to, subject, text string) error {
-	n, err := s.GetNotify(ctx())
-	if err != nil {
-		return errNotifyOff
-	}
-	c, cf, err := cfClient(s)
+	m, err := panelMailer(s)
 	if err != nil {
 		return err
 	}
-	host := config.PublicHost()
-	err = c.SendEmail(cf.AccountID, cloudflare.Email{
-		FromAddress: n.SenderName + "@" + n.SenderDomain,
-		FromName:    "Hakobu",
-		To:          to,
-		Subject:     subject,
-		Text:        text + "\n\n-- \nhakobu at https://" + host + "\nTurn these emails off in Settings: https://" + host + "/settings#notifications\n",
-	})
-	return tokenHint(err)
+	return m.send(to, subject, text)
 }
 
-// problem mails the owner about the problem key unless it was mailed
-// within again.
+// problem mails whoever it's for about the problem key unless it was
+// mailed within again.
 func problem(s *store.Store, key string, again time.Duration, subject, text string) {
-	if _, err := s.GetNotify(ctx()); err != nil {
+	if recipient(s, key) == "" {
 		return
 	}
 	problems.Lock()
@@ -463,87 +455,95 @@ func sendFor(s *store.Store, key, subject, text string) {
 	if to == "" {
 		return
 	}
-	if err := mailTo(s, to, subject, text); err != nil && !errors.Is(err, errNotifyOff) {
+	m, err := mailerFor(s, key, to)
+	if err == nil {
+		err = m.send(to, subject, text)
+	}
+	if err != nil && !errors.Is(err, errNotifyOff) {
 		panellog.Error("failed to email", to+":", err)
 	}
 }
 
 // recipient is where the alert of problem key goes: to the user whose
-// project it's about, at their own address, or at the panel's if they're
-// an admin without one; the server's own alerts go to the panel's
+// project or server it's about, at their own address, or at the panel's if
+// they're an admin without one; the server's own alerts go to the panel's
 // address. "" for nobody.
 func recipient(s *store.Store, key string) string {
-	n, err := s.GetNotify(ctx())
-	if err != nil {
-		return ""
+	about, ok := alertAbout(s, key)
+	if ok {
+		if u, err := s.GetUser(ctx(), about.user); err == nil {
+			return userAddress(s, u)
+		}
 	}
-	owner, ok := alertOwner(s, key)
-	if !ok {
-		return n.Email
-	}
-	u, err := s.GetUser(ctx(), owner)
-	switch {
-	case err != nil: // nobody's, as made before there were users
-		return n.Email
-	case u.NotifyEmail != "":
-		return u.NotifyEmail
-	case u.Admin == 1:
+	// The server's own, or nobody's, as made before there were users.
+	if n, err := s.GetNotify(ctx()); err == nil {
 		return n.Email
 	}
 	return ""
 }
 
-// alertOwner is the user whose project problem key is about: an app's
-// (deploy, crash, out of memory, health, memory use, by the app's ID), a
-// database's or a volume's backup (by dbJobKey or volumeJob). ok is false
-// for the server's own alerts.
-func alertOwner(s *store.Store, key string) (user int64, ok bool) {
+// alertSubject is whose an alert is: the user's, about a project of theirs
+// (in their client's Cloudflare account, hakobu's ID, or 0 for the
+// panel's), or about something else of theirs.
+type alertSubject struct {
+	user    int64
+	project bool
+	account int64
+}
+
+// alertAbout is whose problem key is: an app's project (deploy, crash, out
+// of memory, health, memory use, by the app's ID), a database's or a
+// volume's (backup, by dbJobKey or volumeJob), a server's (its key not
+// exported, it's away) or a Cloudflare account's. ok is false for the
+// panel's own alerts.
+func alertAbout(s *store.Store, key string) (alertSubject, bool) {
 	kind, rest, _ := strings.Cut(key, ":")
 	var projectID int64
 	switch kind {
 	case "deploy", "oom", "crash", "health", "memory":
 		if kind == "memory" { // memory:app:<id> or memory:worker:<id>
+			var ok bool
 			if _, rest, ok = strings.Cut(rest, ":"); !ok {
-				return 0, false
+				return alertSubject{}, false
 			}
 		}
 		id, _ := strconv.ParseInt(rest, 10, 64)
 		a, err := s.GetAppByID(ctx(), id)
 		if err != nil {
-			return 0, false
+			return alertSubject{}, false
 		}
 		projectID = a.ProjectID
 	case "backup":
 		app, db, ok := backupOf(s, rest)
 		switch {
 		case !ok:
-			return 0, false // the panel's own backup
+			return alertSubject{}, false // the panel's own backup
 		case app != nil:
 			projectID = app.ProjectID
 		default:
 			projectID = db.ProjectID
 		}
-	case "serverkey": // serverkey:<server ID>, its key not exported
+	case "serverkey", "server": // <kind>:<server ID>
 		id, _ := strconv.ParseInt(rest, 10, 64)
 		n, err := s.GetNode(ctx(), id)
 		if err != nil {
-			return 0, false
+			return alertSubject{}, false
 		}
-		return n.UserID, true
+		return alertSubject{user: n.UserID}, true
 	case "cloudflare": // cloudflare:<account>, a sign-in that can't renew
 		a, err := s.GetCloudflareAccountByName(ctx(), rest)
 		if err != nil {
-			return 0, false
+			return alertSubject{}, false
 		}
-		return a.UserID, true
+		return alertSubject{user: a.UserID}, true
 	default:
-		return 0, false
+		return alertSubject{}, false
 	}
 	p, err := s.GetProjectByID(ctx(), projectID)
 	if err != nil {
-		return 0, false
+		return alertSubject{}, false
 	}
-	return p.UserID, true
+	return alertSubject{user: p.UserID, project: true, account: p.CloudflareAccountID.Int64}, true
 }
 
 // backupOf is what a backup job (dbJobKey, volumeJob) is of: the app whose
@@ -649,6 +649,7 @@ func CheckForOwner(s *store.Store) {
 	if err := EnsureWatchdog(s, false); err != nil {
 		panellog.Error("watchdog:", err)
 	}
+	EnsureAccountAlerts(s)
 	if disk, low := DiskUsage(); low {
 		problem(s, "disk", notifyAgain, "The server's disk is almost full",
 			"Disk: "+disk+". Deploys and databases fail on a full disk; free some space or clean up: "+panelURL("/settings"))
@@ -668,15 +669,16 @@ func CheckForOwner(s *store.Store) {
 // name through OAuth, so a connection they didn't make doesn't go
 // unnoticed.
 func NoteOAuthConnection(s *store.Store, u store.User, client, redirectHost string, scopes []string) {
-	to := u.NotifyEmail
-	if n, err := s.GetNotify(ctx()); err == nil && to == "" && u.Admin == 1 {
-		to = n.Email
-	}
+	to := userAddress(s, u)
 	if to == "" {
 		return
 	}
 	async(func() {
-		err := mailTo(s, to, client+" connected to hakobu", fmt.Sprintf(
+		m, err := userMailer(s, u.ID, to)
+		if err != nil {
+			return
+		}
+		err = m.send(to, client+" connected to hakobu", fmt.Sprintf(
 			"You allowed %s (it returns to %s) to use hakobu with scopes: %s.\n\nIf that wasn't you, disconnect it and sign out everywhere: %s",
 			client, redirectHost, strings.Join(scopes, ", "), panelURL("/settings#ai-apps")))
 		if err != nil && !errors.Is(err, errNotifyOff) {
@@ -687,28 +689,35 @@ func NoteOAuthConnection(s *store.Store, u store.User, client, redirectHost stri
 
 // UserNotify is a user's own alerts address as Settings shows it.
 type UserNotify struct {
-	PanelOn  bool   // the panel sends emails at all
-	Email    string // '' if none
-	Verified bool   // confirmed in the panel's Cloudflare account
+	PanelOn bool   // the panel's account sends emails
+	Email   string // '' if none
+	// Alerts about their projects in the panel's account come from there:
+	// they have some, and whether the address is confirmed there.
+	InPanel  bool
+	Verified bool
 	Err      string
+	Accounts []AccountAlertsInfo // their clients' accounts, which send the rest
 }
 
+// CanSend: something can send the user's alerts.
+func (n UserNotify) CanSend() bool { return n.PanelOn || len(n.Accounts) > 0 }
+
 func UserNotifyOf(s *store.Store, u store.User) UserNotify {
-	v := UserNotify{Email: u.NotifyEmail}
+	v := UserNotify{Email: u.NotifyEmail, Accounts: userAccountAlerts(s, u.ID)}
 	if _, err := s.GetNotify(ctx()); err != nil {
 		return v
 	}
 	v.PanelOn = true
-	if v.Email == "" {
+	projects, _ := s.UserProjectsInPanelAccount(ctx(), u.ID)
+	v.InPanel = len(projects) > 0 && !config.PanelOnly
+	if v.Email == "" || !v.InPanel {
 		return v
 	}
 	c, cf, err := cfClient(s)
 	if err == nil {
-		var dests []cloudflare.Destination
-		if dests, err = c.Destinations(cf.AccountID); err == nil {
-			for _, d := range dests {
-				v.Verified = v.Verified || (d.Verified && strings.EqualFold(d.Email, v.Email))
-			}
+		var d cloudflare.Destination
+		if d, err = c.Destination(cf.AccountID, v.Email); err == nil {
+			v.Verified = d.Verified
 		}
 	}
 	if err != nil {
@@ -718,9 +727,11 @@ func UserNotifyOf(s *store.Store, u store.User) UserNotify {
 }
 
 // SetUserNotify sets where a user's own alerts go, or with email "" stops
-// them (an admin's go to the panel's address then). The panel's Cloudflare
-// account sends them, to addresses confirmed there: Cloudflare mails the
-// user a link to confirm theirs.
+// them (an admin's go to the panel's address then). Each Cloudflare
+// account of theirs with projects sends the alerts about those, to the
+// address confirmed there, and the panel's account the rest: Cloudflare
+// mails the user a link to confirm it in each. A panel-only panel's
+// account confirms no users' addresses: it would run out.
 func SetUserNotify(s *store.Store, u store.User, email string) error {
 	email = strings.TrimSpace(email)
 	if email != "" {
@@ -729,24 +740,61 @@ func SetUserNotify(s *store.Store, u store.User, email string) error {
 			return fmt.Errorf("%q isn't an email address", email)
 		}
 		email = addr.Address
-		if _, err := s.GetNotify(ctx()); err != nil {
-			return errors.New("the panel doesn't send emails yet: its admin turns them on in Settings")
+		_, panelErr := s.GetNotify(ctx())
+		n, _ := s.CountCloudflareAccountsOf(ctx(), u.ID)
+		if panelErr != nil && n == 0 {
+			return errors.New("nothing can send your alerts yet: connect your Cloudflare account under Cloudflare, or ask the panel's admin to turn emails on")
 		}
-		c, cf, err := cfClient(s)
-		if err != nil {
-			return err
-		}
-		if _, err := c.AddDestination(cf.AccountID, email); err != nil {
-			return tokenHint(err)
+		if panelErr == nil && !config.PanelOnly {
+			c, cf, err := cfClient(s)
+			if err != nil {
+				return err
+			}
+			if _, err := c.AddDestination(cf.AccountID, email); err != nil {
+				return tokenHint(err)
+			}
 		}
 	}
-	return s.SetUserNotifyEmail(ctx(), store.SetUserNotifyEmailParams{NotifyEmail: email, ID: u.ID})
+	if err := s.SetUserNotifyEmail(ctx(), store.SetUserNotifyEmailParams{NotifyEmail: email, ID: u.ID}); err != nil {
+		return err
+	}
+	if err := ensureUserAccountAlerts(s, u.ID); err != nil {
+		return fmt.Errorf("saved, but alerts from your Cloudflare accounts aren't set up: %w", err)
+	}
+	return nil
 }
 
-// SendUserTestEmail sends a test email to a user's own address.
+// SendUserTestEmail sends a test email to a user's own address from each
+// account that sends their alerts.
 func SendUserTestEmail(s *store.Store, u store.User) error {
 	if u.NotifyEmail == "" {
 		return errors.New("set your address first")
 	}
-	return mailTo(s, u.NotifyEmail, "Test email", "Alerts about your projects on this hakobu panel arrive here.")
+	const subject, text = "Test email", "Alerts about your projects on this hakobu panel arrive here."
+	var errs []error
+	sent := 0
+	if rows, err := s.ListCloudflareAccounts(ctx()); err == nil {
+		for _, r := range rows {
+			if r.UserID != u.ID {
+				continue
+			}
+			if m, ok := accountMailer(s, r.ID, u.NotifyEmail); ok {
+				sent++
+				if err := m.send(u.NotifyEmail, subject, text+"\nThis one came from Cloudflare account "+r.Title+"."); err != nil {
+					errs = append(errs, fmt.Errorf("from %s: %w", r.Title, err))
+				}
+			}
+		}
+	}
+	if projects, _ := s.UserProjectsInPanelAccount(ctx(), u.ID); sent == 0 || (len(projects) > 0 && !config.PanelOnly) {
+		if err := mailTo(s, u.NotifyEmail, subject, text); err != nil {
+			if errors.Is(err, errNotifyOff) && sent == 0 {
+				err = errors.New("nothing sends your alerts yet: they're set up once a project of yours is in a Cloudflare account of yours")
+			}
+			if !errors.Is(err, errNotifyOff) {
+				errs = append(errs, err)
+			}
+		}
+	}
+	return errors.Join(errs...)
 }

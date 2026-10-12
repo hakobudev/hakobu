@@ -586,6 +586,15 @@ func (q *Queries) CreateVolumeBackup(ctx context.Context, arg CreateVolumeBackup
 	return id, err
 }
 
+const deleteAccountAlerts = `-- name: DeleteAccountAlerts :exec
+DELETE FROM account_alerts WHERE cloudflare_account_id = ?
+`
+
+func (q *Queries) DeleteAccountAlerts(ctx context.Context, cloudflareAccountID int64) error {
+	_, err := q.db.ExecContext(ctx, deleteAccountAlerts, cloudflareAccountID)
+	return err
+}
+
 const deleteAllOAuthGrants = `-- name: DeleteAllOAuthGrants :exec
 DELETE FROM oauth_grants
 `
@@ -916,6 +925,30 @@ DELETE FROM workers WHERE app_id = ?
 func (q *Queries) DeleteWorker(ctx context.Context, appID int64) error {
 	_, err := q.db.ExecContext(ctx, deleteWorker, appID)
 	return err
+}
+
+const getAccountAlerts = `-- name: GetAccountAlerts :one
+
+SELECT cloudflare_account_id, email, added_address, sender_domain, zone_id, routed_domain, script, kv_namespace_id, targets, d1_database_id FROM account_alerts WHERE cloudflare_account_id = ?
+`
+
+// Alerts from clients' accounts
+func (q *Queries) GetAccountAlerts(ctx context.Context, cloudflareAccountID int64) (AccountAlert, error) {
+	row := q.db.QueryRowContext(ctx, getAccountAlerts, cloudflareAccountID)
+	var i AccountAlert
+	err := row.Scan(
+		&i.CloudflareAccountID,
+		&i.Email,
+		&i.AddedAddress,
+		&i.SenderDomain,
+		&i.ZoneID,
+		&i.RoutedDomain,
+		&i.Script,
+		&i.KvNamespaceID,
+		&i.Targets,
+		&i.D1DatabaseID,
+	)
+	return i, err
 }
 
 const getAdmin = `-- name: GetAdmin :one
@@ -1739,6 +1772,44 @@ type JoinNodeParams struct {
 func (q *Queries) JoinNode(ctx context.Context, arg JoinNodeParams) error {
 	_, err := q.db.ExecContext(ctx, joinNode, arg.PublicKey, arg.ID)
 	return err
+}
+
+const listAccountAlerts = `-- name: ListAccountAlerts :many
+SELECT cloudflare_account_id, email, added_address, sender_domain, zone_id, routed_domain, script, kv_namespace_id, targets, d1_database_id FROM account_alerts ORDER BY cloudflare_account_id
+`
+
+func (q *Queries) ListAccountAlerts(ctx context.Context) ([]AccountAlert, error) {
+	rows, err := q.db.QueryContext(ctx, listAccountAlerts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AccountAlert
+	for rows.Next() {
+		var i AccountAlert
+		if err := rows.Scan(
+			&i.CloudflareAccountID,
+			&i.Email,
+			&i.AddedAddress,
+			&i.SenderDomain,
+			&i.ZoneID,
+			&i.RoutedDomain,
+			&i.Script,
+			&i.KvNamespaceID,
+			&i.Targets,
+			&i.D1DatabaseID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listAllAppRoutes = `-- name: ListAllAppRoutes :many
@@ -2932,6 +3003,33 @@ func (q *Queries) NoteWebhookDelivery(ctx context.Context, id string) (int64, er
 	return result.RowsAffected()
 }
 
+const projectIDsInCloudflareAccount = `-- name: ProjectIDsInCloudflareAccount :many
+SELECT id FROM projects WHERE cloudflare_account_id = ?
+`
+
+func (q *Queries) ProjectIDsInCloudflareAccount(ctx context.Context, cloudflareAccountID sql.NullInt64) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, projectIDsInCloudflareAccount, cloudflareAccountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const projectsInCloudflareAccount = `-- name: ProjectsInCloudflareAccount :many
 SELECT name FROM projects WHERE cloudflare_account_id = ? ORDER BY name
 `
@@ -3059,6 +3157,56 @@ type RenameProjectParams struct {
 
 func (q *Queries) RenameProject(ctx context.Context, arg RenameProjectParams) error {
 	_, err := q.db.ExecContext(ctx, renameProject, arg.Name, arg.ID)
+	return err
+}
+
+const saveAccountEmail = `-- name: SaveAccountEmail :exec
+INSERT INTO account_alerts (cloudflare_account_id, email, added_address, sender_domain, zone_id, routed_domain) VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT (cloudflare_account_id) DO UPDATE SET email = excluded.email, added_address = excluded.added_address,
+	sender_domain = excluded.sender_domain, zone_id = excluded.zone_id, routed_domain = excluded.routed_domain
+`
+
+type SaveAccountEmailParams struct {
+	CloudflareAccountID int64
+	Email               string
+	AddedAddress        int64
+	SenderDomain        string
+	ZoneID              string
+	RoutedDomain        string
+}
+
+func (q *Queries) SaveAccountEmail(ctx context.Context, arg SaveAccountEmailParams) error {
+	_, err := q.db.ExecContext(ctx, saveAccountEmail,
+		arg.CloudflareAccountID,
+		arg.Email,
+		arg.AddedAddress,
+		arg.SenderDomain,
+		arg.ZoneID,
+		arg.RoutedDomain,
+	)
+	return err
+}
+
+const saveAccountWatchdog = `-- name: SaveAccountWatchdog :exec
+UPDATE account_alerts SET script = ?, kv_namespace_id = ?, targets = ?, d1_database_id = ? WHERE cloudflare_account_id = ?
+`
+
+type SaveAccountWatchdogParams struct {
+	Script              string
+	KvNamespaceID       string
+	Targets             string
+	D1DatabaseID        string
+	CloudflareAccountID int64
+}
+
+func (q *Queries) SaveAccountWatchdog(ctx context.Context, arg SaveAccountWatchdogParams) error {
+	_, err := q.db.ExecContext(ctx, saveAccountWatchdog,
+		arg.Script,
+		arg.KvNamespaceID,
+		arg.Targets,
+		arg.D1DatabaseID,
+		arg.CloudflareAccountID,
+	)
 	return err
 }
 

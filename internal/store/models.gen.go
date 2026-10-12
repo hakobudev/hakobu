@@ -10,6 +10,19 @@ import (
 	"github.com/hakobudev/hakobu/internal/secret"
 )
 
+type AccountAlert struct {
+	CloudflareAccountID int64
+	Email               string
+	AddedAddress        int64
+	SenderDomain        string
+	ZoneID              string
+	RoutedDomain        string
+	Script              string
+	KvNamespaceID       string
+	Targets             string
+	D1DatabaseID        string
+}
+
 type App struct {
 	ID              int64
 	ProjectID       int64

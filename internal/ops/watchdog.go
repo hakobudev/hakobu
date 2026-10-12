@@ -147,23 +147,34 @@ func EnableWatchdog(s *store.Store) error {
 	if w, err := s.GetWatchdog(ctx()); err == nil && w.Script != "" {
 		name = w.Script
 	}
-	kv, err := c.FindOrCreateKVNamespace(cf.AccountID, name)
+	// The history needs D1 Edit, which older tokens lack: the watchdog
+	// runs without it, and gets it once the token has it.
+	kv, d1, err := deployWatchdog(c, cf.AccountID, name, n.Email, n.SenderName+"@"+n.SenderDomain, targets, canKeepHistory(TokenPermissions(s, false)))
 	if err != nil {
 		return workersHint(err)
 	}
+	return s.SaveWatchdog(ctx(), store.SaveWatchdogParams{Script: name, KvNamespaceID: kv, Targets: targets, D1DatabaseID: d1})
+}
+
+// deployWatchdog deploys a watchdog named name to the account: checking
+// targets (JSON) and mailing to from from, with its history if
+// withHistory. It returns its KV namespace and D1 database ('' without).
+func deployWatchdog(c cloudflare.Client, accountID, name, to, from, targets string, withHistory bool) (kv, d1 string, err error) {
+	kv, err = c.FindOrCreateKVNamespace(accountID, name)
+	if err != nil {
+		return "", "", err
+	}
 	bindings := []cloudflare.Binding{
-		{"type": "send_email", "name": "EMAIL", "destination_address": n.Email},
+		{"type": "send_email", "name": "EMAIL", "destination_address": to},
 		{"type": "kv_namespace", "name": "STATE", "namespace_id": kv},
 		{"type": "plain_text", "name": "TARGETS", "text": targets},
-		{"type": "plain_text", "name": "FROM", "text": n.SenderName + "@" + n.SenderDomain},
-		{"type": "plain_text", "name": "TO", "text": n.Email},
+		{"type": "plain_text", "name": "PANEL", "text": panelURL("")},
+		{"type": "plain_text", "name": "FROM", "text": from},
+		{"type": "plain_text", "name": "TO", "text": to},
 	}
-	// The history needs D1 Edit, which older tokens lack: the watchdog
-	// runs without it, and gets it once the token has it.
-	d1 := ""
-	if canKeepHistory(TokenPermissions(s, false)) {
-		if d1, err = c.FindOrCreateD1(cf.AccountID, name); err == nil {
-			_, err = c.QueryD1(cf.AccountID, d1, cloudflare.D1Query{SQL: checksSchema})
+	if withHistory {
+		if d1, err = c.FindOrCreateD1(accountID, name); err == nil {
+			_, err = c.QueryD1(accountID, d1, cloudflare.D1Query{SQL: checksSchema})
 		}
 		if err != nil {
 			panellog.Warn("the watchdog runs without its history:", err)
@@ -172,13 +183,29 @@ func EnableWatchdog(s *store.Store) error {
 			bindings = append(bindings, cloudflare.Binding{"type": "d1", "name": "DB", "database_id": d1})
 		}
 	}
-	if err := c.UploadWorker(cf.AccountID, name, watchdogJS, watchdogCompatibilityDate, bindings); err != nil {
-		return workersHint(err)
+	if err := c.UploadWorker(accountID, name, watchdogJS, watchdogCompatibilityDate, bindings); err != nil {
+		return "", "", err
 	}
-	if err := c.SetWorkerCrons(cf.AccountID, name, []string{"* * * * *"}); err != nil {
-		return workersHint(err)
+	if err := c.SetWorkerCrons(accountID, name, []string{"* * * * *"}); err != nil {
+		return "", "", err
 	}
-	return s.SaveWatchdog(ctx(), store.SaveWatchdogParams{Script: name, KvNamespaceID: kv, Targets: targets, D1DatabaseID: d1})
+	return kv, d1, nil
+}
+
+// removeWatchdog deletes a watchdog's Worker, KV namespace and history.
+func removeWatchdog(c cloudflare.Client, accountID, script, kv, d1 string) error {
+	if err := c.DeleteWorker(accountID, script); err != nil {
+		return err
+	}
+	if err := c.DeleteKVNamespace(accountID, kv); err != nil && !strings.Contains(strings.ToLower(err.Error()), "not found") {
+		return err
+	}
+	if d1 != "" {
+		if err := c.DeleteD1(accountID, d1); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // checksSchema is the watchdog's history: whether a target answered in a
@@ -188,36 +215,57 @@ const checksSchema = `CREATE TABLE IF NOT EXISTS checks (
 	PRIMARY KEY (target, ts)
 ) WITHOUT ROWID`
 
-// maxWatchedApps keeps the checks of a minute within the 50 requests a
-// Worker on the free plan may make: three tries each, the panel's too.
-const maxWatchedApps = 15
-
 // watchdogTarget is what the watchdog checks: the panel's /healthz, which
 // must say "ok", and each app's health check path at its address.
 type watchdogTarget struct {
-	Name  string `json:"name"`            // its history's key: "panel" or AppTarget
-	Label string `json:"label,omitempty"` // what emails call it
-	URL   string `json:"url"`
-	Need  string `json:"need"` // "ok", "2xx", or "any" answer but a server error
+	Name   string `json:"name"`             // its history's key: "panel" or AppTarget
+	Label  string `json:"label,omitempty"`  // what emails call it
+	URL    string `json:"url"`
+	Need   string `json:"need"`             // "ok", "2xx", or "any" answer but a server error
+	Server string `json:"server,omitempty"` // the server it runs on, if not the panel's
 }
 
-// watchdogTargets are the panel and the apps with an address, as JSON.
+// watchdogTargets are, as JSON, the panel and the apps with an address in
+// the panel's account; a client's account watches its own
+// (accountTargets).
 func watchdogTargets(s *store.Store) (string, error) {
 	targets := []watchdogTarget{{Name: "panel", URL: panelURL("/healthz"), Need: "ok"}}
-	if config.PanelOnly {
-		// The apps are others', on their servers: their owners hear of
-		// them from the panel, not the admin from the watchdog.
-		b, err := json.Marshal(targets)
-		return string(b), err
+	if !config.PanelOnly {
+		// On a panel-only panel, apps are others', in their own accounts.
+		apps, err := appTargets(s, 0)
+		if err != nil {
+			return "", err
+		}
+		targets = append(targets, apps...)
 	}
+	b, err := json.Marshal(targets)
+	return string(b), err
+}
+
+// appTargets are the running apps with an address in the projects of a
+// Cloudflare account (hakobu's ID, 0: the panel's), by name. The watchdog
+// takes them in turns when there are many (watchdog.js).
+func appTargets(s *store.Store, account int64) ([]watchdogTarget, error) {
 	apps, err := s.ListApps(ctx())
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	sort.Slice(apps, func(i, j int) bool { return apps[i].Name < apps[j].Name })
+	places, err := projectPlaces(s)
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(apps, func(i, j int) bool {
+		if apps[i].ProjectName != apps[j].ProjectName {
+			return apps[i].ProjectName < apps[j].ProjectName
+		}
+		return apps[i].Name < apps[j].Name
+	})
+	servers := map[int64]string{}
+	var out []watchdogTarget
 	for _, a := range apps {
 		u := PublicURL(a)
-		if u == "" || a.Stopped == 1 || len(targets) > maxWatchedApps {
+		pl := places[a.ProjectID]
+		if u == "" || a.Stopped == 1 || pl.account != account {
 			continue
 		}
 		path := "/" + strings.TrimPrefix(a.HealthCheckPath, "/")
@@ -225,10 +273,14 @@ func watchdogTargets(s *store.Store) (string, error) {
 		if path == "/" {
 			need = "any"
 		}
-		targets = append(targets, watchdogTarget{Name: AppTarget(a.ID), Label: a.Name, URL: u + path, Need: need})
+		if _, ok := servers[pl.server]; !ok && pl.server != 0 {
+			if n, err := s.GetNode(ctx(), pl.server); err == nil {
+				servers[pl.server] = n.Name
+			}
+		}
+		out = append(out, watchdogTarget{Name: AppTarget(a.ID), Label: a.ProjectName + "/" + a.Name, URL: u + path, Need: need, Server: servers[pl.server]})
 	}
-	b, err := json.Marshal(targets)
-	return string(b), err
+	return out, nil
 }
 
 // canKeepHistory: the token isn't known to lack D1 Edit.
@@ -251,16 +303,8 @@ func DisableWatchdog(s *store.Store) error {
 	if err != nil {
 		return err
 	}
-	if err := c.DeleteWorker(cf.AccountID, w.Script); err != nil {
+	if err := removeWatchdog(c, cf.AccountID, w.Script, w.KvNamespaceID, w.D1DatabaseID); err != nil {
 		return workersHint(err)
-	}
-	if err := c.DeleteKVNamespace(cf.AccountID, w.KvNamespaceID); err != nil && !strings.Contains(strings.ToLower(err.Error()), "not found") {
-		return workersHint(err)
-	}
-	if w.D1DatabaseID != "" {
-		if err := c.DeleteD1(cf.AccountID, w.D1DatabaseID); err != nil {
-			return workersHint(err)
-		}
 	}
 	return s.DeleteWatchdog(ctx())
 }

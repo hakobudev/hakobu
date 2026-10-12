@@ -202,11 +202,12 @@ func CreateAppWith(s *store.Store, app store.CreateAppParams, domain, startComma
 	return id, StartDeploy(s, id, "create")
 }
 
-// watchApps has the watchdog check the apps there are now.
+// watchApps has the watchdogs check the apps there are now.
 func watchApps(s *store.Store) {
 	if err := EnsureWatchdog(s, false); err != nil {
 		panellog.Error("watchdog:", err)
 	}
+	EnsureAccountAlerts(s)
 }
 
 // SetAppBuild changes how the app is built (strategy "railpack" or

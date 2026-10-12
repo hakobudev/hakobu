@@ -232,6 +232,15 @@ func RemoveClientAccount(s *store.Store, name string) error {
 		return fmt.Errorf("Cloudflare account %s still has %s: move or delete them first", row.Title, strings.Join(projects, ", "))
 	}
 	a := clientAccount(s, row)
+	accountAlerts.Lock()
+	err = removeAccountAlerts(s, a)
+	accountAlerts.Unlock()
+	if err != nil {
+		// A token that lost the account can't: what's left there is the
+		// client's to delete.
+		panellog.Warnf("alerts not removed from Cloudflare account %s: %v", row.Title, err)
+		_ = s.DeleteAccountAlerts(ctx(), row.ID)
+	}
 	if err := local.RemoveTunnel(ctx(), a.Name); err != nil {
 		return err
 	}

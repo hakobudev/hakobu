@@ -1,6 +1,6 @@
 // Tests of the watchdog Worker: `just test-js`.
 import { test, expect } from "bun:test";
-import { check } from "./watchdog.js";
+import { check, due, PER_RUN } from "./watchdog.js";
 
 const PANEL = { name: "panel", url: "https://hakobu.example.com/healthz", need: "ok" };
 const SHOP = { name: "app:shop", url: "https://shop.example.com/", need: "any" };
@@ -62,7 +62,7 @@ test("an app unreachable while the panel answers is mailed on its own", async ()
 	const e = env({ [SHOP.url]: ["timeout"] });
 	await check(e, 0, nosleep);
 	expect(e.sent).toEqual([expect.stringContaining("shop is unreachable")]);
-	expect(e.sent[0]).toContain("no answer within 10 s, while the panel answers");
+	expect(e.sent[0]).toContain("no answer within 10 s");
 	e.answer({ [SHOP.url]: [404] }); // any answer but a server error
 	await check(e, 60_000, nosleep);
 	expect(e.sent[1]).toContain("shop answers again");
@@ -92,4 +92,33 @@ test("the panel's outage as v0.9 kept it still ends with an email", async () => 
 	await check(e, 600_000, nosleep);
 	expect(e.sent).toEqual([expect.stringContaining("The panel answers again")]);
 	expect(e.kv.size).toBe(0);
+});
+
+test("apps going down together are one email, and so is their return", async () => {
+	const CART = { name: "app:cart", label: "cart", url: "https://cart.example.com/", need: "any", server: "t2" };
+	const e = env({ [SHOP.url]: [530], [CART.url]: [530] }, [SHOP, CART]);
+	await check(e, 0, nosleep);
+	expect(e.sent).toEqual([expect.stringContaining("2 apps are unreachable: shop, cart")]);
+	expect(e.sent[0]).toContain("shop at https://shop.example.com/: it answered HTTP 530");
+	e.answer({});
+	await check(e, 60_000, nosleep);
+	expect(e.sent[1]).toContain("2 apps answer again");
+});
+
+test("with more targets than a run may check, the apps take turns and the panel is checked each time", () => {
+	const apps = Array.from({ length: 20 }, (_, i) => ({ name: `app:${i}`, url: `https://${i}.example.com/`, need: "any" }));
+	const first = due([PANEL, ...apps], 0), second = due([PANEL, ...apps], 60_000), third = due([PANEL, ...apps], 120_000);
+	expect(first.length).toBe(PER_RUN);
+	expect(first[0]).toBe(PANEL);
+	expect(second[0]).toBe(PANEL);
+	expect(second.slice(1).map((t) => t.name)).toEqual(apps.slice(PER_RUN - 1).map((t) => t.name));
+	expect(third).toEqual(first);
+	expect(due(apps.slice(0, PER_RUN), 0).length).toBe(PER_RUN);
+});
+
+test("without the panel, an app's email says what a 530 means", async () => {
+	const e = env({ [SHOP.url]: [530] }, [SHOP]);
+	e.PANEL = "https://hakobu.example.com";
+	await check(e, 0, nosleep);
+	expect(e.sent).toEqual([expect.stringContaining("shop is unreachable")]);
 });

@@ -67,7 +67,7 @@ func TestWatchdog(t *testing.T) {
 		t.Fatal(err)
 	}
 	CheckForOwner(s)
-	if b := binding(f.workers[name], "TARGETS"); !strings.Contains(b["text"], fmt.Sprintf(`{"name":"app:%d","label":"web","url":"https://web.example.com/up","need":"2xx"}`, appID(t, s, "web"))) {
+	if b := binding(f.workers[name], "TARGETS"); !strings.Contains(b["text"], fmt.Sprintf(`{"name":"app:%d","label":"shop/web","url":"https://web.example.com/up","need":"2xx"}`, appID(t, s, "web"))) {
 		t.Errorf("after an app was added, TARGETS %v", b)
 	}
 

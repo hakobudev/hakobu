@@ -81,9 +81,9 @@ var tokenPermissions = []struct{ Key, Type string }{
 	{"d1", "edit"},
 }
 
-// clientTokenPermissions are what hakobu needs in a client's account: its
-// domains and their DNS records, a tunnel, and R2 for storages and backups.
-var clientTokenPermissions = tokenPermissions[:4]
+// clientTokenPermissions are what hakobu needs in a client's account: the
+// same, as alerts about its projects come from it, with a watchdog there.
+var clientTokenPermissions = tokenPermissions
 
 // TokenTemplateURL opens the form for a new token of the installer's own
 // with all hakobu's permissions, for every account they're a member of:
@@ -93,8 +93,8 @@ func TokenTemplateURL(name string) string {
 	return templateURL(name, tokenPermissions)
 }
 
-// UserTokenTemplateURL is the same for another user of the panel, with
-// what hakobu needs in the accounts of their projects alone.
+// UserTokenTemplateURL is the same for another user of the panel, for
+// the accounts of their projects.
 func UserTokenTemplateURL(name string) string {
 	return templateURL(name, clientTokenPermissions)
 }
