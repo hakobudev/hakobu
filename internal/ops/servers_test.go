@@ -106,6 +106,27 @@ func TestProjectOnAnotherServer(t *testing.T) {
 		}
 	}
 
+	// Renamed, it keeps its projects and tunnels, which take the name.
+	if !strings.HasPrefix(cf.names["t-new-1"], "hakobu-far-own-") {
+		t.Fatalf("tunnel named %q", cf.names["t-new-1"])
+	}
+	suffix := strings.TrimPrefix(cf.names["t-new-1"], "hakobu-far-own-")
+	joinServer(t, s, "near", nil)
+	if err := RenameServer(s, 0, "far", "near"); err == nil {
+		t.Error("renamed to the name of another server")
+	}
+	if err := RenameServer(s, 0, "far", "Far Away"); err == nil {
+		t.Error("took an invalid name")
+	}
+	must(RenameServer(s, 0, "far", "faraway"))
+	if cf.names["t-new-1"] != "hakobu-faraway-own-"+suffix {
+		t.Errorf("tunnel renamed to %q", cf.names["t-new-1"])
+	}
+	farServer = serverNamed(s, "faraway")
+	if p, _ := s.GetProjectByID(ctx(), own.ID); farServer.ID == 0 || p.NodeID.Int64 != farServer.ID {
+		t.Errorf("after the rename: server %+v, project on %v", farServer, p.NodeID)
+	}
+
 	// A server running a project can't be removed; once it's gone, its
 	// tunnels go too.
 	if err := RemoveServer(s, farServer.ID); err == nil || !strings.Contains(err.Error(), "own") {

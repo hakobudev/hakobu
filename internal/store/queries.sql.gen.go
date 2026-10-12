@@ -3146,6 +3146,20 @@ func (q *Queries) RenameApp(ctx context.Context, arg RenameAppParams) error {
 	return err
 }
 
+const renameNode = `-- name: RenameNode :exec
+UPDATE nodes SET name = ? WHERE id = ?
+`
+
+type RenameNodeParams struct {
+	Name string
+	ID   int64
+}
+
+func (q *Queries) RenameNode(ctx context.Context, arg RenameNodeParams) error {
+	_, err := q.db.ExecContext(ctx, renameNode, arg.Name, arg.ID)
+	return err
+}
+
 const renameProject = `-- name: RenameProject :exec
 UPDATE projects SET name = ? WHERE id = ?
 `

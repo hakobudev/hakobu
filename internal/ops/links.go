@@ -100,6 +100,48 @@ func UserServer(s *store.Store, userID int64, name string) (store.Node, error) {
 	return n, nil
 }
 
+// RenameServer gives a server of the user's a new name, a label: hakobu
+// knows it by its ID. Its tunnels in Cloudflare take the name too, where
+// they still have the one hakobu gave them; one that can't be renamed
+// keeps the old name, said so in the panel log.
+func RenameServer(s *store.Store, userID int64, name, to string) error {
+	to = strings.TrimSpace(to)
+	if err := checkName("server", to); err != nil {
+		return err
+	}
+	n, err := UserServer(s, userID, name)
+	if err != nil || to == n.Name {
+		return err
+	}
+	if _, err := s.GetNodeByName(ctx(), store.GetNodeByNameParams{UserID: userID, Name: to}); err == nil {
+		return fmt.Errorf("you have a server named %s already", to)
+	}
+	if err := s.RenameNode(ctx(), store.RenameNodeParams{Name: to, ID: n.ID}); err != nil {
+		return err
+	}
+	for _, t := range tunnelsOn(s, server{ID: n.ID, Name: to}) {
+		if err := renameTunnel(t, n.Name, to); err != nil {
+			panellog.Warnf("%s keeps its old name in Cloudflare: %v", t.label(), err)
+		}
+	}
+	async(func() { watchApps(s) }) // its name is in the watchdogs' emails
+	return nil
+}
+
+// renameTunnel renames a server's tunnel named hakobu-<from>-… by hakobu
+// to hakobu-<to>-…; one named otherwise is left alone.
+func renameTunnel(t tunnel, from, to string) error {
+	old, err := t.acct.Client.TunnelName(t.acct.AccountID, t.ID)
+	if err != nil {
+		return err
+	}
+	rest, ok := strings.CutPrefix(old, "hakobu-"+from+"-")
+	if !ok {
+		return nil
+	}
+	return t.acct.Client.RenameTunnel(t.acct.AccountID, t.ID, "hakobu-"+to+"-"+rest)
+}
+
 // RemoveServer forgets a server that runs no project, deleting its
 // tunnels, and drops its link; its key no longer admits it.
 func RemoveServer(s *store.Store, id int64) error {

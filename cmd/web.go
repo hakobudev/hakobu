@@ -1063,6 +1063,10 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 		renderPage(w, r, joinCommand(name, ops.JoinCommand(token)))
 	})
 
+	action("POST /settings/servers/{name}/rename", func(r *http.Request) (string, error) {
+		return "", ops.RenameServer(s, requestUser(r).ID, r.PathValue("name"), r.FormValue("to"))
+	})
+
 	action("DELETE /settings/servers/{name}", func(r *http.Request) (string, error) {
 		n, err := ops.UserServer(s, requestUser(r).ID, r.PathValue("name"))
 		if err != nil {

@@ -658,6 +658,17 @@ templ settingsServers(v settingsPage) {
 								if !sv.Joined {
 									<button class="btn btn-sm" hx-post="/settings/servers" hx-vals={ `{"name":"` + sv.Name + `"}` } hx-target="#join-command" hx-swap="innerHTML">New token</button>
 								}
+								<button type="button" class="btn btn-sm" popovertarget={ "rename-server-" + itoa(sv.ID) } title="Rename" aria-label={ "Rename " + sv.Name }>
+									@ic("pencil")
+								</button>
+								<div id={ "rename-server-" + itoa(sv.ID) } popover class="menu">
+									<form hx-post={ "/settings/servers/" + sv.Name + "/rename" } class="space-y-3 p-3">
+										@field("New name", "Only a label: projects, tunnels and keys stay with the server.") {
+											<input name="to" required pattern="[a-z][a-z0-9\-]{0,39}" value={ sv.Name } class="input mono"/>
+										}
+										@submit("Rename", false)
+									</form>
+								</div>
 								<button
 									class="btn btn-sm btn-danger"
 									hx-delete={ "/settings/servers/" + sv.Name }

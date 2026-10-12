@@ -461,6 +461,20 @@ func (c Client) tunnelAlive(accountID, tunnelID string) (name string, alive bool
 	return t.Name, t.DeletedAt == nil && (t.Status == "healthy" || t.Status == "degraded"), nil
 }
 
+// TunnelName is what the tunnel is called.
+func (c Client) TunnelName(accountID, tunnelID string) (string, error) {
+	var t struct {
+		Name string `json:"name"`
+	}
+	err := c.call("GET", "/accounts/"+accountID+"/cfd_tunnel/"+url.PathEscape(tunnelID), nil, &t)
+	return t.Name, err
+}
+
+// RenameTunnel calls the tunnel name; it runs on as it was.
+func (c Client) RenameTunnel(accountID, tunnelID, name string) error {
+	return c.call("PATCH", "/accounts/"+accountID+"/cfd_tunnel/"+url.PathEscape(tunnelID), map[string]string{"name": name}, nil)
+}
+
 func (c Client) DeleteRecord(zoneID, recordID string) error {
 	return c.call("DELETE", "/zones/"+zoneID+"/dns_records/"+recordID, nil, nil)
 }

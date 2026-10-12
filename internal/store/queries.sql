@@ -626,6 +626,9 @@ UPDATE nodes SET public_key = ?, join_secret_hash = '', join_expires = '' WHERE 
 -- name: SeeNode :exec
 UPDATE nodes SET version = ?, last_seen = ? WHERE id = ?;
 
+-- name: RenameNode :exec
+UPDATE nodes SET name = ? WHERE id = ?;
+
 -- name: DeleteNode :exec
 DELETE FROM nodes WHERE id = ?;
 

@@ -12,6 +12,8 @@ curl -fsSL https://hakobu.dev/install.sh | sudo HAKOBU_PANEL=https://hakobu.exam
 
 It installs Docker and hakobu there and joins the panel; the token works once, within an hour.
 
+The pencil next to a server renames it. The name is only a label: its projects, keys and tunnels stay with it, and its tunnels in Cloudflare take the new name.
+
 The server needs no open port: it connects to the panel through the panel's tunnel, and what goes between them is encrypted end to end, so Cloudflare doesn't see the variables and passwords it carries.
 
 ## Projects on a server

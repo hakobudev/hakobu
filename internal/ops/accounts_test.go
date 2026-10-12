@@ -30,6 +30,7 @@ type fakeAccounts struct {
 	objects map[string]bool                     // account/bucket/key
 	created int                                 // tunnels
 	deleted []string                            // tunnels
+	names   map[string]string                   // tunnel → its name
 }
 
 var fakeTokens = map[string][]map[string]any{
@@ -62,7 +63,7 @@ var fakeTokens = map[string][]map[string]any{
 }
 
 func newFakeAccounts(t *testing.T) *fakeAccounts {
-	f := &fakeAccounts{ingress: map[string][]cloudflare.IngressRule{}, records: map[string]string{}, buckets: map[string][]string{}, objects: map[string]bool{}}
+	f := &fakeAccounts{names: map[string]string{}, ingress: map[string][]cloudflare.IngressRule{}, records: map[string]string{}, buckets: map[string][]string{}, objects: map[string]bool{}}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		defer f.mu.Unlock()
@@ -108,7 +109,18 @@ func newFakeAccounts(t *testing.T) *fakeAccounts {
 			ok([]any{}) // the token's permissions checked
 		case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/cfd_tunnel"):
 			f.created++
-			ok(map[string]string{"id": fmt.Sprintf("t-new-%d", f.created)})
+			id := fmt.Sprintf("t-new-%d", f.created)
+			var t struct{ Name string }
+			_ = json.Unmarshal(body, &t)
+			f.names[id] = t.Name
+			ok(map[string]string{"id": id})
+		case len(parts) == 4 && parts[2] == "cfd_tunnel" && r.Method == "GET":
+			ok(map[string]string{"id": parts[3], "name": f.names[parts[3]]})
+		case len(parts) == 4 && parts[2] == "cfd_tunnel" && r.Method == "PATCH":
+			var t struct{ Name string }
+			_ = json.Unmarshal(body, &t)
+			f.names[parts[3]] = t.Name
+			ok(nil)
 		case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/token"):
 			ok("token-of-" + parts[3])
 		case r.Method == "DELETE" && len(parts) == 4 && parts[2] == "cfd_tunnel":
