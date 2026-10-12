@@ -18,6 +18,10 @@ import (
 func TestR2Storages(t *testing.T) {
 	var buckets []string
 	cf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" && r.URL.Path == "/accounts/acc/r2/buckets" {
+			fmt.Fprint(w, `{"success":true,"result":{"buckets":[{"name":"old-files"},{"name":"hakobu-backups-1"},{"name":"hakobu-backups-other"}]}}`)
+			return
+		}
 		if r.Method == "POST" && r.URL.Path == "/accounts/acc/r2/buckets" {
 			var body struct{ Name string }
 			_ = jsonDecode(r, &body)
@@ -95,6 +99,23 @@ func TestR2Storages(t *testing.T) {
 	env := strings.Join(storageEnv(st), "\n")
 	if !strings.Contains(env, "S3_ACCESS_KEY_ID=narrow") || !strings.Contains(env, "S3_BUCKET_NAME="+st.Bucket) || !strings.Contains(env, "R2_ACCOUNT_ID=acc") {
 		t.Errorf("env:\n%s", env)
+	}
+
+	// A bucket already in the account comes with its files; never the
+	// backups', nor one that isn't there.
+	if names, err := R2Buckets(s, p); err != nil || strings.Join(names, ",") != "old-files" {
+		t.Errorf("buckets offered: %v, %v", names, err)
+	}
+	made := len(buckets)
+	_, err = CreateStorage(s, store.Storage{ProjectID: p.ID, Name: "old", Provider: "r2", Bucket: "old-files"})
+	must(err)
+	if st, _ := getStorage(s, "old"); st.Bucket != "old-files" || st.AccountID != "acc" || len(buckets) != made {
+		t.Errorf("existing bucket: %+v, buckets made %v", st, buckets)
+	}
+	for _, b := range []string{"hakobu-backups-1", "hakobu-backups-other", "missing"} {
+		if _, err := CreateStorage(s, store.Storage{ProjectID: p.ID, Name: "x", Provider: "r2", Bucket: b}); err == nil {
+			t.Errorf("took bucket %s", b)
+		}
 	}
 
 	// Any other S3: its keys must reach its bucket from the start.

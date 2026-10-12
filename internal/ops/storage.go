@@ -3,6 +3,7 @@ package ops
 import (
 	"database/sql"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/hakobudev/hakobu/internal/cloudflare"
@@ -41,7 +42,11 @@ func CreateStorage(s *store.Store, st store.Storage) (int64, error) {
 	}
 	switch st.Provider {
 	case "r2":
-		if err := createR2Bucket(s, p, &st); err != nil {
+		create := createR2Bucket
+		if st.Bucket != "" {
+			create = useR2Bucket
+		}
+		if err := create(s, p, &st); err != nil {
 			return 0, err
 		}
 	case "s3":
@@ -94,6 +99,54 @@ func createR2Bucket(s *store.Store, p store.Project, st *store.Storage) error {
 		}
 		return fmt.Errorf("creating the R2 bucket: %w", err)
 	}
+	return nil
+}
+
+// R2Buckets are the buckets of the project's account a storage may use:
+// all but the backups'.
+func R2Buckets(s *store.Store, p store.Project) ([]string, error) {
+	a, err := projectAccount(s, p)
+	if err != nil {
+		return nil, err
+	}
+	names, err := a.Client.Buckets(a.AccountID)
+	if err != nil {
+		return nil, r2Explained(a.AccountID, a.label(), err)
+	}
+	var out []string
+	for _, n := range names {
+		if !isBackupBucket(a, n) {
+			out = append(out, n)
+		}
+	}
+	return out, nil
+}
+
+// isBackupBucket: bucket holds the account's backups, or a panel's.
+func isBackupBucket(a cfAccount, bucket string) bool {
+	return bucket == a.BackupBucket || strings.HasPrefix(bucket, "hakobu-backups-")
+}
+
+// useR2Bucket makes the storage one of a bucket already in the project's
+// account, its files and all (an app moving in brings its own). Its keys
+// come later, as for a new bucket.
+func useR2Bucket(s *store.Store, p store.Project, st *store.Storage) error {
+	a, err := projectAccount(s, p)
+	if err != nil {
+		return err
+	}
+	if isBackupBucket(a, st.Bucket) {
+		return fmt.Errorf("%s holds backups: an app's keys to it could read every database's dumps", st.Bucket)
+	}
+	names, err := a.Client.Buckets(a.AccountID)
+	if err != nil {
+		return r2Explained(a.AccountID, a.label(), err)
+	}
+	if !slices.Contains(names, st.Bucket) {
+		return fmt.Errorf("there's no bucket %s in %s", st.Bucket, a.label())
+	}
+	st.AccountID = a.AccountID
+	st.AccessKeyID, st.SecretAccessKey = "", ""
 	return nil
 }
 

@@ -61,7 +61,7 @@
       </div>
       <p>A storage is a bucket for your apps' files: R2 in the project's Cloudflare account, or any S3-compatible service (AWS, Backblaze, MinIO, …).</p>
 <h2 id="r2">R2</h2>
-<p><strong>New → Storage</strong> with R2: hakobu creates the bucket in the project's Cloudflare account. The keys the app gets come from an R2 API token you make for that bucket alone, as the storage's page shows step by step:</p>
+<p><strong>New → Storage</strong> with R2: hakobu creates the bucket in the project's Cloudflare account, or, under <strong>Bucket</strong>, takes one already there with its files (an app moving in keeps them; the backups' bucket isn't offered). The keys the app gets come from an R2 API token you make for that bucket alone, as the storage's page shows step by step:</p>
 <ol>
 <li>In Cloudflare, open <strong>R2 → API tokens</strong> and create an <strong>Account API token</strong>.</li>
 <li>Permissions: <strong>Object Read &amp; Write</strong>; buckets: <strong>Apply to specific buckets only</strong>, with the storage's bucket.</li>

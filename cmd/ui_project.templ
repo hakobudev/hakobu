@@ -653,7 +653,14 @@ templ projectDialogs(v projectView) {
 					<option value="s3">S3-compatible (AWS, Backblaze, MinIO, …)</option>
 				</select>
 			}
-			<p class="field-hint" data-show-if="provider=r2">hakobu creates the bucket in { accountName(v.Client) }; then you give it the keys of a token for that bucket alone. R2's free plan includes 10 GB, and downloads are free.</p>
+			<div data-show-if="provider=r2">
+				@field("Bucket", "") {
+					<select name="r2_bucket" class="input mono" hx-get={ "/projects/" + v.Project.Name + "/r2-buckets" } hx-trigger="load" hx-swap="innerHTML">
+						<option value="">New bucket</option>
+					</select>
+				}
+			</div>
+			<p class="field-hint" data-show-if="provider=r2">hakobu creates a new bucket in { accountName(v.Client) }, or takes one already there with its files; then you give it the keys of a token for that bucket alone. R2's free plan includes 10 GB, and downloads are free.</p>
 			if v.R2Off {
 				<div data-show-if="provider=r2">
 					@r2OffFlash(accountName(v.Client), v.R2URL, r2Owner(v.Client))
@@ -671,6 +678,18 @@ templ projectDialogs(v projectView) {
 				Add storage
 			</button>
 		</form>
+	}
+}
+
+// r2BucketOptions are the new storage's bucket choices: a new one, or one
+// of the account's.
+templ r2BucketOptions(names []string, err string) {
+	<option value="">New bucket</option>
+	for _, n := range names {
+		<option value={ n }>{ n }</option>
+	}
+	if err != "" {
+		<option value="" disabled>{ err }</option>
 	}
 }
 

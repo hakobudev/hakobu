@@ -52,6 +52,23 @@ func (c Client) R2On(accountID string) (bool, error) {
 	return err == nil, err
 }
 
+// Buckets lists the names of the account's R2 buckets.
+func (c Client) Buckets(accountID string) ([]string, error) {
+	var out struct {
+		Buckets []struct {
+			Name string `json:"name"`
+		} `json:"buckets"`
+	}
+	if err := c.call("GET", "/accounts/"+accountID+"/r2/buckets?per_page=1000", nil, &out); err != nil {
+		return nil, err
+	}
+	names := make([]string, len(out.Buckets))
+	for i, b := range out.Buckets {
+		names[i] = b.Name
+	}
+	return names, nil
+}
+
 func (c Client) CreateBucket(accountID, name string) error {
 	return c.call("POST", "/accounts/"+accountID+"/r2/buckets", map[string]string{"name": name}, nil)
 }

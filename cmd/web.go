@@ -522,6 +522,10 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 	})
 
 	action("POST /projects/{p}/storages", func(r *http.Request) (string, error) {
+		bucket := r.FormValue("bucket")
+		if r.FormValue("provider") == "r2" {
+			bucket = r.FormValue("r2_bucket") // "" for a new one
+		}
 		_, err := ops.CreateStorage(s, store.Storage{
 			ProjectID:       reqProject(r).ID,
 			Name:            strings.TrimSpace(r.FormValue("name")),
@@ -529,10 +533,19 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			Endpoint:        strings.TrimSpace(r.FormValue("endpoint")),
 			AccessKeyID:     strings.TrimSpace(r.FormValue("access_key_id")),
 			SecretAccessKey: secret.String(strings.TrimSpace(r.FormValue("secret_access_key"))),
-			Bucket:          strings.TrimSpace(r.FormValue("bucket")),
+			Bucket:          strings.TrimSpace(bucket),
 			Region:          strings.TrimSpace(r.FormValue("region")),
 		})
 		return "", err
+	})
+
+	handle("GET /projects/{p}/r2-buckets", func(w http.ResponseWriter, r *http.Request) {
+		names, err := ops.R2Buckets(s, reqProject(r))
+		var why string
+		if err != nil {
+			why = "Couldn't list the buckets: " + err.Error()
+		}
+		renderPage(w, r, r2BucketOptions(names, why))
 	})
 
 	action("POST /projects/{p}/storages/{st}/keys", func(r *http.Request) (string, error) {
