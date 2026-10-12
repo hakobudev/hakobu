@@ -35,6 +35,7 @@ type mcpProject struct {
 	Apps      []string `json:"apps"`
 	Databases []string `json:"databases"`
 	Caches    []string `json:"caches"`
+	Storages  []string `json:"storages" jsonschema:"buckets for files; an app gets one's keys when it's linked in the panel"`
 }
 
 type mcpPreset struct {
@@ -75,7 +76,7 @@ func addSetupTools(server *mcp.Server, s *store.Store, getApp func(context.Conte
 				return nil, out, err
 			}
 			for _, p := range projects {
-				mp := mcpProject{Name: p.Name, Server: ops.ProjectServerName(s, p), Domains: []string{}, Apps: []string{}, Databases: []string{}, Caches: []string{}}
+				mp := mcpProject{Name: p.Name, Server: ops.ProjectServerName(s, p), Domains: []string{}, Apps: []string{}, Databases: []string{}, Caches: []string{}, Storages: []string{}}
 				if p.CloudflareAccountID.Valid {
 					if a, err := s.GetCloudflareAccount(ctx, p.CloudflareAccountID.Int64); err == nil {
 						mp.Account = a.Name
@@ -97,6 +98,11 @@ func addSetupTools(server *mcp.Server, s *store.Store, getApp func(context.Conte
 				if caches, err := s.ListCachesByProject(ctx, p.ID); err == nil {
 					for _, c := range caches {
 						mp.Caches = append(mp.Caches, c.Name)
+					}
+				}
+				if storages, err := s.ListStoragesByProject(ctx, p.ID); err == nil {
+					for _, st := range storages {
+						mp.Storages = append(mp.Storages, st.Name)
 					}
 				}
 				out.Projects = append(out.Projects, mp)

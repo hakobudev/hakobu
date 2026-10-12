@@ -63,6 +63,7 @@ type mcpApp struct {
 	Status   string `json:"status" jsonschema:"container state: running, restarting, exited, not found..."`
 	Restarts int    `json:"restarts"`
 	OOM      bool   `json:"oom_killed,omitempty" jsonschema:"the last exit was the kernel killing it for memory"`
+	Stopped  bool   `json:"stopped,omitempty" jsonschema:"its owner stopped it in the panel: pushes don't deploy it until it's started or deployed"`
 
 	Deploying  bool       `json:"deploying,omitempty"`
 	LastDeploy *mcpDeploy `json:"last_deploy,omitempty"`
@@ -520,7 +521,7 @@ type deployArgs struct {
 
 func appSummary(ctx context.Context, s *store.Store, a store.App) mcpApp {
 	st := ops.AppNode(s, a).State(ctx, a.ContainerName())
-	out := mcpApp{Name: a.ProjectName + "/" + a.Name, Project: a.ProjectName, Repo: a.Repo, Status: st.Status, Restarts: st.Restarts, OOM: st.OOMKilled, Deploying: ops.IsDeploying(a.ID)}
+	out := mcpApp{Name: a.ProjectName + "/" + a.Name, Project: a.ProjectName, Repo: a.Repo, Status: st.Status, Restarts: st.Restarts, OOM: st.OOMKilled, Stopped: a.Stopped == 1, Deploying: ops.IsDeploying(a.ID)}
 	if a.Domain != "" {
 		out.URL = ops.PublicURL(a)
 	}
