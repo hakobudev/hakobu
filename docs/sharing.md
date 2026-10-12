@@ -19,4 +19,4 @@ A panel shared with people whose apps you don't want on your server, a hosted on
 Environment=HAKOBU_PANEL_ONLY=1
 ```
 
-Then every project runs on a server of its owner's (**Settings → Servers**) and in a Cloudflare account of theirs (**Settings → Cloudflare**), with its domains, storages and backups there; the panel's server and account serve only the panel. Anyone with a GitHub account signs up by signing in: no invites. [dash.hakobu.dev](hosted.md) is such a panel.
+Then every project runs on a server of its owner's (**Settings → Servers**) and in a Cloudflare account of theirs (**Settings → Cloudflare**), with its domains, storages and backups there; the panel's server and account serve only the panel. The installer's token stays the panel's too, so [narrow it](install.md#narrowing-the-token) to the panel's account and domain; you connect your own accounts under **Settings → Cloudflare** like everyone else. Set the drop-in before you first sign in. Anyone with a GitHub account signs up by signing in: no invites. [dash.hakobu.dev](hosted.md) is such a panel.

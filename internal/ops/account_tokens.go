@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/hakobudev/hakobu/internal/cloudflare"
+	"github.com/hakobudev/hakobu/internal/config"
 	"github.com/hakobudev/hakobu/internal/panellog"
 	"github.com/hakobudev/hakobu/internal/secret"
 	"github.com/hakobudev/hakobu/internal/store"
@@ -29,8 +30,13 @@ import (
 // AdoptPanelToken makes the panel's token the user's, connecting the other
 // accounts it reaches; once, for the first admin. It doesn't fail the
 // sign-in: what goes wrong is in the panel log, and the admin can paste
-// the token again under Cloudflare token.
+// the token again under Cloudflare token. A panel-only panel's token
+// stays the panel's: it's made for the panel's account alone, and the
+// admin connects theirs like anyone else.
 func AdoptPanelToken(s *store.Store, userID int64) {
+	if config.PanelOnly {
+		return
+	}
 	cf, err := s.GetCloudflare(ctx())
 	if err != nil || cf.TokenGroup != "" {
 		return

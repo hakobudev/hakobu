@@ -670,6 +670,12 @@ func TestPanelTokenIsTheAdmins(t *testing.T) {
 		t.Errorf("panel's zones %v, %v", zones, err)
 	}
 
+	config.PanelOnly = true
+	AdoptPanelToken(s, 1) // a panel-only panel keeps its token
+	config.PanelOnly = false
+	if cf, _ := s.GetCloudflare(ctx()); cf.TokenGroup != "" {
+		t.Error("a panel-only panel gave its token to the admin")
+	}
 	AdoptPanelToken(s, 1)
 	cf, _ := s.GetCloudflare(ctx())
 	row, err := s.GetCloudflareAccountByName(ctx(), "newco")
