@@ -75,9 +75,9 @@
 <p>Before each deploy of an app, its database is snapshotted on the server. <strong>Rollback with data</strong> puts the snapshot back with the build before, so a migration that went wrong is undone. Rows written since are lost.</p>
 <h2 id="moving-a-database-in">Moving a database in</h2>
 <p>A database from another host comes in as a backup of a hakobu database. With backups on, on the panel's server:</p>
-<pre><code class="language-bash">ssh old-host 'pg_dump -Fc -U postgres mydb' | sudo -u hakobu /opt/hakobu/hakobu database import shop/mydb -
+<pre><code class="language-bash">ssh old-host 'pg_dump -Fc -U postgres mydb' | (cd /opt/hakobu &amp;&amp; sudo -u hakobu ./hakobu database import shop/mydb -)
 </code></pre>
-<p>naming the database by its project, <code>shop</code>; when several users have a project of that name, <code>--user &lt;GitHub login&gt;</code> says whose.</p>
+<p>naming the database by its project, <code>shop</code>; when several users have a project of that name, <code>--user &lt;GitHub login&gt;</code> says whose. The running panel takes the dump and seals it on the database's server, so hakobu must be running and that server connected.</p>
 <p>Only pg_dump's custom format (<code>-Fc</code>) is taken. On the database's page, <strong>Check</strong> restores the dump into a scratch database and counts its tables; <strong>Restore</strong> replaces the database's data with it (objects become the database role's, grants are dropped). A restore that fails changes nothing, so a trial move and the real one later are the same two steps.</p>
 
     </article>

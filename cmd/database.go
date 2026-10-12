@@ -9,13 +9,13 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-
-	"github.com/hakobudev/hakobu/internal/ops"
 )
 
 // Databases from the command line, on the panel's server. A dump moving in
-// is too big for the panel's page (Cloudflare caps a request at 100 MB):
-//   ssh old-host pg_dump -Fc mydb | sudo -u hakobu ./hakobu database import mydb -
+// is too big for the panel's page (Cloudflare caps a request at 100 MB),
+// so it goes to the running panel on its command socket, which seals it on
+// the database's server:
+//   ssh old-host pg_dump -Fc mydb | sudo -u hakobu ./hakobu database import shop/mydb -
 
 var databaseCmd = &cobra.Command{
 	Use:     "database",
@@ -45,7 +45,7 @@ var databaseImportCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if _, err := ops.ImportDump(s, d.ID, dump); err != nil {
+		if err := panelImport(d.ID, dump); err != nil {
 			return err
 		}
 		fmt.Printf("Imported. In the panel, open database %s: Check tries the dump in a scratch database, Restore replaces the database's data with it.\n", args[0])

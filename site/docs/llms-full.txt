@@ -212,10 +212,10 @@ Before each deploy of an app, its database is snapshotted on the server. **Rollb
 A database from another host comes in as a backup of a hakobu database. With backups on, on the panel's server:
 
 ```bash
-ssh old-host 'pg_dump -Fc -U postgres mydb' | sudo -u hakobu /opt/hakobu/hakobu database import shop/mydb -
+ssh old-host 'pg_dump -Fc -U postgres mydb' | (cd /opt/hakobu && sudo -u hakobu ./hakobu database import shop/mydb -)
 ```
 
-naming the database by its project, `shop`; when several users have a project of that name, `--user <GitHub login>` says whose.
+naming the database by its project, `shop`; when several users have a project of that name, `--user <GitHub login>` says whose. The running panel takes the dump and seals it on the database's server, so hakobu must be running and that server connected.
 
 Only pg_dump's custom format (`-Fc`) is taken. On the database's page, **Check** restores the dump into a scratch database and counts its tables; **Restore** replaces the database's data with it (objects become the database role's, grants are dropped). A restore that fails changes nothing, so a trial move and the real one later are the same two steps.
 

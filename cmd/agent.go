@@ -100,6 +100,11 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	cliSock, err := listenCLISocket()
+	if err != nil {
+		return err
+	}
+	go serveCLI(s, cliSock)
 
 	// Tidying up after the last run waits on Docker, which may be slow to
 	// answer at boot: the panel serves meanwhile, and jobs wait for it.
