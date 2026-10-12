@@ -69,6 +69,9 @@ type AppSpec struct {
 	// Recreate stops the live version before the new one starts, for an
 	// app whose volumes mustn't be written by two versions at once.
 	Recreate bool
+	// Stopped: its owner stopped it, so nothing starts it again but a
+	// deploy (which clears this) or Start.
+	Stopped bool
 }
 
 // Live is the app's live container.
@@ -394,6 +397,9 @@ func (Local) StopApp(ctx context.Context, app AppSpec) error {
 // StartApp starts the app's stopped live container again and points the
 // proxy at it.
 func (n Local) StartApp(ctx context.Context, app AppSpec, out io.Writer) {
+	if app.Stopped {
+		return // stopped by its owner before the restore that paused it
+	}
 	n.restart(ctx, app, app.Live(), out)
 }
 
@@ -451,7 +457,7 @@ func (Local) Reconcile(ctx context.Context, apps []AppSpec) {
 				panellog.Error("failed to remove", other+":", err)
 			}
 		}
-		if status == "exited" || status == "created" {
+		if (status == "exited" || status == "created") && !app.Stopped {
 			panellog.Info("starting", live+", stopped by an unfinished deploy")
 			if err := deploy.StartContainer(ctx, live); err != nil {
 				panellog.Error("failed to start", live+":", err)

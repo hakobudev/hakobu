@@ -36,7 +36,7 @@ func WatchHealth(s *store.Store) {
 		}
 		var wg sync.WaitGroup
 		for _, app := range apps {
-			if app.LivePort == 0 || IsDeploying(app.ID) {
+			if app.LivePort == 0 || app.Stopped == 1 || IsDeploying(app.ID) {
 				continue
 			}
 			wg.Add(1)

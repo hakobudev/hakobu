@@ -106,6 +106,8 @@ templ appStatus(a appView) {
 	<span id="app-status" hx-get={ appURL(a.App) + "/status" } hx-trigger="every 3s" hx-swap="outerHTML" class="inline-flex items-center gap-2">
 		if a.Deploying {
 			<span class="badge badge-accent"><span class="dot dot-accent dot-pulse"></span>Deploying</span>
+		} else if a.App.Stopped == 1 && a.Status != "running" {
+			<span class="badge" title="Stopped by you: pushes don't deploy it until you start or redeploy it"><span class="dot"></span>Stopped</span>
 		} else if a.Status == "running" {
 			<span class="badge badge-success"><span class="dot dot-success"></span>Running</span>
 		} else if a.Status == "unknown" {
@@ -181,6 +183,25 @@ templ appActions(p appPage) {
 				</button>
 			}
 		}
+	}
+	if p.App.App.Stopped == 1 {
+		<button class="btn" hx-post={ p.path("") + "/start" }>
+			@ic("loader-circle", "btn-spinner")
+			@ic("play", "btn-label-icon")
+			Start
+		</button>
+	} else if p.App.LivePort != 0 {
+		<button
+			class="btn"
+			hx-post={ p.path("") + "/stop" }
+			hx-confirm="The app and its worker stop, and stay stopped through restarts until you start or redeploy it; pushes don't deploy it meanwhile. Its address answers with an error."
+			data-confirm-title={ "Stop " + p.App.Name + "?" }
+			data-confirm-action="Stop"
+		>
+			@ic("loader-circle", "btn-spinner")
+			@ic("square", "btn-label-icon")
+			Stop
+		</button>
 	}
 	<button class="btn btn-primary" hx-post={ p.path("") + "/deploy" }>
 		@ic("loader-circle", "btn-spinner")

@@ -217,7 +217,7 @@ func watchdogTargets(s *store.Store) (string, error) {
 	sort.Slice(apps, func(i, j int) bool { return apps[i].Name < apps[j].Name })
 	for _, a := range apps {
 		u := PublicURL(a)
-		if u == "" || len(targets) > maxWatchedApps {
+		if u == "" || a.Stopped == 1 || len(targets) > maxWatchedApps {
 			continue
 		}
 		path := "/" + strings.TrimPrefix(a.HealthCheckPath, "/")

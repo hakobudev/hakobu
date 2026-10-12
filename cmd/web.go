@@ -729,6 +729,14 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 		return "", ops.StartDeploy(s, reqApp(r).ID, "manual")
 	})
 
+	action("POST "+appRoute+"/stop", func(r *http.Request) (string, error) {
+		return "", ops.StopApp(s, reqApp(r).ID)
+	})
+
+	action("POST "+appRoute+"/start", func(r *http.Request) (string, error) {
+		return "", ops.StartApp(s, reqApp(r).ID)
+	})
+
 	action("POST "+appRoute+"/rollback", func(r *http.Request) (string, error) {
 		return "", ops.StartRollback(s, reqApp(r).ID, r.FormValue("data") != "")
 	})

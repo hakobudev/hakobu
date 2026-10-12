@@ -39,6 +39,7 @@ type App struct {
 	SnapshotAt      string
 	Stack           string
 	StartCommand    string
+	Stopped         int64
 }
 
 type AppRecord struct {
@@ -68,6 +69,7 @@ type AppRecord struct {
 	SnapshotAt      string
 	Stack           string
 	StartCommand    string
+	Stopped         int64
 }
 
 type AppRoute struct {

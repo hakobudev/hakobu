@@ -222,6 +222,60 @@ func TestDockerReconcileSlots(t *testing.T) {
 	}
 }
 
+// A stopped app stays stopped: through the reconcile at a restart and a
+// push, until it's started.
+func TestDockerStopApp(t *testing.T) {
+	if os.Getenv("HAKOBU_DOCKER_TEST") == "" {
+		t.Skip("set HAKOBU_DOCKER_TEST=1 to run against the local Docker")
+	}
+	s, err := store.Open(filepath.Join(t.TempDir(), "hakobu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := newDockerTestApp(t, s)
+	t.Cleanup(func() { _ = DeleteApp(s, app.ID) })
+	buildTestImage(t, nextImageTag(app), "v1")
+	var out strings.Builder
+	if err := rollOut(s, app, node.Next, &out); err != nil {
+		t.Fatalf("deploy: %v\n%s", err, out.String())
+	}
+	app, _ = getApp(s, app.Name)
+	live := app.ContainerName()
+
+	if err := StopApp(s, app.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitIdle(t, app.ID)
+	if st, _ := deploy.ContainerStatus(ctx(), live); st == "running" {
+		t.Fatal("still running after Stop")
+	}
+	ReconcileSlots(s)
+	if st, _ := deploy.ContainerStatus(ctx(), live); st == "running" {
+		t.Error("the reconcile started a stopped app")
+	}
+	if err := StartDeploy(s, app.ID, "push"); err != nil || IsDeploying(app.ID) {
+		t.Errorf("a push deployed a stopped app: %v", err)
+	}
+	if err := StopApp(s, app.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitIdle(t, app.ID)
+	if logs, _ := s.ListDeployLogs(ctx(), store.ListDeployLogsParams{AppID: app.ID, Limit: 1}); len(logs) == 0 || logs[0].Status != "failed" {
+		t.Errorf("stopping a stopped app: %+v", logs)
+	}
+
+	if err := StartApp(s, app.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitIdle(t, app.ID)
+	if st, _ := deploy.ContainerStatus(ctx(), live); st != "running" {
+		t.Errorf("after Start the app is %s", st)
+	}
+	if app, _ := getApp(s, app.Name); app.Stopped != 0 {
+		t.Error("still marked stopped")
+	}
+}
+
 // newDockerTestApp creates an app whose proxy port is free on this machine
 // (a real hakobu may be using the first ones).
 func newDockerTestApp(t *testing.T, s *store.Store) store.App {

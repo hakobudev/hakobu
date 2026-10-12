@@ -76,6 +76,8 @@
 <p>A deploy builds the new image, snapshots the app's database (so a rollback can undo a migration), starts the new version next to the running one and checks its health: any response for <code>/</code>, or a 2xx for the <strong>Health check path</strong> you set. Only then does traffic switch, and the old version stops. A version that doesn't come up never gets traffic, and the deploy's log says why.</p>
 <p>An app with <a href="/docs/volumes/">volumes</a> is stopped before the new version starts (a few seconds of downtime), unless you let both versions share them.</p>
 <p><strong>Redeploy</strong> rebuilds the latest commit. <strong>Rollback</strong> returns to the build before; with <strong>with data</strong> it also restores the database snapshot taken before the live build's deploy, so a bad migration is undone too (rows written since are lost).</p>
+<h2 id="stop">Stop</h2>
+<p><strong>Stop</strong> stops the app and its worker, say while it moves elsewhere. It stays stopped through restarts of hakobu and its server, health checks and the watchdog leave it alone, and pushes don't deploy it. <strong>Start</strong> runs it again; so does <strong>Redeploy</strong>.</p>
 <h2 id="worker">Worker</h2>
 <p><strong>Settings → Worker</strong> runs a background process from the app's image with its own start command and no port: a queue consumer like <code>celery -A tasks worker</code>. It gets the app's variables and links, plus its own <strong>Worker variables</strong>, and restarts after every deploy.</p>
 <h2 id="limits">Limits</h2>
@@ -94,6 +96,7 @@
     <a href="#add-an-app" class="toc-2">Add an app</a>
     <a href="#build-and-start" class="toc-2">Build and start</a>
     <a href="#deploys-without-downtime" class="toc-2">Deploys without downtime</a>
+    <a href="#stop" class="toc-2">Stop</a>
     <a href="#worker" class="toc-2">Worker</a>
     <a href="#limits" class="toc-2">Limits</a>
     <a href="#domains" class="toc-2">Domains</a>

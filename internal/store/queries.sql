@@ -63,6 +63,9 @@ UPDATE apps SET build_path = ?, build_strategy = ?, start_command = ? WHERE id =
 -- name: SetAppStack :exec
 UPDATE apps SET stack = ? WHERE id = ?;
 
+-- name: SetAppStopped :exec
+UPDATE apps SET stopped = ? WHERE id = ?;
+
 -- name: SetAppLive :exec
 UPDATE apps SET active_slot = ?, live_port = ? WHERE id = ?;
 

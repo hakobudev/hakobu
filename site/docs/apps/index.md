@@ -28,6 +28,10 @@ An app with [volumes](https://hakobu.dev/docs/volumes/index.md) is stopped befor
 
 **Redeploy** rebuilds the latest commit. **Rollback** returns to the build before; with **with data** it also restores the database snapshot taken before the live build's deploy, so a bad migration is undone too (rows written since are lost).
 
+## Stop
+
+**Stop** stops the app and its worker, say while it moves elsewhere. It stays stopped through restarts of hakobu and its server, health checks and the watchdog leave it alone, and pushes don't deploy it. **Start** runs it again; so does **Redeploy**.
+
 ## Worker
 
 **Settings → Worker** runs a background process from the app's image with its own start command and no port: a queue consumer like `celery -A tasks worker`. It gets the app's variables and links, plus its own **Worker variables**, and restarts after every deploy.

@@ -197,8 +197,13 @@ func startJob(s *store.Store, appID int64, trigger string, fn func(app store.App
 	return err
 }
 
-// StartDeploy builds the app's repo on its node and rolls the build out.
+// StartDeploy builds the app's repo on its node and rolls the build out. A
+// stopped app isn't deployed by a push; any other deploy starts it.
 func StartDeploy(s *store.Store, appID int64, trigger string) error {
+	if app, err := s.GetAppByID(ctx(), appID); err == nil && app.Stopped == 1 && trigger == "push" {
+		panellog.Info("not deploying the push to", app.Name+": it's stopped")
+		return nil
+	}
 	return startJob(s, appID, trigger, func(app store.App, out io.Writer) error {
 		token, err := repoToken(s, app.Repo)
 		if err != nil {
@@ -228,6 +233,9 @@ func StartDeploy(s *store.Store, appID int64, trigger string) error {
 		snapshot := takeSnapshot(s, app, out)
 		defer n.DropDump(snapshot) // kept by keepSnapshot, which moves it
 		if err := rollOut(s, app, node.Next, out); err != nil {
+			return err
+		}
+		if err := started(s, &app); err != nil {
 			return err
 		}
 		if err := withSnapshot(s, app, snapshot, out, func() error { return promote(s, app) }); errors.Is(err, node.ErrUnreachable) {
@@ -366,6 +374,9 @@ func StartRollback(s *store.Store, appID int64, withData bool) error {
 			}
 			return err
 		}
+		if err := started(s, &app); err != nil {
+			return err
+		}
 		// The snapshot must match the new Previous: the data it ran with,
 		// or nothing after a code-only rollback.
 		if err := withSnapshot(s, app, current, out, func() error { return n.SwapForRollback(ctx(), app.Key()) }); err != nil {
@@ -428,6 +439,58 @@ func undoDataRollback(s *store.Store, app store.App, current node.Dump, out io.W
 	return true
 }
 
+// started notes that a stopped app runs again, rolled out by a deploy.
+func started(s *store.Store, app *store.App) error {
+	if app.Stopped == 0 {
+		return nil
+	}
+	app.Stopped = 0
+	if err := s.SetAppStopped(ctx(), store.SetAppStoppedParams{Stopped: 0, ID: app.ID}); err != nil {
+		return err
+	}
+	async(func() { watchApps(s) })
+	return nil
+}
+
+// StopApp stops the app and its worker until it's started or deployed
+// again; pushes don't deploy it meanwhile.
+func StopApp(s *store.Store, appID int64) error {
+	return startJob(s, appID, "stop", func(app store.App, out io.Writer) error {
+		if app.Stopped == 1 {
+			return errors.New("it's stopped already")
+		}
+		if err := s.SetAppStopped(ctx(), store.SetAppStoppedParams{Stopped: 1, ID: app.ID}); err != nil {
+			return err
+		}
+		app.Stopped = 1
+		fmt.Fprintln(out, "stopping", app.Name)
+		if err := stopApp(s, app); err != nil {
+			return err
+		}
+		async(func() { watchApps(s) })
+		fmt.Fprintln(out, "stopped: it stays so until you start or deploy it")
+		return nil
+	})
+}
+
+// StartApp starts a stopped app and its worker again.
+func StartApp(s *store.Store, appID int64) error {
+	return startJob(s, appID, "start", func(app store.App, out io.Writer) error {
+		if app.Stopped == 0 {
+			return errors.New("it isn't stopped")
+		}
+		if err := s.SetAppStopped(ctx(), store.SetAppStoppedParams{Stopped: 0, ID: app.ID}); err != nil {
+			return err
+		}
+		app.Stopped = 0
+		fmt.Fprintln(out, "starting", app.Name)
+		startApp(s, app, out)
+		restartWorker(s, app, out)
+		async(func() { watchApps(s) })
+		return nil
+	})
+}
+
 // stopApp stops the app and its worker so nothing writes to the database.
 func stopApp(s *store.Store, app store.App) error {
 	return AppNode(s, app).StopApp(ctx(), liveSpec(app))
@@ -439,6 +502,9 @@ func startApp(s *store.Store, app store.App, out io.Writer) {
 }
 
 func restartWorker(s *store.Store, app store.App, out io.Writer) {
+	if app.Stopped == 1 {
+		return
+	}
 	if w, err := s.GetWorker(ctx(), app.ID); err == nil {
 		if err := runWorker(s, app, w, out); err != nil {
 			fmt.Fprintln(out, "failed to start the worker again:", err)
@@ -478,7 +544,7 @@ func liveSpec(app store.App) node.AppSpec {
 	return node.AppSpec{
 		Name: app.Key(), Project: app.ProjectKey(), ActiveSlot: app.ActiveSlot, ProxyPort: app.Port,
 		ContainerPort: app.ContainerPort, PortHint: portHint(app, 0), HealthPath: app.HealthCheckPath,
-		MemoryMB: app.MemoryMB, CPUs: app.Cpus, Command: app.StartCommand,
+		MemoryMB: app.MemoryMB, CPUs: app.Cpus, Command: app.StartCommand, Stopped: app.Stopped == 1,
 	}
 }
 
