@@ -519,6 +519,8 @@ To look at the pages with made-up data, without GitHub or Cloudflare:
 HAKOBU_UI_DEV=127.0.0.1:8090 go test ./cmd -run TestDevServer -timeout 0
 ```
 
+`HAKOBU_UI_SHOWCASE=127.0.0.1:8091 go test ./cmd -run TestShowcase -timeout 0` is the same with everything healthy; `just screenshot` takes the README's picture from it.
+
 ## Tests
 
 `just check` runs what CI runs: build, tests, govulncheck, golangci-lint and `sqlc diff`. Tests that need Docker (they start their own containers) run with `HAKOBU_DOCKER_TEST=1 go test ./...`; with `HAKOBU_TEST_LINK=1` too, the panel reaches the local machine as it would another server.

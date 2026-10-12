@@ -4,6 +4,8 @@ Deploy apps from GitHub to servers you own. Push to the default branch and hakob
 
 **Docs: [hakobu.dev/docs](https://hakobu.dev/docs/)** · Hosted panel: [dash.hakobu.dev](https://dash.hakobu.dev)
 
+![A project in the hakobu panel: apps linked to their databases, cache, volume and storage, in the light and dark themes](.github/screenshot.png)
+
 - **Apps** from GitHub repositories, built with their Dockerfile or [Railpack](https://railpack.com); blue/green deploys, rollback with the database included, workers, volumes, limits.
 - **Data** per project: PostgreSQL databases, Valkey caches (Redis-compatible), R2 or S3 storages.
 - **Cloudflare Tunnel** for domains and HTTPS: servers need no public IP and no open port.

@@ -30,6 +30,10 @@ docs:
 lint *args:
     golangci-lint run ./... {{args}}
 
+# Retake the README's screenshot (needs Chrome and ImageMagick)
+screenshot:
+    scripts/screenshot.sh
+
 # Known vulnerabilities in reachable code
 vuln:
     govulncheck ./...

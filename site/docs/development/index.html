@@ -68,6 +68,7 @@
 <p>To look at the pages with made-up data, without GitHub or Cloudflare:</p>
 <pre><code class="language-bash">HAKOBU_UI_DEV=127.0.0.1:8090 go test ./cmd -run TestDevServer -timeout 0
 </code></pre>
+<p><code>HAKOBU_UI_SHOWCASE=127.0.0.1:8091 go test ./cmd -run TestShowcase -timeout 0</code> is the same with everything healthy; <code>just screenshot</code> takes the README's picture from it.</p>
 <h2 id="tests">Tests</h2>
 <p><code>just check</code> runs what CI runs: build, tests, govulncheck, golangci-lint and <code>sqlc diff</code>. Tests that need Docker (they start their own containers) run with <code>HAKOBU_DOCKER_TEST=1 go test ./...</code>; with <code>HAKOBU_TEST_LINK=1</code> too, the panel reaches the local machine as it would another server.</p>
 <h2 id="the-panels-pages">The panel's pages</h2>
