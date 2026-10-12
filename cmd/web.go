@@ -757,11 +757,11 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 		if err := ops.SetAppDomain(s, app, formDomain(r)); err != nil {
 			return "", err
 		}
-		return "", s.SetAppSettings(r.Context(), store.SetAppSettingsParams{
-			ID:              app.ID,
-			ContainerPort:   port,
-			HealthCheckPath: strings.TrimSpace(r.FormValue("health_check_path")),
-		})
+		if err := s.SetAppSettings(r.Context(), store.SetAppSettingsParams{ID: app.ID, ContainerPort: port, HealthCheckPath: app.HealthCheckPath}); err != nil {
+			return "", err
+		}
+		app.ContainerPort = port
+		return "", ops.SetHealthCheck(s, app, r.FormValue("health_check_path"))
 	})
 
 	action("POST "+appRoute+"/build", func(r *http.Request) (string, error) {

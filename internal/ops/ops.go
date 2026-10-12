@@ -210,6 +210,29 @@ func watchApps(s *store.Store) {
 	EnsureAccountAlerts(s)
 }
 
+// SetHealthCheck sets the path an app's health is checked at: "" for any
+// answer but a server error at /, a path for a 2xx there. Deploys check it
+// before switching traffic, and the watchdog from outside, from now on.
+func SetHealthCheck(s *store.Store, app store.App, path string) error {
+	path = strings.TrimSpace(path)
+	if path == "/" {
+		path = ""
+	}
+	if path != "" && !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	if strings.ContainsAny(path, " \t\n?#") || len(path) > 200 {
+		return fmt.Errorf("%q isn't a path: give one like /health, without a query", path)
+	}
+	if err := s.SetAppSettings(ctx(), store.SetAppSettingsParams{ID: app.ID, ContainerPort: app.ContainerPort, HealthCheckPath: path}); err != nil {
+		return err
+	}
+	if path != app.HealthCheckPath {
+		async(func() { watchApps(s) })
+	}
+	return nil
+}
+
 // SetAppBuild changes how the app is built (strategy "railpack" or
 // "dockerfile", path of the build context inside the repo) and started (a
 // shell command instead of the image's own start, "" for that). Applies on

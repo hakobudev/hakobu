@@ -171,3 +171,32 @@ func TestWatchdogWaitsForToken(t *testing.T) {
 		t.Errorf("after the new token: workers %v, lacking %v", f.workers, cloudflare.Lacking(CachedTokenPermissions()))
 	}
 }
+
+// A new health check path is cleaned up and reaches the watchdog at once.
+func TestSetHealthCheck(t *testing.T) {
+	f := newFakeEmail(t)
+	s := notifyStore(t)
+	if err := SetupNotifications(s, "me@example.org", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	app := seedApp(t, s, "shop", "web")
+	if err := s.SetAppDomain(ctx(), store.SetAppDomainParams{ID: app.ID, Domain: "web.example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	app = mustApp(t, s, "web")
+	if err := SetHealthCheck(s, app, " health/ready "); err != nil {
+		t.Fatal(err)
+	}
+	if a := mustApp(t, s, "web"); a.HealthCheckPath != "/health/ready" {
+		t.Errorf("path %q", a.HealthCheckPath)
+	}
+	if b := binding(f.workers[watchdogName()], "TARGETS"); !strings.Contains(b["text"], `"url":"https://web.example.com/health/ready","need":"2xx"`) {
+		t.Errorf("TARGETS %v", b)
+	}
+	if err := SetHealthCheck(s, mustApp(t, s, "web"), "/"); err != nil || mustApp(t, s, "web").HealthCheckPath != "" {
+		t.Errorf("\"/\": %v, path %q", err, mustApp(t, s, "web").HealthCheckPath)
+	}
+	if err := SetHealthCheck(s, mustApp(t, s, "web"), "/up?x=1"); err == nil {
+		t.Error("took a query")
+	}
+}

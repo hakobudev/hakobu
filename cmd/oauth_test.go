@@ -189,6 +189,9 @@ func TestOAuthAndMCP(t *testing.T) {
 	if out := call(access, "set_build", `{"app":"mine/web","start_command":"node x.js"}`); !strings.Contains(jsonString(out), "may only read") {
 		t.Errorf("set_build with a read-only token: %v", out)
 	}
+	if out := call(access, "set_health_check", `{"app":"mine/web","path":"/health"}`); !strings.Contains(jsonString(out), "may only read") {
+		t.Errorf("set_health_check with a read-only token: %v", out)
+	}
 	if app, _ := s.GetAppByID(ctx, 1); app.StartCommand != "" {
 		t.Errorf("a read-only token set the start command to %q", app.StartCommand)
 	}
