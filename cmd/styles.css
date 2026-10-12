@@ -434,7 +434,7 @@
   .kv-row-value { @apply flex-1 truncate font-mono; font-size: 13px; }
 
   /* Overlays */
-  .menu { background: var(--bg-overlay); color: var(--fg); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow); @apply w-80 max-w-[calc(100vw-16px)] p-1; }
+  .menu { background: var(--bg-overlay); color: var(--fg); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow); @apply w-80 max-w-[calc(100vw-16px)] p-1 whitespace-normal; }
   .menu[popover] { position: fixed; inset: auto; margin: 0; }
   .menu-item { border-radius: var(--radius); color: var(--fg); @apply block w-full text-left px-3 py-2; }
   .menu-item:hover { background: var(--bg-hover); text-decoration: none; }

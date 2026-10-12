@@ -664,7 +664,7 @@ templ settingsServers(v settingsPage) {
 								<div id={ "rename-server-" + itoa(sv.ID) } popover class="menu">
 									<form hx-post={ "/settings/servers/" + sv.Name + "/rename" } class="space-y-3 p-3">
 										@field("New name", "Only a label: projects, tunnels and keys stay with the server.") {
-											<input name="to" required pattern="[a-z][a-z0-9\-]{0,39}" value={ sv.Name } class="input mono"/>
+											<input name="to" required pattern="[a-z][a-z0-9\-]{0,39}" value={ sv.Name } spellcheck="false" autocomplete="off" class="input mono"/>
 										}
 										@submit("Rename", false)
 									</form>
