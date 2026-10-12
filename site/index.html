@@ -226,6 +226,14 @@
             </div>
             <pre class="console console-xs"><span class="p">$</span> curl -fsSL https://hakobu.dev/install.sh \
     | sudo HAKOBU_JOIN_TOKEN=… bash</pre></div></div></div>
+        <div class="card span-6 tint-grey"><h3>Roll back the code and the data.</h3><p>A database snapshot before every deploy. Try it.</p>
+          <div class="card-viz"><div class="viz viz-roll">
+            <div class="deploys" id="deploys">
+              <div class="deploy is-live"><span class="mono">b72e01d</span><span class="deploy-msg">Rename messages.body</span><span class="snap" title="Database snapshot"><svg class="icon"><use href="#i-database"/></svg></span><span class="live">Live</span><span class="when">4 min ago</span></div>
+              <div class="deploy"><span class="mono">a1f3c9e</span><span class="deploy-msg">Stream replies</span><span class="snap" title="Database snapshot"><svg class="icon"><use href="#i-database"/></svg></span><span class="live">Live</span><span class="when">yesterday</span></div>
+              <div class="deploy"><span class="mono">9c04d1b</span><span class="deploy-msg">File uploads</span><span class="snap" title="Database snapshot"><svg class="icon"><use href="#i-database"/></svg></span><span class="live">Live</span><span class="when">2 days ago</span></div>
+            </div>
+            <div class="roll-foot"><button class="btn btn-sm" type="button" id="rollback"><svg class="icon"><use href="#i-history"/></svg><span id="rollback-label">Roll back</span></button><span class="legend"><svg class="icon"><use href="#i-database"/></svg>database snapshot</span></div></div></div></div>
         <div class="card span-6 tint-grey"><h3>Backups only your server can open.</h3><p>Sealed with its key, in your R2, each one test-restored.</p>
           <div class="card-viz"><div class="viz viz-seal" aria-hidden="true">
             <div class="seal-row">
@@ -237,14 +245,6 @@
               <li><svg class="icon"><use href="#i-key-round"/></svg>The key stays on the server. The panel never has it.</li>
               <li><svg class="icon"><use href="#i-circle-check"/></svg>Restored into a scratch database: 21 tables</li>
             </ul></div></div></div>
-        <div class="card span-6 tint-grey"><h3>Roll back the code and the data.</h3><p>A database snapshot before every deploy. Try it.</p>
-          <div class="card-viz"><div class="viz viz-roll">
-            <div class="deploys" id="deploys">
-              <div class="deploy is-live"><span class="mono">b72e01d</span><span class="deploy-msg">Rename messages.body</span><span class="snap" title="Database snapshot"><svg class="icon"><use href="#i-database"/></svg></span><span class="live">Live</span><span class="when">4 min ago</span></div>
-              <div class="deploy"><span class="mono">a1f3c9e</span><span class="deploy-msg">Stream replies</span><span class="snap" title="Database snapshot"><svg class="icon"><use href="#i-database"/></svg></span><span class="live">Live</span><span class="when">yesterday</span></div>
-              <div class="deploy"><span class="mono">9c04d1b</span><span class="deploy-msg">File uploads</span><span class="snap" title="Database snapshot"><svg class="icon"><use href="#i-database"/></svg></span><span class="live">Live</span><span class="when">2 days ago</span></div>
-            </div>
-            <div class="roll-foot"><button class="btn btn-sm" type="button" id="rollback"><svg class="icon"><use href="#i-history"/></svg><span id="rollback-label">Roll back</span></button><span class="legend"><svg class="icon"><use href="#i-database"/></svg>database snapshot</span></div></div></div></div>
         <div class="card span-7 tint-blue"><h3>Errors, logs and traces, on your server.</h3><p>The Sentry SDK you know reports to the SENTRY_DSN hakobu sets. No account anywhere, and what your apps send never leaves your server.</p>
           <div class="card-viz"><div class="issue">
             <div class="issue-head"><svg class="icon"><use href="#i-triangle-alert"/></svg><div><div class="issue-title">KeyError: 'body'</div><div class="issue-meta">api · 23 events · first 12:04, last 12:06</div></div><span class="issue-fixed">Fixed by c3d9a20</span></div>
