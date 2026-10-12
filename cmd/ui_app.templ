@@ -184,30 +184,21 @@ templ appActions(p appPage) {
 			}
 		}
 	}
+	// Stopping is rare and takes the site down: it's under Settings →
+	// Danger zone. A stopped app's main action is starting it.
 	if p.App.App.Stopped == 1 {
-		<button class="btn" hx-post={ p.path("") + "/start" }>
+		<button class="btn btn-primary" hx-post={ p.path("") + "/start" }>
 			@ic("loader-circle", "btn-spinner")
 			@ic("play", "btn-label-icon")
 			Start
 		</button>
-	} else if p.App.LivePort != 0 {
-		<button
-			class="btn"
-			hx-post={ p.path("") + "/stop" }
-			hx-confirm="The app and its worker stop, and stay stopped through restarts until you start or redeploy it; pushes don't deploy it meanwhile. Its address answers with an error."
-			data-confirm-title={ "Stop " + p.App.Name + "?" }
-			data-confirm-action="Stop"
-		>
+	} else {
+		<button class="btn btn-primary" hx-post={ p.path("") + "/deploy" }>
 			@ic("loader-circle", "btn-spinner")
-			@ic("square", "btn-label-icon")
-			Stop
+			@ic("refresh-cw", "btn-label-icon")
+			Redeploy
 		</button>
 	}
-	<button class="btn btn-primary" hx-post={ p.path("") + "/deploy" }>
-		@ic("loader-circle", "btn-spinner")
-		@ic("refresh-cw", "btn-label-icon")
-		Redeploy
-	</button>
 }
 
 // Overview.

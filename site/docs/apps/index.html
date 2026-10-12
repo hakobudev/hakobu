@@ -77,7 +77,7 @@
 <p>An app with <a href="/docs/volumes/">volumes</a> is stopped before the new version starts (a few seconds of downtime), unless you let both versions share them.</p>
 <p><strong>Redeploy</strong> rebuilds the latest commit. <strong>Rollback</strong> returns to the build before; with <strong>with data</strong> it also restores the database snapshot taken before the live build's deploy, so a bad migration is undone too (rows written since are lost).</p>
 <h2 id="stop">Stop</h2>
-<p><strong>Stop</strong> stops the app and its worker, say while it moves elsewhere. It stays stopped through restarts of hakobu and its server, health checks and the watchdog leave it alone, and pushes don't deploy it. <strong>Start</strong> runs it again; so does <strong>Redeploy</strong>.</p>
+<p><strong>Stop app</strong>, under <strong>Settings → Danger zone</strong>, stops the app and its worker, say while it moves elsewhere. It stays stopped through restarts of hakobu and its server, health checks and the watchdog leave it alone, and pushes don't deploy it. <strong>Start</strong>, in place of <strong>Redeploy</strong> at the top of its page, runs it again.</p>
 <h2 id="worker">Worker</h2>
 <p><strong>Settings → Worker</strong> runs a background process from the app's image with its own start command and no port: a queue consumer like <code>celery -A tasks worker</code>. It gets the app's variables and links, plus its own <strong>Worker variables</strong>, and restarts after every deploy.</p>
 <h2 id="limits">Limits</h2>

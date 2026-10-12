@@ -30,7 +30,7 @@ An app with [volumes](volumes.md) is stopped before the new version starts (a fe
 
 ## Stop
 
-**Stop** stops the app and its worker, say while it moves elsewhere. It stays stopped through restarts of hakobu and its server, health checks and the watchdog leave it alone, and pushes don't deploy it. **Start** runs it again; so does **Redeploy**.
+**Stop app**, under **Settings → Danger zone**, stops the app and its worker, say while it moves elsewhere. It stays stopped through restarts of hakobu and its server, health checks and the watchdog leave it alone, and pushes don't deploy it. **Start**, in place of **Redeploy** at the top of its page, runs it again.
 
 ## Worker
 

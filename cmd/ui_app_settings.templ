@@ -1,6 +1,11 @@
 package cmd
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/hakobudev/hakobu/internal/ops"
+)
 
 templ appSettings(p appPage) {
 	@appShell(p) {
@@ -196,6 +201,24 @@ templ appSettings(p appPage) {
 				<section class="section" id="danger">
 					<div class="box box-danger">
 						<div class="box-header">Danger zone</div>
+						if p.App.App.Stopped == 0 && p.App.LivePort != 0 {
+							<div class="box-row">
+								<div>
+									<p class="strong">Stop this app</p>
+									<p class="field-hint">The app and its worker stop and stay stopped through restarts, and pushes don't deploy it, until you start it again from its page or redeploy it.</p>
+								</div>
+								<button
+									class="btn btn-danger"
+									hx-post={ p.path("") + "/stop" }
+									hx-confirm={ stopAppText(p) }
+									data-confirm-title={ "Stop " + p.App.Name + "?" }
+									data-confirm-action="Stop"
+								>
+									@ic("square")
+									Stop app
+								</button>
+							</div>
+						}
 						<div class="box-row">
 							<div>
 								<p class="strong">Delete this app</p>
@@ -419,4 +442,13 @@ templ appRoutes(p appPage) {
 			</form>
 		}
 	</div>
+}
+
+// stopAppText is what stopping the app takes down.
+func stopAppText(p appPage) string {
+	what := "Its address answers with an error"
+	if u := ops.PublicURL(p.App.App); u != "" {
+		what = strings.TrimPrefix(u, "https://") + " answers with an error"
+	}
+	return "The app and its worker stop. " + what + " until you start it again; pushes don't deploy it meanwhile."
 }
