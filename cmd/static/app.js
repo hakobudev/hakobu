@@ -34,7 +34,18 @@ function toast(msg) {
   clearTimeout(el._t);
   el._t = setTimeout(() => el.hidden = true, 8000);
 }
-document.addEventListener('htmx:responseError', e => toast(e.detail.xhr.responseText));
+// hakobu's own errors are plain text; a page instead is Cloudflare's or a
+// proxy's, while hakobu restarts after an update, say.
+document.addEventListener('htmx:responseError', e => {
+  const xhr = e.detail.xhr;
+  if ((xhr.getResponseHeader('Content-Type') || '').includes('html')) {
+    toast(xhr.status >= 502 && xhr.status <= 504
+      ? "The panel didn't answer: it may be restarting. Try again in a moment."
+      : 'Something went wrong (' + xhr.status + ')');
+    return;
+  }
+  toast(xhr.responseText);
+});
 document.addEventListener('htmx:sendError', () => toast('Network error'));
 
 document.addEventListener('click', e => {
