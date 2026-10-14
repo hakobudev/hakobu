@@ -189,6 +189,15 @@ func (q *Queries) DeleteTracesOfApp(ctx context.Context, appID int64) error {
 	return err
 }
 
+const deleteUnfingerprintedResolved = `-- name: DeleteUnfingerprintedResolved :exec
+DELETE FROM resolved_issues WHERE fingerprint LIKE 'event:%'
+`
+
+func (q *Queries) DeleteUnfingerprintedResolved(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteUnfingerprintedResolved)
+	return err
+}
+
 const getTelemetryEvent = `-- name: GetTelemetryEvent :one
 SELECT id, app_id, kind, level, message, payload, created_at, trace_id, fingerprint FROM telemetry_events WHERE id = ? AND app_id = ?
 `
@@ -671,6 +680,52 @@ func (q *Queries) ListTraces(ctx context.Context, arg ListTracesParams) ([]ListT
 	return items, nil
 }
 
+const listUnfingerprinted = `-- name: ListUnfingerprinted :many
+SELECT id, kind, level, payload FROM telemetry_events
+WHERE fingerprint LIKE 'event:%' AND id > ? ORDER BY id LIMIT ?
+`
+
+type ListUnfingerprintedParams struct {
+	ID    int64
+	Limit int64
+}
+
+type ListUnfingerprintedRow struct {
+	ID      int64
+	Kind    string
+	Level   string
+	Payload secret.String
+}
+
+// Events from before issues, which migration 005 marked 'event:<id>'.
+func (q *Queries) ListUnfingerprinted(ctx context.Context, arg ListUnfingerprintedParams) ([]ListUnfingerprintedRow, error) {
+	rows, err := q.db.QueryContext(ctx, listUnfingerprinted, arg.ID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUnfingerprintedRow
+	for rows.Next() {
+		var i ListUnfingerprintedRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Kind,
+			&i.Level,
+			&i.Payload,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const pruneEvents = `-- name: PruneEvents :exec
 DELETE FROM telemetry_events WHERE created_at < ?
 `
@@ -824,6 +879,20 @@ func (q *Queries) ResolveIssue(ctx context.Context, arg ResolveIssueParams) (int
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const setFingerprint = `-- name: SetFingerprint :exec
+UPDATE telemetry_events SET fingerprint = ? WHERE id = ?
+`
+
+type SetFingerprintParams struct {
+	Fingerprint string
+	ID          int64
+}
+
+func (q *Queries) SetFingerprint(ctx context.Context, arg SetFingerprintParams) error {
+	_, err := q.db.ExecContext(ctx, setFingerprint, arg.Fingerprint, arg.ID)
+	return err
 }
 
 const summarizeSamples = `-- name: SummarizeSamples :many

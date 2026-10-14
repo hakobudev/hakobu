@@ -126,6 +126,17 @@ SELECT e.app_id, e.fingerprint, (SELECT max(l.id) FROM telemetry_events l WHERE 
 FROM telemetry_events e WHERE e.id = @id AND e.app_id = @app_id AND e.kind != 'log'
 ON CONFLICT (app_id, fingerprint) DO UPDATE SET through_id = excluded.through_id, resolved_at = excluded.resolved_at;
 
+-- name: ListUnfingerprinted :many
+-- Events from before issues, which migration 005 marked 'event:<id>'.
+SELECT id, kind, level, payload FROM telemetry_events
+WHERE fingerprint LIKE 'event:%' AND id > ? ORDER BY id LIMIT ?;
+
+-- name: SetFingerprint :exec
+UPDATE telemetry_events SET fingerprint = ? WHERE id = ?;
+
+-- name: DeleteUnfingerprintedResolved :exec
+DELETE FROM resolved_issues WHERE fingerprint LIKE 'event:%';
+
 -- name: ReopenIssue :execrows
 DELETE FROM resolved_issues WHERE resolved_issues.app_id = @app_id
 	AND resolved_issues.fingerprint = (SELECT t.fingerprint FROM telemetry_events t WHERE t.id = @id AND t.app_id = @app_id);

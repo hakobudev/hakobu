@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -80,5 +81,38 @@ func TestRotationReencryptsTelemetry(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(s.dir, telemetryFile)); err != nil {
 		t.Error(err)
+	}
+}
+
+// Errors kept from before issues are grouped when hakobu next starts.
+func TestOldEventsGetFingerprints(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "hakobu.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for n := range 3 {
+		// As migration 005 left them.
+		payload := fmt.Sprintf(`{"logger":"src.phone.executor","logentry":{"message":"2026-10-14 09:%02d:07 | ERROR | UI dump: https://r2.example.com/%d.xml"}}`, n, n)
+		if err := s.Tel.CreateTelemetryEvent(ctx, teldb.CreateTelemetryEventParams{AppID: 1, Kind: "error", Level: "error", Message: "UI dump", Payload: secret.String(payload), Fingerprint: fmt.Sprintf("event:%d", n+1)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.Tel.ResolveIssue(ctx, teldb.ResolveIssueParams{ID: 1, AppID: 1}); err != nil {
+		t.Fatal(err)
+	}
+	s.db.Close()
+	s.telDB.Close()
+
+	if s, err = Open(path); err != nil {
+		t.Fatal(err)
+	}
+	issues, err := s.Tel.ListIssues(ctx, teldb.ListIssuesParams{AppID: 1, WithResolved: true, Lim: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(issues) != 1 || issues[0].Count != 3 || issues[0].ResolvedAt != "" {
+		t.Errorf("issues %+v, want one open issue of 3", issues)
 	}
 }

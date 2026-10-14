@@ -74,6 +74,9 @@ func OpenWithKey(path, keyPath string) (*Store, error) {
 			return nil, fmt.Errorf("finishing the master key rotation: %w", err)
 		}
 	}
+	if err := fingerprintOldEvents(context.Background(), telDB); err != nil {
+		panellog.Warn("grouping the errors kept from before issues:", err)
+	}
 	return s, nil
 }
 

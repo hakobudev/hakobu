@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/hakobudev/hakobu/internal/ingest"
 	"github.com/hakobudev/hakobu/internal/panellog"
 	"github.com/hakobudev/hakobu/internal/store/teldb"
 )
@@ -154,6 +155,40 @@ func pruneTel(ctx context.Context, q *teldb.Queries, db *sql.DB, retentionDays i
 	return err
 }
 
+// fingerprintOldEvents gives the events kept from before issues the
+// fingerprint they'd get now, so they group with what comes in after
+// instead of standing alone until they're pruned. It needs the master key
+// to read them, and does nothing once they're done: no new event is
+// marked 'event:<id>'. One resolved alone is open again, in its group.
+func fingerprintOldEvents(ctx context.Context, db *sql.DB) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	q := teldb.New(tx)
+	for after := int64(0); ; {
+		rows, err := q.ListUnfingerprinted(ctx, teldb.ListUnfingerprintedParams{ID: after, Limit: 500})
+		if err != nil {
+			return err
+		}
+		if len(rows) == 0 {
+			break
+		}
+		for _, r := range rows {
+			fp := ingest.Fingerprint(r.Kind, r.Level, []byte(r.Payload))
+			if err := q.SetFingerprint(ctx, teldb.SetFingerprintParams{Fingerprint: fp, ID: r.ID}); err != nil {
+				return err
+			}
+			after = r.ID
+		}
+	}
+	if err := q.DeleteUnfingerprintedResolved(ctx); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // NodeTelemetry is the telemetry.db of a server other than the panel's:
 // its apps' errors, logs and traces, sealed with its own master key, which
 // the panel reads over the link and never keeps.
@@ -168,6 +203,9 @@ func OpenNodeTelemetry(dir string) (*NodeTelemetry, error) {
 	db, err := openTelemetry(dir, false)
 	if err != nil {
 		return nil, err
+	}
+	if err := fingerprintOldEvents(context.Background(), db); err != nil {
+		panellog.Warn("grouping the errors kept from before issues:", err)
 	}
 	return &NodeTelemetry{Q: teldb.New(db), db: db}, nil
 }
