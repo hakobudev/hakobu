@@ -19,8 +19,10 @@ type appPage struct {
 	LastOOM             string
 
 	Deploys []store.DeployLog         // overview, deployments
-	Events  []teldb.TelemetryEvent    // overview, errors
+	Events  []teldb.TelemetryEvent    // errors: with logs
+	Issues  []teldb.ListIssuesRow     // overview, errors
 	Logs    bool                      // errors: with logs
+	Resolved bool                     // errors: the resolved issues too
 	Output  string                    // logs
 	OutputErr string
 	OfWorker bool                     // logs: the worker's
@@ -69,6 +71,19 @@ func buildText(a appView) string {
 // eventIsProblem marks the kinds of event shown as problems.
 func eventIsProblem(e teldb.TelemetryEvent) bool {
 	return e.Kind == "error" || e.Kind == "oom" || e.Kind == "crash" || (e.Kind == "health" && e.Level == "error")
+}
+
+// timesText is " · 3 times" for an issue seen more than once.
+func timesText(n int64) string {
+	if n < 2 {
+		return ""
+	}
+	return fmt.Sprintf(" · %d times", n)
+}
+
+// issueEvent is an issue as its latest event.
+func issueEvent(i teldb.ListIssuesRow) teldb.TelemetryEvent {
+	return teldb.TelemetryEvent{ID: i.ID, Kind: i.Kind, Level: i.Level, Message: i.Message, TraceID: i.TraceID, CreatedAt: i.LastAt}
 }
 
 func eventIcon(e teldb.TelemetryEvent) (string, string) {
@@ -245,17 +260,17 @@ templ appOverview(p appPage) {
 						<span>Latest problems</span>
 						<a href={ p.path("errors") } class="small">View all</a>
 					</div>
-					if len(p.Events) == 0 {
-						<div class="box-body small muted">No errors, crashes, out-of-memory kills or failed health checks.</div>
+					if len(p.Issues) == 0 {
+						<div class="box-body small muted">No open errors, crashes, out-of-memory kills or failed health checks.</div>
 					}
-					for _, e := range p.Events {
+					for _, i := range p.Issues {
 						<a href={ p.path("errors") } class="box-row small">
 							<span class="row-main">
-								@eventIconOf(e)
+								@eventIconOf(issueEvent(i))
 								<span class="min-w-0">
-									<span class="row-title block">{ string(e.Message) }</span>
-									<span class="row-meta block">{ e.Kind + " · " }
-										@timeAgo(e.CreatedAt)
+									<span class="row-title block">{ string(i.Message) }</span>
+									<span class="row-meta block">{ i.Kind + timesText(i.Count) + " · " }
+										@timeAgo(i.LastAt)
 									</span>
 								</span>
 							</span>
@@ -511,45 +526,94 @@ func logsURL(p appPage) string {
 templ appErrors(p appPage) {
 	@appShell(p) {
 		<div class="section-header">
-			@segmented([]segment{{Label: "Problems", Href: p.path("errors"), Current: !p.Logs}, {Label: "With logs", Href: p.path("errors") + "?logs=1", Current: p.Logs}})
+			@segmented([]segment{
+				{Label: "Open", Href: p.path("errors"), Current: !p.Logs && !p.Resolved},
+				{Label: "Resolved too", Href: p.path("errors") + "?resolved=1", Current: p.Resolved},
+				{Label: "With logs", Href: p.path("errors") + "?logs=1", Current: p.Logs},
+			})
 		</div>
-		<p class="field-hint mb-4">Errors and logs sent by a Sentry SDK using the injected <span class="mono">SENTRY_DSN</span>, and crashes, out-of-memory kills and failed health checks of the app and its worker.</p>
+		<p class="field-hint mb-4">Errors and logs sent by a Sentry SDK using the injected <span class="mono">SENTRY_DSN</span>, and crashes, out-of-memory kills and failed health checks of the app and its worker. The same problem seen again counts in one issue; a resolved one opens again when it's seen after.</p>
 		if p.Away != "" {
 			@flash("warn") {
 				{ p.Away }
 			}
 		}
-		<div class="box" hidden?={ p.Away != "" && len(p.Events) == 0 }>
-			if len(p.Events) == 0 {
-				if p.Logs {
-					@blankslate("Nothing received yet.")
-				} else {
-					@blankslate("No problems: no errors, crashes, out-of-memory kills or failed health checks.")
-				}
-			}
-			for _, e := range p.Events {
-				<div class="box-body">
-					<div class="flex items-start gap-3">
-						@eventIconOf(e)
-						<div class="min-w-0 flex-1 space-y-1">
-							<p class="row-meta">
-								<span class={ "badge", templ.KV("badge-danger", eventIsProblem(e)) }>{ e.Kind }</span>
-								if e.Level != "" {
-									{ " · " + e.Level }
-								}
-								{ " · " }
-								@timeAgo(e.CreatedAt)
-								if e.TraceID != "" {
-									{ " · " }<a href={ templ.SafeURL(p.path("traces/by-trace/" + e.TraceID)) }>its trace</a>
-								}
-							</p>
-							<pre class="mono whitespace-pre-wrap break-words">{ string(e.Message) }</pre>
-						</div>
+		if !p.Logs {
+			@issueList(p)
+		} else {
+			@eventList(p)
+		}
+	}
+}
+
+templ issueList(p appPage) {
+	<div class="box" hidden?={ p.Away != "" && len(p.Issues) == 0 }>
+		if len(p.Issues) == 0 {
+			@blankslate("No open problems: no errors, crashes, out-of-memory kills or failed health checks.")
+		}
+		for _, i := range p.Issues {
+			<div class="box-body">
+				<div class="flex items-start gap-3">
+					@eventIconOf(issueEvent(i))
+					<div class="min-w-0 flex-1 space-y-1">
+						<p class="row-meta">
+							<span class={ "badge", templ.KV("badge-danger", eventIsProblem(issueEvent(i))) }>{ i.Kind }</span>
+							if i.ResolvedAt != "" {
+								{ " " }<span class="badge badge-success">resolved</span>
+							}
+							if i.Level != "" {
+								{ " · " + i.Level }
+							}
+							{ timesText(i.Count) + " · last " }
+							@timeAgo(i.LastAt)
+							if i.Count > 1 {
+								{ " · first " }
+								@timeAgo(i.FirstAt)
+							}
+							if i.TraceID != "" {
+								{ " · " }<a href={ templ.SafeURL(p.path("traces/by-trace/" + i.TraceID)) }>its trace</a>
+							}
+						</p>
+						<pre class="mono whitespace-pre-wrap break-words">{ string(i.Message) }</pre>
+					</div>
+					if i.ResolvedAt == "" {
+						<button class="btn btn-sm shrink-0" hx-post={ p.path("errors/" + itoa(i.ID) + "/resolve") }>Resolve</button>
+					} else {
+						<button class="btn btn-sm shrink-0" hx-post={ p.path("errors/" + itoa(i.ID) + "/reopen") }>Reopen</button>
+					}
+				</div>
+			</div>
+		}
+	</div>
+}
+
+templ eventList(p appPage) {
+	<div class="box" hidden?={ p.Away != "" && len(p.Events) == 0 }>
+		if len(p.Events) == 0 {
+			@blankslate("Nothing received yet.")
+		}
+		for _, e := range p.Events {
+			<div class="box-body">
+				<div class="flex items-start gap-3">
+					@eventIconOf(e)
+					<div class="min-w-0 flex-1 space-y-1">
+						<p class="row-meta">
+							<span class={ "badge", templ.KV("badge-danger", eventIsProblem(e)) }>{ e.Kind }</span>
+							if e.Level != "" {
+								{ " · " + e.Level }
+							}
+							{ " · " }
+							@timeAgo(e.CreatedAt)
+							if e.TraceID != "" {
+								{ " · " }<a href={ templ.SafeURL(p.path("traces/by-trace/" + e.TraceID)) }>its trace</a>
+							}
+						</p>
+						<pre class="mono whitespace-pre-wrap break-words">{ string(e.Message) }</pre>
 					</div>
 				</div>
-			}
-		</div>
-	}
+			</div>
+		}
+	</div>
 }
 
 // Performance.

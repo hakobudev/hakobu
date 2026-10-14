@@ -15,6 +15,13 @@ type PanelLog struct {
 	CreatedAt string
 }
 
+type ResolvedIssue struct {
+	AppID       int64
+	Fingerprint string
+	ThroughID   int64
+	ResolvedAt  string
+}
+
 type Sample struct {
 	Target    string
 	Res       int64
@@ -36,14 +43,15 @@ type Sample struct {
 }
 
 type TelemetryEvent struct {
-	ID        int64
-	AppID     int64
-	Kind      string
-	Level     string
-	Message   secret.String
-	Payload   secret.String
-	CreatedAt string
-	TraceID   string
+	ID          int64
+	AppID       int64
+	Kind        string
+	Level       string
+	Message     secret.String
+	Payload     secret.String
+	CreatedAt   string
+	TraceID     string
+	Fingerprint string
 }
 
 type Trace struct {

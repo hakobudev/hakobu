@@ -27,7 +27,7 @@ import (
 // a client reading them can be talked into anything a tool allows.
 const mcpInstructions = `Hakobu deploys apps from GitHub repos to the owner's server. Each app belongs to a project, and tools name it as project/app (as list_apps does); pushes to a repo's default branch deploy its apps automatically, with zero downtime.
 
-To ship a change: push it to GitHub, then call wait_for_deploy on the app; if the deploy failed, read its log with get_deploy_log. After a deploy, check get_app_logs and list_errors for problems. rollback returns the app to the build before the live one.
+To ship a change: push it to GitHub, then call wait_for_deploy on the app; if the deploy failed, read its log with get_deploy_log. After a deploy, check get_app_logs and list_errors for problems; once one is fixed, resolve_error takes it off the open issues. rollback returns the app to the build before the live one.
 
 To deploy a repo that isn't an app yet: list_projects (where it can go: projects, servers, Cloudflare accounts, domains), list_repos and scan_repo (how to build it), then create_project if needed, create_database for PostgreSQL or add_volume for files like SQLite, create_cache for Redis (caches, queues, sessions), create_app, set_env for settings (${{api.URL}} refers to another app), set_route to put an API behind the frontend's /api, set_health_check if the app has a health endpoint, and wait_for_deploy; if it fails, read get_deploy_log, fix the code or the settings and deploy again. Never put a secret through set_env or ask for one in the chat: tell the user to add it as a sealed variable at the app's panel_url (get_app).
 
@@ -100,12 +100,15 @@ type mcpAppDetail struct {
 }
 
 type mcpError struct {
-	ID      int64  `json:"id"`
-	At      string `json:"at"`
-	Kind    string `json:"kind" jsonschema:"error, log, crash, oom..."`
-	Level   string `json:"level,omitempty"`
-	Message string `json:"message"`
-	Payload string `json:"payload,omitempty" jsonschema:"the full event as received (Sentry JSON), with the stack trace"`
+	ID       int64  `json:"id"`
+	At       string `json:"at"`
+	Kind     string `json:"kind" jsonschema:"error, log, crash, oom..."`
+	Level    string `json:"level,omitempty"`
+	Message  string `json:"message"`
+	Count    int64  `json:"count,omitempty" jsonschema:"how many times the issue was seen, in the last 30 days"`
+	FirstAt  string `json:"first_at,omitempty" jsonschema:"when the issue was first seen"`
+	Resolved string `json:"resolved,omitempty" jsonschema:"when the issue was resolved; empty while it's open"`
+	Payload  string `json:"payload,omitempty" jsonschema:"the full event as received (Sentry JSON), with the stack trace"`
 }
 
 type appArg struct {
@@ -357,11 +360,12 @@ func newMCPServer(s *store.Store) *mcp.Server {
 			return nil, out, nil
 		})
 
-	mcp.AddTool(server, &mcp.Tool{Name: "list_errors", Description: "List the latest errors, crashes, out-of-memory kills and health check outages of an app, newest first: what its Sentry SDK sent and what hakobu saw. With include_logs, the logs its SDK sent too.", Annotations: readOnly},
+	mcp.AddTool(server, &mcp.Tool{Name: "list_errors", Description: "List the open issues of an app, newest first: its errors, crashes, out-of-memory kills and health check outages, what its Sentry SDK sent and what hakobu saw, the same problem seen again counted in one issue as its latest event. With include_resolved, the resolved issues too; with include_logs, every event one by one with the logs its SDK sent, not grouped.", Annotations: readOnly},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
-			App         string `json:"app" jsonschema:"the app as project/app"`
-			Limit       int    `json:"limit,omitempty" jsonschema:"up to 100; default 20"`
-			IncludeLogs bool   `json:"include_logs,omitempty" jsonschema:"also the logs the app's Sentry SDK sent"`
+			App             string `json:"app" jsonschema:"the app as project/app"`
+			Limit           int    `json:"limit,omitempty" jsonschema:"up to 100; default 20"`
+			IncludeResolved bool   `json:"include_resolved,omitempty" jsonschema:"also the issues resolved with resolve_error"`
+			IncludeLogs     bool   `json:"include_logs,omitempty" jsonschema:"every event instead, with the logs the app's Sentry SDK sent"`
 		}) (*mcp.CallToolResult, struct {
 			Errors []mcpError `json:"errors"`
 		}, error) {
@@ -376,13 +380,23 @@ func newMCPServer(s *store.Store) *mcp.Server {
 			if limit <= 0 {
 				limit = 20
 			}
-			events, err := ops.AppEvents(s, app, in.IncludeLogs, int64(min(limit, 100)))
+			out.Errors = []mcpError{}
+			if in.IncludeLogs {
+				events, err := ops.AppEvents(s, app, true, int64(min(limit, 100)))
+				if err != nil {
+					return nil, out, err
+				}
+				for _, e := range events {
+					out.Errors = append(out.Errors, mcpError{ID: e.ID, At: e.CreatedAt, Kind: e.Kind, Level: e.Level, Message: tail(string(e.Message), 2000)})
+				}
+				return nil, out, nil
+			}
+			issues, err := ops.AppIssues(s, app, in.IncludeResolved, int64(min(limit, 100)))
 			if err != nil {
 				return nil, out, err
 			}
-			out.Errors = []mcpError{}
-			for _, e := range events {
-				out.Errors = append(out.Errors, mcpError{ID: e.ID, At: e.CreatedAt, Kind: e.Kind, Level: e.Level, Message: tail(string(e.Message), 2000)})
+			for _, i := range issues {
+				out.Errors = append(out.Errors, mcpError{ID: i.ID, At: i.LastAt, Kind: i.Kind, Level: i.Level, Message: tail(string(i.Message), 2000), Count: i.Count, FirstAt: i.FirstAt, Resolved: i.ResolvedAt})
 			}
 			return nil, out, nil
 		})
@@ -401,6 +415,32 @@ func newMCPServer(s *store.Store) *mcp.Server {
 				return nil, mcpError{}, fmt.Errorf("no error %d of %s", in.ID, in.App)
 			}
 			return nil, mcpError{ID: e.ID, At: e.CreatedAt, Kind: e.Kind, Level: e.Level, Message: string(e.Message), Payload: tail(string(e.Payload), 60000)}, nil
+		})
+
+	mcp.AddTool(server, &mcp.Tool{Name: "resolve_error", Description: "Resolve the issue of an error from list_errors once it's fixed or not worth seeing: it leaves the open issues until it happens again, which opens it again. With reopen, open it again now.",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: new(false), IdempotentHint: true, OpenWorldHint: new(false)}},
+		func(ctx context.Context, req *mcp.CallToolRequest, in struct {
+			App    string `json:"app" jsonschema:"the app as project/app"`
+			ID     int64  `json:"id" jsonschema:"the id of any error of the issue, from list_errors"`
+			Reopen bool   `json:"reopen,omitempty" jsonschema:"open the issue again instead"`
+		}) (*mcp.CallToolResult, struct{}, error) {
+			if ti := req.Extra.TokenInfo; ti == nil || !slices.Contains(ti.Scopes, scopeDeploy) {
+				return nil, struct{}{}, fmt.Errorf("this connection may only read: reconnect it and allow deploys")
+			}
+			app, err := getApp(ctx, in.App)
+			if err != nil {
+				return nil, struct{}{}, err
+			}
+			do := ops.ResolveIssue
+			if in.Reopen {
+				do = ops.ReopenIssue
+			}
+			if err := do(s, app, in.ID); errors.Is(err, ops.ErrNoIssue) {
+				return nil, struct{}{}, fmt.Errorf("no error %d of %s", in.ID, in.App)
+			} else if err != nil {
+				return nil, struct{}{}, err
+			}
+			return nil, struct{}{}, nil
 		})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "wait_for_deploy", Description: "Wait until the app's running deploy or rollback finishes (up to 90 seconds per call; call again if it's still running) and return how it ended, with the log's end if it failed. Use after a push or deploy.", Annotations: readOnly},

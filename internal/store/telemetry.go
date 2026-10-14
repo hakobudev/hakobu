@@ -111,7 +111,7 @@ func (s *Store) deleteTelemetryOf(ctx context.Context, app int64) error {
 			return err
 		}
 	}
-	for _, del := range []func(context.Context, int64) error{s.Tel.DeleteTracesOfApp, s.Tel.DeleteTraceRoutesOfApp, s.Tel.DeleteTelemetryOfApp} {
+	for _, del := range []func(context.Context, int64) error{s.Tel.DeleteTracesOfApp, s.Tel.DeleteTraceRoutesOfApp, s.Tel.DeleteTelemetryOfApp, s.Tel.DeleteResolvedIssuesOfApp} {
 		if err := del(ctx, app); err != nil {
 			return err
 		}
@@ -130,6 +130,10 @@ func pruneTel(ctx context.Context, q *teldb.Queries, db *sql.DB, retentionDays i
 		return err
 	}
 	if err := q.PruneEvents(ctx, timestamp(time.Now().Add(-eventRetention))); err != nil {
+		return err
+	}
+	// Resolved before the oldest event kept: whatever it covered is gone.
+	if err := q.PruneResolvedIssues(ctx, timestamp(time.Now().Add(-eventRetention))); err != nil {
 		return err
 	}
 	if err := q.PrunePanelLog(ctx, timestamp(time.Now().Add(-eventRetention))); err != nil {

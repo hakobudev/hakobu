@@ -86,16 +86,17 @@ func (q *Queries) CountTraceRoutes(ctx context.Context, arg CountTraceRoutesPara
 }
 
 const createTelemetryEvent = `-- name: CreateTelemetryEvent :exec
-INSERT INTO telemetry_events (app_id, kind, level, message, payload, trace_id) VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO telemetry_events (app_id, kind, level, message, payload, trace_id, fingerprint) VALUES (?, ?, ?, ?, ?, ?, ?)
 `
 
 type CreateTelemetryEventParams struct {
-	AppID   int64
-	Kind    string
-	Level   string
-	Message secret.String
-	Payload secret.String
-	TraceID string
+	AppID       int64
+	Kind        string
+	Level       string
+	Message     secret.String
+	Payload     secret.String
+	TraceID     string
+	Fingerprint string
 }
 
 func (q *Queries) CreateTelemetryEvent(ctx context.Context, arg CreateTelemetryEventParams) error {
@@ -106,6 +107,7 @@ func (q *Queries) CreateTelemetryEvent(ctx context.Context, arg CreateTelemetryE
 		arg.Message,
 		arg.Payload,
 		arg.TraceID,
+		arg.Fingerprint,
 	)
 	return err
 }
@@ -139,6 +141,15 @@ func (q *Queries) CreateTrace(ctx context.Context, arg CreateTraceParams) error 
 		arg.Payload,
 		arg.CreatedAt,
 	)
+	return err
+}
+
+const deleteResolvedIssuesOfApp = `-- name: DeleteResolvedIssuesOfApp :exec
+DELETE FROM resolved_issues WHERE app_id = ?
+`
+
+func (q *Queries) DeleteResolvedIssuesOfApp(ctx context.Context, appID int64) error {
+	_, err := q.db.ExecContext(ctx, deleteResolvedIssuesOfApp, appID)
 	return err
 }
 
@@ -179,7 +190,7 @@ func (q *Queries) DeleteTracesOfApp(ctx context.Context, appID int64) error {
 }
 
 const getTelemetryEvent = `-- name: GetTelemetryEvent :one
-SELECT id, app_id, kind, level, message, payload, created_at, trace_id FROM telemetry_events WHERE id = ? AND app_id = ?
+SELECT id, app_id, kind, level, message, payload, created_at, trace_id, fingerprint FROM telemetry_events WHERE id = ? AND app_id = ?
 `
 
 type GetTelemetryEventParams struct {
@@ -199,6 +210,7 @@ func (q *Queries) GetTelemetryEvent(ctx context.Context, arg GetTelemetryEventPa
 		&i.Payload,
 		&i.CreatedAt,
 		&i.TraceID,
+		&i.Fingerprint,
 	)
 	return i, err
 }
@@ -313,6 +325,75 @@ func (q *Queries) LatestSamples(ctx context.Context, arg LatestSamplesParams) ([
 	return items, nil
 }
 
+const listIssues = `-- name: ListIssues :many
+SELECT e.id, e.kind, e.level, e.message, e.trace_id, e.fingerprint,
+	g.count, CAST(g.first_at AS TEXT) AS first_at, e.created_at AS last_at,
+	CAST(CASE WHEN r.through_id >= e.id THEN r.resolved_at ELSE '' END AS TEXT) AS resolved_at
+FROM (
+	SELECT t.fingerprint, max(t.id) AS last_id, count(*) AS count, min(t.created_at) AS first_at
+	FROM telemetry_events t WHERE t.app_id = ?1 AND t.kind != 'log' GROUP BY t.fingerprint
+) g
+JOIN telemetry_events e ON e.id = g.last_id
+LEFT JOIN resolved_issues r ON r.app_id = ?1 AND r.fingerprint = g.fingerprint
+WHERE CAST(?2 AS BOOLEAN) OR r.through_id IS NULL OR r.through_id < e.id
+ORDER BY e.id DESC LIMIT ?3
+`
+
+type ListIssuesParams struct {
+	AppID        int64
+	WithResolved bool
+	Lim          int64
+}
+
+type ListIssuesRow struct {
+	ID          int64
+	Kind        string
+	Level       string
+	Message     secret.String
+	TraceID     string
+	Fingerprint string
+	Count       int64
+	FirstAt     string
+	LastAt      string
+	ResolvedAt  string
+}
+
+// An app's issues, each as its latest event, newest first: with the
+// resolved ones, or only the open ones (whose resolved_at is empty).
+func (q *Queries) ListIssues(ctx context.Context, arg ListIssuesParams) ([]ListIssuesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listIssues, arg.AppID, arg.WithResolved, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListIssuesRow
+	for rows.Next() {
+		var i ListIssuesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Kind,
+			&i.Level,
+			&i.Message,
+			&i.TraceID,
+			&i.Fingerprint,
+			&i.Count,
+			&i.FirstAt,
+			&i.LastAt,
+			&i.ResolvedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPanelLog = `-- name: ListPanelLog :many
 SELECT id, level, message, created_at FROM panel_log WHERE level >= ? ORDER BY id DESC LIMIT ?
 `
@@ -351,7 +432,7 @@ func (q *Queries) ListPanelLog(ctx context.Context, arg ListPanelLogParams) ([]P
 }
 
 const listProblems = `-- name: ListProblems :many
-SELECT id, app_id, kind, level, message, payload, created_at, trace_id FROM telemetry_events WHERE app_id = ? AND kind != 'log' ORDER BY id DESC LIMIT ?
+SELECT id, app_id, kind, level, message, payload, created_at, trace_id, fingerprint FROM telemetry_events WHERE app_id = ? AND kind != 'log' ORDER BY id DESC LIMIT ?
 `
 
 type ListProblemsParams struct {
@@ -377,6 +458,7 @@ func (q *Queries) ListProblems(ctx context.Context, arg ListProblemsParams) ([]T
 			&i.Payload,
 			&i.CreatedAt,
 			&i.TraceID,
+			&i.Fingerprint,
 		); err != nil {
 			return nil, err
 		}
@@ -443,7 +525,7 @@ func (q *Queries) ListSamples(ctx context.Context, arg ListSamplesParams) ([]Sam
 }
 
 const listTelemetryEvents = `-- name: ListTelemetryEvents :many
-SELECT id, app_id, kind, level, message, payload, created_at, trace_id FROM telemetry_events WHERE app_id = ? ORDER BY id DESC LIMIT ?
+SELECT id, app_id, kind, level, message, payload, created_at, trace_id, fingerprint FROM telemetry_events WHERE app_id = ? ORDER BY id DESC LIMIT ?
 `
 
 type ListTelemetryEventsParams struct {
@@ -469,6 +551,7 @@ func (q *Queries) ListTelemetryEvents(ctx context.Context, arg ListTelemetryEven
 			&i.Payload,
 			&i.CreatedAt,
 			&i.TraceID,
+			&i.Fingerprint,
 		); err != nil {
 			return nil, err
 		}
@@ -615,6 +698,15 @@ func (q *Queries) PrunePanelLog(ctx context.Context, createdAt string) error {
 	return err
 }
 
+const pruneResolvedIssues = `-- name: PruneResolvedIssues :exec
+DELETE FROM resolved_issues WHERE resolved_at < ?
+`
+
+func (q *Queries) PruneResolvedIssues(ctx context.Context, resolvedAt string) error {
+	_, err := q.db.ExecContext(ctx, pruneResolvedIssues, resolvedAt)
+	return err
+}
+
 const pruneSamples = `-- name: PruneSamples :exec
 DELETE FROM samples WHERE ts < ?
 `
@@ -693,6 +785,45 @@ func (q *Queries) PutSample(ctx context.Context, arg PutSampleParams) error {
 		arg.DiskTotal,
 	)
 	return err
+}
+
+const reopenIssue = `-- name: ReopenIssue :execrows
+DELETE FROM resolved_issues WHERE resolved_issues.app_id = ?1
+	AND resolved_issues.fingerprint = (SELECT t.fingerprint FROM telemetry_events t WHERE t.id = ?2 AND t.app_id = ?1)
+`
+
+type ReopenIssueParams struct {
+	AppID int64
+	ID    int64
+}
+
+func (q *Queries) ReopenIssue(ctx context.Context, arg ReopenIssueParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, reopenIssue, arg.AppID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const resolveIssue = `-- name: ResolveIssue :execrows
+INSERT INTO resolved_issues (app_id, fingerprint, through_id)
+SELECT e.app_id, e.fingerprint, (SELECT max(l.id) FROM telemetry_events l WHERE l.app_id = e.app_id AND l.fingerprint = e.fingerprint)
+FROM telemetry_events e WHERE e.id = ?1 AND e.app_id = ?2 AND e.kind != 'log'
+ON CONFLICT (app_id, fingerprint) DO UPDATE SET through_id = excluded.through_id, resolved_at = excluded.resolved_at
+`
+
+type ResolveIssueParams struct {
+	ID    int64
+	AppID int64
+}
+
+// Resolves the issue of event id, up to its latest event.
+func (q *Queries) ResolveIssue(ctx context.Context, arg ResolveIssueParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, resolveIssue, arg.ID, arg.AppID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const summarizeSamples = `-- name: SummarizeSamples :many

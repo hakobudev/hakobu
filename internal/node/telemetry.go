@@ -24,6 +24,13 @@ type TelemetryKeeper interface {
 	// what went wrong (errors, crashes, out-of-memory kills, health).
 	AppEvents(ctx context.Context, app int64, logs bool, limit int64) ([]teldb.TelemetryEvent, error)
 	AppEvent(ctx context.Context, app int64, id int64) (teldb.TelemetryEvent, error)
+	// AppIssues is an app's problems grouped by what they are, newest
+	// first: the open ones, or with the resolved ones too.
+	AppIssues(ctx context.Context, app int64, withResolved bool, limit int64) ([]teldb.ListIssuesRow, error)
+	// ResolveIssue resolves the issue of the event with ID id until it's
+	// seen again, and ReopenIssue opens it; both report whether it exists.
+	ResolveIssue(ctx context.Context, app int64, id int64) (bool, error)
+	ReopenIssue(ctx context.Context, app int64, id int64) (bool, error)
 	// AddAppEvent records what the panel saw of an app: a crash, an
 	// out-of-memory kill, a health check.
 	AddAppEvent(ctx context.Context, e teldb.CreateTelemetryEventParams) error
@@ -75,11 +82,38 @@ func (t Telemetry) AppEvent(ctx context.Context, app int64, id int64) (teldb.Tel
 	return q.GetTelemetryEvent(ctx, teldb.GetTelemetryEventParams{ID: id, AppID: app})
 }
 
+func (t Telemetry) AppIssues(ctx context.Context, app int64, withResolved bool, limit int64) ([]teldb.ListIssuesRow, error) {
+	q, err := t.q()
+	if err != nil {
+		return nil, err
+	}
+	return q.ListIssues(ctx, teldb.ListIssuesParams{AppID: app, WithResolved: withResolved, Lim: limit})
+}
+
+func (t Telemetry) ResolveIssue(ctx context.Context, app int64, id int64) (bool, error) {
+	q, err := t.q()
+	if err != nil {
+		return false, err
+	}
+	n, err := q.ResolveIssue(ctx, teldb.ResolveIssueParams{ID: id, AppID: app})
+	return n > 0, err
+}
+
+func (t Telemetry) ReopenIssue(ctx context.Context, app int64, id int64) (bool, error) {
+	q, err := t.q()
+	if err != nil {
+		return false, err
+	}
+	n, err := q.ReopenIssue(ctx, teldb.ReopenIssueParams{ID: id, AppID: app})
+	return n > 0, err
+}
+
 func (t Telemetry) AddAppEvent(ctx context.Context, e teldb.CreateTelemetryEventParams) error {
 	q, err := t.q()
 	if err != nil {
 		return err
 	}
+	e.Fingerprint = ingest.Fingerprint(e.Kind, e.Level, nil)
 	return q.CreateTelemetryEvent(ctx, e)
 }
 
@@ -128,7 +162,7 @@ func (t Telemetry) DropTelemetry(ctx context.Context, app int64) error {
 	if err != nil {
 		return err
 	}
-	for _, del := range []func(context.Context, int64) error{q.DeleteTracesOfApp, q.DeleteTraceRoutesOfApp, q.DeleteTelemetryOfApp} {
+	for _, del := range []func(context.Context, int64) error{q.DeleteTracesOfApp, q.DeleteTraceRoutesOfApp, q.DeleteTelemetryOfApp, q.DeleteResolvedIssuesOfApp} {
 		if err := del(ctx, app); err != nil {
 			return err
 		}
@@ -155,7 +189,11 @@ func (t Telemetry) StoreEnvelope(ctx context.Context, app int64, body []byte) er
 		if saved++; saved > maxEventsPerEnvelope {
 			return
 		}
-		if err := q.CreateTelemetryEvent(ctx, teldb.CreateTelemetryEventParams{AppID: app, Kind: kind, Level: sum.Level, Message: secret.String(sum.Message), Payload: secret.String(payload), TraceID: sum.TraceID}); err != nil {
+		e := teldb.CreateTelemetryEventParams{AppID: app, Kind: kind, Level: sum.Level, Message: secret.String(sum.Message), Payload: secret.String(payload), TraceID: sum.TraceID}
+		if kind != "log" {
+			e.Fingerprint = ingest.Fingerprint(kind, sum.Level, payload)
+		}
+		if err := q.CreateTelemetryEvent(ctx, e); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -249,6 +287,18 @@ func (Local) AppEvents(ctx context.Context, app int64, logs bool, limit int64) (
 
 func (Local) AppEvent(ctx context.Context, app int64, id int64) (teldb.TelemetryEvent, error) {
 	return Telemetry{Tel}.AppEvent(ctx, app, id)
+}
+
+func (Local) AppIssues(ctx context.Context, app int64, withResolved bool, limit int64) ([]teldb.ListIssuesRow, error) {
+	return Telemetry{Tel}.AppIssues(ctx, app, withResolved, limit)
+}
+
+func (Local) ResolveIssue(ctx context.Context, app int64, id int64) (bool, error) {
+	return Telemetry{Tel}.ResolveIssue(ctx, app, id)
+}
+
+func (Local) ReopenIssue(ctx context.Context, app int64, id int64) (bool, error) {
+	return Telemetry{Tel}.ReopenIssue(ctx, app, id)
 }
 
 func (Local) AddAppEvent(ctx context.Context, e teldb.CreateTelemetryEventParams) error {

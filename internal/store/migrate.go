@@ -42,6 +42,8 @@ var (
 		// An app's errors without walking past its logs, and the prune of traces.
 		`CREATE INDEX IF NOT EXISTS telemetry_events_kind ON telemetry_events (app_id, kind, id)`,
 		`CREATE INDEX IF NOT EXISTS traces_created ON traces (created_at)`,
+		// An issue's events, to count them and find its latest.
+		`CREATE INDEX IF NOT EXISTS telemetry_events_issue ON telemetry_events (app_id, fingerprint, id)`,
 	}
 )
 

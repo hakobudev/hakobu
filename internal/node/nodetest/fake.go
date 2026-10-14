@@ -716,6 +716,18 @@ func (f *Fake) AppEvent(ctx context.Context, app int64, id int64) (teldb.Telemet
 	return node.Telemetry{Q: f.Tel}.AppEvent(ctx, app, id)
 }
 
+func (f *Fake) AppIssues(ctx context.Context, app int64, withResolved bool, limit int64) ([]teldb.ListIssuesRow, error) {
+	return node.Telemetry{Q: f.Tel}.AppIssues(ctx, app, withResolved, limit)
+}
+
+func (f *Fake) ResolveIssue(ctx context.Context, app int64, id int64) (bool, error) {
+	return node.Telemetry{Q: f.Tel}.ResolveIssue(ctx, app, id)
+}
+
+func (f *Fake) ReopenIssue(ctx context.Context, app int64, id int64) (bool, error) {
+	return node.Telemetry{Q: f.Tel}.ReopenIssue(ctx, app, id)
+}
+
 func (f *Fake) AddAppEvent(ctx context.Context, e teldb.CreateTelemetryEventParams) error {
 	return node.Telemetry{Q: f.Tel}.AddAppEvent(ctx, e)
 }

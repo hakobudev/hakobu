@@ -91,7 +91,7 @@ func TestShowcase(t *testing.T) {
 		must(err)
 		must(s.SetBackupVerified(ctx, store.SetBackupVerifiedParams{ID: bid, VerifiedAt: "2026-10-03T03:00:00Z", Tables: tables}))
 	}
-	must(s.Tel.CreateTelemetryEvent(ctx, teldb.CreateTelemetryEventParams{AppID: apps["api"], Kind: "error", Level: "error", Message: "KeyError: 'body'\n  File \"chat/stream.py\", line 42, in reply"}))
+	must(s.Tel.CreateTelemetryEvent(ctx, teldb.CreateTelemetryEventParams{AppID: apps["api"], Kind: "error", Level: "error", Message: "KeyError: 'body'\n  File \"chat/stream.py\", line 42, in reply", Fingerprint: "reply"}))
 
 	// A day of usage, minute by minute: a daily wave with some noise.
 	now := time.Now().Truncate(time.Minute)

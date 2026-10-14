@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/hakobudev/hakobu/internal/node"
@@ -62,6 +63,48 @@ func AppEvent(s *store.Store, app store.App, id int64) (teldb.TelemetryEvent, er
 		return teldb.TelemetryEvent{}, err
 	}
 	return t.AppEvent(ctx(), app.ID, id)
+}
+
+// AppIssues is an app's problems grouped by what they are, newest first:
+// the open ones, or the resolved ones too.
+func AppIssues(s *store.Store, app store.App, withResolved bool, limit int64) ([]teldb.ListIssuesRow, error) {
+	t, err := appTelemetry(s, app)
+	if err != nil {
+		return nil, err
+	}
+	return t.AppIssues(ctx(), app.ID, withResolved, limit)
+}
+
+// ErrNoIssue is an issue the app doesn't have.
+var ErrNoIssue = errors.New("no such issue")
+
+// ResolveIssue resolves the issue of the app's event with ID id: it's out
+// of the open ones until it's seen again.
+func ResolveIssue(s *store.Store, app store.App, id int64) error {
+	t, err := appTelemetry(s, app)
+	if err != nil {
+		return err
+	}
+	if ok, err := t.ResolveIssue(ctx(), app.ID, id); err != nil {
+		return err
+	} else if !ok {
+		return ErrNoIssue
+	}
+	return nil
+}
+
+// ReopenIssue undoes ResolveIssue.
+func ReopenIssue(s *store.Store, app store.App, id int64) error {
+	t, err := appTelemetry(s, app)
+	if err != nil {
+		return err
+	}
+	if ok, err := t.ReopenIssue(ctx(), app.ID, id); err != nil {
+		return err
+	} else if !ok {
+		return ErrNoIssue
+	}
+	return nil
 }
 
 // AppTraces is an app's kept traces, newest first.

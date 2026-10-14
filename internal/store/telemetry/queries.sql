@@ -1,5 +1,5 @@
 -- name: CreateTelemetryEvent :exec
-INSERT INTO telemetry_events (app_id, kind, level, message, payload, trace_id) VALUES (?, ?, ?, ?, ?, ?);
+INSERT INTO telemetry_events (app_id, kind, level, message, payload, trace_id, fingerprint) VALUES (?, ?, ?, ?, ?, ?, ?);
 
 -- name: ListTelemetryEvents :many
 SELECT * FROM telemetry_events WHERE app_id = ? ORDER BY id DESC LIMIT ?;
@@ -10,6 +10,9 @@ SELECT * FROM telemetry_events WHERE id = ? AND app_id = ?;
 -- name: DeleteTelemetryOfApp :exec
 DELETE FROM telemetry_events WHERE app_id = ?;
 
+-- name: DeleteResolvedIssuesOfApp :exec
+DELETE FROM resolved_issues WHERE app_id = ?;
+
 -- name: LastTelemetryOfKind :one
 SELECT created_at FROM telemetry_events WHERE app_id = ? AND kind = ? ORDER BY id DESC LIMIT 1;
 
@@ -18,6 +21,9 @@ DELETE FROM telemetry_events WHERE kind = 'log' AND created_at < ?;
 
 -- name: PruneEvents :exec
 DELETE FROM telemetry_events WHERE created_at < ?;
+
+-- name: PruneResolvedIssues :exec
+DELETE FROM resolved_issues WHERE resolved_at < ?;
 
 -- name: PutSample :exec
 INSERT INTO samples (target, res, slot, ts, cpu, cpu_max, cpu_limit, mem, mem_max, mem_limit, net_rx, net_tx, disk_read, disk_write, load, disk_used, disk_total)
@@ -97,6 +103,32 @@ DELETE FROM trace_routes WHERE hour < ?;
 
 -- name: ListProblems :many
 SELECT * FROM telemetry_events WHERE app_id = ? AND kind != 'log' ORDER BY id DESC LIMIT ?;
+
+-- name: ListIssues :many
+-- An app's issues, each as its latest event, newest first: with the
+-- resolved ones, or only the open ones (whose resolved_at is empty).
+SELECT e.id, e.kind, e.level, e.message, e.trace_id, e.fingerprint,
+	g.count, CAST(g.first_at AS TEXT) AS first_at, e.created_at AS last_at,
+	CAST(CASE WHEN r.through_id >= e.id THEN r.resolved_at ELSE '' END AS TEXT) AS resolved_at
+FROM (
+	SELECT t.fingerprint, max(t.id) AS last_id, count(*) AS count, min(t.created_at) AS first_at
+	FROM telemetry_events t WHERE t.app_id = @app_id AND t.kind != 'log' GROUP BY t.fingerprint
+) g
+JOIN telemetry_events e ON e.id = g.last_id
+LEFT JOIN resolved_issues r ON r.app_id = @app_id AND r.fingerprint = g.fingerprint
+WHERE CAST(@with_resolved AS BOOLEAN) OR r.through_id IS NULL OR r.through_id < e.id
+ORDER BY e.id DESC LIMIT @lim;
+
+-- name: ResolveIssue :execrows
+-- Resolves the issue of event id, up to its latest event.
+INSERT INTO resolved_issues (app_id, fingerprint, through_id)
+SELECT e.app_id, e.fingerprint, (SELECT max(l.id) FROM telemetry_events l WHERE l.app_id = e.app_id AND l.fingerprint = e.fingerprint)
+FROM telemetry_events e WHERE e.id = @id AND e.app_id = @app_id AND e.kind != 'log'
+ON CONFLICT (app_id, fingerprint) DO UPDATE SET through_id = excluded.through_id, resolved_at = excluded.resolved_at;
+
+-- name: ReopenIssue :execrows
+DELETE FROM resolved_issues WHERE resolved_issues.app_id = @app_id
+	AND resolved_issues.fingerprint = (SELECT t.fingerprint FROM telemetry_events t WHERE t.id = @id AND t.app_id = @app_id);
 
 -- name: AddPanelLog :exec
 INSERT INTO panel_log (level, message) VALUES (?, ?);

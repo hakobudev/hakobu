@@ -433,6 +433,21 @@ func (r *Remote) AppEvent(ctx context.Context, app int64, id int64) (e teldb.Tel
 	return e, err
 }
 
+func (r *Remote) AppIssues(ctx context.Context, app int64, withResolved bool, limit int64) (i []teldb.ListIssuesRow, err error) {
+	err = r.call(ctx, "AppIssues", nil, nil, []any{app, withResolved, limit}, &i)
+	return i, err
+}
+
+func (r *Remote) ResolveIssue(ctx context.Context, app int64, id int64) (ok bool, err error) {
+	err = r.call(ctx, "ResolveIssue", nil, nil, []any{app, id}, &ok)
+	return ok, err
+}
+
+func (r *Remote) ReopenIssue(ctx context.Context, app int64, id int64) (ok bool, err error) {
+	err = r.call(ctx, "ReopenIssue", nil, nil, []any{app, id}, &ok)
+	return ok, err
+}
+
 func (r *Remote) AddAppEvent(ctx context.Context, e teldb.CreateTelemetryEventParams) error {
 	return r.call(ctx, "AddAppEvent", nil, nil, []any{e})
 }

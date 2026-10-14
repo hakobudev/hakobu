@@ -113,8 +113,11 @@ func TestDevServer(t *testing.T) {
 	bid, err := s.CreateBackup(ctx, store.CreateBackupParams{DatabaseID: mainDB, ObjectKey: "db/main/1", SizeBytes: 860 << 20})
 	must(err)
 	must(s.SetBackupVerified(ctx, store.SetBackupVerifiedParams{ID: bid, VerifiedAt: "2026-10-03T03:00:00Z", Tables: 24}))
-	must(s.Tel.CreateTelemetryEvent(ctx, teldb.CreateTelemetryEventParams{AppID: apps["api"], Kind: "error", Level: "error", Message: "TypeError: 'NoneType' object is not subscriptable\n  File \"app/billing.py\", line 88, in charge"}))
-	must(s.Tel.CreateTelemetryEvent(ctx, teldb.CreateTelemetryEventParams{AppID: apps["api"], Kind: "oom", Message: "worker was killed for running out of memory (limit 256 MB)"}))
+	for range 3 {
+		must(s.Tel.CreateTelemetryEvent(ctx, teldb.CreateTelemetryEventParams{AppID: apps["api"], Kind: "error", Level: "error", Message: "TypeError: 'NoneType' object is not subscriptable\n  File \"app/billing.py\", line 88, in charge", Fingerprint: "billing"}))
+	}
+	must(s.Tel.CreateTelemetryEvent(ctx, teldb.CreateTelemetryEventParams{AppID: apps["api"], Kind: "error", Level: "error", Message: "KeyError: 'currency'", Fingerprint: "currency"}))
+	must(s.Tel.CreateTelemetryEvent(ctx, teldb.CreateTelemetryEventParams{AppID: apps["api"], Kind: "oom", Message: "worker was killed for running out of memory (limit 256 MB)", Fingerprint: "oom"}))
 
 	mux := http.NewServeMux()
 	registerWebRoutes(mux, s)

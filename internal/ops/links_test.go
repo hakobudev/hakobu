@@ -203,6 +203,17 @@ func TestServerKeepsItsAppsTelemetry(t *testing.T) {
 	if events, err := AppEvents(s, there, true, 10); err != nil || len(events) != 1 {
 		t.Errorf("there-app's events: %+v, %v", events, err)
 	}
+	// Its issues are grouped and resolved on its server, over the link.
+	if issues, err := AppIssues(s, there, false, 10); err != nil || len(issues) != 1 {
+		t.Errorf("there-app's issues: %+v, %v", issues, err)
+	} else if err := ResolveIssue(s, there, issues[0].ID); err != nil {
+		t.Errorf("resolving there-app's issue: %v", err)
+	} else if open, _ := AppIssues(s, there, false, 10); len(open) != 0 {
+		t.Errorf("there-app's issue is still open: %+v", open)
+	}
+	if err := ResolveIssue(s, there, 9999); !errors.Is(err, ErrNoIssue) {
+		t.Errorf("resolving an issue that isn't there: %v", err)
+	}
 	if kept, _ := s.Tel.ListTelemetryEvents(ctx(), teldb.ListTelemetryEventsParams{AppID: there.ID, Limit: 10}); len(kept) != 0 {
 		t.Errorf("the panel kept there-app's events: %+v", kept)
 	}

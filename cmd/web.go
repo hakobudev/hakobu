@@ -603,7 +603,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			switch tab {
 			case "overview":
 				p.Deploys = deploySummaries(r.Context(), s, app.ID, 5)
-				p.Events, _ = ops.AppEvents(s, app, false, 5)
+				p.Issues, _ = ops.AppIssues(s, app, false, 5)
 				renderPage(w, r, appOverview(p))
 			case "deployments":
 				var err error
@@ -625,8 +625,14 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 				renderPage(w, r, appLogs(p))
 			case "errors":
 				p.Logs = r.URL.Query().Get("logs") != ""
+				p.Resolved = !p.Logs && r.URL.Query().Get("resolved") != ""
 				var err error
-				if p.Events, err = ops.AppEvents(s, app, p.Logs, 50); errors.Is(err, node.ErrUnreachable) {
+				if p.Logs {
+					p.Events, err = ops.AppEvents(s, app, true, 50)
+				} else {
+					p.Issues, err = ops.AppIssues(s, app, p.Resolved, 50)
+				}
+				if errors.Is(err, node.ErrUnreachable) {
 					p.Away = err.Error()
 				} else if err != nil {
 					fail(w, err)
@@ -706,14 +712,14 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 		renderPage(w, r, deployItem(app, d))
 	})
 
-	// The app's problems of the last day, for its card on the project
-	// canvas: nothing when there are none or its server is away.
+	// The app's open problems seen in the last day, for its card on the
+	// project canvas: nothing when there are none or its server is away.
 	handle("GET "+appRoute+"/problems", func(w http.ResponseWriter, r *http.Request) {
 		app := reqApp(r)
-		events, err := ops.AppEvents(s, app, false, 100)
+		issues, err := ops.AppIssues(s, app, false, 100)
 		n, since := 0, time.Now().Add(-24*time.Hour).UTC().Format("2006-01-02T15:04:05Z")
-		for _, e := range events {
-			if err == nil && eventIsProblem(e) && e.CreatedAt >= since {
+		for _, i := range issues {
+			if err == nil && eventIsProblem(issueEvent(i)) && i.LastAt >= since {
 				n++
 			}
 		}
@@ -723,6 +729,15 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 
 	handle("GET "+appRoute+"/status", func(w http.ResponseWriter, r *http.Request) {
 		renderPage(w, r, appStatus(newAppView(r.Context(), s, reqApp(r))))
+	})
+
+	action("POST "+appRoute+"/errors/{id}/resolve", func(r *http.Request) (string, error) {
+		id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+		return "", ops.ResolveIssue(s, reqApp(r), id)
+	})
+	action("POST "+appRoute+"/errors/{id}/reopen", func(r *http.Request) (string, error) {
+		id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+		return "", ops.ReopenIssue(s, reqApp(r), id)
 	})
 
 	action("POST "+appRoute+"/deploy", func(r *http.Request) (string, error) {
