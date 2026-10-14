@@ -78,7 +78,7 @@ type Summary struct {
 	TraceID string // of the request or task it happened in, if traced
 }
 
-// ExtractEventSummary falls back to the first exception's "type: value"
+// ExtractEventSummary falls back to the raised exception's "type: value"
 // when the event has no message (uncaught exceptions).
 func ExtractEventSummary(item Item) Summary {
 	var e struct {
@@ -114,7 +114,9 @@ func ExtractEventSummary(item Item) Summary {
 		_ = json.Unmarshal(e.Exception, &exceptions.Values)
 	}
 	if msg == "" && len(exceptions.Values) > 0 {
-		v := exceptions.Values[0]
+		// Chained exceptions come oldest first: the last is the one raised,
+		// the ones before it what led to it.
+		v := exceptions.Values[len(exceptions.Values)-1]
 		msg = v.Type + ": " + v.Value
 	}
 	if msg == "" {

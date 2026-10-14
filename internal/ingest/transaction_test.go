@@ -126,6 +126,11 @@ func TestErrorFromALogRecord(t *testing.T) {
 	if sum := ExtractEventSummary(Item{Type: "event", Payload: []byte(payload)}); sum.Message != "ConnectionRefusedError: refused" {
 		t.Errorf("summary %+v", sum)
 	}
+	// Of chained exceptions, the one raised: the last, after its cause.
+	payload = `{"exception":{"values":[{"type":"TimeoutError","value":"timed out while closing connection"},{"type":"ConnectionClosedError","value":"keepalive ping timeout"}]}}`
+	if sum := ExtractEventSummary(Item{Type: "event", Payload: []byte(payload)}); sum.Message != "ConnectionClosedError: keepalive ping timeout" {
+		t.Errorf("chained summary %+v", sum)
+	}
 	// sentry-go sends the exceptions as a list, without "values".
 	payload = `{"level":"error","exception":[{"type":"*errors.errorString","value":"boom"}]}`
 	if sum := ExtractEventSummary(Item{Type: "event", Payload: []byte(payload)}); sum.Message != "*errors.errorString: boom" {
