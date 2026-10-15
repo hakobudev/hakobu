@@ -353,14 +353,14 @@ templ volumeNode(project, app string, vol volumeCard, backupsOn bool) {
 			</span>
 			<div class="min-w-0 flex-1">
 				<div class="node-title">{ vol.Name }</div>
-				<div class="node-kind">Volume of { app } · <span class="mono">{ vol.MountPath }</span></div>
+				<div class="node-kind">
+					Volume of { app } · <span class="mono">{ vol.MountPath }</span>
+					if vol.HasSize {
+						<span title="Counted every hour">{ " · " + bytesText(float64(vol.Size)) }</span>
+					}
+				</div>
 			</div>
 		</div>
-		if vol.HasSize {
-			<div class="node-stats">
-				@nodeStat("Size", bytesText(float64(vol.Size)), "Counted every hour", "")
-			</div>
-		}
 		<div class="node-row">
 			if vol.HasLast {
 				if vol.Last.VerifyError != "" {
@@ -431,36 +431,34 @@ templ appNode(v projectView, a appView) {
 				</div>
 			}
 		</a>
-		if a.Domain != "" {
-			<a href={ templ.SafeURL("https://" + a.Domain) } target="_blank" rel="noopener" class="node-item">
-				<span class="meta-item min-w-0">
+		<div class="node-item">
+			if a.Domain != "" {
+				<a href={ templ.SafeURL("https://" + a.Domain) } target="_blank" rel="noopener" class="meta-item min-w-0 node-address">
 					@ic("globe", "icon-sm icon-muted")
 					<span class="truncate">{ a.Domain }</span>
-				</span>
-				@ic("external-link", "icon-sm icon-muted")
-			</a>
-		} else {
-			<div class="node-item" title="It has no public address: other apps of the project reach it">
-				<span class="meta-item min-w-0 muted">
-					@ic("lock", "icon-sm")
-					<span class="truncate">Private, on the server only</span>
-				</span>
-			</div>
-		}
-		<a href={ templ.SafeURL(appURL(a.App) + "/deployments") } class="node-row node-uptime">
-			if a.Domain != "" {
-				<span class="contents" hx-get={ "/uptime?target=app:" + itoa(a.ID) + "&compact=1" } hx-trigger="load" hx-swap="outerHTML"></span>
-			}
-			if d, ok := v.LastDeploy[a.Name]; ok {
-				<span class="meta-item min-w-0 node-deploy" title={ deployLabel(d) }>
-					@deployIcon(d.Status, true)
-					<span class="truncate">{ shortDeployLabel(d) + " ·" }</span>
-					@timeAgo(d.CreatedAt)
-				</span>
+					@ic("external-link", "icon-sm icon-muted")
+				</a>
 			} else {
-				<span class="node-deploy">Not deployed yet</span>
+				<span class="meta-item min-w-0 muted" title="It has no public address: other apps of the project reach it">
+					@ic("lock", "icon-sm")
+					<span class="truncate">Private</span>
+				</span>
 			}
-		</a>
+			<a href={ templ.SafeURL(appURL(a.App) + "/deployments") } class="meta-item node-item-meta node-deploy">
+				if d, ok := v.LastDeploy[a.Name]; ok {
+					<span class="meta-item" title={ deployLabel(d) }>
+						@deployIcon(d.Status, true)
+						{ shortDeployLabel(d) + " ·" }
+						@timeAgo(d.CreatedAt)
+					</span>
+				} else {
+					Not deployed yet
+				}
+			</a>
+		</div>
+		if a.Domain != "" {
+			<span hx-get={ "/uptime?target=app:" + itoa(a.ID) + "&compact=1" } hx-trigger="load" hx-swap="outerHTML"></span>
+		}
 		<span hx-get={ appURL(a.App) + "/problems" } hx-trigger="load" hx-swap="outerHTML"></span>
 		if w, ok := v.Workers[a.Name]; ok {
 			<a href={ templ.SafeURL(appURL(a.App) + "/logs?worker=1") } id={ "wk-" + a.Name } class="node-item" title="The app's worker: same image and links, its own process">
@@ -482,8 +480,8 @@ templ appNode(v projectView, a appView) {
 // nodeStat is a figure on a card, with its last day as a line if given.
 templ nodeStat(label, value, title string, spark template.HTML) {
 	<div class="node-stat" title={ title }>
-		<div class="node-stat-label">{ label }</div>
-		<div class="node-stat-value">{ value }</div>
+		<span class="node-stat-label">{ label }</span>
+		<span class="node-stat-value">{ value }</span>
 		if spark != "" {
 			@templ.Raw(string(spark))
 		}
@@ -604,7 +602,7 @@ templ cacheNode(v projectView, c store.Cache) {
 			</span>
 			<div class="min-w-0 flex-1">
 				<div class="node-title">{ c.Name }</div>
-				<div class="node-kind">Valkey · Redis-compatible</div>
+				<div class="node-kind">Valkey · not backed up</div>
 			</div>
 			if h, ok := v.CacheHealth[c.ID]; ok {
 				@dataStatus(h)
@@ -615,16 +613,9 @@ templ cacheNode(v projectView, c store.Cache) {
 				@nodeStat("Memory", memText(u), "", u.MemSpark)
 				@nodeStat("CPU", cpuPercent(u.CPU), cores(u.CPU)+" now", u.CPUSpark)
 			</div>
-			<div class="node-row">
-				<span>Not backed up</span>
-			</div>
 		} else {
-			<div class="node-row">
-				<span class="meta-item">
-					@ic("memory-stick", "icon-sm")
-					{ fmt.Sprintf("%d MB", c.MemoryMB) }
-				</span>
-				<span>not backed up</span>
+			<div class="node-stats">
+				@nodeStat("Memory limit", fmt.Sprintf("%d MB", c.MemoryMB), "", "")
 			</div>
 		}
 	</a>

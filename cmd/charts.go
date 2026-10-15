@@ -341,9 +341,9 @@ type cardUsage struct {
 	CPUSpark, MemSpark template.HTML
 }
 
-// sparkPoints is how many points a card's sparkline has: half hours of
-// the last day.
-const sparkPoints = 48
+// sparkPoints is how many points a card's sparkline has: quarter hours
+// of the last day.
+const sparkPoints = 96
 
 // loadCardUsage reads target's last day for its card; ok is false with no
 // readings at all.
@@ -376,40 +376,51 @@ func loadCardUsage(s *store.Store, target string) (u cardUsage, ok bool) {
 			cpu[i], mem[i] = math.NaN(), math.NaN()
 		}
 	}
-	u.CPUSpark = sparkline(cpu, 0)
-	u.MemSpark = sparkline(mem, 0) // its trend: how near the limit it is shows in figures
+	u.CPUSpark = sparkline(cpu)
+	u.MemSpark = sparkline(mem) // its trend: how near the limit it is shows in figures
 	return u, true
 }
 
-// sparkline draws values (NaN where there are none) as a small line,
-// scaled to top if it's higher than them all.
-func sparkline(values []float64, top float64) template.HTML {
-	const w, h = 100, 20
+// sparkline draws values (NaN where there are none) as a small area
+// behind a card's figure. It spans their own range, so a trend shows, but
+// never less than a tenth of the highest, so noise doesn't look like one.
+func sparkline(values []float64) template.HTML {
+	const w, h = 200, 40
+	lo, hi := math.Inf(1), math.Inf(-1)
 	for _, v := range values {
 		if !math.IsNaN(v) {
-			top = max(top, v)
+			lo, hi = min(lo, v), max(hi, v)
 		}
 	}
-	if top <= 0 {
-		top = 1
+	if math.IsInf(hi, -1) {
+		return ""
 	}
+	span := max(hi-lo, hi*0.1, 1e-9)
+	mid := (lo + hi) / 2
+	lo, hi = max(0, mid-span*0.65), mid+span*0.65
+	x := func(i int) float64 { return float64(i) / float64(max(len(values)-1, 1)) * w }
+	y := func(v float64) float64 { return h - (v-lo)/(hi-lo)*h }
 	var b strings.Builder
-	fmt.Fprintf(&b, `<svg class="spark" viewBox="0 0 %d %d" preserveAspectRatio="none" aria-hidden="true">`, w, h)
-	var pts []string
+	fmt.Fprintf(&b, `<svg class="node-spark" viewBox="0 0 %d %d" preserveAspectRatio="none" aria-hidden="true">`, w, h)
+	var run []int
 	flush := func() {
-		if len(pts) > 1 {
-			fmt.Fprintf(&b, `<polyline points="%s" vector-effect="non-scaling-stroke"/>`, strings.Join(pts, " "))
+		if len(run) > 1 {
+			var line strings.Builder
+			for _, i := range run {
+				fmt.Fprintf(&line, "%.1f,%.1f ", x(i), y(values[i]))
+			}
+			pts := strings.TrimSpace(line.String())
+			fmt.Fprintf(&b, `<polygon points="%.1f,%d %s %.1f,%d"/>`, x(run[0]), h, pts, x(run[len(run)-1]), h)
+			fmt.Fprintf(&b, `<polyline points="%s" vector-effect="non-scaling-stroke"/>`, pts)
 		}
-		pts = nil
+		run = nil
 	}
 	for i, v := range values {
 		if math.IsNaN(v) {
 			flush()
 			continue
 		}
-		x := float64(i) / float64(max(len(values)-1, 1)) * w
-		y := h - 1 - v/top*(h-2)
-		pts = append(pts, fmt.Sprintf("%.1f,%.1f", x, y))
+		run = append(run, i)
 	}
 	flush()
 	b.WriteString(`</svg>`)

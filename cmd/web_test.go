@@ -52,7 +52,7 @@ func TestPagesRender(t *testing.T) {
 		Storages: storages, Sealed: []string{"P"}, SuggestedDB: "demo", BackupBucket: "hakobu-backups-1",
 		Volumes: map[string][]volumeCard{"web": {{Volume: store.Volume{Name: "data", MountPath: "/data"}}, {Volume: store.Volume{Name: "up"}, HasLast: true, Last: store.VolumeBackup{VerifiedAt: "t"}}}},
 		Calls:   map[string][]string{"api": {"web"}}, Caches: []store.Cache{{ID: 3, Name: "cache", MemoryMB: 256}},
-		Usage: map[string]cardUsage{ops.AppTarget(1): {CPU: 0.03, Mem: 182 << 20, MemLimit: 512 << 20, Now: true, CPUSpark: sparkline([]float64{0.01, math.NaN(), 0.03}, 0), MemSpark: sparkline([]float64{1, 2}, 4)},
+		Usage: map[string]cardUsage{ops.AppTarget(1): {CPU: 0.03, Mem: 182 << 20, MemLimit: 512 << 20, Now: true, CPUSpark: sparkline([]float64{0.01, math.NaN(), 0.03, 0.02}), MemSpark: sparkline([]float64{math.NaN()})},
 			ops.CacheTarget(3): {Mem: 12 << 20, MemLimit: 256 << 20, Now: true}},
 		DBHealth:    map[int64]ops.DataHealth{1: {Answering: true, SizeBytes: 9 << 20, Connections: 4}, 0: {Down: true, Why: "Postgres isn't running (exited)"}},
 		CacheHealth: map[int64]ops.DataHealth{3: {Why: "didn't answer within 20s"}}}

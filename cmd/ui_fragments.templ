@@ -31,22 +31,25 @@ templ usageFragment(v usageView) {
 	</div>
 }
 
-// uptimeStrip is an app card's record from outside: a bar a day for 30
-// days and the share of minutes it answered; nothing without a history.
+// uptimeStrip is an app card's row of its record from outside: a bar a
+// day for 30 days and the share of minutes it answered; nothing without a
+// history.
 templ uptimeStrip(v uptimeView) {
 	if !v.NoHistory && v.Err == "" && len(v.Uptime.Windows) > 2 && v.Uptime.Windows[2].Checks > 0 {
 		{{ w := v.Uptime.Windows[2] }}
-		<div class="uptime-days">
-			for _, d := range v.Uptime.Days {
-				<i class={ templ.KV("is-down", d.Checks > 0 && d.Pct < 100), templ.KV("is-none", d.Checks == 0) } title={ dayTitle(d) }></i>
-			}
+		<div class="node-row node-uptime" title="Answered from outside, day by day">
+			<div class="uptime-days">
+				for _, d := range v.Uptime.Days {
+					<i class={ templ.KV("is-down", d.Checks > 0 && d.Pct < 100), templ.KV("is-none", d.Checks == 0) } title={ dayTitle(d) }></i>
+				}
+			</div>
+			<span class={ "meta-item shrink-0", templ.KV("text-attention", w.Pct < 99) }>
+				if w.Pct < 99 {
+					@ic("triangle-alert", "icon-sm")
+				}
+				{ uptimePct(w.Pct) } · 30 d
+			</span>
 		</div>
-		<span class={ "meta-item", templ.KV("text-attention", w.Pct < 99) }>
-			if w.Pct < 99 {
-				@ic("triangle-alert", "icon-sm")
-			}
-			{ uptimePct(w.Pct) } up · 30 days
-		</span>
 	}
 }
 
