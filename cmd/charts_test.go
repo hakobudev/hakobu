@@ -28,6 +28,12 @@ func TestUsageChart(t *testing.T) {
 	if !strings.Contains(svg, `stroke-dasharray`) {
 		t.Error("no line for the memory limit")
 	}
+	if mem.YTicks[2] == "0 B" {
+		t.Error("memory's scale starts at 0, flattening it")
+	}
+	if !strings.Contains(mem.Points, `"t":[0,60,600]`) || !strings.Contains(mem.Points, `"300 MB (peak 400 MB)"`) {
+		t.Errorf("the pointer reads %s", mem.Points)
+	}
 	if got := usageRows(rows[:1], nil)[0]; got.MemPct != 20 {
 		t.Errorf("memory at %d%% of the limit, want 20", got.MemPct)
 	}

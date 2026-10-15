@@ -404,6 +404,38 @@ function setUpCanvas(canvas) {
   canvas.addEventListener('mouseleave', () => focusNode(canvas, null));
 }
 
+// Usage charts: the time axis in local time, and a readout of the moment
+// under the pointer (data-chart: {"t": [unix…], "v": [[text per series]…]}).
+function setUpChart(el) {
+  const data = JSON.parse(el.dataset.chart || '{"t":[],"v":[]}');
+  const from = +el.dataset.from, to = +el.dataset.to;
+  const long = to - from > 26 * 3600;
+  const clock = new Intl.DateTimeFormat(undefined, {hour: '2-digit', minute: '2-digit'});
+  const day = new Intl.DateTimeFormat(undefined, {month: 'short', day: 'numeric'});
+  const at = new Intl.DateTimeFormat(undefined, long ? {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'} : {hour: '2-digit', minute: '2-digit'});
+  for (const s of el.querySelectorAll('.chart-x [data-ts]')) s.textContent = (long ? day : clock).format(new Date(+s.dataset.ts * 1000));
+  const plot = el.querySelector('.chart-plot'), cursor = el.querySelector('.chart-cursor'), tip = el.querySelector('.chart-tip');
+  if (!data.t.length) return;
+  plot.addEventListener('mousemove', e => {
+    const r = plot.getBoundingClientRect();
+    const t = from + (e.clientX - r.left) / r.width * (to - from);
+    let lo = 0, hi = data.t.length - 1;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (data.t[mid] < t) lo = mid + 1; else hi = mid; }
+    if (lo > 0 && t - data.t[lo - 1] < data.t[lo] - t) lo--;
+    const x = (data.t[lo] - from) / (to - from) * r.width;
+    cursor.style.left = x + 'px';
+    tip.replaceChildren();
+    const b = document.createElement('b');
+    b.textContent = at.format(new Date(data.t[lo] * 1000));
+    tip.append(b);
+    for (const v of data.v[lo]) { const line = document.createElement('div'); line.textContent = v; tip.append(line); }
+    cursor.hidden = tip.hidden = false;
+    const w = tip.offsetWidth;
+    tip.style.left = (x + 10 + w > r.width ? x - 10 - w : x + 10) + 'px';
+  });
+  plot.addEventListener('mouseleave', () => { cursor.hidden = tip.hidden = true; });
+}
+
 // Set up what's in a part of the page, once per element.
 function setUp(root) {
   const each = (sel, fn) => {
@@ -416,6 +448,7 @@ function setUp(root) {
   each('form', syncShowIf);
   each('.subnav[data-spy]', spy);
   each('.canvas', setUpCanvas);
+  each('.chart[data-chart]', setUpChart);
 }
 htmx.onLoad(setUp);
 document.addEventListener('DOMContentLoaded', showSaved);

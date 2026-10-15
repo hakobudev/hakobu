@@ -19,15 +19,42 @@ templ usageFragment(v usageView) {
 		for _, c := range v.Charts {
 			<div>
 				<div class="flex flex-wrap items-baseline justify-between gap-x-3 small">
-					<span class="strong">{ c.Title }</span>
+					<span class="flex items-center gap-3">
+						<span class="strong">{ c.Title }</span>
+						for _, l := range c.Legend {
+							<span class="chart-key"><i style={ "background:" + l.color }></i>{ l.name }</span>
+						}
+					</span>
 					<span class="mono muted">{ c.Now } · { c.Peak }</span>
 				</div>
-				@templ.Raw(string(c.SVG))
+				@usageChartBody(c)
 			</div>
 		}
 		if len(v.Charts) == 0 {
 			<p class="muted">Nothing recorded yet: hakobu records usage every minute.</p>
 		}
+	</div>
+}
+
+// usageChartBody is a chart with its scale on the left, its span's times
+// under it, and what the pointer is over read out.
+templ usageChartBody(c chart) {
+	<div class="chart" data-chart={ c.Points } data-from={ fmt.Sprint(c.From) } data-to={ fmt.Sprint(c.To) }>
+		<div class="chart-y" aria-hidden="true">
+			for _, t := range c.YTicks {
+				<span>{ t }</span>
+			}
+		</div>
+		<div class="chart-plot">
+			@templ.Raw(string(c.SVG))
+			<div class="chart-cursor" hidden></div>
+			<div class="chart-tip" hidden></div>
+		</div>
+		<div class="chart-x" aria-hidden="true">
+			<span data-ts={ fmt.Sprint(c.From) }></span>
+			<span data-ts={ fmt.Sprint((c.From + c.To) / 2) }></span>
+			<span>now</span>
+		</div>
 	</div>
 }
 

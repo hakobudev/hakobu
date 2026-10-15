@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
@@ -36,35 +37,57 @@ type series struct {
 
 // chart is a usage chart with its numbers.
 type chart struct {
-	Title string
-	Now   string // the latest value, with the limit if any
-	Peak  string // the highest over the span
-	SVG   template.HTML
+	Title    string
+	Now      string // the latest value, with the limit if any
+	Peak     string // the highest over the span
+	SVG      template.HTML
+	YTicks   [3]string // the scale's top, middle and bottom
+	From, To int64     // the span, for the time axis
+	Points   string    // JSON for the pointer's readout: {"t":[…],"v":[[…],…]}
+	Legend   []series  // its series by name and color, when there are several
 }
 
+// chartPoints caps how many moments the pointer can read out.
+const chartPoints = 360
+
 // usageChart draws the series over [from, to]; ts are the samples' times
-// and res their spacing, so missing samples leave a gap.
-func usageChart(title string, ts []int64, res, from, to int64, limit float64, format func(float64) string, lines ...series) chart {
-	c := chart{Title: title}
+// and res their spacing, so missing samples leave a gap. A zero-based
+// chart starts at 0; another spans the values' own range, so memory that
+// moves by a few MB shows it. The limit is drawn when it's near enough to
+// show without flattening the rest.
+func usageChart(title string, ts []int64, res, from, to int64, limit float64, zero bool, format func(float64) string, lines ...series) chart {
+	c := chart{Title: title, From: from, To: to}
 	if len(ts) == 0 {
 		return c
 	}
-	top := limit
+	lo, hi := math.Inf(1), 0.0
 	for _, l := range lines {
 		for _, v := range append(slices.Clone(l.avg), l.peak...) {
-			top = max(top, v)
+			lo, hi = min(lo, v), max(hi, v)
 		}
 	}
-	if top <= 0 {
-		top = 1
+	if zero || math.IsInf(lo, 1) {
+		lo = 0
 	}
-	top *= 1.1
+	pad := max((hi-lo)*0.15, hi*0.03)
+	if !zero {
+		lo = max(0, lo-pad)
+	}
+	hi += pad
+	showLimit := limit > 0 && limit <= hi*1.3
+	if showLimit {
+		hi = max(hi, limit*1.05)
+	}
+	if hi <= lo {
+		hi = lo + 1
+	}
+	c.YTicks = [3]string{format(hi), format((lo + hi) / 2), format(lo)}
 	x := func(t int64) float64 { return float64(t-from) / float64(max(to-from, 1)) * chartW }
-	y := func(v float64) float64 { return chartH - v/top*chartH }
+	y := func(v float64) float64 { return chartH - (v-lo)/(hi-lo)*chartH }
 
 	var b strings.Builder
-	fmt.Fprintf(&b, `<svg viewBox="0 0 %d %d" preserveAspectRatio="none" style="display:block;width:100%%;height:7rem" role="img" aria-label="%s">`, chartW, chartH, template.HTMLEscapeString(title))
-	for _, frac := range []float64{0.25, 0.5, 0.75} {
+	fmt.Fprintf(&b, `<svg viewBox="0 0 %d %d" preserveAspectRatio="none" class="chart-svg" role="img" aria-label="%s">`, chartW, chartH, template.HTMLEscapeString(title))
+	for _, frac := range []float64{0, 0.5, 1} {
 		fmt.Fprintf(&b, `<line x1="0" x2="%d" y1="%.1f" y2="%.1f" style="stroke:var(--border);opacity:.6" stroke-width="1" vector-effect="non-scaling-stroke"/>`, chartW, chartH*frac, chartH*frac)
 	}
 	segments := func(values []float64) [][]int { // index runs without gaps
@@ -99,11 +122,15 @@ func usageChart(title string, ts []int64, res, from, to int64, limit float64, fo
 			fmt.Fprintf(&b, `<polyline points="%s" fill="none" style="stroke:%s" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`, p.String(), l.color)
 		}
 	}
-	if limit > 0 {
+	if showLimit {
 		fmt.Fprintf(&b, `<line x1="0" x2="%d" y1="%.1f" y2="%.1f" style="stroke:var(--danger)" stroke-dasharray="4 3" stroke-width="1" vector-effect="non-scaling-stroke"/>`, chartW, y(limit), y(limit))
 	}
 	b.WriteString(`</svg>`)
 	c.SVG = template.HTML(b.String())
+	c.Points = chartReadout(ts, format, lines)
+	if len(lines) > 1 {
+		c.Legend = lines
+	}
 
 	var now, peak []string
 	for _, l := range lines {
@@ -127,6 +154,46 @@ func usageChart(title string, ts []int64, res, from, to int64, limit float64, fo
 	}
 	c.Peak = "peak " + strings.Join(peak, " · ")
 	return c
+}
+
+// chartReadout is what the pointer reads at up to chartPoints moments:
+// each series' value there, with its peak when higher.
+func chartReadout(ts []int64, format func(float64) string, lines []series) string {
+	step := max(1, (len(ts)+chartPoints-1)/chartPoints)
+	type readout struct {
+		T []int64    `json:"t"`
+		V [][]string `json:"v"`
+	}
+	var r readout
+	for i := 0; i < len(ts); i += step {
+		end := min(i+step, len(ts))
+		var vals []string
+		for _, l := range lines {
+			if end > len(l.avg) {
+				continue
+			}
+			var sum, top float64
+			for j := i; j < end; j++ {
+				sum += l.avg[j]
+				top = max(top, l.avg[j])
+				if len(l.peak) == len(l.avg) {
+					top = max(top, l.peak[j])
+				}
+			}
+			v := sum / float64(end-i)
+			text := format(v)
+			if len(lines) > 1 {
+				text = l.name + " " + text
+			}
+			if p := format(top); p != format(v) {
+				text += " (peak " + p + ")"
+			}
+			vals = append(vals, text)
+		}
+		r.T, r.V = append(r.T, ts[i]), append(r.V, vals)
+	}
+	out, _ := json.Marshal(r)
+	return string(out)
 }
 
 func cores(v float64) string { return fmt.Sprintf("%.2f CPU", v) }
@@ -194,14 +261,14 @@ func targetCharts(target string, rows []teldb.Sample, from, to int64) []chart {
 	last := rows[len(rows)-1]
 	title := targetTitle(target)
 	charts := []chart{
-		usageChart(title+" · CPU", ts, res, from, to, last.CpuLimit, cores, series{name: "CPU", color: "var(--chart-1)", avg: cpu, peak: cpuMax}),
-		usageChart(title+" · memory", ts, res, from, to, float64(last.MemLimit), bytesText, series{name: "memory", color: "var(--chart-2)", avg: mem, peak: memMax}),
+		usageChart(title+" · CPU", ts, res, from, to, last.CpuLimit, true, cores, series{name: "CPU", color: "var(--chart-1)", avg: cpu, peak: cpuMax}),
+		usageChart(title+" · memory", ts, res, from, to, float64(last.MemLimit), false, bytesText, series{name: "memory", color: "var(--chart-2)", avg: mem, peak: memMax}),
 	}
 	if target == ops.HostTarget {
-		return append(charts, usageChart(title+" · load", ts, res, from, to, 0, loadText, series{name: "load", color: "var(--chart-3)", avg: load}))
+		return append(charts, usageChart(title+" · load", ts, res, from, to, 0, true, loadText, series{name: "load", color: "var(--chart-3)", avg: load}))
 	}
-	return append(charts, usageChart(title+" · network", ts, res, from, to, 0, rateText,
-		series{name: "in", color: "var(--chart-4)", avg: rx}, series{name: "out", color: "var(--chart-3)", avg: tx}))
+	return append(charts, usageChart(title+" · network", ts, res, from, to, 0, true, rateText,
+		series{name: "in", color: "var(--chart-1)", avg: rx}, series{name: "out", color: "var(--chart-3)", avg: tx}))
 }
 
 // usageRanges are the spans offered, shortest first.
