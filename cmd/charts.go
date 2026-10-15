@@ -45,6 +45,88 @@ type chart struct {
 	From, To int64     // the span, for the time axis
 	Points   string    // JSON for the pointer's readout: {"t":[…],"v":[[…],…]}
 	Legend   []series  // its series by name and color, when there are several
+	Clipped  []float64 // where peaks go over the scale, as % of the width
+}
+
+// bucketed groups the samples into at most n runs of equal length, so a
+// day of minutes draws as a calm line: each run's average, with its
+// highest as the peak shaded above it. A run starts a gap where its
+// samples do.
+func bucketed(ts []int64, res int64, lines []series, n int) ([]int64, int64, []series) {
+	k := (len(ts) + n - 1) / n
+	if k <= 1 {
+		return ts, res, lines
+	}
+	var outTs []int64
+	out := make([]series, len(lines))
+	for i := range lines {
+		out[i] = series{name: lines[i].name, color: lines[i].color}
+	}
+	for start := 0; start < len(ts); {
+		end := min(start+k, len(ts))
+		for j := start + 1; j < end; j++ { // don't bridge a gap
+			if ts[j]-ts[j-1] > 2*res {
+				end = j
+				break
+			}
+		}
+		outTs = append(outTs, ts[start])
+		for i, l := range lines {
+			if end > len(l.avg) {
+				continue
+			}
+			var sum, top float64
+			for j := start; j < end; j++ {
+				sum += l.avg[j]
+				top = max(top, l.avg[j])
+				if len(l.peak) == len(l.avg) {
+					top = max(top, l.peak[j])
+				}
+			}
+			out[i].avg = append(out[i].avg, sum/float64(end-start))
+			out[i].peak = append(out[i].peak, top)
+		}
+		start = end
+	}
+	return outTs, res * int64(k), out
+}
+
+// percentile is the p-th of all the series' averages.
+func percentile(lines []series, p float64) float64 {
+	var all []float64
+	for _, l := range lines {
+		all = append(all, l.avg...)
+	}
+	if len(all) == 0 {
+		return 0
+	}
+	slices.Sort(all)
+	return all[int(p*float64(len(all)-1))]
+}
+
+// clippedAt is where any series goes over top, a mark per percent of the
+// width at most.
+func clippedAt(ts []int64, from, to int64, top float64, lines []series) []float64 {
+	seen := map[int]bool{}
+	var out []float64
+	for _, l := range lines {
+		values := l.avg
+		if len(l.peak) == len(l.avg) {
+			values = l.peak
+		}
+		for i, v := range values {
+			if v <= top || i >= len(ts) {
+				continue
+			}
+			pct := float64(ts[i]-from) / float64(max(to-from, 1)) * 100
+			if !seen[int(pct)] {
+				seen[int(pct)] = true
+				out = append(out, pct)
+			}
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 // chartPoints caps how many moments the pointer can read out.
@@ -60,6 +142,7 @@ func usageChart(title string, ts []int64, res, from, to int64, limit float64, ze
 	if len(ts) == 0 {
 		return c
 	}
+	ts, res, lines = bucketed(ts, res, lines, chartPoints)
 	lo, hi := math.Inf(1), 0.0
 	for _, l := range lines {
 		for _, v := range append(slices.Clone(l.avg), l.peak...) {
@@ -69,11 +152,22 @@ func usageChart(title string, ts []int64, res, from, to int64, limit float64, ze
 	if zero || math.IsInf(lo, 1) {
 		lo = 0
 	}
+	// A spike or two (a deploy, an import) mustn't flatten the rest: a
+	// zero-based scale tops out near its 99th percentile, and what goes
+	// over is cut at the top and marked.
+	clip := 0.0
+	if zero {
+		if p := percentile(lines, 0.99); p > 0 && hi > p*3 {
+			clip, hi = p*1.5, p*1.5
+		}
+	}
 	pad := max((hi-lo)*0.15, hi*0.03)
 	if !zero {
 		lo = max(0, lo-pad)
 	}
-	hi += pad
+	if clip == 0 {
+		hi += pad
+	}
 	showLimit := limit > 0 && limit <= hi*1.3
 	if showLimit {
 		hi = max(hi, limit*1.05)
@@ -83,7 +177,7 @@ func usageChart(title string, ts []int64, res, from, to int64, limit float64, ze
 	}
 	c.YTicks = [3]string{format(hi), format((lo + hi) / 2), format(lo)}
 	x := func(t int64) float64 { return float64(t-from) / float64(max(to-from, 1)) * chartW }
-	y := func(v float64) float64 { return chartH - (v-lo)/(hi-lo)*chartH }
+	y := func(v float64) float64 { return max(0, chartH-(v-lo)/(hi-lo)*chartH) }
 
 	var b strings.Builder
 	fmt.Fprintf(&b, `<svg viewBox="0 0 %d %d" preserveAspectRatio="none" class="chart-svg" role="img" aria-label="%s">`, chartW, chartH, template.HTMLEscapeString(title))
@@ -127,6 +221,9 @@ func usageChart(title string, ts []int64, res, from, to int64, limit float64, ze
 	}
 	b.WriteString(`</svg>`)
 	c.SVG = template.HTML(b.String())
+	if clip > 0 {
+		c.Clipped = clippedAt(ts, from, to, clip, lines)
+	}
 	c.Points = chartReadout(ts, format, lines)
 	if len(lines) > 1 {
 		c.Legend = lines

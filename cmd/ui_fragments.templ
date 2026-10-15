@@ -47,6 +47,9 @@ templ usageChartBody(c chart) {
 		</div>
 		<div class="chart-plot">
 			@templ.Raw(string(c.SVG))
+			for _, x := range c.Clipped {
+				<span class="chart-clip" style={ fmt.Sprintf("left:%.2f%%", x) } title="Over the scale: point at it for its value"></span>
+			}
 			<div class="chart-cursor" hidden></div>
 			<div class="chart-tip" hidden></div>
 		</div>

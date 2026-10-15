@@ -39,6 +39,26 @@ func TestUsageChart(t *testing.T) {
 	}
 }
 
+// Two spikes in a quiet day don't flatten it: the scale tops out near
+// the rest, and the spikes are cut and marked.
+func TestUsageChartClipsSpikes(t *testing.T) {
+	var rows []teldb.Sample
+	for i := range 1440 {
+		cpu := 0.03
+		if i == 1300 || i == 1350 {
+			cpu = 0.87
+		}
+		rows = append(rows, teldb.Sample{Ts: int64(i) * 60, Cpu: cpu, CpuMax: cpu})
+	}
+	c := targetCharts("app:1", rows, 0, 1440*60)[0]
+	if c.YTicks[0] != "0.04 CPU" || len(c.Clipped) != 2 || c.Peak != "peak 0.87 CPU" {
+		t.Errorf("scale %v, clipped at %v, %s", c.YTicks, c.Clipped, c.Peak)
+	}
+	if strings.Contains(string(c.SVG), ",-") {
+		t.Error("a line goes over the top")
+	}
+}
+
 func TestSummarizeUsageForMCP(t *testing.T) {
 	var rows []teldb.Sample
 	for i := range 120 {

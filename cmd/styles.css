@@ -413,6 +413,7 @@
   .chart-plot { @apply relative h-28 cursor-crosshair; }
   .chart-svg { @apply block w-full h-full; }
   .chart-x { color: var(--fg-muted); font-size: 11px; @apply col-start-2 flex justify-between mt-1 tabular-nums; }
+  .chart-clip { border: 4px solid transparent; border-bottom-color: var(--fg-muted); border-top: 0; @apply absolute -top-1.5 -translate-x-1/2 pointer-events-none; }
   .chart-cursor { border-left: 1px solid var(--fg-muted); @apply absolute inset-y-0 pointer-events-none; }
   .chart-tip { background: var(--bg-overlay); border: 1px solid var(--border); box-shadow: var(--shadow); border-radius: var(--radius); font-size: 12px; @apply absolute top-1 z-10 px-2 py-1 pointer-events-none whitespace-nowrap tabular-nums; }
   .chart-tip b { font-weight: 600; @apply block; }
