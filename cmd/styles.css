@@ -317,6 +317,12 @@
   .icon-spin { @apply animate-spin; }
   .logo { width: 18px; height: 18px; color: var(--fg); @apply inline-block shrink-0; }
   .icon-tile .logo { width: 20px; height: 20px; }
+  .page-heading { @apply flex items-center gap-3 min-w-0; }
+  /* Beside a title and its meta line the tile is as tall as both. */
+  .page-heading-meta { @apply gap-4; }
+  .page-heading-meta > .icon-tile { @apply w-[52px] h-[52px]; border-radius: 10px; }
+  .page-heading-meta > .icon-tile .logo { width: 28px; height: 28px; }
+  .page-heading-meta > .icon-tile .icon { width: 24px; height: 24px; }
   .logo-stack { @apply flex shrink-0 self-center; }
   .logo-stack > span { background: var(--bg); border: 1px solid var(--border); border-radius: 9999px; @apply -ml-2 first:ml-0 inline-flex items-center justify-center w-8 h-8; }
   .icon-tile { border: 1px solid var(--border); background: var(--bg-muted); color: var(--fg-muted); border-radius: var(--radius-lg); @apply inline-flex items-center justify-center w-9 h-9 shrink-0; }

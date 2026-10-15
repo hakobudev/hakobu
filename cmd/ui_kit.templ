@@ -89,7 +89,7 @@ templ topbar(crumbs []crumb) {
 
 templ pageHeader(h pageHead) {
 	<div class="page-header">
-		<div class="flex items-start gap-3 min-w-0">
+		<div class={ "page-heading", templ.KV("page-heading-meta", h.Meta != nil) }>
 			if h.Logo != "" || h.Icon != "" {
 				@tile(h.Logo, h.Icon)
 			}

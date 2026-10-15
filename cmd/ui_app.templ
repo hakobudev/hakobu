@@ -142,7 +142,7 @@ templ appStatus(a appView) {
 templ appMeta(a appView) {
 	<span class="meta-item">
 		@ic("github")
-		<a href={ templ.SafeURL("https://github.com/" + a.Repo) } target="_blank" rel="noopener" class="mono">{ a.Repo }</a>
+		<a href={ templ.SafeURL("https://github.com/" + a.Repo) } target="_blank" rel="noopener">{ a.Repo }</a>
 	</span>
 	<span class="meta-item">
 		@ic("box")
