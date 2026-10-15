@@ -414,10 +414,6 @@ func registerUptimeRoutes(handle func(string, http.HandlerFunc), s *store.Store)
 		if err != nil && !errors.Is(err, ops.ErrNoHistory) {
 			v.Err = err.Error()
 		}
-		if r.URL.Query().Get("compact") != "" {
-			renderPage(w, r, uptimeStrip(v))
-			return
-		}
 		renderPage(w, r, uptimeFragment(v))
 	})
 }
@@ -497,107 +493,27 @@ func targetPage(s *store.Store, target string) (name, link string, ok bool) {
 	return "", "", false
 }
 
-// cardUsage is a target's usage on its card: now, and the last day as
-// sparkline points.
+// cardUsage is a target's latest usage, for its card.
 type cardUsage struct {
-	CPU, Mem, MemLimit float64 // now; Mem and MemLimit in bytes
-	Now                bool    // a reading of the last minutes
-	CPUSpark, MemSpark template.HTML
+	Mem, MemLimit float64 // bytes
+	Now           bool    // a reading of the last minutes
 }
 
-// sparkPoints is how many points a card's sparkline has: quarter hours
-// of the last day.
-const sparkPoints = 96
-
-// loadCardUsage reads target's last day for its card; ok is false with no
-// readings at all.
+// loadCardUsage reads target's latest minute; ok is false without one.
 func loadCardUsage(s *store.Store, target string) (u cardUsage, ok bool) {
-	rows, err := ops.UsageOf(s, target, 24*time.Hour)
+	rows, err := ops.UsageOf(s, target, 5*time.Minute)
 	if err != nil || len(rows) == 0 {
 		return u, false
 	}
 	last := rows[len(rows)-1]
 	u.Now = time.Since(time.Unix(last.Ts, 0)) < 3*time.Minute
-	u.CPU, u.Mem, u.MemLimit = last.Cpu, float64(last.Mem), float64(last.MemLimit)
-	from := time.Now().Add(-24 * time.Hour).Unix()
-	step := int64(24*time.Hour/time.Second) / sparkPoints
-	cpu, mem := make([]float64, sparkPoints), make([]float64, sparkPoints)
-	n := make([]int, sparkPoints)
-	for _, r := range rows {
-		i := int((r.Ts - from) / step)
-		if i < 0 || i >= sparkPoints {
-			continue
-		}
-		cpu[i] += r.Cpu
-		mem[i] += float64(r.Mem)
-		n[i]++
-	}
-	for i := range n {
-		if n[i] > 0 {
-			cpu[i] /= float64(n[i])
-			mem[i] /= float64(n[i])
-		} else {
-			cpu[i], mem[i] = math.NaN(), math.NaN()
-		}
-	}
-	u.CPUSpark = sparkline(cpu)
-	u.MemSpark = sparkline(mem) // its trend: how near the limit it is shows in figures
+	u.Mem, u.MemLimit = float64(last.Mem), float64(last.MemLimit)
 	return u, true
 }
 
-// sparkline draws values (NaN where there are none) as a small area
-// behind a card's figure. It spans their own range, so a trend shows, but
-// never less than a tenth of the highest, so noise doesn't look like one.
-func sparkline(values []float64) template.HTML {
-	const w, h = 200, 40
-	lo, hi := math.Inf(1), math.Inf(-1)
-	for _, v := range values {
-		if !math.IsNaN(v) {
-			lo, hi = min(lo, v), max(hi, v)
-		}
-	}
-	if math.IsInf(hi, -1) {
-		return ""
-	}
-	span := max(hi-lo, hi*0.1, 1e-9)
-	mid := (lo + hi) / 2
-	lo, hi = max(0, mid-span*0.65), mid+span*0.65
-	x := func(i int) float64 { return float64(i) / float64(max(len(values)-1, 1)) * w }
-	y := func(v float64) float64 { return h - (v-lo)/(hi-lo)*h }
-	var b strings.Builder
-	fmt.Fprintf(&b, `<svg class="node-spark" viewBox="0 0 %d %d" preserveAspectRatio="none" aria-hidden="true">`, w, h)
-	var run []int
-	flush := func() {
-		if len(run) > 1 {
-			var line strings.Builder
-			for _, i := range run {
-				fmt.Fprintf(&line, "%.1f,%.1f ", x(i), y(values[i]))
-			}
-			pts := strings.TrimSpace(line.String())
-			fmt.Fprintf(&b, `<polygon points="%.1f,%d %s %.1f,%d"/>`, x(run[0]), h, pts, x(run[len(run)-1]), h)
-			fmt.Fprintf(&b, `<polyline points="%s" vector-effect="non-scaling-stroke"/>`, pts)
-		}
-		run = nil
-	}
-	for i, v := range values {
-		if math.IsNaN(v) {
-			flush()
-			continue
-		}
-		run = append(run, i)
-	}
-	flush()
-	b.WriteString(`</svg>`)
-	return template.HTML(b.String())
-}
-
-// cpuPercent is CPU use as a share of one CPU.
-func cpuPercent(v float64) string {
-	if v > 0 && v < 0.01 {
-		return "<1%"
-	}
-	return fmt.Sprintf("%.0f%%", v*100)
-}
+// memNearLimit reports whether memory is over 80% of its limit: a card
+// says so.
+func memNearLimit(u cardUsage) bool { return u.MemLimit > 0 && u.Mem >= 0.8*u.MemLimit }
 
 // memText is memory use, with its limit when there is one.
 func memText(u cardUsage) string {

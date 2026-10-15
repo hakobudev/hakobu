@@ -12,16 +12,19 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"math"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/hakobudev/hakobu/internal/config"
+	"github.com/hakobudev/hakobu/internal/node"
 	"github.com/hakobudev/hakobu/internal/ops"
 	"github.com/hakobudev/hakobu/internal/secret"
 	"github.com/hakobudev/hakobu/internal/store"
@@ -95,7 +98,18 @@ func TestShowcase(t *testing.T) {
 
 	// A day of usage, minute by minute: a daily wave with some noise.
 	now := time.Now().Truncate(time.Minute)
-	for name, base := range map[string]float64{"web": 0.08, "api": 0.22, "admin": 0.03} {
+	targets := map[string]float64{"web": 0.08, "api": 0.22, "admin": 0.03}
+	for m := 0; m < 24*60; m++ { // the cache: a little CPU, memory filling slowly
+		ts := now.Add(-time.Duration(m) * time.Minute).Unix()
+		x := float64(ts)
+		cpu := 0.01 * (1 + 0.5*math.Sin(x/86400*2*math.Pi) + 0.3*math.Sin(x/900))
+		mem := int64((14 + 6*float64(24*60-m)/(24*60) + 0.6*math.Sin(x/2000)) * (1 << 20))
+		must(s.Tel.PutSample(ctx, teldb.PutSampleParams{
+			Target: ops.CacheTarget(cache), Res: 60, Slot: ts / 60 % (48 * 60), Ts: ts,
+			Cpu: cpu, CpuMax: cpu * 1.4, Mem: mem, MemMax: mem, MemLimit: 256 << 20,
+		}))
+	}
+	for name, base := range targets {
 		for m := 0; m < 24*60; m++ {
 			ts := now.Add(-time.Duration(m) * time.Minute).Unix()
 			x := float64(ts)
@@ -120,7 +134,38 @@ func TestShowcase(t *testing.T) {
 		names = append(names, "/"+store.AppKey(a)+"-blue", "/"+store.AppKey(a)+"-worker")
 	}
 	names = append(names, "/cache-"+itoa(cache))
+	// Postgres and the cache answer their checks: exec runs psql (each
+	// database's size and connections) or valkey-cli (PONG).
+	dbAnswer := fmt.Sprintf("%s|%d|6\n%s|%d|2\n", store.Database{ID: mainDB}.Key(), int64(48<<20), store.Database{ID: analytics}.Key(), int64(212<<20))
+	var execs sync.Map // ID → its output
 	go http.Serve(l, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch p := r.URL.Path; {
+		case strings.HasSuffix(p, "/exec") && strings.Contains(p, "/containers/"):
+			var body struct{ Cmd []string }
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			out := "PONG\n"
+			if len(body.Cmd) > 0 && body.Cmd[0] == "psql" {
+				out = dbAnswer
+			}
+			id := fmt.Sprint(time.Now().UnixNano())
+			execs.Store(id, out)
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]string{"Id": id})
+			return
+		case strings.Contains(p, "/exec/") && strings.HasSuffix(p, "/start"):
+			id := strings.TrimSuffix(p[strings.Index(p, "/exec/")+len("/exec/"):], "/start")
+			out, _ := execs.Load(id)
+			text, _ := out.(string)
+			header := []byte{1, 0, 0, 0, byte(len(text) >> 24), byte(len(text) >> 16), byte(len(text) >> 8), byte(len(text))}
+			_, _ = w.Write(append(header, text...))
+			return
+		case strings.Contains(p, "/exec/") && strings.HasSuffix(p, "/json"):
+			_ = json.NewEncoder(w).Encode(map[string]int{"ExitCode": 0})
+			return
+		case strings.HasSuffix(p, "/system/df"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"Volumes": []map[string]any{{"Name": node.Volume(store.AppKey(apps["api"]), "data"), "UsageData": map[string]int64{"Size": 1288 << 20}}}})
+			return
+		}
 		_, path, _ := strings.Cut(r.URL.Path, "/containers")
 		path = "/containers" + path
 		switch {
@@ -148,6 +193,8 @@ func TestShowcase(t *testing.T) {
 	start := now.Truncate(24*time.Hour).AddDate(0, 0, -14).Add(3*time.Hour + 12*time.Minute)
 	up.Outages = []ops.Outage{{Start: start, End: start.Add(19 * time.Minute), Status: 502}}
 
+	go ops.WatchData(s)
+
 	mux := http.NewServeMux()
 	registerWebRoutes(mux, s)
 	h := panelHandler(mux)
@@ -156,10 +203,6 @@ func TestShowcase(t *testing.T) {
 		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: "dev"})
 		if r.URL.Path == "/uptime" {
 			v := uptimeView{Uptime: up}
-			if r.URL.Query().Get("compact") != "" {
-				renderPage(w, r, uptimeStrip(v))
-				return
-			}
 			renderPage(w, r, uptimeFragment(v))
 			return
 		}

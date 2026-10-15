@@ -2,8 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"html/template"
-	"strings"
 
 	"github.com/hakobudev/hakobu/internal/ops"
 	"github.com/hakobudev/hakobu/internal/store"
@@ -172,23 +170,16 @@ func builder(a appView) string {
 	return "Railpack"
 }
 
-// appKind is what the app's card says under its name: its framework (or
-// language) and builder; its address, or that it has none, a row of its own.
-func appKind(a appView) string {
-	kind := builder(a)
-	if parts := strings.Split(a.Stack, " · "); a.Stack != "" {
-		kind = strings.TrimSpace(parts[len(parts)-1]) + " · " + kind
-	}
-	return kind
+// appRunning reports whether an app is simply running: its card then
+// shows a mark and a figure, not its state.
+func appRunning(a appView) bool {
+	return a.Status == "running" && !a.Deploying
 }
 
-// shortDeployLabel is the last deploy beside the card's uptime: how it was
-// started, unless it failed or still runs.
-func shortDeployLabel(d store.DeployLog) string {
-	if d.Status == "success" {
-		return d.Trigger
-	}
-	return deployLabel(d)
+// appBad reports whether an app's card is outlined: it isn't running when
+// it should.
+func appBad(a appView) bool {
+	return !a.Deploying && a.App.Stopped == 0 && a.Status != "running" && a.Status != "unknown"
 }
 
 func storageKind(st store.Storage) string {
@@ -353,61 +344,48 @@ templ volumeNode(project, app string, vol volumeCard, backupsOn bool) {
 			</span>
 			<div class="min-w-0 flex-1">
 				<div class="node-title">{ vol.Name }</div>
-				<div class="node-kind">
-					Volume of { app } · <span class="mono">{ vol.MountPath }</span>
-					if vol.HasSize {
-						<span title="Counted every hour">{ " · " + bytesText(float64(vol.Size)) }</span>
-					}
-				</div>
+				<div class="node-kind">Volume of { app } · <span class="mono">{ vol.MountPath }</span></div>
 			</div>
-		</div>
-		<div class="node-row">
-			if vol.HasLast {
-				if vol.Last.VerifyError != "" {
-					<span class="meta-item text-danger">
-						@ic("circle-x", "icon-sm")
-						Last backup unreadable
-					</span>
-				} else if vol.Last.VerifiedAt != "" {
-					<span class="meta-item">
-						@ic("circle-check", "icon-sm text-success")
-						Backup whole
-					</span>
-				} else {
-					<span>Backed up, not checked yet</span>
-				}
-				<span class="tabular shrink-0">
-					@timeAgo(vol.Last.CreatedAt)
-				</span>
-			} else if backupsOn {
-				<span>No backup yet</span>
-			} else {
-				<span class="meta-item">
-					@ic("triangle-alert", "icon-sm text-attention")
-					Backups are off
-				</span>
+			if vol.HasSize {
+				<span class="node-meta" title="Counted every hour">{ bytesText(float64(vol.Size)) }</span>
 			}
 		</div>
+		if vol.HasLast && vol.Last.VerifyError != "" {
+			@nodeAlert("danger", "Last backup unreadable", vol.Last.CreatedAt)
+		} else if !backupsOn {
+			@nodeAlert("attention", "Backups are off", "")
+		}
 	</a>
 }
 
+// The project's cards are a map: a line each, a mark when all is well
+// and one figure; a card says more only when something needs looking at.
 templ appNode(v projectView, a appView) {
-	<div id={ "app-" + a.Name } class="node" data-links={ v.appLinksOf(a) } data-calls={ v.callsOf(a.Name) }>
+	<div id={ "app-" + a.Name } class={ "node", templ.KV("node-bad", appBad(a)) } data-links={ v.appLinksOf(a) } data-calls={ v.callsOf(a.Name) }>
 		<a href={ templ.SafeURL(appURL(a.App)) } class="node-link">
 			<div class="node-head">
 				@tile(appLogo(a.App), appIcon(a))
 				<div class="min-w-0 flex-1">
-					<div class="node-title">{ a.Name }</div>
-					<div class="node-kind">{ appKind(a) }</div>
+					<div class="node-title">
+						{ a.Name }
+						if appRunning(a) {
+							@okMark()
+						}
+					</div>
+					<div class="node-kind">
+						if a.Domain != "" {
+							{ a.Domain }
+						} else {
+							private
+						}
+					</div>
 				</div>
-				@nodeStatus(a)
+				if !appRunning(a) {
+					@nodeStatus(a)
+				} else if u, ok := v.Usage[ops.AppTarget(a.ID)]; ok && u.Now {
+					@memMeta(u)
+				}
 			</div>
-			if u, ok := v.Usage[ops.AppTarget(a.ID)]; ok && u.Now {
-				<div class="node-stats">
-					@nodeStat("CPU", cpuPercent(u.CPU), cores(u.CPU)+" now", u.CPUSpark)
-					@nodeStat("Memory", memText(u), "", u.MemSpark)
-				</div>
-			}
 			if a.LinkedDB != "" || a.LinkedStorage != "" || a.LinkedCache != "" {
 				<div class="node-chips">
 					if a.LinkedDB != "" {
@@ -431,33 +409,14 @@ templ appNode(v projectView, a appView) {
 				</div>
 			}
 		</a>
-		<div class="node-item">
-			if a.Domain != "" {
-				<a href={ templ.SafeURL("https://" + a.Domain) } target="_blank" rel="noopener" class="meta-item min-w-0 node-address">
-					@ic("globe", "icon-sm icon-muted")
-					<span class="truncate">{ a.Domain }</span>
-					@ic("external-link", "icon-sm icon-muted")
-				</a>
-			} else {
-				<span class="meta-item min-w-0 muted" title="It has no public address: other apps of the project reach it">
-					@ic("lock", "icon-sm")
-					<span class="truncate">Private</span>
+		if d, ok := v.LastDeploy[a.Name]; ok && d.Status == "failed" {
+			<a href={ templ.SafeURL(appURL(a.App) + "/deployments") } class="node-alert node-alert-danger">
+				<span class="meta-item min-w-0">
+					@ic("circle-x", "icon-sm")
+					<span class="truncate">{ deployLabel(d) }</span>
 				</span>
-			}
-			<a href={ templ.SafeURL(appURL(a.App) + "/deployments") } class="meta-item node-item-meta node-deploy">
-				if d, ok := v.LastDeploy[a.Name]; ok {
-					<span class="meta-item" title={ deployLabel(d) }>
-						@deployIcon(d.Status, true)
-						{ shortDeployLabel(d) + " ·" }
-						@timeAgo(d.CreatedAt)
-					</span>
-				} else {
-					Not deployed yet
-				}
+				@timeAgo(d.CreatedAt)
 			</a>
-		</div>
-		if a.Domain != "" {
-			<span hx-get={ "/uptime?target=app:" + itoa(a.ID) + "&compact=1" } hx-trigger="load" hx-swap="outerHTML"></span>
 		}
 		<span hx-get={ appURL(a.App) + "/problems" } hx-trigger="load" hx-swap="outerHTML"></span>
 		if w, ok := v.Workers[a.Name]; ok {
@@ -477,25 +436,49 @@ templ appNode(v projectView, a appView) {
 	</div>
 }
 
-// nodeStat is a figure on a card, with its last day as a line if given.
-templ nodeStat(label, value, title string, spark template.HTML) {
-	<div class="node-stat" title={ title }>
-		<span class="node-stat-label">{ label }</span>
-		<span class="node-stat-value">{ value }</span>
-		if spark != "" {
-			@templ.Raw(string(spark))
+// okMark is a card's sign that it's running and answering.
+templ okMark() {
+	<span class="inline-flex" title="Running">
+		@ic("circle-check", "icon-sm text-success")
+	</span>
+}
+
+// memMeta is an app's or cache's memory on its card, flagged near its
+// limit.
+templ memMeta(u cardUsage) {
+	if memNearLimit(u) {
+		<span class="node-meta node-meta-warn" title="Near its memory limit: at the limit it's killed">
+			@ic("triangle-alert", "icon-sm")
+			{ memText(u) }
+		</span>
+	} else {
+		<span class="node-meta" title="Memory in use">{ bytesText(u.Mem) }</span>
+	}
+}
+
+// nodeAlert is a card's line about what needs looking at: tone "danger"
+// or "attention", with when if known.
+templ nodeAlert(tone, text, when string) {
+	<div class={ "node-alert", "node-alert-" + tone }>
+		<span class="meta-item min-w-0">
+			if tone == "danger" {
+				@ic("circle-x", "icon-sm")
+			} else {
+				@ic("triangle-alert", "icon-sm")
+			}
+			<span class="truncate">{ text }</span>
+		</span>
+		if when != "" {
+			@timeAgo(when)
 		}
 	</div>
 }
 
-// dataStatus is a database's or cache's latest check, in words and a
-// shape.
+// dataStatus is a database's or cache's check when it fails, in words
+// and a shape.
 templ dataStatus(h ops.DataHealth) {
 	<span class="node-status" title={ h.Why }>
-		if h.Answering {
-			@ic("circle-check", "icon-sm text-success")
-			Running
-		} else if h.Down {
+		if h.Down {
 			@ic("circle-x", "icon-sm text-danger")
 			<span class="text-danger">Not answering</span>
 		} else {
@@ -521,7 +504,8 @@ templ statusIcon(status string) {
 	</span>
 }
 
-// nodeStatus is an app card's state in words and a shape, not only a color.
+// nodeStatus is an app card's state when it isn't simply running, in
+// words and a shape, not only a color.
 templ nodeStatus(a appView) {
 	<span class="node-status" title={ a.Status }>
 		if a.Deploying {
@@ -530,9 +514,6 @@ templ nodeStatus(a appView) {
 		} else if a.App.Stopped == 1 && a.Status != "running" {
 			@ic("circle-pause", "icon-sm")
 			Stopped
-		} else if a.Status == "running" {
-			@ic("circle-check", "icon-sm text-success")
-			Running
 		} else if a.Status == "restarting" {
 			@ic("refresh-cw", "icon-sm text-attention")
 			Restarting
@@ -547,76 +528,59 @@ templ nodeStatus(a appView) {
 }
 
 templ databaseNode(project string, d store.Database, last map[string]store.Backup, backupsOn bool, health map[int64]ops.DataHealth) {
-	<a href={ templ.SafeURL(dbURL(project, d.Name)) } id={ "db-" + d.Name } class="node">
+	{{ h, checked := health[d.ID] }}
+	<a href={ templ.SafeURL(dbURL(project, d.Name)) } id={ "db-" + d.Name } class={ "node", templ.KV("node-bad", checked && h.Down) }>
 		<div class="node-head">
 			@tile("postgresql", "database")
 			<div class="min-w-0 flex-1">
-				<div class="node-title">{ d.Name }</div>
+				<div class="node-title">
+					{ d.Name }
+					if checked && h.Answering {
+						@okMark()
+					}
+				</div>
 				<div class="node-kind">PostgreSQL</div>
 			</div>
-			if h, ok := health[d.ID]; ok {
+			if checked && !h.Answering {
 				@dataStatus(h)
+			} else if checked {
+				<span class="node-meta" title={ plural(int(h.Connections), "connection", "connections") + " open now" }>{ bytesText(float64(h.SizeBytes)) }</span>
 			}
 		</div>
-		if h, ok := health[d.ID]; ok && h.Answering {
-			<div class="node-stats">
-				@nodeStat("Size", bytesText(float64(h.SizeBytes)), "", "")
-				@nodeStat("Connections", itoa(h.Connections), "Open to it now", "")
-			</div>
+		if checked && h.Down {
+			@nodeAlert("danger", h.Why, "")
+		} else if b, ok := last[d.Name]; ok && b.VerifyError != "" {
+			@nodeAlert("danger", "Last backup doesn't restore", b.CreatedAt)
+		} else if !backupsOn {
+			@nodeAlert("attention", "Backups are off", "")
 		}
-		<div class="node-row">
-			if b, ok := last[d.Name]; ok {
-				if b.VerifyError != "" {
-					<span class="meta-item text-danger">
-						@ic("circle-x", "icon-sm")
-						Last backup doesn't restore
-					</span>
-				} else if b.VerifiedAt != "" {
-					<span class="meta-item">
-						@ic("circle-check", "icon-sm text-success")
-						Backup restores
-					</span>
-				} else {
-					<span>Backed up, not checked yet</span>
-				}
-				<span class="tabular shrink-0">
-					@timeAgo(b.CreatedAt)
-				</span>
-			} else if backupsOn {
-				<span>No backup yet</span>
-			} else {
-				<span class="meta-item">
-					@ic("triangle-alert", "icon-sm text-attention")
-					Backups are off
-				</span>
-			}
-		</div>
 	</a>
 }
 
 templ cacheNode(v projectView, c store.Cache) {
-	<a href={ templ.SafeURL(cacheURL(v.Project.Name, c.Name)) } id={ "cache-" + c.Name } class="node">
+	{{ h, checked := v.CacheHealth[c.ID] }}
+	<a href={ templ.SafeURL(cacheURL(v.Project.Name, c.Name)) } id={ "cache-" + c.Name } class={ "node", templ.KV("node-bad", checked && h.Down) }>
 		<div class="node-head">
 			<span class="icon-tile">
 				@ic("zap")
 			</span>
 			<div class="min-w-0 flex-1">
-				<div class="node-title">{ c.Name }</div>
-				<div class="node-kind">Valkey · not backed up</div>
+				<div class="node-title">
+					{ c.Name }
+					if checked && h.Answering {
+						@okMark()
+					}
+				</div>
+				<div class="node-kind">Valkey</div>
 			</div>
-			if h, ok := v.CacheHealth[c.ID]; ok {
+			if checked && !h.Answering {
 				@dataStatus(h)
+			} else if u, ok := v.Usage[ops.CacheTarget(c.ID)]; ok && u.Now {
+				@memMeta(u)
 			}
 		</div>
-		if u, ok := v.Usage[ops.CacheTarget(c.ID)]; ok && u.Now {
-			<div class="node-stats">
-				@nodeStat("Memory", memText(u), "", u.MemSpark)
-				@nodeStat("CPU", cpuPercent(u.CPU), cores(u.CPU)+" now", u.CPUSpark)
-			</div>
-		} else {
-			<div class="node-stats">
-				@nodeStat("Memory limit", fmt.Sprintf("%d MB", c.MemoryMB), "", "")
-			</div>
+		if checked && h.Down {
+			@nodeAlert("danger", h.Why, "")
 		}
 	</a>
 }
@@ -630,19 +594,9 @@ templ storageNode(v projectView, st store.Storage) {
 				<div class="node-kind">{ storageKind(st) }</div>
 			</div>
 		</div>
-		<div class="node-row">
-			if st.AccessKeyID == "" {
-				<span class="meta-item">
-					@ic("triangle-alert", "icon-sm text-attention")
-					Needs keys before apps can use it
-				</span>
-			} else {
-				<span class="meta-item">
-					@ic("key-round", "icon-sm")
-					Keys set
-				</span>
-			}
-		</div>
+		if st.AccessKeyID == "" {
+			@nodeAlert("attention", "Needs keys before apps can use it", "")
+		}
 	</a>
 }
 
