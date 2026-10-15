@@ -1,0 +1,132 @@
+package ops
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/hakobudev/hakobu/internal/node"
+	"github.com/hakobudev/hakobu/internal/node/nodetest"
+	"github.com/hakobudev/hakobu/internal/store"
+)
+
+// dataStore is notifyStore with alerts on and the panel's server a fake
+// node, reached over the link's protocol.
+func dataStore(t *testing.T) (*store.Store, *nodetest.Fake, *fakeEmail) {
+	t.Helper()
+	mail := newFakeEmail(t)
+	s := notifyStore(t)
+	if err := SetupNotifications(s, "me@example.org", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	f := nodetest.New()
+	old := local
+	local = nodetest.Linked(t, f)
+	t.Cleanup(func() {
+		local = old
+		forgetData(nil, nil)
+		dataHealth.Lock()
+		dataHealth.volumes = nil
+		dataHealth.Unlock()
+	})
+	return s, f, mail
+}
+
+func TestDatabaseDownAndBack(t *testing.T) {
+	s, f, mail := dataStore(t)
+	web := seedApp(t, s, "shop", "web")
+	id, err := s.CreateDatabase(ctx(), store.CreateDatabaseParams{ProjectID: web.ProjectID, Name: "main", Password: "pw"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.DBs[store.Database{ID: id}.Key()] = "twelve bytes"
+
+	checkData(s)
+	h, ok := DatabaseHealth(id)
+	if !ok || !h.Answering || h.SizeBytes != 12 {
+		t.Fatalf("health %+v (%v), want answering at 12 bytes", h, ok)
+	}
+
+	f.Postgres = "isn't running (exited)"
+	for range healthFailures - 1 {
+		checkData(s)
+	}
+	if h, _ := DatabaseHealth(id); h.Answering || h.Down {
+		t.Errorf("down after %d checks: %+v", healthFailures-1, h)
+	}
+	checkData(s)
+	if h, _ := DatabaseHealth(id); !h.Down || !strings.Contains(h.Why, "Postgres isn't running") {
+		t.Errorf("health %+v, want down with Postgres's cause", h)
+	}
+	checkData(s) // mailed once
+	f.Postgres = ""
+	checkData(s)
+	if got, want := strings.Join(mail.sent(), "|"), "Database main: not answering|Database main: answering again"; got != want {
+		t.Errorf("sent %q, want %q", got, want)
+	}
+
+	delete(f.DBs, store.Database{ID: id}.Key())
+	checkData(s)
+	if h, _ := DatabaseHealth(id); h.Answering || h.Why != "is missing from Postgres" {
+		t.Errorf("health %+v of a database Postgres lost", h)
+	}
+}
+
+func TestCacheDown(t *testing.T) {
+	s, f, mail := dataStore(t)
+	web := seedApp(t, s, "shop", "web")
+	id, err := CreateCache(s, web.ProjectID, "cache")
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := store.Cache{ID: id}.Key()
+	checkData(s)
+	if h, ok := CacheHealth(id); !ok || !h.Answering {
+		t.Fatalf("health %+v (%v), want answering", h, ok)
+	}
+	f.Containers[key] = "exited"
+	for range healthFailures {
+		checkData(s)
+	}
+	if h, _ := CacheHealth(id); !h.Down || h.Why != "isn't running (exited)" {
+		t.Errorf("health %+v, want down", h)
+	}
+	if got := mail.sent(); len(got) != 1 || got[0] != "Cache cache: not answering" {
+		t.Errorf("sent %q", got)
+	}
+}
+
+func TestServerAwaySaysNothing(t *testing.T) {
+	s, f, mail := dataStore(t)
+	web := seedApp(t, s, "shop", "web")
+	id, err := s.CreateDatabase(ctx(), store.CreateDatabaseParams{ProjectID: web.ProjectID, Name: "main", Password: "pw"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Fail("DataStatus", node.ErrUnreachable)
+	for range healthFailures + 1 {
+		checkData(s)
+	}
+	if _, ok := DatabaseHealth(id); ok {
+		t.Error("a check recorded while the server was away")
+	}
+	if got := mail.sent(); len(got) != 0 {
+		t.Errorf("sent %q about a server that's away", got)
+	}
+}
+
+func TestVolumeSizes(t *testing.T) {
+	s, f, _ := dataStore(t)
+	web := seedApp(t, s, "shop", "web")
+	if err := AddVolume(s, web.ID, "data", "/app/data"); err != nil {
+		t.Fatal(err)
+	}
+	f.Volumes[node.Volume(web.Key(), "data")] = "1234"
+	f.Volumes[node.Volume("app-99", "data")] = "not ours"
+	countVolumes(s)
+	if n, ok := VolumeSize(web.ID, "data"); !ok || n != 4 {
+		t.Errorf("size %d (%v), want 4", n, ok)
+	}
+	if _, ok := VolumeSize(99, "data"); ok {
+		t.Error("counted a volume of no app")
+	}
+}

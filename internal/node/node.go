@@ -73,6 +73,10 @@ type Node interface {
 	EnsureCache(ctx context.Context, c CacheSpec) error
 	DropCache(ctx context.Context, name string) error
 
+	// How the databases and caches answer, and their sizes (status.go).
+	DataStatus(ctx context.Context, databases []string, caches []CacheProbe) (DataStatus, error)
+	VolumeSizes(ctx context.Context) (map[string]int64, error)
+
 	// Backups, straight between the node and R2 (backups.go).
 	BackupDatabase(ctx context.Context, d DBSpec, up Upload) (Uploaded, error)
 	RestoreDatabase(ctx context.Context, d DBSpec, dl Download) error

@@ -116,7 +116,7 @@ func reqStorage(r *http.Request) store.Storage { return *requestResolved(r).stor
 // reqCache is the cache the request's path names ({p} and {cache}).
 func reqCache(r *http.Request) store.Cache { return *requestResolved(r).cache }
 
-// checkTarget lets a user see the charts of their apps and servers (and
+// checkTarget lets a user see the charts of their apps, caches and servers (and
 // hakobu's services on them), and of what the panel's server shares with
 // everyone who deploys on it; a panel-only panel's server is the admin's,
 // as is the panel's own uptime.
@@ -130,6 +130,16 @@ func checkTarget(ctx context.Context, s *store.Store, u store.User, target strin
 	case kind == "app" || kind == "worker":
 		id, _ := strconv.ParseInt(rest, 10, 64)
 		if a, err := s.GetAppByID(ctx, id); err != nil || a.UserID != u.ID {
+			return errNotFound
+		}
+		return nil
+	case kind == "cache":
+		id, _ := strconv.ParseInt(rest, 10, 64)
+		c, err := s.GetCacheByID(ctx, id)
+		if err != nil {
+			return errNotFound
+		}
+		if p, err := s.GetProjectByID(ctx, c.ProjectID); err != nil || p.UserID != u.ID {
 			return errNotFound
 		}
 		return nil

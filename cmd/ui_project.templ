@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"fmt"
+	"html/template"
 	"strings"
 
+	"github.com/hakobudev/hakobu/internal/ops"
 	"github.com/hakobudev/hakobu/internal/store"
 )
 
@@ -29,6 +31,9 @@ type projectView struct {
 	R2URL            string // where it's turned on
 	BackupBucket     string
 	Volumes          map[string][]volumeCard // by app
+	Usage            map[string]cardUsage    // the last day's, by target (app:<id>, cache:<id>)
+	DBHealth         map[int64]ops.DataHealth // the latest check, by database ID
+	CacheHealth      map[int64]ops.DataHealth // the latest check, by cache ID
 	Calls            map[string][]string     // app → apps whose address its variables name
 	Client           string   // the client whose Cloudflare account the project is in, "" for yours
 	Clients          []string // every client, to move the project to
@@ -41,6 +46,8 @@ type volumeCard struct {
 	store.Volume
 	Last    store.VolumeBackup
 	HasLast bool
+	Size    int64 // bytes, at the last hourly count
+	HasSize bool
 }
 
 
@@ -317,7 +324,7 @@ templ projectCanvas(v projectView) {
 			<div class="canvas-col">
 				<div class="canvas-col-title"><span>Data</span></div>
 				for _, d := range v.Databases {
-					@databaseNode(v.Project.Name, d, v.LastBackup, v.BackupBucket != "")
+					@databaseNode(v.Project.Name, d, v.LastBackup, v.BackupBucket != "", v.DBHealth)
 				}
 				for _, a := range v.Apps {
 					for _, vol := range v.Volumes[a.Name] {
@@ -325,7 +332,7 @@ templ projectCanvas(v projectView) {
 					}
 				}
 				for _, c := range v.Caches {
-					@cacheNode(v.Project.Name, c)
+					@cacheNode(v, c)
 				}
 				for _, st := range v.Storages {
 					@storageNode(v, st)
@@ -349,6 +356,11 @@ templ volumeNode(project, app string, vol volumeCard, backupsOn bool) {
 				<div class="node-kind">Volume of { app } · <span class="mono">{ vol.MountPath }</span></div>
 			</div>
 		</div>
+		if vol.HasSize {
+			<div class="node-stats">
+				@nodeStat("Size", bytesText(float64(vol.Size)), "Counted every hour", "")
+			</div>
+		}
 		<div class="node-row">
 			if vol.HasLast {
 				if vol.Last.VerifyError != "" {
@@ -390,6 +402,12 @@ templ appNode(v projectView, a appView) {
 				</div>
 				@nodeStatus(a)
 			</div>
+			if u, ok := v.Usage[ops.AppTarget(a.ID)]; ok && u.Now {
+				<div class="node-stats">
+					@nodeStat("CPU", cpuPercent(u.CPU), cores(u.CPU)+" now", u.CPUSpark)
+					@nodeStat("Memory", memText(u), "", u.MemSpark)
+				</div>
+			}
 			if a.LinkedDB != "" || a.LinkedStorage != "" || a.LinkedCache != "" {
 				<div class="node-chips">
 					if a.LinkedDB != "" {
@@ -461,6 +479,34 @@ templ appNode(v projectView, a appView) {
 	</div>
 }
 
+// nodeStat is a figure on a card, with its last day as a line if given.
+templ nodeStat(label, value, title string, spark template.HTML) {
+	<div class="node-stat" title={ title }>
+		<div class="node-stat-label">{ label }</div>
+		<div class="node-stat-value">{ value }</div>
+		if spark != "" {
+			@templ.Raw(string(spark))
+		}
+	</div>
+}
+
+// dataStatus is a database's or cache's latest check, in words and a
+// shape.
+templ dataStatus(h ops.DataHealth) {
+	<span class="node-status" title={ h.Why }>
+		if h.Answering {
+			@ic("circle-check", "icon-sm text-success")
+			Running
+		} else if h.Down {
+			@ic("circle-x", "icon-sm text-danger")
+			<span class="text-danger">Not answering</span>
+		} else {
+			@ic("triangle-alert", "icon-sm text-attention")
+			Slow to answer
+		}
+	</span>
+}
+
 // statusIcon is a container's state as a shape as well as a color.
 templ statusIcon(status string) {
 	<span class="inline-flex shrink-0" title={ status }>
@@ -502,7 +548,7 @@ templ nodeStatus(a appView) {
 	</span>
 }
 
-templ databaseNode(project string, d store.Database, last map[string]store.Backup, backupsOn bool) {
+templ databaseNode(project string, d store.Database, last map[string]store.Backup, backupsOn bool, health map[int64]ops.DataHealth) {
 	<a href={ templ.SafeURL(dbURL(project, d.Name)) } id={ "db-" + d.Name } class="node">
 		<div class="node-head">
 			@tile("postgresql", "database")
@@ -510,7 +556,16 @@ templ databaseNode(project string, d store.Database, last map[string]store.Backu
 				<div class="node-title">{ d.Name }</div>
 				<div class="node-kind">PostgreSQL</div>
 			</div>
+			if h, ok := health[d.ID]; ok {
+				@dataStatus(h)
+			}
 		</div>
+		if h, ok := health[d.ID]; ok && h.Answering {
+			<div class="node-stats">
+				@nodeStat("Size", bytesText(float64(h.SizeBytes)), "", "")
+				@nodeStat("Connections", itoa(h.Connections), "Open to it now", "")
+			</div>
+		}
 		<div class="node-row">
 			if b, ok := last[d.Name]; ok {
 				if b.VerifyError != "" {
@@ -541,8 +596,8 @@ templ databaseNode(project string, d store.Database, last map[string]store.Backu
 	</a>
 }
 
-templ cacheNode(project string, c store.Cache) {
-	<a href={ templ.SafeURL(cacheURL(project, c.Name)) } id={ "cache-" + c.Name } class="node">
+templ cacheNode(v projectView, c store.Cache) {
+	<a href={ templ.SafeURL(cacheURL(v.Project.Name, c.Name)) } id={ "cache-" + c.Name } class="node">
 		<div class="node-head">
 			<span class="icon-tile">
 				@ic("zap")
@@ -551,14 +606,27 @@ templ cacheNode(project string, c store.Cache) {
 				<div class="node-title">{ c.Name }</div>
 				<div class="node-kind">Valkey · Redis-compatible</div>
 			</div>
+			if h, ok := v.CacheHealth[c.ID]; ok {
+				@dataStatus(h)
+			}
 		</div>
-		<div class="node-row">
-			<span class="meta-item">
-				@ic("memory-stick", "icon-sm")
-				{ fmt.Sprintf("%d MB", c.MemoryMB) }
-			</span>
-			<span>not backed up</span>
-		</div>
+		if u, ok := v.Usage[ops.CacheTarget(c.ID)]; ok && u.Now {
+			<div class="node-stats">
+				@nodeStat("Memory", memText(u), "", u.MemSpark)
+				@nodeStat("CPU", cpuPercent(u.CPU), cores(u.CPU)+" now", u.CPUSpark)
+			</div>
+			<div class="node-row">
+				<span>Not backed up</span>
+			</div>
+		} else {
+			<div class="node-row">
+				<span class="meta-item">
+					@ic("memory-stick", "icon-sm")
+					{ fmt.Sprintf("%d MB", c.MemoryMB) }
+				</span>
+				<span>not backed up</span>
+			</div>
+		}
 	</a>
 }
 

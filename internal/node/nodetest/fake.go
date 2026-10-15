@@ -46,6 +46,7 @@ type Fake struct {
 	Networks   map[string]bool                  // projects with networks
 	Caches     map[string]node.CacheSpec        // container → spec
 	Keys       node.KeyState                    // what KeyState tells
+	Postgres   string                           // why Postgres doesn't answer, "" if it does
 	Tel        *teldb.Queries                   // where its apps' telemetry goes
 }
 
@@ -404,6 +405,44 @@ func (f *Fake) EnsureCache(ctx context.Context, c node.CacheSpec) error {
 		f.Containers[c.Name] = "running"
 	}
 	return err
+}
+
+// DataStatus reports the databases in DBs (their content's length as
+// their size) and the caches whose containers run as answering.
+func (f *Fake) DataStatus(ctx context.Context, databases []string, caches []node.CacheProbe) (node.DataStatus, error) {
+	unlock, err := f.call("DataStatus")
+	defer unlock()
+	st := node.DataStatus{Databases: map[string]node.DBStatus{}, Caches: map[string]string{}}
+	if err != nil {
+		return st, err
+	}
+	if len(databases) > 0 {
+		st.Postgres = f.Postgres
+		for _, name := range databases {
+			if st.Postgres == "" {
+				content, ok := f.DBs[name]
+				st.Databases[name] = node.DBStatus{Missing: !ok, SizeBytes: int64(len(content))}
+			}
+		}
+	}
+	for _, c := range caches {
+		if status := f.Containers[c.Name]; status != "running" {
+			st.Caches[c.Name] = "isn't running (" + status + ")"
+		} else {
+			st.Caches[c.Name] = ""
+		}
+	}
+	return st, nil
+}
+
+func (f *Fake) VolumeSizes(ctx context.Context) (map[string]int64, error) {
+	unlock, err := f.call("VolumeSizes")
+	defer unlock()
+	sizes := map[string]int64{}
+	for name, content := range f.Volumes {
+		sizes[name] = int64(len(content))
+	}
+	return sizes, err
 }
 
 func (f *Fake) DropCache(ctx context.Context, name string) error {

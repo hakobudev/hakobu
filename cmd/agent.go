@@ -118,6 +118,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	go ops.WatchDeaths(s)
 	go ops.WatchHealth(s)
 	go ops.WatchMetrics(s)
+	go ops.WatchData(s)
 	go ops.WatchCloudflareAccounts(s, 10*time.Minute)
 	go runBackupScheduler(s)
 	if err := ops.StartTunnel(s); err != nil {

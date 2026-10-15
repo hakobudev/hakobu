@@ -347,7 +347,8 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 	projectPageHandler := func(tab string) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			p := reqProject(r)
-			v := projectView{Project: p, Tab: tab, Workers: map[string]workerCard{}, LastDeploy: map[string]store.DeployLog{}, LastBackup: map[string]store.Backup{}}
+			v := projectView{Project: p, Tab: tab, Workers: map[string]workerCard{}, LastDeploy: map[string]store.DeployLog{}, LastBackup: map[string]store.Backup{},
+				Usage: map[string]cardUsage{}, DBHealth: map[int64]ops.DataHealth{}, CacheHealth: map[int64]ops.DataHealth{}}
 			apps, _ := s.ListAppsByProject(r.Context(), p.ID)
 			// Every tab's header counts the resources; the canvas also shows
 			// their state: containers, last deploys and backups.
@@ -371,6 +372,9 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 				if logs := deploySummaries(r.Context(), s, a.ID, 1); len(logs) > 0 {
 					v.LastDeploy[a.Name] = logs[0]
 				}
+				if u, ok := loadCardUsage(s, ops.AppTarget(a.ID)); ok {
+					v.Usage[ops.AppTarget(a.ID)] = u
+				}
 			}
 			v.Databases, _ = s.ListDatabasesByProject(r.Context(), p.ID)
 			for _, d := range v.Databases {
@@ -380,9 +384,23 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 				if list, _ := s.ListBackups(r.Context(), store.ListBackupsParams{DatabaseID: d.ID, Limit: 1}); len(list) > 0 {
 					v.LastBackup[d.Name] = list[0]
 				}
+				if h, ok := ops.DatabaseHealth(d.ID); ok {
+					v.DBHealth[d.ID] = h
+				}
 			}
 			v.Storages, _ = s.ListStoragesByProject(r.Context(), p.ID)
 			v.Caches, _ = s.ListCachesByProject(r.Context(), p.ID)
+			for _, c := range v.Caches {
+				if !canvas {
+					break
+				}
+				if h, ok := ops.CacheHealth(c.ID); ok {
+					v.CacheHealth[c.ID] = h
+				}
+				if u, ok := loadCardUsage(s, ops.CacheTarget(c.ID)); ok {
+					v.Usage[ops.CacheTarget(c.ID)] = u
+				}
+			}
 			v.Volumes = map[string][]volumeCard{}
 			for _, a := range apps {
 				vols, _ := s.ListVolumes(r.Context(), a.ID)
@@ -392,6 +410,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 						if list, _ := s.ListVolumeBackups(r.Context(), store.ListVolumeBackupsParams{AppID: a.ID, Volume: vol.Name, Limit: 1}); len(list) > 0 {
 							card.Last, card.HasLast = list[0], true
 						}
+						card.Size, card.HasSize = ops.VolumeSize(a.ID, vol.Name)
 					}
 					v.Volumes[a.Name] = append(v.Volumes[a.Name], card)
 				}
@@ -1005,7 +1024,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			v.UserTokenURL = ops.UserTokenURL()
 		}
 		if usage, err := ops.CurrentUsage(s, user.ID); err == nil {
-			v.Usage = usageRows(usage)
+			v.Usage = usageRows(usage, func(target string) (string, string, bool) { return targetPage(s, target) })
 		}
 		servers, _ := ops.Servers(s)
 		for _, sv := range servers {

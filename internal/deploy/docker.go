@@ -501,6 +501,39 @@ func VolumeNames(ctx context.Context, prefix string) ([]string, error) {
 	return names, nil
 }
 
+// VolumeSizes is the size in bytes of each volume whose name starts with
+// prefix, as Docker counts it (it walks their files: not to be asked
+// often).
+func VolumeSizes(ctx context.Context, prefix string) (map[string]int64, error) {
+	ctx, cancel := withDeadline(ctx, 10*time.Minute)
+	defer cancel()
+	respBody, status, err := dockerRequest(ctx, "GET", "/system/df?type=volume", nil)
+	if err != nil {
+		return nil, err
+	}
+	if status != http.StatusOK {
+		return nil, fmt.Errorf("disk usage failed (%d): %s", status, respBody)
+	}
+	var res struct {
+		Volumes []struct {
+			Name      string `json:"Name"`
+			UsageData struct {
+				Size int64 `json:"Size"`
+			} `json:"UsageData"`
+		} `json:"Volumes"`
+	}
+	if err := json.Unmarshal(respBody, &res); err != nil {
+		return nil, err
+	}
+	sizes := map[string]int64{}
+	for _, v := range res.Volumes {
+		if strings.HasPrefix(v.Name, prefix) && v.UsageData.Size >= 0 { // -1: not counted
+			sizes[v.Name] = v.UsageData.Size
+		}
+	}
+	return sizes, nil
+}
+
 // RemoveContainer force-removes a container; a no-op if it doesn't exist.
 func RemoveContainer(ctx context.Context, name string) error {
 	respBody, status, err := dockerRequest(ctx, "DELETE", "/containers/"+url.PathEscape(name)+"?force=true", nil)
@@ -661,6 +694,25 @@ func PostgresHasDatabase(ctx context.Context, containerName, name string) (bool,
 		return false, fmt.Errorf("psql exited %d: %s", exitCode, strings.TrimSpace(out))
 	}
 	return strings.TrimSpace(out) == "1", nil
+}
+
+// PostgresQuery runs a query as the postgres superuser (local trust auth)
+// and returns its rows unaligned, a line each, fields split by "|".
+func PostgresQuery(ctx context.Context, containerName, sql string) ([][]string, error) {
+	out, exitCode, err := execInContainer(ctx, containerName, []string{"psql", "-U", "postgres", "-Atc", sql})
+	if err != nil {
+		return nil, err
+	}
+	if exitCode != 0 {
+		return nil, fmt.Errorf("psql exited %d: %s", exitCode, strings.TrimSpace(out))
+	}
+	var rows [][]string
+	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
+		if line != "" {
+			rows = append(rows, strings.Split(line, "|"))
+		}
+	}
+	return rows, nil
 }
 
 // PostgresExec runs one SQL statement as the postgres superuser (local trust auth).

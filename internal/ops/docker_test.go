@@ -950,3 +950,68 @@ func TestDockerCache(t *testing.T) {
 		t.Error("the deleted cache's data is left")
 	}
 }
+
+// TestDockerDataStatus asks a real Postgres and Valkey whether they
+// answer, with a database's size, and counts a volume's bytes.
+func TestDockerDataStatus(t *testing.T) {
+	if os.Getenv("HAKOBU_DOCKER_TEST") == "" {
+		t.Skip("set HAKOBU_DOCKER_TEST=1 to run against the local Docker")
+	}
+	s, err := store.Open(filepath.Join(t.TempDir(), "hakobu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := newDockerTestApp(t, s)
+	dbID, err := CreateDatabase(s, app.ProjectID, "ztstatus"+fmt.Sprint(os.Getpid()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = DeleteDatabase(s, dbID) })
+	cacheID, err := CreateCache(s, app.ProjectID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, _ := s.GetCacheByID(ctx(), cacheID)
+	t.Cleanup(func() { _ = local.DropCache(ctx(), c.Key()) })
+	d, _ := s.GetDatabaseByID(ctx(), dbID)
+
+	probes := []node.CacheProbe{{Name: c.Key(), Password: string(c.Password)}, {Name: c.Key(), Password: "wrong"}}
+	st, err := local.DataStatus(ctx(), []string{d.Key(), "db_nope"}, probes[:1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := st.Databases[d.Key()]; st.Postgres != "" || got.Missing || got.SizeBytes < 1<<20 {
+		t.Errorf("Postgres %q, the database %+v", st.Postgres, got)
+	}
+	if !st.Databases["db_nope"].Missing {
+		t.Error("a database Postgres hasn't wasn't missing")
+	}
+	if why, ok := st.Caches[c.Key()]; !ok || why != "" {
+		t.Errorf("the cache: %q %v", why, ok)
+	}
+	st, _ = local.DataStatus(ctx(), nil, probes[1:])
+	if st.Caches[c.Key()] != "doesn't answer PING" {
+		t.Errorf("with a wrong password: %q", st.Caches[c.Key()])
+	}
+
+	if err := deploy.StopContainer(ctx(), c.Key()); err != nil {
+		t.Fatal(err)
+	}
+	st, _ = local.DataStatus(ctx(), nil, probes[:1])
+	if why := st.Caches[c.Key()]; !strings.HasPrefix(why, "isn't running") {
+		t.Errorf("a stopped cache: %q", why)
+	}
+
+	vol := node.Volume(fmt.Sprintf("zt-%d", os.Getpid()), "data")
+	if out, err := exec.Command("docker", "run", "--rm", "-v", vol+":/v", config.ValkeyImage, "sh", "-c", "head -c 300000 /dev/zero > /v/f").CombinedOutput(); err != nil {
+		t.Fatalf("filling a volume: %v %s", err, out)
+	}
+	t.Cleanup(func() { _ = deploy.RemoveVolume(ctx(), vol) })
+	sizes, err := local.VolumeSizes(ctx())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := sizes[vol]; n < 300000 {
+		t.Errorf("the volume counts %d bytes, want 300000 or more", n)
+	}
+}

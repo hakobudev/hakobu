@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"math"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -50,7 +51,12 @@ func TestPagesRender(t *testing.T) {
 		LastDeploy: map[string]store.DeployLog{"web": deploys[0]}, Databases: []store.Database{db, {Name: "other"}}, LastBackup: map[string]store.Backup{"main": {VerifiedAt: "t"}},
 		Storages: storages, Sealed: []string{"P"}, SuggestedDB: "demo", BackupBucket: "hakobu-backups-1",
 		Volumes: map[string][]volumeCard{"web": {{Volume: store.Volume{Name: "data", MountPath: "/data"}}, {Volume: store.Volume{Name: "up"}, HasLast: true, Last: store.VolumeBackup{VerifiedAt: "t"}}}},
-		Calls:   map[string][]string{"api": {"web"}}, Caches: []store.Cache{{ID: 3, Name: "cache", MemoryMB: 256}}}
+		Calls:   map[string][]string{"api": {"web"}}, Caches: []store.Cache{{ID: 3, Name: "cache", MemoryMB: 256}},
+		Usage: map[string]cardUsage{ops.AppTarget(1): {CPU: 0.03, Mem: 182 << 20, MemLimit: 512 << 20, Now: true, CPUSpark: sparkline([]float64{0.01, math.NaN(), 0.03}, 0), MemSpark: sparkline([]float64{1, 2}, 4)},
+			ops.CacheTarget(3): {Mem: 12 << 20, MemLimit: 256 << 20, Now: true}},
+		DBHealth:    map[int64]ops.DataHealth{1: {Answering: true, SizeBytes: 9 << 20, Connections: 4}, 0: {Down: true, Why: "Postgres isn't running (exited)"}},
+		CacheHealth: map[int64]ops.DataHealth{3: {Why: "didn't answer within 20s"}}}
+	pv.Volumes["web"][0].Size, pv.Volumes["web"][0].HasSize = 3<<30, true
 	ap := appPage{App: app, Project: project, PathRoutes: []pathRoute{{Path: "/api", Target: "api"}}, Siblings: []string{"api", "admin"}, Worker: worker, WorkerStatus: "running", DataRollbackBlocker: "", LastOOM: "2026-09-29T10:00:00Z",
 		Deploys: deploys, Events: events, Output: "line", Range: "24h",
 		Routes:    []ops.RouteStats{{Name: "/orders/{id}", Count: 20, Errors: 1, AvgMs: 40, P50Ms: 20, P95Ms: 10000, P95Over: true}},
@@ -76,7 +82,7 @@ func TestPagesRender(t *testing.T) {
 		Users:       []store.User{{ID: 1, GitHubLogin: "me", Admin: 1, CreatedAt: "t"}, {ID: 2, GitHubLogin: "friend", CreatedAt: "t"}},
 		Invites:     []store.Invite{{SecretHash: "ab", ExpiresAt: "2026-10-12T00:00:00Z"}},
 		MyNotify:    ops.UserNotify{PanelOn: true, Email: "me@example.org", Verified: true},
-		Usage:       usageRows([]teldb.Sample{{Target: ops.HostTarget, Cpu: 1, CpuLimit: 4, Mem: 1 << 30, MemLimit: 8 << 30}, {Target: "app:web", Mem: 500 << 20, MemLimit: 512 << 20}, {Target: "service:postgres", Mem: 100 << 20}, {Target: "others", Cpu: 0.4, Mem: 300 << 20}}),
+		Usage:       usageRows([]teldb.Sample{{Target: ops.HostTarget, Cpu: 1, CpuLimit: 4, Mem: 1 << 30, MemLimit: 8 << 30}, {Target: "app:web", Mem: 500 << 20, MemLimit: 512 << 20}, {Target: "service:postgres", Mem: 100 << 20}, {Target: "others", Cpu: 0.4, Mem: 300 << 20}}, func(string) (string, string, bool) { return "web", "/projects/shop/apps/web", true }),
 		Update:      ops.UpdateInfo{Current: "v0.6.0", Latest: "v0.7.0", CheckedAt: "2026-10-02 12:00 UTC", Available: true, Updater: true, HasLast: true, Last: update.Status{State: "running", To: "v0.7.0", Message: "downloading"}}}
 
 	pages := map[string]templ.Component{

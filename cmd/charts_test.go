@@ -28,7 +28,7 @@ func TestUsageChart(t *testing.T) {
 	if !strings.Contains(svg, `stroke-dasharray`) {
 		t.Error("no line for the memory limit")
 	}
-	if got := usageRows(rows[:1])[0]; got.MemPct != 20 {
+	if got := usageRows(rows[:1], nil)[0]; got.MemPct != 20 {
 		t.Errorf("memory at %d%% of the limit, want 20", got.MemPct)
 	}
 }

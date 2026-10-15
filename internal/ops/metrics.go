@@ -86,6 +86,9 @@ func ServiceTarget(name string, serverID int64) string {
 func AppTarget(id int64) string    { return fmt.Sprintf("app:%d", id) }
 func WorkerTarget(id int64) string { return fmt.Sprintf("worker:%d", id) }
 
+// CacheTarget is what a cache's usage is recorded as.
+func CacheTarget(id int64) string { return fmt.Sprintf("cache:%d", id) }
+
 // WatchMetrics records usage every minute, on the minute.
 func WatchMetrics(s *store.Store) {
 	st := &metricState{}
@@ -154,7 +157,7 @@ type containerTarget struct {
 
 // containerTargets maps the containers on server sv worth recording by
 // name: the live slot of each app there (not the candidate of a deploy),
-// its worker, and hakobu's services. Targets don't change when a deploy
+// its worker, each cache, and hakobu's services. Targets don't change when a deploy
 // swaps slots. A server is asked only about its own containers, and only
 // they are taken from its answer: it could belong to someone else.
 func containerTargets(s *store.Store, sv server) map[string]containerTarget {
@@ -185,6 +188,15 @@ func containerTargets(s *store.Store, sv server) map[string]containerTarget {
 		targets[a.ContainerName()] = limit
 		limit.name = WorkerTarget(a.ID)
 		targets[node.WorkerContainer(a.Key())] = limit
+	}
+	caches, err := s.ListCaches(ctx())
+	if err != nil {
+		return targets
+	}
+	for _, c := range caches {
+		if places[c.ProjectID].server == sv.ID {
+			targets[c.Key()] = containerTarget{name: CacheTarget(c.ID), memLimit: c.MemoryMB << 20}
+		}
 	}
 	return targets
 }
@@ -376,6 +388,14 @@ func CurrentUsage(s *store.Store, user int64) ([]teldb.Sample, error) {
 	for _, a := range apps {
 		appOf[strconv.FormatInt(a.ID, 10)] = byProject[a.ProjectID]
 	}
+	caches, err := s.ListCaches(ctx())
+	if err != nil {
+		return nil, err
+	}
+	cacheOf := map[string]where{} // by ID
+	for _, c := range caches {
+		cacheOf[strconv.FormatInt(c.ID, 10)] = byProject[c.ProjectID]
+	}
 	latest := map[string]teldb.Sample{}
 	for _, r := range rows { // oldest first
 		kind, name, _ := strings.Cut(r.Target, ":")
@@ -384,8 +404,11 @@ func CurrentUsage(s *store.Store, user int64) ([]teldb.Sample, error) {
 			if strings.Contains(name, ":") || (kind == HostTarget && name != "") {
 				continue // another server's
 			}
-		case "app", "worker":
+		case "app", "worker", "cache":
 			w, ok := appOf[name]
+			if kind == "cache" {
+				w, ok = cacheOf[name]
+			}
 			if !ok || !w.local {
 				continue
 			}

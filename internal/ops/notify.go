@@ -493,7 +493,8 @@ type alertSubject struct {
 
 // alertAbout is whose problem key is: an app's project (deploy, crash, out
 // of memory, health, memory use, by the app's ID), a database's or a
-// volume's (backup, by dbJobKey or volumeJob), a server's (its key not
+// volume's (backup, by dbJobKey or volumeJob), a database's or cache's that
+// doesn't answer (by its ID), a server's (its key not
 // exported, it's away) or a Cloudflare account's. ok is false for the
 // panel's own alerts.
 func alertAbout(s *store.Store, key string) (alertSubject, bool) {
@@ -523,6 +524,20 @@ func alertAbout(s *store.Store, key string) (alertSubject, bool) {
 		default:
 			projectID = db.ProjectID
 		}
+	case "dbdown": // dbdown:<database ID>, not answering
+		id, _ := strconv.ParseInt(rest, 10, 64)
+		d, err := s.GetDatabaseByID(ctx(), id)
+		if err != nil {
+			return alertSubject{}, false
+		}
+		projectID = d.ProjectID
+	case "cachedown": // cachedown:<cache ID>
+		id, _ := strconv.ParseInt(rest, 10, 64)
+		c, err := s.GetCacheByID(ctx(), id)
+		if err != nil {
+			return alertSubject{}, false
+		}
+		projectID = c.ProjectID
 	case "serverkey", "server": // <kind>:<server ID>
 		id, _ := strconv.ParseInt(rest, 10, 64)
 		n, err := s.GetNode(ctx(), id)
@@ -569,6 +584,15 @@ func backupOf(s *store.Store, job string) (app *store.App, db *store.Database, o
 // AppPath is the app's page in the panel.
 func AppPath(app store.App) string {
 	return "/projects/" + url.PathEscape(app.ProjectName) + "/apps/" + url.PathEscape(app.Name)
+}
+
+// CachePath is the cache's page in the panel.
+func CachePath(s *store.Store, c store.Cache) string {
+	p, err := s.GetProjectByID(ctx(), c.ProjectID)
+	if err != nil {
+		return "/"
+	}
+	return "/projects/" + url.PathEscape(p.Name) + "/caches/" + url.PathEscape(c.Name)
 }
 
 // DatabasePath is the database's page in the panel.

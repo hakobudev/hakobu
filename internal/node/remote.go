@@ -320,6 +320,16 @@ func (r *Remote) DropCache(ctx context.Context, name string) error {
 	return r.call(ctx, "DropCache", nil, nil, []any{name})
 }
 
+func (r *Remote) DataStatus(ctx context.Context, databases []string, caches []CacheProbe) (st DataStatus, err error) {
+	err = r.call(ctx, "DataStatus", nil, nil, []any{databases, caches}, &st)
+	return st, err
+}
+
+func (r *Remote) VolumeSizes(ctx context.Context) (sizes map[string]int64, err error) {
+	err = r.call(ctx, "VolumeSizes", nil, nil, nil, &sizes)
+	return sizes, err
+}
+
 // Backups.
 
 func (r *Remote) BackupDatabase(ctx context.Context, d DBSpec, up Upload) (u Uploaded, err error) {
