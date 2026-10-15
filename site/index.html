@@ -7,7 +7,7 @@
 <meta name="description" content="Push to GitHub and hakobu builds and rolls out your app on servers you own, behind Cloudflare: no open ports, backups only your servers can open, and Claude can deploy for you.">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="style.css?v=947f0482">
+<link rel="stylesheet" href="style.css?v=ee910246">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -130,28 +130,26 @@
                       <div class="node" id="app-chat" data-open="app:chat" role="button" tabindex="0">
                         <div class="node-head">
                           <span class="icon-tile"><svg class="logo"><use href="#l-nextdotjs"/></svg></span>
-                          <div class="min-w-0 flex-1"><div class="node-title">chat <span class="dot dot-success"></span></div><div class="node-kind">Railpack</div></div>
+                          <div class="min-w-0 flex-1"><div class="node-title">chat <svg class="icon icon-sm text-success" aria-label="Running"><use href="#i-circle-check"/></svg></div><div class="node-kind">chat.acme.dev</div></div>
+                          <span class="node-meta">212 MB</span>
                         </div>
-                        <div class="node-row"><span class="meta-item"><svg class="icon icon-sm text-success"><use href="#i-circle-check"/></svg><span>Deployed a1f3c9e</span></span><span class="tabular">2h ago</span></div>
-                        <div class="node-item" id="dom-chat"><span class="meta-item min-w-0"><svg class="icon icon-sm icon-muted"><use href="#i-globe"/></svg><span class="truncate">chat.acme.dev</span></span><span class="node-item-meta">100%</span></div>
                       </div>
                       <div class="node" id="app-admin" data-open="app:admin" role="button" tabindex="0">
                         <div class="node-head">
                           <span class="icon-tile"><svg class="logo"><use href="#l-django"/></svg></span>
-                          <div class="min-w-0 flex-1"><div class="node-title">admin <span class="dot dot-success"></span></div><div class="node-kind">Dockerfile</div></div>
+                          <div class="min-w-0 flex-1"><div class="node-title">admin <svg class="icon icon-sm text-success" aria-label="Running"><use href="#i-circle-check"/></svg></div><div class="node-kind">admin.acme.dev</div></div>
+                          <span class="node-meta">148 MB</span>
                         </div>
-                        <div class="node-row"><span class="meta-item"><svg class="icon icon-sm text-success"><use href="#i-circle-check"/></svg><span>Deployed 5b0e7d2</span></span><span class="tabular">3d ago</span></div>
-                        <div class="node-item" id="dom-admin"><span class="meta-item min-w-0"><svg class="icon icon-sm icon-muted"><use href="#i-globe"/></svg><span class="truncate">admin.acme.dev</span></span><span class="node-item-meta">100%</span></div>
                       </div>
                     </div>
                     <div class="canvas-tier">
                       <div class="node" id="app-api" data-open="app:api" role="button" tabindex="0">
                         <div class="node-head">
                           <span class="icon-tile"><svg class="logo"><use href="#l-fastapi"/></svg></span>
-                          <div class="min-w-0 flex-1"><div class="node-title">api <span class="dot dot-success" id="api-dot"></span></div><div class="node-kind">Railpack · private</div></div>
+                          <div class="min-w-0 flex-1"><div class="node-title">api <svg class="icon icon-sm text-success" aria-label="Running"><use href="#i-circle-check"/></svg></div><div class="node-kind">private</div></div>
+                          <span class="node-meta">306 MB</span>
                         </div>
-                        <div class="node-row"><span class="meta-item" id="api-state"><svg class="icon icon-sm text-success"><use href="#i-circle-check"/></svg><span>Deployed 9e41b7c</span></span><span class="tabular" id="api-when">4 min ago</span></div>
-                        <div class="node-item" id="wk-api"><span class="meta-item min-w-0"><svg class="logo"><use href="#l-python"/></svg><span class="strong">worker</span><span class="mono muted truncate">arq jobs.Worker</span></span><span class="dot dot-success"></span></div>
+                        <div class="node-item" id="wk-api"><span class="meta-item min-w-0"><svg class="logo"><use href="#l-python"/></svg><span class="strong">worker</span><span class="mono muted truncate">arq jobs.Worker</span></span><svg class="icon icon-sm text-success" aria-label="running"><use href="#i-circle-check"/></svg></div>
                       </div>
                     </div>
                   </div>
@@ -162,23 +160,22 @@
                   <div class="node" id="db-app" data-open="db:app-db" role="button" tabindex="0">
                     <div class="node-head">
                       <span class="icon-tile"><svg class="logo"><use href="#l-postgresql"/></svg></span>
-                      <div class="min-w-0 flex-1"><div class="node-title">app-db</div><div class="node-kind">PostgreSQL</div></div>
+                      <div class="min-w-0 flex-1"><div class="node-title">app-db <svg class="icon icon-sm text-success" aria-label="Running"><use href="#i-circle-check"/></svg></div><div class="node-kind">PostgreSQL</div></div>
+                      <span class="node-meta">1.2 GB</span>
                     </div>
-                    <div class="node-row"><span class="meta-item"><svg class="icon icon-sm text-success"><use href="#i-circle-check"/></svg>Backup restores</span><span class="tabular">3h ago</span></div>
                   </div>
                   <div class="node" id="cache-queue" data-open="cache:queue" role="button" tabindex="0">
                     <div class="node-head">
                       <span class="icon-tile"><svg class="icon"><use href="#i-zap"/></svg></span>
-                      <div class="min-w-0 flex-1"><div class="node-title">queue</div><div class="node-kind">Valkey · Redis-compatible</div></div>
+                      <div class="min-w-0 flex-1"><div class="node-title">queue <svg class="icon icon-sm text-success" aria-label="Running"><use href="#i-circle-check"/></svg></div><div class="node-kind">Valkey</div></div>
+                      <span class="node-meta">38 MB</span>
                     </div>
-                    <div class="node-row"><span>512 MB</span><span>not backed up</span></div>
                   </div>
                   <div class="node" id="st-files" data-open="storage:files" role="button" tabindex="0">
                     <div class="node-head">
                       <span class="icon-tile"><svg class="logo"><use href="#l-cloudflare"/></svg></span>
                       <div class="min-w-0 flex-1"><div class="node-title">files</div><div class="node-kind">Cloudflare R2</div></div>
                     </div>
-                    <div class="node-row"><span class="meta-item"><svg class="icon icon-sm"><use href="#i-key-round"/></svg>Keys set</span></div>
                   </div>
                 </div>
               </div>
@@ -309,6 +306,6 @@
   </div>
 </footer>
 
-<script src="site.js?v=947f0482"></script>
+<script src="site.js?v=ee910246"></script>
 </body>
 </html>
