@@ -31,20 +31,32 @@ templ usageFragment(v usageView) {
 	</div>
 }
 
-// uptimeBadge is the 30 days' uptime next to a domain; nothing without
-// history.
-templ uptimeBadge(v uptimeView) {
+// uptimeStrip is an app card's record from outside: a bar a day for 30
+// days and the share of minutes it answered; nothing without a history.
+templ uptimeStrip(v uptimeView) {
 	if !v.NoHistory && v.Err == "" && len(v.Uptime.Windows) > 2 && v.Uptime.Windows[2].Checks > 0 {
 		{{ w := v.Uptime.Windows[2] }}
-		<span class={ "meta-item", templ.KV("text-danger", w.Pct < 99) }>
+		<div class="uptime-days">
+			for _, d := range v.Uptime.Days {
+				<i class={ templ.KV("is-down", d.Checks > 0 && d.Pct < 100), templ.KV("is-none", d.Checks == 0) } title={ dayTitle(d) }></i>
+			}
+		</div>
+		<span class={ "meta-item", templ.KV("text-attention", w.Pct < 99) }>
 			if w.Pct < 99 {
 				@ic("triangle-alert", "icon-sm")
-			} else {
-				@ic("activity", "icon-sm text-success")
 			}
-			{ fmt.Sprintf("%.2f%%", w.Pct) }
+			{ uptimePct(w.Pct) } up · 30 days
 		</span>
 	}
+}
+
+// uptimePct is a share of minutes as briefly as it's true: 100% only when
+// no minute was missed.
+func uptimePct(pct float64) string {
+	if pct >= 100 {
+		return "100%"
+	}
+	return fmt.Sprintf("%.2f%%", min(pct, 99.99))
 }
 
 // dayTitle is what a day's bar says when pointed at.

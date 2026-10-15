@@ -277,6 +277,7 @@
   .text-success { color: var(--success); }
   .text-danger { color: var(--danger); }
   .text-attention { color: var(--attention); }
+  .text-accent { color: var(--accent); }
 
   /* Messages across a box or page */
   .flash { border: 1px solid var(--border); background: var(--bg-muted); border-radius: var(--radius-lg); @apply block px-4 py-3; }
@@ -392,6 +393,13 @@
   .node-title { font-weight: 600; @apply flex items-center gap-2 truncate; }
   .node-kind { color: var(--fg-muted); font-size: 12px; @apply truncate; }
   .node-row { border-top: 1px solid var(--border); color: var(--fg-muted); font-size: 12px; @apply flex items-center justify-between gap-2 px-3 py-2 min-w-0; }
+  .node-status { border: 1px solid var(--border); border-radius: 9999px; color: var(--fg-muted); font-size: 12px; font-weight: 500; @apply inline-flex items-center gap-1 shrink-0 py-px pl-1.5 pr-2 self-center; }
+  /* The last deploy under 30 days of uptime, a bar a day. */
+  .node-uptime { @apply grid grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-1.5; }
+  .node-uptime:hover { background: var(--accent-subtle); text-decoration: none; }
+  .node-uptime .uptime-days { grid-column: 1 / -1; height: 18px; gap: 2px; }
+  .node-uptime .node-deploy { justify-self: end; }
+  .node-uptime .node-deploy:only-child { justify-self: start; }
   .node-chips { @apply flex flex-wrap gap-1.5 px-3 pb-3 md:hidden; }
   .node-warn { border-color: color-mix(in srgb, var(--attention) 50%, var(--border)); }
   .node-item { border-top: 1px solid var(--border); color: var(--fg); transition: background .15s, opacity .15s; @apply flex items-center justify-between gap-2 px-3 py-2.5 min-w-0; }

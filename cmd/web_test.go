@@ -159,7 +159,7 @@ func TestPagesRender(t *testing.T) {
 	}
 	for i, v := range []uptimeView{{NoHistory: true}, {Err: "boom"}, {}, {Uptime: ops.Uptime{Windows: []ops.UptimeWindow{{}, {}, {Pct: 97, Checks: 3}}}}} {
 		pages[fmt.Sprint("uptime ", i)] = uptimeFragment(v)
-		pages[fmt.Sprint("uptime badge ", i)] = uptimeBadge(v)
+		pages[fmt.Sprint("uptime strip ", i)] = uptimeStrip(v)
 	}
 	for i, v := range []notifyFormView{
 		{PublicHost: "p", Name: "alerts", Notify: ops.NotifyInfo{On: true}, To: []ops.NotifyChoice{{Value: "a@b.c", Note: "n", Selected: true}}, From: []ops.NotifyChoice{{Value: "mail.p", Note: "n"}}},

@@ -91,6 +91,14 @@ func dotClass(status string) string {
 	return "dot dot-danger"
 }
 
+// statusWord is a container's state as a card says it: "exited" → "Exited".
+func statusWord(status string) string {
+	if status == "" {
+		return "Not running"
+	}
+	return strings.ToUpper(status[:1]) + status[1:]
+}
+
 func mb(b int64) string { return fmt.Sprintf("%.1f MB", float64(b)/(1<<20)) }
 
 func plural(n int, one, many string) string {

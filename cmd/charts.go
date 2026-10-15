@@ -247,7 +247,7 @@ func registerUptimeRoutes(handle func(string, http.HandlerFunc), s *store.Store)
 			v.Err = err.Error()
 		}
 		if r.URL.Query().Get("compact") != "" {
-			renderPage(w, r, uptimeBadge(v))
+			renderPage(w, r, uptimeStrip(v))
 			return
 		}
 		renderPage(w, r, uptimeFragment(v))

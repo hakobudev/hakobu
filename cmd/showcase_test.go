@@ -157,7 +157,7 @@ func TestShowcase(t *testing.T) {
 		if r.URL.Path == "/uptime" {
 			v := uptimeView{Uptime: up}
 			if r.URL.Query().Get("compact") != "" {
-				renderPage(w, r, uptimeBadge(v))
+				renderPage(w, r, uptimeStrip(v))
 				return
 			}
 			renderPage(w, r, uptimeFragment(v))

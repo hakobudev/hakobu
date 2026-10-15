@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/hakobudev/hakobu/internal/store"
 )
@@ -164,13 +165,23 @@ func builder(a appView) string {
 	return "Railpack"
 }
 
-// appKind is what the app's card says under its name; its address has a
-// row of its own.
+// appKind is what the app's card says under its name: its framework (or
+// language) and builder; its address, or that it has none, a row of its own.
 func appKind(a appView) string {
-	if a.Domain != "" {
-		return builder(a)
+	kind := builder(a)
+	if parts := strings.Split(a.Stack, " · "); a.Stack != "" {
+		kind = strings.TrimSpace(parts[len(parts)-1]) + " · " + kind
 	}
-	return builder(a) + " · private"
+	return kind
+}
+
+// shortDeployLabel is the last deploy beside the card's uptime: how it was
+// started, unless it failed or still runs.
+func shortDeployLabel(d store.DeployLog) string {
+	if d.Status == "success" {
+		return d.Trigger
+	}
+	return deployLabel(d)
 }
 
 func storageKind(st store.Storage) string {
@@ -374,16 +385,10 @@ templ appNode(v projectView, a appView) {
 			<div class="node-head">
 				@tile(appLogo(a.App), appIcon(a))
 				<div class="min-w-0 flex-1">
-					<div class="node-title">
-						{ a.Name }
-						if a.Deploying {
-							<span class={ dotClass("deploying") } title="deploying"></span>
-						} else {
-							<span class={ dotClass(a.Status) } title={ a.Status }></span>
-						}
-					</div>
+					<div class="node-title">{ a.Name }</div>
 					<div class="node-kind">{ appKind(a) }</div>
 				</div>
+				@nodeStatus(a)
 			</div>
 			if a.LinkedDB != "" || a.LinkedStorage != "" || a.LinkedCache != "" {
 				<div class="node-chips">
@@ -407,19 +412,6 @@ templ appNode(v projectView, a appView) {
 					}
 				</div>
 			}
-			<div class="node-row">
-				if d, ok := v.LastDeploy[a.Name]; ok {
-					<span class="meta-item truncate">
-						@deployIcon(d.Status, true)
-						<span class="truncate">{ deployLabel(d) }</span>
-					</span>
-					<span class="tabular shrink-0">
-						@timeAgo(d.CreatedAt)
-					</span>
-				} else {
-					<span>Not deployed yet</span>
-				}
-			</div>
 		</a>
 		if a.Domain != "" {
 			<a href={ templ.SafeURL("https://" + a.Domain) } target="_blank" rel="noopener" class="node-item">
@@ -427,9 +419,30 @@ templ appNode(v projectView, a appView) {
 					@ic("globe", "icon-sm icon-muted")
 					<span class="truncate">{ a.Domain }</span>
 				</span>
-				<span class="node-item-meta" hx-get={ "/uptime?target=app:" + itoa(a.ID) + "&compact=1" } hx-trigger="load" hx-swap="innerHTML"></span>
+				@ic("external-link", "icon-sm icon-muted")
 			</a>
+		} else {
+			<div class="node-item" title="It has no public address: other apps of the project reach it">
+				<span class="meta-item min-w-0 muted">
+					@ic("lock", "icon-sm")
+					<span class="truncate">Private, on the server only</span>
+				</span>
+			</div>
 		}
+		<a href={ templ.SafeURL(appURL(a.App) + "/deployments") } class="node-row node-uptime">
+			if a.Domain != "" {
+				<span class="contents" hx-get={ "/uptime?target=app:" + itoa(a.ID) + "&compact=1" } hx-trigger="load" hx-swap="outerHTML"></span>
+			}
+			if d, ok := v.LastDeploy[a.Name]; ok {
+				<span class="meta-item min-w-0 node-deploy" title={ deployLabel(d) }>
+					@deployIcon(d.Status, true)
+					<span class="truncate">{ shortDeployLabel(d) + " ·" }</span>
+					@timeAgo(d.CreatedAt)
+				</span>
+			} else {
+				<span class="node-deploy">Not deployed yet</span>
+			}
+		</a>
 		<span hx-get={ appURL(a.App) + "/problems" } hx-trigger="load" hx-swap="outerHTML"></span>
 		if w, ok := v.Workers[a.Name]; ok {
 			<a href={ templ.SafeURL(appURL(a.App) + "/logs?worker=1") } id={ "wk-" + a.Name } class="node-item" title="The app's worker: same image and links, its own process">
@@ -442,10 +455,51 @@ templ appNode(v projectView, a appView) {
 					<span class="strong">{ w.Name }</span>
 					<span class="mono muted truncate">{ w.Command }</span>
 				</span>
-				<span class={ dotClass(w.Status) } title={ w.Status }></span>
+				@statusIcon(w.Status)
 			</a>
 		}
 	</div>
+}
+
+// statusIcon is a container's state as a shape as well as a color.
+templ statusIcon(status string) {
+	<span class="inline-flex shrink-0" title={ status }>
+		switch status {
+			case "running":
+				@ic("circle-check", "icon-sm text-success")
+			case "restarting":
+				@ic("refresh-cw", "icon-sm text-attention")
+			case "unknown":
+				@ic("circle-dot", "icon-sm icon-muted")
+			default:
+				@ic("circle-x", "icon-sm text-danger")
+		}
+	</span>
+}
+
+// nodeStatus is an app card's state in words and a shape, not only a color.
+templ nodeStatus(a appView) {
+	<span class="node-status" title={ a.Status }>
+		if a.Deploying {
+			@ic("loader-circle", "icon-sm icon-spin text-accent")
+			Deploying
+		} else if a.App.Stopped == 1 && a.Status != "running" {
+			@ic("circle-pause", "icon-sm")
+			Stopped
+		} else if a.Status == "running" {
+			@ic("circle-check", "icon-sm text-success")
+			Running
+		} else if a.Status == "restarting" {
+			@ic("refresh-cw", "icon-sm text-attention")
+			Restarting
+		} else if a.Status == "unknown" {
+			@ic("circle-dot", "icon-sm")
+			Unknown
+		} else {
+			@ic("circle-x", "icon-sm text-danger")
+			<span class="text-danger">{ statusWord(a.Status) }</span>
+		}
+	</span>
 }
 
 templ databaseNode(project string, d store.Database, last map[string]store.Backup, backupsOn bool) {
