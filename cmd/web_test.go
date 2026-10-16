@@ -107,7 +107,7 @@ func TestPagesRender(t *testing.T) {
 			{Ts: 1060, Cpu: 1.5, CpuMax: 2, CpuLimit: 2, Mem: 2 << 30, MemMax: 3 << 30, MemLimit: 4 << 30, Load: 0.9},
 		}, 0, 2000)}),
 		"usage, empty": usageFragment(usageView{Range: "24h", Ranges: usageRanges}),
-		"database": databaseView(databasePage{DB: db, Project: project, Ready: true, Env: splitEnv([]string{"A=1"}), BackupBucket: "hakobu-backups-1", Backups: []store.Backup{{ObjectKey: "k", SizeBytes: 2048}, {ID: 2, VerifiedAt: "t", Tables: 3}, {ID: 3, VerifiedAt: "t", VerifyError: "boom"}}, UsedBy: []string{"web"},
+		"database": databaseView(databasePage{DB: db, Project: project, Health: ops.DataHealth{Answering: true, PostgresVersion: "18.6", PostgresShm: 64 << 20, ShmWanted: 1 << 30}, Checked: true, Env: splitEnv([]string{"A=1"}), BackupBucket: "hakobu-backups-1", Backups: []store.Backup{{ObjectKey: "k", SizeBytes: 2048}, {ID: 2, VerifiedAt: "t", Tables: 3}, {ID: 3, VerifiedAt: "t", VerifyError: "boom"}}, UsedBy: []string{"web"},
 			Keep: 7, Job: ops.DBJob{Running: "backing up"}}),
 		"database, no backups": databaseView(databasePage{DB: db, Job: ops.DBJob{Last: "x", Failed: true}}),
 		"settings":             settingsView(settings),
@@ -138,10 +138,10 @@ func TestPagesRender(t *testing.T) {
 	pages["settings, no accounts"] = settingsView(settingsPage{CloudflareConnected: true, UserTokenURL: "https://dash.cloudflare.com/profile/api-tokens"})
 	pages["switch projects"] = switchProjects([]store.Project{project, {Name: "b"}}, "demo")
 	pages["switch resources"] = switchResources("demo", []store.App{app.App, {Name: "x", BuildStrategy: "dockerfile"}}, []store.Database{db}, []store.Cache{{ID: 3, Name: "cache"}}, storages, "web")
-	pages["cache"] = cacheView(cachePage{Cache: store.Cache{ID: 3, Name: "cache", MemoryMB: 256}, Project: project, Status: "running", Env: splitEnv([]string{"REDIS_URL=redis://default:x@cache-3:6379/0"}), UsedBy: []string{"web"}})
+	pages["cache"] = cacheView(cachePage{Cache: store.Cache{ID: 3, Name: "cache", MemoryMB: 256}, Project: project, Health: ops.DataHealth{Answering: true}, Checked: true, Env: splitEnv([]string{"REDIS_URL=redis://default:x@cache-3:6379/0"}), UsedBy: []string{"web"}})
 	pages["app problems"] = appProblems("/x/errors", 3, false)
 	pages["app problems, more"] = appProblems("/x/errors", 100, true)
-	pages["cache, unused and down"] = cacheView(cachePage{Cache: store.Cache{ID: 3, Name: "cache", MemoryMB: 64}, Project: project, Status: "exited"})
+	pages["cache, unused and down"] = cacheView(cachePage{Cache: store.Cache{ID: 3, Name: "cache", MemoryMB: 64}, Project: project, Health: ops.DataHealth{Why: "isn't running (exited)"}, Checked: true})
 	pages["storage"] = storageView(storagePage{Storage: storages[0], Project: project, UsedBy: []string{"web"}})
 	pages["storage, keys, unused"] = storageView(storagePage{Storage: store.Storage{Name: "media", Provider: "s3", Bucket: "m", AccessKeyID: "k", Endpoint: "https://s3.example.com"}, Project: project})
 	for name, page := range map[string]func(appPage) templ.Component{

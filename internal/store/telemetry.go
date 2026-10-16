@@ -140,6 +140,9 @@ func pruneTel(ctx context.Context, q *teldb.Queries, db *sql.DB, retentionDays i
 	if err := q.PrunePanelLog(ctx, timestamp(time.Now().Add(-eventRetention))); err != nil {
 		return err
 	}
+	if err := q.PruneDataChecks(ctx, time.Now().Add(-eventRetention).Unix()); err != nil {
+		return err
+	}
 	traceCutoff := time.Now().Add(-traceRetention).Unix()
 	if err := q.PruneTraces(ctx, traceCutoff); err != nil {
 		return err

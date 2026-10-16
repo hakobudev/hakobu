@@ -126,7 +126,9 @@ templ uptimeFragment(v uptimeView) {
 								– { o.End.UTC().Format("15:04") }
 							}
 							UTC · { fmt.Sprint(o.Minutes()) } min ·
-							if o.Status != 0 {
+							if o.Why != "" {
+								{ o.Why }
+							} else if o.Status != 0 {
 								HTTP { itoa(o.Status) }
 							} else {
 								no answer

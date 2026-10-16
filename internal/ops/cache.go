@@ -118,6 +118,10 @@ func DeleteCache(s *store.Store, id int64) error {
 	if err := ProjectNode(s, c.ProjectID).DropCache(ctx(), c.Key()); err != nil {
 		return err
 	}
+	// Its record of checks goes too: its ID may be another's later.
+	if err := s.Tel.DeleteDataChecksOf(ctx(), CacheTarget(id)); err != nil {
+		return err
+	}
 	return s.DeleteCache(ctx(), id)
 }
 

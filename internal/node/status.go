@@ -25,9 +25,14 @@ type CacheProbe struct {
 type DataStatus struct {
 	// Postgres is why the shared Postgres doesn't answer, "" if it does
 	// (or wasn't asked: no databases).
-	Postgres  string
-	Databases map[string]DBStatus // by DBSpec.Name
-	Caches    map[string]string   // why each doesn't answer, "" if it does
+	Postgres string
+	// The shared Postgres's version, and its /dev/shm in bytes with the
+	// size FitPostgres gives it ("" and 0 from a node before v0.30.2).
+	PostgresVersion   string
+	PostgresShm       int64
+	PostgresShmWanted int64
+	Databases         map[string]DBStatus // by DBSpec.Name
+	Caches            map[string]string   // why each doesn't answer, "" if it does
 }
 
 // DBStatus is a database as Postgres reports it.
@@ -46,10 +51,18 @@ func (Local) DataStatus(ctx context.Context, databases []string, caches []CacheP
 	var mu sync.Mutex
 	if len(databases) > 0 {
 		wg.Go(func() {
-			why, dbs := postgresStatus(ctx, databases)
+			why, version, dbs := postgresStatus(ctx, databases)
+			shm, _ := deploy.ShmSize(ctx, PostgresContainer)
+			if shm == 0 {
+				shm = defaultShm
+			}
+			wanted, _ := postgresShm()
 			mu.Lock()
 			defer mu.Unlock()
-			st.Postgres = why
+			st.Postgres, st.PostgresVersion = why, version
+			if shm > 0 && wanted > 0 {
+				st.PostgresShm, st.PostgresShmWanted = shm, wanted
+			}
 			for name, d := range dbs {
 				st.Databases[name] = d
 			}
@@ -67,19 +80,24 @@ func (Local) DataStatus(ctx context.Context, databases []string, caches []CacheP
 	return st, nil
 }
 
-func postgresStatus(ctx context.Context, databases []string) (why string, dbs map[string]DBStatus) {
+// defaultShm is the /dev/shm Docker gives a container made without a size.
+const defaultShm = 64 << 20
+
+func postgresStatus(ctx context.Context, databases []string) (why, version string, dbs map[string]DBStatus) {
 	ctx, cancel := context.WithTimeout(ctx, DataCheckTimeout)
 	defer cancel()
-	rows, err := deploy.PostgresQuery(ctx, PostgresContainer, `SELECT d.datname, pg_database_size(d.datname), coalesce(s.numbackends, 0)
+	rows, err := deploy.PostgresQuery(ctx, PostgresContainer, `SELECT d.datname, pg_database_size(d.datname), coalesce(s.numbackends, 0), current_setting('server_version')
 		FROM pg_database d LEFT JOIN pg_stat_database s ON s.datid = d.oid WHERE NOT d.datistemplate`)
 	if err != nil {
-		return answerFailure(ctx, err), nil
+		return answerFailure(ctx, err), "", nil
 	}
 	found := map[string]DBStatus{}
 	for _, r := range rows {
-		if len(r) != 3 {
+		if len(r) != 4 {
 			continue
 		}
+		// "18.6 (Debian 18.6-1.pgdg13+1)": the number is enough.
+		version, _, _ = strings.Cut(r[3], " ")
 		size, _ := strconv.ParseInt(r[1], 10, 64)
 		conns, _ := strconv.ParseInt(r[2], 10, 64)
 		found[r[0]] = DBStatus{SizeBytes: size, Connections: conns}
@@ -90,7 +108,7 @@ func postgresStatus(ctx context.Context, databases []string) (why string, dbs ma
 		d.Missing = !ok
 		dbs[name] = d
 	}
-	return "", dbs
+	return "", version, dbs
 }
 
 func cacheStatus(ctx context.Context, c CacheProbe) string {

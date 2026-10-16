@@ -135,8 +135,9 @@ func TestShowcase(t *testing.T) {
 	}
 	names = append(names, "/cache-"+itoa(cache))
 	// Postgres and the cache answer their checks: exec runs psql (each
-	// database's size and connections) or valkey-cli (PONG).
-	dbAnswer := fmt.Sprintf("%s|%d|6\n%s|%d|2\n", store.Database{ID: mainDB}.Key(), int64(48<<20), store.Database{ID: analytics}.Key(), int64(212<<20))
+	// database's size, connections and the server's version) or
+	// valkey-cli (PONG).
+	dbAnswer := fmt.Sprintf("%s|%d|6|18.6 (Debian)\n%s|%d|2|18.6 (Debian)\n", store.Database{ID: mainDB}.Key(), int64(48<<20), store.Database{ID: analytics}.Key(), int64(212<<20))
 	var execs sync.Map // ID → its output
 	go http.Serve(l, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch p := r.URL.Path; {
@@ -172,7 +173,7 @@ func TestShowcase(t *testing.T) {
 		case path == "/containers/json":
 			json.NewEncoder(w).Encode([]map[string]any{{"Names": names, "State": "running"}})
 		case strings.HasSuffix(path, "/json"):
-			json.NewEncoder(w).Encode(map[string]any{"State": map[string]any{"Status": "running"}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"State": map[string]any{"Status": "running"}, "HostConfig": map[string]any{"ShmSize": 1 << 30}})
 		default:
 			http.NotFound(w, r)
 		}
@@ -203,6 +204,15 @@ func TestShowcase(t *testing.T) {
 		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: "dev"})
 		if r.URL.Path == "/uptime" {
 			v := uptimeView{Uptime: up}
+			// A database's or cache's record is the panel's checks: why, no timing.
+			if target := r.URL.Query().Get("target"); !strings.HasPrefix(target, "app:") {
+				v.Uptime.AvgMs = 0
+				why := "Postgres didn't answer within 20s"
+				if strings.HasPrefix(target, "cache:") {
+					why = "didn't answer within 20s"
+				}
+				v.Uptime.Outages = []ops.Outage{{Start: start, End: start.Add(2 * time.Minute), Why: why}}
+			}
 			renderPage(w, r, uptimeFragment(v))
 			return
 		}

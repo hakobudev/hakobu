@@ -14,7 +14,7 @@ The project's page counts each app's open problems seen in the last day (errors,
 
 ## On the project's page
 
-Each card shows how it's doing now. An app's and a cache's have their CPU and memory, with the last day as a line; a database's its size and open connections; a volume's its size, counted every hour. Every 30 seconds hakobu asks each database (on its server's Postgres) and each cache (a `PING`) whether it answers, and the card says **Running**, **Slow to answer** or, after 3 failed checks in a row, **Not answering**.
+Each card shows how it's doing now. An app's and a cache's have their CPU and memory, with the last day as a line; a database's its size and open connections; a volume's its size, counted every hour. Every 30 seconds hakobu asks each database (on its server's Postgres) and each cache (a `PING`) whether it answers, and the card says **Running**, **Slow to answer** or, after 3 failed checks in a row, **Not answering**. Those checks are kept for 30 days: the database's or cache's page shows the share answered over 24 hours, 7 and 30 days, a strip of the last 30 days and the times it didn't answer, with why. A time its server wasn't connected has no checks, so it counts neither way; the watchdog (below) covers that.
 
 ## Email alerts
 

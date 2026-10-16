@@ -8,7 +8,7 @@ A database is a PostgreSQL database with a role of its own, in one shared Postgr
 
 ## Shared memory
 
-PostgreSQL keeps the memory of parallel queries, hashes and sorts in `/dev/shm`. Docker gives a container 64 MB of it, too little for a large query, which then fails with `could not resize shared memory segment … No space left on device`. hakobu gives the PostgreSQL server a quarter of the server's RAM, up to 1 GB; it's memory only while a query uses it.
+PostgreSQL keeps the memory of parallel queries, hashes and sorts in `/dev/shm`. Docker gives a container 64 MB of it, too little for a large query, which then fails with `could not resize shared memory segment … No space left on device`. hakobu gives the PostgreSQL server a quarter of the server's RAM, up to 1 GB; it's memory only while a query uses it. The database's page shows the server's PostgreSQL version and its shared memory.
 
 A PostgreSQL server made by an older hakobu has Docker's 64 MB, and Docker can't change it in place: when such a server comes up after updating (the panel's own server as the panel starts, any other as it connects), hakobu stops PostgreSQL cleanly and makes its container anew with the same data. Apps lose their database connections for those few seconds, once. It waits while a backup or restore runs. `dynamic_shared_memory_type` is left as PostgreSQL's default, `posix`; don't change it with `ALTER SYSTEM`, or the larger `/dev/shm` goes unused.
 

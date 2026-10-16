@@ -8,6 +8,13 @@ import (
 	"github.com/hakobudev/hakobu/internal/secret"
 )
 
+type DataCheck struct {
+	Target string
+	Ts     int64
+	Up     int64
+	Why    string
+}
+
 type PanelLog struct {
 	ID        int64
 	Level     int64

@@ -3,6 +3,7 @@ package ops
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hakobudev/hakobu/internal/node"
 	"github.com/hakobudev/hakobu/internal/node/nodetest"
@@ -128,5 +129,60 @@ func TestVolumeSizes(t *testing.T) {
 	}
 	if _, ok := VolumeSize(99, "data"); ok {
 		t.Error("counted a volume of no app")
+	}
+}
+
+// Each check is kept; the record has the share answered, the days and the
+// outages with why, a time without checks counting neither way.
+func TestDataUptime(t *testing.T) {
+	s, f, _ := dataStore(t)
+	web := seedApp(t, s, "shop", "web")
+	id, err := s.CreateDatabase(ctx(), store.CreateDatabaseParams{ProjectID: web.ProjectID, Name: "main", Password: "pw"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.DBs[store.Database{ID: id}.Key()] = "x"
+	checkData(s) // kept by checkData itself
+	if u, err := UptimeOf(s, DBTarget(id)); err != nil || u.Windows[0].Checks != 1 || u.Windows[0].Pct != 100 {
+		t.Fatalf("after one check: %+v, %v", u, err)
+	}
+
+	target := DBTarget(id)
+	start := time.Now().Add(-2 * time.Hour).Truncate(time.Minute)
+	for i := range 20 { // every 30 seconds for 10 minutes, down from 5 to 6:30
+		h := DataHealth{Answering: i < 10 || i > 13}
+		if !h.Answering {
+			h.Why = "Postgres didn't answer within 20s"
+		}
+		recordDataCheck(s, target, start.Add(time.Duration(i)*30*time.Second), h)
+	}
+	// An hour later, after the server was away: down again, and still.
+	recordDataCheck(s, target, start.Add(time.Hour), DataHealth{Why: "Postgres isn't running (exited)"})
+	u, err := UptimeOf(s, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 22 checks, 5 of them down (the latest one, kept by checkData, answered).
+	if w := u.Windows[0]; w.Checks != 22 || w.Pct > 77.28 || w.Pct < 77.27 {
+		t.Errorf("24 hours %+v", w)
+	}
+	if len(u.Outages) != 2 {
+		t.Fatalf("outages %+v", u.Outages)
+	}
+	if o := u.Outages[0]; o.Why != "Postgres isn't running (exited)" || o.Ongoing {
+		t.Errorf("latest outage %+v: not ongoing, the newest check answered", o)
+	}
+	if o := u.Outages[1]; o.Why != "Postgres didn't answer within 20s" || o.Minutes() != 2 || !o.Start.Equal(start.Add(5*time.Minute)) {
+		t.Errorf("first outage %+v, %d min", o, o.Minutes())
+	}
+	if d := u.Days[len(u.Days)-1]; d.Checks == 0 && dayOf(start).Equal(dayOf(time.Now())) {
+		t.Errorf("today %+v", d)
+	}
+
+	if err := DeleteDatabase(s, id); err != nil {
+		t.Fatal(err)
+	}
+	if u, _ := UptimeOf(s, target); u.Windows[2].Checks != 0 {
+		t.Errorf("checks of a deleted database kept: %+v", u.Windows[2])
 	}
 }

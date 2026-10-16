@@ -143,6 +143,16 @@ func checkTarget(ctx context.Context, s *store.Store, u store.User, target strin
 			return errNotFound
 		}
 		return nil
+	case kind == "db":
+		id, _ := strconv.ParseInt(rest, 10, 64)
+		d, err := s.GetDatabaseByID(ctx, id)
+		if err != nil {
+			return errNotFound
+		}
+		if p, err := s.GetProjectByID(ctx, d.ProjectID); err != nil || p.UserID != u.ID {
+			return errNotFound
+		}
+		return nil
 	case (kind == ops.HostTarget || kind == "service") && server != "":
 		id, _ := strconv.ParseInt(server, 10, 64)
 		if n, err := s.GetNode(ctx, id); err != nil || n.UserID != u.ID {

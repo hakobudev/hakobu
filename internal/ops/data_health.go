@@ -28,6 +28,10 @@ type DataHealth struct {
 	Down        bool   // it has failed healthFailures checks in a row
 	SizeBytes   int64  // a database's
 	Connections int64  // a database's
+	// A database's PostgreSQL server: its version, and its /dev/shm with
+	// the size hakobu gives it (node.DataStatus); "" and 0 unknown.
+	PostgresVersion        string
+	PostgresShm, ShmWanted int64
 }
 
 // Fresh reports whether the check is recent enough to show: an older one
@@ -131,7 +135,7 @@ func checkData(s *store.Store) {
 			}
 			now := time.Now()
 			for _, d := range mine {
-				h := DataHealth{At: now, Answering: true}
+				h := DataHealth{At: now, Answering: true, PostgresVersion: st.PostgresVersion, PostgresShm: st.PostgresShm, ShmWanted: st.PostgresShmWanted}
 				switch r := st.Databases[d.Key()]; {
 				case st.Postgres != "":
 					h.Answering, h.Why = false, "Postgres "+st.Postgres
@@ -141,13 +145,16 @@ func checkData(s *store.Store) {
 					h.SizeBytes, h.Connections = r.SizeBytes, r.Connections
 				}
 				noteDatabase(s, d, h)
+				recordDataCheck(s, DBTarget(d.ID), now, h)
 			}
 			for _, c := range myCaches {
 				why, ok := st.Caches[c.Key()]
 				if !ok {
 					continue
 				}
-				noteCache(s, c, DataHealth{At: now, Answering: why == "", Why: why})
+				h := DataHealth{At: now, Answering: why == "", Why: why}
+				noteCache(s, c, h)
+				recordDataCheck(s, CacheTarget(c.ID), now, h)
 			}
 		})
 	}

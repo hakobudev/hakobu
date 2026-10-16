@@ -591,7 +591,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 		c := reqCache(r)
 		v := cachePage{Cache: c, Project: reqProject(r), Env: splitEnv(ops.CacheEnv(c))}
 		v.UsedBy, _ = s.AppsUsingCache(r.Context(), sql.NullInt64{Int64: c.ID, Valid: true})
-		v.Status = ops.ProjectNode(s, c.ProjectID).State(r.Context(), c.Key()).Status
+		v.Health, v.Checked = ops.CacheHealth(c.ID)
 		renderPage(w, r, cacheView(v))
 	})
 
@@ -962,11 +962,14 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 		d, project := reqDB(r), reqProject(r)
 		backups, _ := s.ListBackups(r.Context(), store.ListBackupsParams{DatabaseID: d.ID, Limit: 30})
 		usedBy, _ := s.AppsUsingDatabase(r.Context(), sql.NullInt64{Int64: d.ID, Valid: true})
+		health, checked := ops.DatabaseHealth(d.ID)
 		renderPage(w, r, databaseView(databasePage{
-			DB: d, Project: project, Ready: ops.DatabaseReady(s, d), Env: splitEnv(ops.DatabaseEnv(d)),
+			DB: d, Project: project, Env: splitEnv(ops.DatabaseEnv(d)),
 			Backups: backups, UsedBy: usedBy, BackupBucket: ops.BackupBucket(s),
 			Job: ops.DatabaseJob(d.ID), Keep: config.BackupKeep,
 			UsageTarget: ops.ServiceTarget("postgres", project.NodeID.Int64),
+			Health:      health,
+			Checked:     checked,
 		}))
 	})
 

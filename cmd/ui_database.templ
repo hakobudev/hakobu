@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/hakobudev/hakobu/internal/config"
 	"github.com/hakobudev/hakobu/internal/ops"
 	"github.com/hakobudev/hakobu/internal/store"
 )
@@ -10,7 +11,6 @@ import (
 type databasePage struct {
 	DB           store.Database
 	Project      store.Project
-	Ready        bool
 	Env          []envVar
 	Backups      []store.Backup
 	UsedBy       []string
@@ -18,12 +18,15 @@ type databasePage struct {
 	Job          ops.DBJob
 	Keep         int
 	UsageTarget  string // its PostgreSQL server's
+	Health       ops.DataHealth // its latest check, zero if none is fresh
+	Checked      bool           // Health is a fresh check
 }
 
 templ databaseView(v databasePage) {
 	@shell(v.DB.Name, projectCrumb(v.Project.Name), resourceCrumb(v.Project.Name, v.DB.Name, dbURL(v.Project.Name, v.DB.Name), "postgresql", "database")) {
-		@pageHeader(pageHead{Icon: "database", Logo: "postgresql", Title: v.DB.Name, Mono: true, Status: dbStatus(v.Ready), Meta: dbMeta(v)})
+		@pageHeader(pageHead{Icon: "database", Logo: "postgresql", Title: v.DB.Name, Mono: true, Status: checkBadge(v.Health, v.Checked, "Ready"), Meta: dbMeta(v)})
 		<div class="space-y-10">
+			@healthSection(ops.DBTarget(v.DB.ID), v.Health, v.Checked)
 			@section("", "Connection", "Reachable from this project's apps only, at host hakobu-postgres on its Docker network.", nil) {
 				<div class="box">
 					<div class="box-row">
@@ -154,11 +157,33 @@ templ databaseView(v databasePage) {
 	}
 }
 
-templ dbStatus(ready bool) {
-	if ready {
-		<span class="badge badge-success"><span class="dot dot-success"></span>Ready</span>
-	} else {
-		<span class="badge badge-danger"><span class="dot dot-danger"></span>Not responding</span>
+// checkBadge is a database's or cache's badge, from its latest check:
+// ok when it answered, why not when it didn't.
+templ checkBadge(h ops.DataHealth, checked bool, ok string) {
+	switch {
+		case !checked:
+			<span class="badge" title="its server isn't connected, or hasn't been asked yet"><span class="dot"></span>Not checked lately</span>
+		case h.Answering:
+			<span class="badge badge-success" title={ "last checked " + h.At.UTC().Format("15:04:05") + " UTC" }><span class="dot dot-success"></span>{ ok }</span>
+		default:
+			<span class="badge badge-danger" title={ "last checked " + h.At.UTC().Format("15:04:05") + " UTC" }><span class="dot dot-danger"></span>Not responding</span>
+	}
+}
+
+// healthSection is a database's or cache's record of checks, why it
+// doesn't answer first if it doesn't.
+templ healthSection(target string, h ops.DataHealth, checked bool) {
+	@section("health", "Health", "Checked every "+config.HealthCheckEvery.String()+" by hakobu on its server. A time the server wasn't connected counts neither way.", nil) {
+		<div class="space-y-3">
+			if checked && !h.Answering {
+				@flash("danger") {
+					{ h.Why }
+				}
+			}
+			<div hx-get={ "/uptime?target=" + target } hx-trigger="load" hx-swap="innerHTML">
+				@skeleton(2, false)
+			</div>
+		</div>
 	}
 }
 
@@ -166,7 +191,19 @@ templ dbMeta(v databasePage) {
 	<span class="meta-item">
 		@ic("database")
 		PostgreSQL
+		if v.Health.PostgresVersion != "" {
+			{ v.Health.PostgresVersion }
+		}
 	</span>
+	if h := v.Health; h.PostgresShm > 0 {
+		<span class="meta-item" title="PostgreSQL's /dev/shm, for parallel queries, hashes and sorts">
+			@ic("memory-stick")
+			shared memory { bytesText(float64(h.PostgresShm)) }
+			if h.PostgresShm < h.ShmWanted {
+				<span class="text-attention">{ "(" + bytesText(float64(h.ShmWanted)) + " once the server reconnects)" }</span>
+			}
+		</span>
+	}
 	<span class="meta-item">
 		@ic("key-round")
 		user <span class="mono">{ v.DB.Key() }</span>

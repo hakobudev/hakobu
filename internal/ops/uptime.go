@@ -47,6 +47,7 @@ type UptimeWindow struct {
 type Outage struct {
 	Start, End time.Time // End is the last minute down
 	Status     int64     // the answer at its end, 0 for none
+	Why        string    // a database's or cache's: why it didn't answer at its end
 	Ongoing    bool
 }
 
@@ -69,8 +70,12 @@ const uptimeFresh = 2 * time.Minute
 const maxOutages = 10
 
 // UptimeOf reads target's record ("panel" or AppTarget) from the
-// watchdog's history.
+// watchdog's history, or a database's or cache's (DBTarget, CacheTarget)
+// from the panel's own checks.
 func UptimeOf(s *store.Store, target string) (Uptime, error) {
+	if strings.HasPrefix(target, "db:") || strings.HasPrefix(target, "cache:") {
+		return dataUptime(s, target)
+	}
 	c, db, err := uptimeDB(s, target)
 	if err != nil {
 		return Uptime{}, err
@@ -128,9 +133,9 @@ func UptimeOf(s *store.Store, target string) (Uptime, error) {
 			u.Last = time.Unix(ts, 0)
 		}
 	}
-	var down []struct{ ts, status int64 }
+	var down []downCheck
 	for _, r := range res[downQ] {
-		down = append(down, struct{ ts, status int64 }{int64(number(r["ts"])), int64(number(r["status"]))})
+		down = append(down, downCheck{ts: int64(number(r["ts"])), status: int64(number(r["status"]))})
 	}
 	u.Outages = outages(down, u.Last)
 	var perDay []dayChecks
@@ -168,9 +173,16 @@ func uptimeDB(s *store.Store, target string) (cloudflare.Client, string, error) 
 	return c, w.D1DatabaseID, err
 }
 
+// downCheck is a check the target failed: the watchdog's, with the HTTP
+// status it got, or the panel's of a database or cache, with why.
+type downCheck struct {
+	ts, status int64
+	why        string
+}
+
 // outages groups the minutes down, newest first, into runs: minutes a
 // check apart (two, as a run may miss one) are one outage.
-func outages(down []struct{ ts, status int64 }, last time.Time) []Outage {
+func outages(down []downCheck, last time.Time) []Outage {
 	var out []Outage
 	for _, d := range down {
 		t := time.Unix(d.ts, 0)
@@ -181,7 +193,7 @@ func outages(down []struct{ ts, status int64 }, last time.Time) []Outage {
 		if len(out) == maxOutages {
 			break
 		}
-		out = append(out, Outage{Start: t, End: t, Status: d.status, Ongoing: !last.IsZero() && t.Equal(last)})
+		out = append(out, Outage{Start: t, End: t, Status: d.status, Why: d.why, Ongoing: !last.IsZero() && t.Equal(last)})
 	}
 	return out
 }

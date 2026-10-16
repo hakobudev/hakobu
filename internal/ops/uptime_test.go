@@ -8,10 +8,10 @@ import (
 // Minutes down a check apart, or two (a run may miss one), are one outage.
 func TestOutages(t *testing.T) {
 	m := func(minute int64) int64 { return 1_790_000_000 + minute*60 }
-	down := []struct{ ts, status int64 }{ // newest first
-		{m(100), 530}, {m(99), 530}, {m(97), 530}, // one, still going
-		{m(50), 0}, // one minute
-		{m(10), 502}, {m(9), 502},
+	down := []downCheck{ // newest first
+		{ts: m(100), status: 530}, {ts: m(99), status: 530}, {ts: m(97), status: 530}, // one, still going
+		{ts: m(50)}, // one minute
+		{ts: m(10), status: 502}, {ts: m(9), status: 502},
 	}
 	got := outages(down, time.Unix(m(100), 0))
 	if len(got) != 3 {

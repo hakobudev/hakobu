@@ -123,13 +123,11 @@ func DeleteDatabase(s *store.Store, id int64) error {
 	if err := s.DeleteBackupsOf(ctx(), id); err != nil {
 		return err
 	}
+	// Its record of checks goes too: its ID may be another's later.
+	if err := s.Tel.DeleteDataChecksOf(ctx(), DBTarget(id)); err != nil {
+		return err
+	}
 	return s.DeleteDatabase(ctx(), id)
-}
-
-// DatabaseReady reports whether Postgres answers on the database's node.
-func DatabaseReady(s *store.Store, d store.Database) bool {
-	n, err := databaseNode(s, d)
-	return err == nil && n.PostgresReady(ctx())
 }
 
 func DatabaseEnv(d store.Database) []string {

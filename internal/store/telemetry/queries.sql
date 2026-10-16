@@ -152,3 +152,25 @@ SELECT count(*) FROM panel_log WHERE level >= 2 AND created_at >= ?;
 
 -- name: PrunePanelLog :exec
 DELETE FROM panel_log WHERE created_at < ?;
+
+-- name: PutDataCheck :exec
+INSERT OR REPLACE INTO data_checks (target, ts, up, why) VALUES (?, ?, ?, ?);
+
+-- name: DataCheckWindow :one
+SELECT count(*) AS n, CAST(coalesce(sum(up), 0) AS INTEGER) AS up FROM data_checks WHERE target = ? AND ts >= ?;
+
+-- name: DataChecksDown :many
+SELECT ts, why FROM data_checks WHERE target = ? AND up = 0 AND ts >= ? ORDER BY ts DESC LIMIT 5000;
+
+-- name: LastDataCheck :one
+SELECT CAST(coalesce(max(ts), 0) AS INTEGER) FROM data_checks WHERE target = ?;
+
+-- name: DataChecksByDay :many
+SELECT CAST(ts / 86400 AS INTEGER) AS day, count(*) AS n, CAST(coalesce(sum(up), 0) AS INTEGER) AS up
+FROM data_checks WHERE target = ? AND ts >= ? GROUP BY day;
+
+-- name: DeleteDataChecksOf :exec
+DELETE FROM data_checks WHERE target = ?;
+
+-- name: PruneDataChecks :exec
+DELETE FROM data_checks WHERE ts < ?;

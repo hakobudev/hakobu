@@ -144,6 +144,112 @@ func (q *Queries) CreateTrace(ctx context.Context, arg CreateTraceParams) error 
 	return err
 }
 
+const dataCheckWindow = `-- name: DataCheckWindow :one
+SELECT count(*) AS n, CAST(coalesce(sum(up), 0) AS INTEGER) AS up FROM data_checks WHERE target = ? AND ts >= ?
+`
+
+type DataCheckWindowParams struct {
+	Target string
+	Ts     int64
+}
+
+type DataCheckWindowRow struct {
+	N  int64
+	Up int64
+}
+
+func (q *Queries) DataCheckWindow(ctx context.Context, arg DataCheckWindowParams) (DataCheckWindowRow, error) {
+	row := q.db.QueryRowContext(ctx, dataCheckWindow, arg.Target, arg.Ts)
+	var i DataCheckWindowRow
+	err := row.Scan(&i.N, &i.Up)
+	return i, err
+}
+
+const dataChecksByDay = `-- name: DataChecksByDay :many
+SELECT CAST(ts / 86400 AS INTEGER) AS day, count(*) AS n, CAST(coalesce(sum(up), 0) AS INTEGER) AS up
+FROM data_checks WHERE target = ? AND ts >= ? GROUP BY day
+`
+
+type DataChecksByDayParams struct {
+	Target string
+	Ts     int64
+}
+
+type DataChecksByDayRow struct {
+	Day int64
+	N   int64
+	Up  int64
+}
+
+func (q *Queries) DataChecksByDay(ctx context.Context, arg DataChecksByDayParams) ([]DataChecksByDayRow, error) {
+	rows, err := q.db.QueryContext(ctx, dataChecksByDay, arg.Target, arg.Ts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DataChecksByDayRow
+	for rows.Next() {
+		var i DataChecksByDayRow
+		if err := rows.Scan(&i.Day, &i.N, &i.Up); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const dataChecksDown = `-- name: DataChecksDown :many
+SELECT ts, why FROM data_checks WHERE target = ? AND up = 0 AND ts >= ? ORDER BY ts DESC LIMIT 5000
+`
+
+type DataChecksDownParams struct {
+	Target string
+	Ts     int64
+}
+
+type DataChecksDownRow struct {
+	Ts  int64
+	Why string
+}
+
+func (q *Queries) DataChecksDown(ctx context.Context, arg DataChecksDownParams) ([]DataChecksDownRow, error) {
+	rows, err := q.db.QueryContext(ctx, dataChecksDown, arg.Target, arg.Ts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DataChecksDownRow
+	for rows.Next() {
+		var i DataChecksDownRow
+		if err := rows.Scan(&i.Ts, &i.Why); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const deleteDataChecksOf = `-- name: DeleteDataChecksOf :exec
+DELETE FROM data_checks WHERE target = ?
+`
+
+func (q *Queries) DeleteDataChecksOf(ctx context.Context, target string) error {
+	_, err := q.db.ExecContext(ctx, deleteDataChecksOf, target)
+	return err
+}
+
 const deleteResolvedIssuesOfApp = `-- name: DeleteResolvedIssuesOfApp :exec
 DELETE FROM resolved_issues WHERE app_id = ?
 `
@@ -266,6 +372,17 @@ func (q *Queries) HasTraceRoute(ctx context.Context, arg HasTraceRouteParams) (b
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
+}
+
+const lastDataCheck = `-- name: LastDataCheck :one
+SELECT CAST(coalesce(max(ts), 0) AS INTEGER) FROM data_checks WHERE target = ?
+`
+
+func (q *Queries) LastDataCheck(ctx context.Context, target string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, lastDataCheck, target)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const lastTelemetryOfKind = `-- name: LastTelemetryOfKind :one
@@ -726,6 +843,15 @@ func (q *Queries) ListUnfingerprinted(ctx context.Context, arg ListUnfingerprint
 	return items, nil
 }
 
+const pruneDataChecks = `-- name: PruneDataChecks :exec
+DELETE FROM data_checks WHERE ts < ?
+`
+
+func (q *Queries) PruneDataChecks(ctx context.Context, ts int64) error {
+	_, err := q.db.ExecContext(ctx, pruneDataChecks, ts)
+	return err
+}
+
 const pruneEvents = `-- name: PruneEvents :exec
 DELETE FROM telemetry_events WHERE created_at < ?
 `
@@ -786,6 +912,27 @@ DELETE FROM traces WHERE created_at < ?
 
 func (q *Queries) PruneTraces(ctx context.Context, createdAt int64) error {
 	_, err := q.db.ExecContext(ctx, pruneTraces, createdAt)
+	return err
+}
+
+const putDataCheck = `-- name: PutDataCheck :exec
+INSERT OR REPLACE INTO data_checks (target, ts, up, why) VALUES (?, ?, ?, ?)
+`
+
+type PutDataCheckParams struct {
+	Target string
+	Ts     int64
+	Up     int64
+	Why    string
+}
+
+func (q *Queries) PutDataCheck(ctx context.Context, arg PutDataCheckParams) error {
+	_, err := q.db.ExecContext(ctx, putDataCheck,
+		arg.Target,
+		arg.Ts,
+		arg.Up,
+		arg.Why,
+	)
 	return err
 }
 

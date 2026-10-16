@@ -16,6 +16,7 @@ import (
 
 	"github.com/hakobudev/hakobu/internal/config"
 	"github.com/hakobudev/hakobu/internal/github"
+	"github.com/hakobudev/hakobu/internal/ops"
 	"github.com/hakobudev/hakobu/internal/store"
 )
 
@@ -216,11 +217,11 @@ func TestUsersSeeOnlyTheirOwn(t *testing.T) {
 	p, _ := s.GetProjectByID(ctx, pid)
 	_, err = s.CreateApp(ctx, store.CreateAppParams{ProjectID: p.ID, Name: "adminapp", BuildStrategy: "dockerfile"})
 	must(err)
-	_, err = s.CreateDatabase(ctx, store.CreateDatabaseParams{Name: "admindb", ProjectID: p.ID, Password: "x"})
+	adminDB, err := s.CreateDatabase(ctx, store.CreateDatabaseParams{Name: "admindb", ProjectID: p.ID, Password: "x"})
 	must(err)
 	_, err = s.CreateStorage(ctx, store.CreateStorageParams{Name: "adminst", ProjectID: p.ID, Provider: "r2", SecretAccessKey: "x"})
 	must(err)
-	_, err = s.CreateCache(ctx, store.CreateCacheParams{Name: "admincache", ProjectID: p.ID, Password: "x", MemoryMB: 64})
+	adminCache, err := s.CreateCache(ctx, store.CreateCacheParams{Name: "admincache", ProjectID: p.ID, Password: "x", MemoryMB: 64})
 	must(err)
 	must(s.CreateNode(ctx, store.CreateNodeParams{Name: "adminsrv", UserID: admin}))
 	_, err = s.CreateCloudflareAccount(ctx, store.CreateCloudflareAccountParams{Name: "adminclient", ApiToken: "x", AccountID: "acc", UserID: admin})
@@ -258,7 +259,7 @@ func TestUsersSeeOnlyTheirOwn(t *testing.T) {
 	if checked < 40 {
 		t.Errorf("only %d routes checked: is the pattern still right?", checked)
 	}
-	for target, want := range map[string]int{"app:1": http.StatusNotFound, "worker:1": http.StatusNotFound, "host:1": http.StatusNotFound, "service:postgres:1": http.StatusNotFound, "panel": http.StatusNotFound, "host": http.StatusOK, "service:postgres": http.StatusOK} {
+	for target, want := range map[string]int{ops.DBTarget(adminDB): http.StatusNotFound, ops.CacheTarget(adminCache): http.StatusNotFound, "app:1": http.StatusNotFound, "worker:1": http.StatusNotFound, "host:1": http.StatusNotFound, "service:postgres:1": http.StatusNotFound, "panel": http.StatusNotFound, "host": http.StatusOK, "service:postgres": http.StatusOK} {
 		for _, path := range []string{"/usage", "/uptime"} {
 			if path == "/uptime" && (strings.HasPrefix(target, "host") || strings.HasPrefix(target, "service")) {
 				continue
