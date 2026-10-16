@@ -333,13 +333,13 @@ func (Local) Switch(ctx context.Context, app AppSpec, c Candidate) error {
 	return proxy.SetTarget(app.Name, u)
 }
 
-// Retire takes the old version off the edge network, so it gets no new
-// requests, gives it up to 10 seconds to finish the ones in flight, and
-// removes it.
+// Retire gives the old version up to 10 seconds to finish the requests in
+// flight and removes it. It stays on the edge network until it has
+// stopped: taken off first, its answers couldn't reach the tunnel, which
+// waited on them, and on its kept-alive connections, until it timed out.
+// While it stops it refuses new connections, and the tunnel's dialer
+// goes on to the new version's address under the same alias.
 func (Local) Retire(ctx context.Context, app AppSpec, c Candidate, out io.Writer) {
-	if err := deploy.DisconnectNetwork(ctx, c.Old, ProjectEdge(app.Project)); err != nil {
-		fmt.Fprintln(out, "warning:", err)
-	}
 	if err := deploy.StopContainer(ctx, c.Old); err != nil {
 		fmt.Fprintln(out, "warning:", err) // removing it below kills it anyway
 	}

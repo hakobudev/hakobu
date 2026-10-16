@@ -24,6 +24,8 @@ The app gets `PORT` to listen on; hakobu detects the port it actually listens on
 
 A deploy builds the new image, snapshots the app's database (so a rollback can undo a migration), starts the new version next to the running one and checks its health: any response for `/`, or a 2xx for the **Health check path** you set. Only then does traffic switch, and the old version stops. A version that doesn't come up never gets traffic, and the deploy's log says why.
 
+The old version gets SIGTERM and up to 10 seconds to finish the requests it's answering, still reachable by the tunnel so their answers get through; new requests go to the new version meanwhile. An app that exits at once on SIGTERM drops the requests it was answering: most servers (uvicorn, gunicorn, Node's) finish them first if told to shut down gracefully.
+
 An app with [volumes](volumes.md) is stopped before the new version starts (a few seconds of downtime), unless you let both versions share them.
 
 **Redeploy** rebuilds the latest commit. **Rollback** returns to the build before; with **with data** it also restores the database snapshot taken before the live build's deploy, so a bad migration is undone too (rows written since are lost).

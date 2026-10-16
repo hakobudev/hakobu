@@ -317,10 +317,23 @@ func buildTestImage(t *testing.T, tag, version string) {
 	case "hungry":
 		cmd = "exec dd if=/dev/zero of=/dev/null bs=256M count=1"
 	}
+	if strings.HasPrefix(version, "graceful") {
+		// Like a real server: on SIGTERM it stops listening and finishes
+		// the requests in flight (CGI children of httpd) before exiting.
+		// (busybox's sleep in a trap returns at once, hence the loop; the
+		// [w] keeps pgrep from finding this command line itself.)
+		cmd = `httpd -f -p 8080 -h /www & h=$!; trap 'kill $h; while pgrep -f "sh slo[w]" >/dev/null; do usleep 200000; done; exit 0' TERM; wait; wait`
+	}
 	dir := t.TempDir()
+	// /cgi-bin/slow answers in 4 seconds: a request still in flight
+	// while a deploy replaces the container.
+	slow := "#!/bin/sh\nsleep 4\necho 'Content-Type: text/plain'\necho\necho slow-" + version + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "slow"), []byte(slow), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	// Started the way Railpack's images are: a shell entrypoint that
 	// takes the command as Cmd.
-	dockerfile := fmt.Sprintf("FROM busybox:1.36\nRUN mkdir /www && echo -n %s > /www/index.html\nENTRYPOINT [\"/bin/sh\", \"-c\"]\nCMD [%q]\n", version, cmd)
+	dockerfile := fmt.Sprintf("FROM busybox:1.36\nRUN mkdir -p /www/cgi-bin && echo -n %s > /www/index.html\nCOPY slow /www/cgi-bin/slow\nENTRYPOINT [\"/bin/sh\", \"-c\"]\nCMD [%q]\n", version, cmd)
 	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte(dockerfile), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -1092,5 +1105,48 @@ func TestDockerPostgresShm(t *testing.T) {
 	start()
 	if again := dockerOut(t, "inspect", "-f", "{{.Id}}", node.PostgresContainer); again != id {
 		t.Error("postgres was made anew though its /dev/shm was right")
+	}
+}
+
+// TestDockerInFlight: a request the tunnel sent the old version just
+// before a deploy replaced it gets its answer: the old container finishes
+// it on its edge network before it goes.
+func TestDockerInFlight(t *testing.T) {
+	if os.Getenv("HAKOBU_DOCKER_TEST") == "" {
+		t.Skip("set HAKOBU_DOCKER_TEST=1 to run against the local Docker")
+	}
+	s, err := store.Open(filepath.Join(t.TempDir(), "hakobu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := newDockerTestApp(t, s)
+	t.Cleanup(func() { _ = DeleteApp(s, app.ID) })
+	deployVersion := func(v string) {
+		t.Helper()
+		a, _ := getApp(s, app.Name)
+		buildTestImage(t, nextImageTag(a), v)
+		var out strings.Builder
+		if err := rollOut(s, a, node.Next, &out); err != nil {
+			t.Fatalf("deploy %s: %v\n%s", v, err, out.String())
+		}
+		if err := promote(s, a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deployVersion("graceful-v1")
+	app, _ = getApp(s, app.Name)
+	// cloudflared's view: the alias on the edge network.
+	client := "zt-client-" + app.Key()
+	dockerOut(t, "run", "-d", "--name", client, "--network", projectEdge(app.ProjectKey()), "busybox:1.36",
+		"sh", "-c", fmt.Sprintf("timeout 40 wget -qO- http://%s:8080/cgi-bin/slow || echo FAILED $?", EdgeAlias(app.Key())))
+	t.Cleanup(func() { _, _ = exec.Command("docker", "rm", "-f", client).CombinedOutput() })
+	time.Sleep(time.Second) // the request is in flight
+	start := time.Now()
+	deployVersion("graceful-v2")
+	dockerOut(t, "wait", client)
+	got := dockerOut(t, "logs", client)
+	t.Logf("in-flight request: %q, deploy took %s", got, time.Since(start).Round(time.Second))
+	if got != "slow-graceful-v1" {
+		t.Errorf("the request in flight got %q, want the old version's answer", got)
 	}
 }
