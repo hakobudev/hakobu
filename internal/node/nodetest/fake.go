@@ -47,7 +47,10 @@ type Fake struct {
 	Caches     map[string]node.CacheSpec        // container → spec
 	Keys       node.KeyState                    // what KeyState tells
 	Postgres   string                           // why Postgres doesn't answer, "" if it does
-	Tel        *teldb.Queries                   // where its apps' telemetry goes
+	// What DataStatus reports of Postgres when it answers.
+	PostgresVersion        string
+	PostgresShm, ShmWanted int64
+	Tel                    *teldb.Queries // where its apps' telemetry goes
 }
 
 var _ node.Node = (*Fake)(nil)
@@ -424,6 +427,9 @@ func (f *Fake) DataStatus(ctx context.Context, databases []string, caches []node
 	}
 	if len(databases) > 0 {
 		st.Postgres = f.Postgres
+		if st.Postgres == "" {
+			st.PostgresVersion, st.PostgresShm, st.PostgresShmWanted = f.PostgresVersion, f.PostgresShm, f.ShmWanted
+		}
 		for _, name := range databases {
 			if st.Postgres == "" {
 				content, ok := f.DBs[name]

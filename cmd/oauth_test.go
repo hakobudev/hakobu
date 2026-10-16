@@ -177,6 +177,10 @@ func TestOAuthAndMCP(t *testing.T) {
 		!strings.Contains(jsonString(out), `"mine/web"`) || strings.Contains(jsonString(out), "theirs") {
 		t.Errorf("list_apps: %v", out)
 	}
+	if out := call(access, "get_metrics", `{"target":"postgres"}`); out["result"] == nil || out["result"].(map[string]any)["isError"] == true ||
+		strings.Contains(jsonString(out), `"postgres":`) {
+		t.Errorf("get_metrics of postgres, no databases checked: %v", out)
+	}
 	if out := call(access, "get_app", `{"app":"other/theirs"}`); !strings.Contains(jsonString(out), `no app \"other/theirs\"`) {
 		t.Errorf("get_app of someone else's: %v", out)
 	}

@@ -186,3 +186,30 @@ func TestDataUptime(t *testing.T) {
 		t.Errorf("checks of a deleted database kept: %+v", u.Windows[2])
 	}
 }
+
+// A server's Postgres is what the latest check of a database there
+// reported, for get_metrics.
+func TestPostgresHealth(t *testing.T) {
+	s, f, _ := dataStore(t)
+	web := seedApp(t, s, "shop", "web")
+	if _, ok := PostgresHealth(s, 0); ok {
+		t.Fatal("reported before any check")
+	}
+	id, err := s.CreateDatabase(ctx(), store.CreateDatabaseParams{ProjectID: web.ProjectID, Name: "main", Password: "pw"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.DBs[store.Database{ID: id}.Key()] = "x"
+	checkData(s) // a server before v0.30.2 says nothing of it
+	if _, ok := PostgresHealth(s, 0); ok {
+		t.Error("reported without a size")
+	}
+	f.PostgresVersion, f.PostgresShm, f.ShmWanted = "18.6", 64<<20, 1<<30
+	checkData(s)
+	if h, ok := PostgresHealth(s, 0); !ok || h.PostgresVersion != "18.6" || h.PostgresShm != 64<<20 || h.ShmWanted != 1<<30 {
+		t.Errorf("%+v (%v)", h, ok)
+	}
+	if _, ok := PostgresHealth(s, 7); ok {
+		t.Error("another server's Postgres reported")
+	}
+}

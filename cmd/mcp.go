@@ -259,7 +259,7 @@ func newMCPServer(s *store.Store) *mcp.Server {
 			return nil, out, err
 		})
 
-	mcp.AddTool(server, &mcp.Tool{Name: "get_metrics", Description: "Show the CPU and memory use of an app, its worker, the PostgreSQL server or the whole server over a span, with its limits: now, average and peak, and a series of up to 60 points. Recorded every minute.", Annotations: readOnly},
+	mcp.AddTool(server, &mcp.Tool{Name: "get_metrics", Description: "Show the CPU and memory use of an app, its worker, the PostgreSQL server or the whole server over a span, with its limits: now, average and peak, and a series of up to 60 points. Recorded every minute. For postgres, also its version and shared memory (/dev/shm), from its latest check.", Annotations: readOnly},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
 			Target string `json:"target" jsonschema:"an app as project/app, \"server\" or \"postgres\""`
 			Server string `json:"server,omitempty" jsonschema:"for server or postgres: which server, by name; the panel's if left out"`
@@ -267,9 +267,9 @@ func newMCPServer(s *store.Store) *mcp.Server {
 			Range  string `json:"range,omitempty" jsonschema:"1h, 24h (default), 7d or 30d"`
 		}) (*mcp.CallToolResult, mcpUsage, error) {
 			var target string
+			var serverID int64
 			switch in.Target {
 			case "server", "host", "postgres":
-				var serverID int64
 				if in.Server != "" {
 					n, err := ops.UserServer(s, mcpUserOf(ctx).ID, in.Server)
 					if err != nil {
@@ -306,7 +306,13 @@ func newMCPServer(s *store.Store) *mcp.Server {
 			if err != nil {
 				return nil, mcpUsage{}, err
 			}
-			return nil, summarizeUsage(target, rng, rows), nil
+			out := summarizeUsage(target, rng, rows)
+			if in.Target == "postgres" {
+				if h, ok := ops.PostgresHealth(s, serverID); ok {
+					out.Postgres = &mcpPostgres{Version: h.PostgresVersion, SharedMemoryMB: h.PostgresShm >> 20, SharedMemoryWantedMB: h.ShmWanted >> 20, CheckedAt: h.At.UTC().Format(time.RFC3339)}
+				}
+			}
+			return nil, out, nil
 		})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "slow_routes", Description: "List an app's routes (requests and tasks its Sentry SDK traced) with how many ran, p50/p95/average durations and the share that failed, the ones that took the most time in all first; and the latest slow (1 s and over) or failed requests kept whole, for get_trace. Needs traces_sample_rate set in the app's Sentry SDK.", Annotations: readOnly},
@@ -633,6 +639,15 @@ type mcpUsage struct {
 	CPU    mcpStat     `json:"cpu_cores"`
 	Memory mcpStat     `json:"memory_mb"`
 	Series []mcpSample `json:"series" jsonschema:"oldest first; empty when nothing was recorded"`
+	// For postgres.
+	Postgres *mcpPostgres `json:"postgres,omitempty" jsonschema:"for postgres: what its latest check reported; none while it has no databases or its server runs hakobu before v0.30.2"`
+}
+
+type mcpPostgres struct {
+	Version              string `json:"version"`
+	SharedMemoryMB       int64  `json:"shared_memory_mb" jsonschema:"its /dev/shm, for parallel queries, hashes and sorts; Docker's default is 64"`
+	SharedMemoryWantedMB int64  `json:"shared_memory_wanted_mb" jsonschema:"what hakobu gives it; while shared_memory_mb is below, it's resized as its server next connects"`
+	CheckedAt            string `json:"checked_at"`
 }
 
 type mcpStat struct {

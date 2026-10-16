@@ -62,6 +62,30 @@ func DatabaseHealth(id int64) (DataHealth, bool) {
 	return h, ok && h.Fresh()
 }
 
+// PostgresHealth is the latest fresh check of a database on the server
+// (0: the panel's) that reported its PostgreSQL server: its version and
+// /dev/shm; false if none did, as from a server before v0.30.2.
+func PostgresHealth(s *store.Store, serverID int64) (DataHealth, bool) {
+	dbs, err := s.ListDatabases(ctx())
+	if err != nil {
+		return DataHealth{}, false
+	}
+	places, err := projectPlaces(s)
+	if err != nil {
+		return DataHealth{}, false
+	}
+	var latest DataHealth
+	for _, d := range dbs {
+		if places[d.ProjectID].server != serverID {
+			continue
+		}
+		if h, ok := DatabaseHealth(d.ID); ok && h.PostgresShm > 0 && h.At.After(latest.At) {
+			latest = h
+		}
+	}
+	return latest, !latest.At.IsZero()
+}
+
 // CacheHealth is the latest check of cache id.
 func CacheHealth(id int64) (DataHealth, bool) {
 	dataHealth.Lock()

@@ -16,7 +16,7 @@ hakobu is an MCP server at `https://<panel address>/mcp` (on the hosted panel, `
 
 ## What it can do
 
-Its tools list apps and show one in detail (variable names, never values), read deploy logs, the apps' output and errors with stack traces, resolve an error once it's fixed, and wait for a deploy to finish, so Claude can push a fix and check it landed.
+Its tools list apps and show one in detail (variable names, never values), read deploy logs, the apps' output and errors with stack traces, resolve an error once it's fixed, show the CPU and memory of an app or a server and the PostgreSQL server's version and shared memory, and wait for a deploy to finish, so Claude can push a fix and check it landed.
 
 With the **Deploy and set up** box ticked when you allow the app, it can also deploy, roll back and restart workers, and set a repository up from nothing: make a project, the app, a PostgreSQL database, a cache or a volume, set variables and how the app builds and starts. Tell your agent "deploy this repo" and it can do the rest.
 
