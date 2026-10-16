@@ -21,6 +21,7 @@ import (
 	"github.com/hakobudev/hakobu/internal/config"
 	"github.com/hakobudev/hakobu/internal/edge"
 	"github.com/hakobudev/hakobu/internal/link"
+	"github.com/hakobudev/hakobu/internal/node"
 	"github.com/hakobudev/hakobu/internal/ops"
 	"github.com/hakobudev/hakobu/internal/panellog"
 	"github.com/hakobudev/hakobu/internal/secret"
@@ -119,6 +120,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	go ops.WatchHealth(s)
 	go ops.WatchMetrics(s)
 	go ops.WatchData(s)
+	go node.KeepReserve(context.Background(), node.ReserveFile)
 	go ops.WatchCloudflareAccounts(s, 10*time.Minute)
 	go runBackupScheduler(s)
 	if err := ops.StartTunnel(s); err != nil {

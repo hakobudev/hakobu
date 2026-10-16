@@ -200,6 +200,7 @@ func runNode(ctx context.Context, cfg nodeConfig, key ed25519.PrivateKey) error 
 		return err
 	}
 	node.Tel = tel.Q
+	go node.KeepReserve(ctx, node.ReserveFile)
 	go func() {
 		for ; ; time.Sleep(time.Hour) {
 			if err := tel.Prune(context.Background(), config.RetentionDays); err != nil {

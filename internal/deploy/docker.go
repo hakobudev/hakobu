@@ -1258,23 +1258,32 @@ func PruneBuildCache(ctx context.Context, keep time.Duration) (freed int64, err 
 	return res.SpaceReclaimed, nil
 }
 
-// Disk reports usage of the filesystem Docker stores images and volumes on.
-func Disk(ctx context.Context) (used, total uint64, err error) {
+// DockerRootDir is where Docker keeps images, containers and volumes.
+func DockerRootDir(ctx context.Context) (string, error) {
 	respBody, status, err := dockerRequest(ctx, "GET", "/info", nil)
 	if err != nil {
-		return 0, 0, err
+		return "", err
 	}
 	if status != http.StatusOK {
-		return 0, 0, fmt.Errorf("docker info failed (%d)", status)
+		return "", fmt.Errorf("docker info failed (%d)", status)
 	}
 	var info struct {
 		DockerRootDir string `json:"DockerRootDir"`
 	}
 	if err := json.Unmarshal(respBody, &info); err != nil {
+		return "", err
+	}
+	return info.DockerRootDir, nil
+}
+
+// Disk reports usage of the filesystem Docker stores images and volumes on.
+func Disk(ctx context.Context) (used, total uint64, err error) {
+	root, err := DockerRootDir(ctx)
+	if err != nil {
 		return 0, 0, err
 	}
 	var st syscall.Statfs_t
-	if err := syscall.Statfs(info.DockerRootDir, &st); err != nil {
+	if err := syscall.Statfs(root, &st); err != nil {
 		return 0, 0, err
 	}
 	total = st.Blocks * uint64(st.Bsize)
