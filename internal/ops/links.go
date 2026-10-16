@@ -432,6 +432,8 @@ type Server struct {
 	// copy of the current one (KeyExportCommand).
 	Key      node.KeyState
 	KeyKnown bool
+	// Its disk at the latest reading, 0 when none is recent.
+	DiskUsed, DiskTotal int64
 }
 
 func Servers(s *store.Store) ([]Server, error) {
@@ -451,6 +453,7 @@ func Servers(s *store.Store) ([]Server, error) {
 			}
 		}
 		out[i].Key, out[i].KeyKnown = knownServerKeys(n.ID)
+		out[i].DiskUsed, out[i].DiskTotal = ServerDisk(s, n.ID)
 	}
 	return out, nil
 }

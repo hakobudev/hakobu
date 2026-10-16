@@ -165,3 +165,59 @@ func TestCurrentUsageOfThePanelsServer(t *testing.T) {
 		t.Errorf("box's app is recorded as %q", got)
 	}
 }
+
+// kasl on 2026-10-16: a table grew 28 GB in 47 minutes and filled the
+// disk. Every server's disk is watched: the pace is mailed well before it
+// fills, then 80% and 90%, and each once it has room again.
+func TestDiskAlerts(t *testing.T) {
+	f := newFakeEmail(t)
+	s := notifyStore(t)
+	if err := SetupNotifications(s, "me@example.org", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	joinServer(t, s, "kasl", nil)
+	kasl, _ := s.GetNodeByName(ctx(), store.GetNodeByNameParams{Name: "kasl"})
+	const gb = 1 << 30
+	start := time.Now().Truncate(time.Minute).Unix() - 60*60
+	at := func(minute int, used int64) {
+		t.Helper()
+		ts := start + int64(minute)*60
+		if err := putSample(s, minuteRes, ts, teldb.Sample{Target: hostTarget(kasl.ID), DiskUsed: used, DiskTotal: 38 * gb}); err != nil {
+			t.Fatal(err)
+		}
+		checkUsage(s, ts)
+	}
+	first := map[string]int{}
+	for m := 0; m <= 47; m++ {
+		used := int64(8 * gb)
+		if m > 0 {
+			used += int64(m) * 28 * gb / 47
+		}
+		used = min(used, 38*gb)
+		at(m, used)
+		for _, subj := range f.sent() {
+			if _, ok := first[subj]; !ok {
+				first[subj] = m
+			}
+		}
+	}
+	fast, filling, full := first["Server kasl's disk is filling fast"], first["Server kasl's disk is filling up"], first["Server kasl's disk is almost full"]
+	t.Logf("mailed at minutes: fast %d, 80%% %d, 90%% %d", fast, filling, full)
+	if fast == 0 || fast > 25 {
+		t.Errorf("filling fast mailed at minute %d, want early (sent %v)", fast, first)
+	}
+	if filling == 0 || full == 0 || fast >= filling || filling >= full || full >= 47 {
+		t.Errorf("mailed at minutes: fast %d, 80%% %d, 90%% %d", fast, filling, full)
+	}
+	n := len(f.sent())
+	at(48, 8*gb+400<<20) // VACUUM FULL
+	back := strings.Join(f.sent()[n:], "|")
+	for _, want := range []string{"Server kasl's disk has room again", "Server kasl's disk stopped filling"} {
+		if !strings.Contains(back, want) {
+			t.Errorf("after freeing: %q, want %q", back, want)
+		}
+	}
+	if got := recipient(s, "serverdiskfast:"+fmt.Sprint(kasl.ID)); got != "me@example.org" {
+		t.Errorf("goes to %q", got)
+	}
+}

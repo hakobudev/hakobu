@@ -538,7 +538,7 @@ func alertAbout(s *store.Store, key string) (alertSubject, bool) {
 			return alertSubject{}, false
 		}
 		projectID = c.ProjectID
-	case "serverkey", "server": // <kind>:<server ID>
+	case "serverkey", "server", "servermemory", "servercpu", "serverdisk", "serverdiskfilling", "serverdiskfast": // <kind>:<server ID>
 		id, _ := strconv.ParseInt(rest, 10, 64)
 		n, err := s.GetNode(ctx(), id)
 		if err != nil {
@@ -665,7 +665,7 @@ func noteCrash(s *store.Store, app store.App, message string) {
 		message+"\n\nIts output: "+panelURL(AppPath(app)+"/logs"))
 }
 
-// CheckForOwner mails the disk filling up and a master key the owner
+// CheckForOwner mails a master key the owner
 // hasn't downloaded, checks the token and puts the watchdog back if it's
 // gone; it's called hourly.
 func CheckForOwner(s *store.Store) {
@@ -674,12 +674,6 @@ func CheckForOwner(s *store.Store) {
 		panellog.Error("watchdog:", err)
 	}
 	EnsureAccountAlerts(s)
-	if disk, low := DiskUsage(); low {
-		problem(s, "disk", notifyAgain, "The server's disk is almost full",
-			"Disk: "+disk+". Deploys and databases fail on a full disk; free some space or clean up: "+panelURL("/settings"))
-	} else {
-		solved(s, "disk", "The server's disk has room again", "Disk: "+disk+".")
-	}
 	checkServerKeys(s)
 	if BackupBucket(s) != "" && panelBackedUp() && !KeyDownloaded() {
 		problem(s, "key", 7*24*time.Hour, "Download the panel's master key",

@@ -46,4 +46,4 @@ An app with [volumes](volumes.md) is stopped before the new version starts (a fe
 
 ## Disk
 
-Each app keeps only its live image and one for rollback, and unused build cache is dropped daily. You're emailed when the disk is almost full.
+Each app keeps only its live image and one for rollback, and unused build cache is dropped daily. You're emailed when a server's disk passes 80% and 90%, and when it fills fast enough to be full within 2 hours.

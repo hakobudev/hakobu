@@ -80,6 +80,29 @@ func TestSummarizeUsageForMCP(t *testing.T) {
 	}
 }
 
+// A server's disk: where it is and how fast it grows, over the range and
+// the last hour.
+func TestSummarizeDiskForMCP(t *testing.T) {
+	var rows []teldb.Sample
+	for i := range 120 { // two hours, half a GB a minute in the second
+		used := int64(8 << 30)
+		if i >= 60 {
+			used += int64(i-59) << 29
+		}
+		rows = append(rows, teldb.Sample{Ts: int64(i) * 60, DiskUsed: used, DiskTotal: 40 << 30})
+	}
+	u := summarizeUsage("host:3", "24h", rows)
+	if d := u.Disk; d == nil || d.UsedGB != 38 || d.TotalGB != 40 || d.UsedPercent != 95 || d.GrownGB != 30 || d.LastHourGB != 30 {
+		t.Errorf("disk %+v", u.Disk)
+	}
+	if u.Series[len(u.Series)-1].DiskGB != 38 {
+		t.Errorf("last point %+v", u.Series[len(u.Series)-1])
+	}
+	if summarizeUsage("app:web", "24h", []teldb.Sample{{Ts: 1, Mem: 1}}).Disk != nil {
+		t.Error("an app has no disk")
+	}
+}
+
 // A service's charts are titled the same on any server: the server's ID in
 // its target isn't for people.
 func TestTargetTitle(t *testing.T) {

@@ -650,6 +650,13 @@ templ settingsServers(v settingsPage) {
 										@timeAgo(sv.LastSeen)
 									}
 								</span>
+								if sv.DiskTotal > 0 {
+									{{ pct := sv.DiskUsed * 100 / sv.DiskTotal }}
+									<span class={ "small", templ.KV("text-danger", pct >= 90), templ.KV("text-attention", pct >= 80 && pct < 90), templ.KV("muted", pct < 80) } title="its disk">
+										@ic("hard-drive", "icon-sm")
+										{ fmt.Sprintf("%s of %s (%d%%)", bytesText(float64(sv.DiskUsed)), bytesText(float64(sv.DiskTotal)), pct) }
+									</span>
+								}
 							</span>
 							<span class="row-meta flex items-center gap-2">
 								if sv.KeyKnown && !sv.Key.Exported {
@@ -688,6 +695,22 @@ templ settingsServers(v settingsPage) {
 									@copyButton(ops.KeyExportCommand(sv.Name))
 								</div>
 							</div>
+						}
+						if sv.Joined {
+							<details>
+								<summary class="box-row cursor-pointer">
+									<span class="row-main">
+										@ic("activity", "icon-muted")
+										<span>Usage</span>
+									</span>
+									<span class="row-meta">CPU, memory, load and disk</span>
+								</summary>
+								<div class="box-body">
+									<div hx-get={ "/usage?range=24h&target=host:" + itoa(sv.ID) } hx-trigger="toggle from:closest details once" hx-swap="outerHTML">
+										@skeleton(1, true)
+									</div>
+								</div>
+							</details>
 						}
 					}
 				</div>

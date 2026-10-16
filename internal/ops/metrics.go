@@ -320,16 +320,118 @@ func checkUsage(s *store.Store, ts int64) {
 			}
 		}
 	}
-	alertOn(s, HostTarget, ts, memoryMinutes, memHigh, "host-memory",
-		"The server is short of memory",
-		fmt.Sprintf("Over %d%% of the server's memory has been in use for %d minutes; apps and databases get killed when it runs out. See what uses it: %s",
-			int(usageThreshold*100), memoryMinutes, panelURL("/settings#server")),
-		"The server has memory to spare again", "Memory use of the server is back under "+strconv.Itoa(int(usageThreshold*100))+"%.")
-	alertOn(s, HostTarget, ts, cpuMinutes, cpuHigh, "host-cpu",
-		"The server's CPU is maxed out",
-		fmt.Sprintf("The server's CPUs have been over %d%% busy for %d minutes; apps answer slowly. See what uses them: %s",
-			int(usageThreshold*100), cpuMinutes, panelURL("/settings#server")),
-		"The server's CPU has room again", "CPU use of the server is back under "+strconv.Itoa(int(usageThreshold*100))+"%.")
+	for _, h := range alertHosts(s) {
+		alertOn(s, h.target, ts, memoryMinutes, memHigh, h.key("memory"),
+			h.label+" is short of memory",
+			fmt.Sprintf("Over %d%% of %s's memory has been in use for %d minutes; apps and databases get killed when it runs out. See what uses it: %s",
+				int(usageThreshold*100), h.what, memoryMinutes, h.page),
+			h.label+" has memory to spare again", "Memory use of "+h.what+" is back under "+strconv.Itoa(int(usageThreshold*100))+"%.")
+		alertOn(s, h.target, ts, cpuMinutes, cpuHigh, h.key("cpu"),
+			h.label+": CPU maxed out",
+			fmt.Sprintf("The CPUs of %s have been over %d%% busy for %d minutes; apps answer slowly. See what uses them: %s",
+				h.what, int(usageThreshold*100), cpuMinutes, h.page),
+			h.label+": CPU has room again", "CPU use of "+h.what+" is back under "+strconv.Itoa(int(usageThreshold*100))+"%.")
+		checkDisk(s, h, ts)
+	}
+}
+
+// ServerDisk is the server's (0: the panel's) disk at its latest reading,
+// zeros when there's none from the last few minutes.
+func ServerDisk(s *store.Store, serverID int64) (used, total int64) {
+	rows, err := s.Tel.ListSamples(ctx(), teldb.ListSamplesParams{Target: hostTarget(serverID), Res: minuteRes, Ts: time.Now().Add(-3 * time.Minute).Unix()})
+	if err != nil || len(rows) == 0 {
+		return 0, 0
+	}
+	r := rows[len(rows)-1]
+	return r.DiskUsed, r.DiskTotal
+}
+
+// alertHost is a server as its usage alerts name it.
+type alertHost struct {
+	id     int64  // 0: the panel's
+	target string // its usage's
+	label  string // "The server" or "Server kasl", to start a subject
+	what   string // "the server" or "server kasl", in a sentence
+	page   string // where to look
+}
+
+// key is the alert's key: the panel's server's own (host-memory, disk...)
+// or another's by its ID (servermemory:<id>, see alertAbout).
+func (h alertHost) key(kind string) string {
+	if h.id == 0 {
+		if kind == "disk" {
+			return "disk" // the key it had when only the panel's was watched
+		}
+		return "host-" + kind
+	}
+	return fmt.Sprintf("server%s:%d", kind, h.id)
+}
+
+// alertHosts are the panel's server and every joined one.
+func alertHosts(s *store.Store) []alertHost {
+	out := []alertHost{{target: HostTarget, label: "The server", what: "the server", page: panelURL("/settings#server")}}
+	nodes, _ := s.ListNodes(ctx())
+	for _, n := range nodes {
+		out = append(out, alertHost{id: n.ID, target: hostTarget(n.ID), label: "Server " + n.Name, what: "server " + n.Name, page: panelURL("/settings#servers")})
+	}
+	return out
+}
+
+// Disk alerts: a server's disk this full, or filling so fast it'd be full
+// within diskSoon at the pace of up to the last diskPaceMinutes (at least
+// diskPaceFrom of them, and diskPaceMin grown: a build pulls a GB or so).
+const (
+	diskFilling     = 0.8
+	diskFull        = 0.9
+	diskSoon        = 2 * time.Hour
+	diskPaceMinutes = 30
+	diskPaceFrom    = 10
+	diskPaceMin     = 1 << 30
+	diskFastAgain   = time.Hour
+)
+
+// checkDisk mails the owner when the server's disk passes diskFilling and
+// diskFull, and when it's on course to fill within diskSoon: a database
+// or a log growing out of hand fills one in under an hour.
+func checkDisk(s *store.Store, h alertHost, ts int64) {
+	rows, err := s.Tel.ListSamples(ctx(), teldb.ListSamplesParams{Target: h.target, Res: minuteRes, Ts: ts - diskPaceMinutes*60})
+	if err != nil || len(rows) == 0 {
+		return
+	}
+	cur := rows[len(rows)-1]
+	if cur.DiskTotal == 0 || cur.Ts < ts-3*60 { // not read lately: its server is away
+		return
+	}
+	used, total := cur.DiskUsed, cur.DiskTotal
+	pct := float64(used) / float64(total)
+	state := fmt.Sprintf("%s of %s used (%.0f%%)", humanBytes(uint64(used)), humanBytes(uint64(total)), pct*100)
+	advice := "Deploys, databases and logs fail on a full disk. See what grows (a database's size is on its page) and free some space: " + h.page
+	for _, level := range []struct {
+		at   float64
+		kind string
+		subj string
+	}{{diskFull, "disk", " is almost full"}, {diskFilling, "diskfilling", " is filling up"}} {
+		if pct >= level.at {
+			problem(s, h.key(level.kind), notifyAgain, h.label+"'s disk"+level.subj, "Disk: "+state+". "+advice)
+		} else {
+			solved(s, h.key(level.kind), h.label+"'s disk has room again", "Disk: "+state+".")
+		}
+	}
+	first := rows[0]
+	grown, span := used-first.DiskUsed, cur.Ts-first.Ts
+	if span >= diskPaceFrom*60 && grown >= diskPaceMin {
+		perSec := float64(grown) / float64(span)
+		left := time.Duration(float64(total-used)/perSec) * time.Second
+		if left < diskSoon {
+			problem(s, h.key("diskfast"), diskFastAgain, h.label+"'s disk is filling fast",
+				fmt.Sprintf("Disk: %s, up %s in the last %d minutes: at this pace it's full in about %d minutes. %s",
+					state, humanBytes(uint64(grown)), span/60, int(left.Minutes())+1, advice))
+			return
+		}
+	}
+	if grown < diskPaceMin/4 {
+		solved(s, h.key("diskfast"), h.label+"'s disk stopped filling", "Disk: "+state+".")
+	}
 }
 
 // alertOn mails problem when every minute of the last ones of target is

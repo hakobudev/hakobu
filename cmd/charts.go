@@ -347,13 +347,14 @@ func targetCharts(target string, rows []teldb.Sample, from, to int64) []chart {
 		}
 	}
 	ts := make([]int64, len(rows))
-	var cpu, cpuMax, mem, memMax, rx, tx, load []float64
+	var cpu, cpuMax, mem, memMax, rx, tx, load, disk []float64
 	for i, r := range rows {
 		ts[i] = r.Ts
 		cpu, cpuMax = append(cpu, r.Cpu), append(cpuMax, r.CpuMax)
 		mem, memMax = append(mem, float64(r.Mem)), append(memMax, float64(r.MemMax))
 		rx, tx = append(rx, r.NetRx), append(tx, r.NetTx)
 		load = append(load, r.Load)
+		disk = append(disk, float64(r.DiskUsed))
 	}
 	last := rows[len(rows)-1]
 	title := targetTitle(target)
@@ -361,8 +362,10 @@ func targetCharts(target string, rows []teldb.Sample, from, to int64) []chart {
 		usageChart(title+" · CPU", ts, res, from, to, last.CpuLimit, true, cores, series{name: "CPU", color: "var(--chart-1)", avg: cpu, peak: cpuMax}),
 		usageChart(title+" · memory", ts, res, from, to, float64(last.MemLimit), false, bytesText, series{name: "memory", color: "var(--chart-2)", avg: mem, peak: memMax}),
 	}
-	if target == ops.HostTarget {
-		return append(charts, usageChart(title+" · load", ts, res, from, to, 0, true, loadText, series{name: "load", color: "var(--chart-3)", avg: load}))
+	if target == ops.HostTarget || strings.HasPrefix(target, ops.HostTarget+":") {
+		return append(charts,
+			usageChart(title+" · load", ts, res, from, to, 0, true, loadText, series{name: "load", color: "var(--chart-3)", avg: load}),
+			usageChart(title+" · disk", ts, res, from, to, float64(last.DiskTotal), false, bytesText, series{name: "disk", color: "var(--chart-1)", avg: disk}))
 	}
 	return append(charts, usageChart(title+" · network", ts, res, from, to, 0, true, rateText,
 		series{name: "in", color: "var(--chart-1)", avg: rx}, series{name: "out", color: "var(--chart-3)", avg: tx}))

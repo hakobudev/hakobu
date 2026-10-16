@@ -85,7 +85,7 @@
 <h2 id="domains">Domains</h2>
 <p><strong>Settings → General → Address</strong> puts the app on any domain of the project's Cloudflare account; hakobu manages the DNS record and HTTPS works right away. Leave the subdomain empty for the root domain. A <strong>private</strong> app has no address: other apps of the project reach it on the project's network (see <a href="/docs/apps-calling-apps/">Apps calling apps</a>).</p>
 <h2 id="disk">Disk</h2>
-<p>Each app keeps only its live image and one for rollback, and unused build cache is dropped daily. You're emailed when the disk is almost full.</p>
+<p>Each app keeps only its live image and one for rollback, and unused build cache is dropped daily. You're emailed when a server's disk passes 80% and 90%, and when it fills fast enough to be full within 2 hours.</p>
 
     </article>
     <nav class="docs-pager" aria-label="Pages"><a class="docs-prev" href="/docs/install/"><span>Previous</span>Self-hosting</a><a class="docs-next" href="/docs/apps-calling-apps/"><span>Next</span>Apps calling apps</a>

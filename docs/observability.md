@@ -18,7 +18,7 @@ Each card shows how it's doing now. An app's and a cache's have their CPU and me
 
 ## Email alerts
 
-**Settings → Notifications**: enter your address and confirm it from the email Cloudflare sends. hakobu then emails you when a deploy after a push fails, a backup fails, an app crashes or runs out of memory, a database or cache stops answering (and when it answers again), a [server](servers.md) has been away from the panel for 3 minutes (and when it's back), the disk is almost full or the master key isn't downloaded; each problem once, again only if it's still there hours later, and once more when it's gone. It goes through Cloudflare Email Service, free for a confirmed address.
+**Settings → Notifications**: enter your address and confirm it from the email Cloudflare sends. hakobu then emails you when a deploy after a push fails, a backup fails, an app crashes or runs out of memory, a database or cache stops answering (and when it answers again), a [server](servers.md) has been away from the panel for 3 minutes (and when it's back), a server's disk passes 80% and 90% or fills fast enough to be full within 2 hours (checked every minute, on every server), a server's memory or CPU stays over 90%, or the master key isn't downloaded; each problem once, again only if it's still there hours later, and once more when it's gone. It goes through Cloudflare Email Service, free for a confirmed address.
 
 Alerts about a project come from the [Cloudflare account](cloudflare.md) it's in, from `alerts@mail.<a domain there>`, so Cloudflare asks you once in each account to confirm the address; **Settings → Notifications** shows how far each account got. hakobu sets that up once a project of yours is in the account, and removes it when none is.
 

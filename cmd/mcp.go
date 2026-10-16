@@ -178,7 +178,7 @@ func newMCPServer(s *store.Store) *mcp.Server {
 				mcpApp: appSummary(ctx, s, app), Domain: app.Domain, BuildPath: app.BuildPath, Strategy: app.BuildStrategy, StartCommand: app.StartCommand,
 				PanelURL:    "https://" + config.PublicHost() + ops.AppPath(app) + "/variables",
 				HealthCheck: app.HealthCheckPath, MemoryMB: app.MemoryMB, CPUs: app.Cpus, LastOOM: ops.LastOOM(s, app),
-				EnvKeys: []string{},
+				EnvKeys:     []string{},
 				CanRollBack: ops.DataRollbackBlocker(s, app) == "", RecentDeploy: []mcpDeploy{},
 			}
 			linked := linkedView(ctx, s, app)
@@ -259,7 +259,7 @@ func newMCPServer(s *store.Store) *mcp.Server {
 			return nil, out, err
 		})
 
-	mcp.AddTool(server, &mcp.Tool{Name: "get_metrics", Description: "Show the CPU and memory use of an app, its worker, the PostgreSQL server or the whole server over a span, with its limits: now, average and peak, and a series of up to 60 points. Recorded every minute. For postgres, also its version and shared memory (/dev/shm), from its latest check.", Annotations: readOnly},
+	mcp.AddTool(server, &mcp.Tool{Name: "get_metrics", Description: "Show the CPU and memory use of an app, its worker, the PostgreSQL server or the whole server over a span, with its limits: now, average and peak, and a series of up to 60 points. Recorded every minute. For server, also its disk: used, total and how fast it grows. For postgres, also its version and shared memory (/dev/shm), from its latest check.", Annotations: readOnly},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
 			Target string `json:"target" jsonschema:"an app as project/app, \"server\" or \"postgres\""`
 			Server string `json:"server,omitempty" jsonschema:"for server or postgres: which server, by name; the panel's if left out"`
@@ -639,8 +639,18 @@ type mcpUsage struct {
 	CPU    mcpStat     `json:"cpu_cores"`
 	Memory mcpStat     `json:"memory_mb"`
 	Series []mcpSample `json:"series" jsonschema:"oldest first; empty when nothing was recorded"`
+	// For server.
+	Disk *mcpDisk `json:"disk,omitempty" jsonschema:"for server: its disk (Docker's, where the databases, volumes and images are)"`
 	// For postgres.
 	Postgres *mcpPostgres `json:"postgres,omitempty" jsonschema:"for postgres: what its latest check reported; none while it has no databases or its server runs hakobu before v0.30.2"`
+}
+
+type mcpDisk struct {
+	UsedGB      float64 `json:"used_gb"`
+	TotalGB     float64 `json:"total_gb"`
+	UsedPercent float64 `json:"used_percent" jsonschema:"hakobu emails the owner at 80 and 90"`
+	GrownGB     float64 `json:"grown_gb" jsonschema:"over the range; negative when it shrank"`
+	LastHourGB  float64 `json:"grown_last_hour_gb" jsonschema:"hakobu emails the owner when the pace would fill it within 2 hours"`
 }
 
 type mcpPostgres struct {
@@ -663,6 +673,7 @@ type mcpSample struct {
 	CPUPeak float64 `json:"cpu_peak"`
 	MemMB   float64 `json:"memory_mb"`
 	MemPeak float64 `json:"memory_peak_mb"`
+	DiskGB  float64 `json:"disk_gb,omitempty" jsonschema:"for server: used, at the end of the point"`
 }
 
 // summarizeUsage boils rows down to the stats and at most 60 points.
@@ -673,7 +684,19 @@ func summarizeUsage(target, rng string, rows []teldb.Sample) mcpUsage {
 	}
 	round := func(v float64) float64 { return math.Round(v*100) / 100 }
 	mb := func(b int64) float64 { return float64(b) / (1 << 20) }
+	gb := func(b int64) float64 { return float64(b) / (1 << 30) }
 	last := rows[len(rows)-1]
+	if last.DiskTotal > 0 {
+		d := &mcpDisk{UsedGB: round(gb(last.DiskUsed)), TotalGB: round(gb(last.DiskTotal)),
+			UsedPercent: round(float64(last.DiskUsed) / float64(last.DiskTotal) * 100), GrownGB: round(gb(last.DiskUsed - rows[0].DiskUsed))}
+		for _, r := range rows {
+			if r.Ts >= last.Ts-3600 && r.DiskTotal > 0 {
+				d.LastHourGB = round(gb(last.DiskUsed - r.DiskUsed))
+				break
+			}
+		}
+		u.Disk = d
+	}
 	u.CPU = mcpStat{Now: last.Cpu, Limit: last.CpuLimit}
 	u.Memory = mcpStat{Now: mb(last.Mem), Limit: mb(last.MemLimit)}
 	per := (len(rows) + 59) / 60
@@ -688,6 +711,7 @@ func summarizeUsage(target, rng string, rows []teldb.Sample) mcpUsage {
 		}
 		p.At = time.Unix(group[0].Ts, 0).UTC().Format(time.RFC3339)
 		p.CPU, p.CPUPeak, p.MemMB, p.MemPeak = round(p.CPU), round(p.CPUPeak), round(p.MemMB), round(p.MemPeak)
+		p.DiskGB = round(gb(group[len(group)-1].DiskUsed))
 		u.Series = append(u.Series, p)
 	}
 	for _, r := range rows {
