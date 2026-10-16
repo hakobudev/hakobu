@@ -1075,6 +1075,9 @@ func TestDockerPostgresShm(t *testing.T) {
 	if !strings.Contains(nets, ProjectNetwork(p.Key())) {
 		t.Errorf("postgres is on %q, not back on its project's network", nets)
 	}
+	if lc := dockerOut(t, "inspect", "-f", "{{.HostConfig.LogConfig.Type}} {{index .HostConfig.LogConfig.Config \"max-size\"}}", node.PostgresContainer); lc != "json-file 10m" {
+		t.Errorf("log config %q, want its output capped", lc)
+	}
 	if logs := dockerOut(t, "logs", node.PostgresContainer); strings.Contains(logs, "not properly shut down") {
 		t.Errorf("postgres went through crash recovery:\n%s", logs)
 	}

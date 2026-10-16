@@ -61,6 +61,7 @@
       </div>
       <h2 id="logs">Logs</h2>
 <p>An app's <strong>Logs</strong> tab has its output and its worker's, and every deploy's build log is on <strong>Deployments</strong>.</p>
+<p>Docker keeps the last 30 MB of each container's output (three files of 10 MB), so a chatty app can't fill the disk; a container made by an older hakobu gets the cap on its next deploy. Claude's <code>get_app_logs</code> also says when the last line was written, and warns when Docker couldn't read a log to its end, as happens to one cut short by a full disk.</p>
 <h2 id="errors-and-traces">Errors and traces</h2>
 <p>hakobu speaks Sentry's protocol: every app gets <code>SENTRY_DSN</code> (and <code>SENTRY_PUBLIC_DSN</code> for browser SDKs), so any Sentry SDK reports to hakobu with no account anywhere. The app's <strong>Errors</strong> tab groups the same problem seen again into one issue, with how many times and when it was first and last seen: an exception by its type and where it was raised, a logged error by its text with the numbers, IDs and URLs taken out. <strong>Resolve</strong> takes an issue off the open ones until it happens again, which opens it again; <strong>Resolved too</strong> shows the resolved ones, and <strong>With logs</strong> every event one by one. <strong>Performance</strong> shows requests by route, with slow and failed ones kept whole for a week to see where the time went.</p>
 <p>What your apps send is kept on the server they run on, in its own database sealed with its key. The panel reads it while that server is connected and keeps none.</p>

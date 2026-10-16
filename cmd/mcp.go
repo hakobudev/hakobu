@@ -232,17 +232,13 @@ func newMCPServer(s *store.Store) *mcp.Server {
 			return nil, mcpDeploy{}, fmt.Errorf("no such deploy of %s among its last 50", in.App)
 		})
 
-	mcp.AddTool(server, &mcp.Tool{Name: "get_app_logs", Description: "Read the last lines an app's container (or its worker's) wrote to stdout and stderr, with timestamps.", Annotations: readOnly},
+	mcp.AddTool(server, &mcp.Tool{Name: "get_app_logs", Description: "Read the last lines an app's container (or its worker's) wrote to stdout and stderr, with timestamps, and when the last one was written.", Annotations: readOnly},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
 			App    string `json:"app" jsonschema:"the app as project/app"`
 			Worker bool   `json:"worker,omitempty" jsonschema:"read the app's worker instead"`
 			Lines  int    `json:"lines,omitempty" jsonschema:"how many lines, up to 1000; default 200"`
-		}) (*mcp.CallToolResult, struct {
-			Logs string `json:"logs"`
-		}, error) {
-			var out struct {
-				Logs string `json:"logs"`
-			}
+		}) (*mcp.CallToolResult, mcpLogs, error) {
+			var out mcpLogs
 			app, err := getApp(ctx, in.App)
 			if err != nil {
 				return nil, out, err
@@ -256,6 +252,7 @@ func newMCPServer(s *store.Store) *mcp.Server {
 				lines = 200
 			}
 			out.Logs, err = ops.AppNode(s, app).Logs(ctx, container, min(lines, 1000))
+			out.LastLineAt, out.Note = logsEnd(out.Logs)
 			return nil, out, err
 		})
 
@@ -643,6 +640,31 @@ type mcpUsage struct {
 	Disk *mcpDisk `json:"disk,omitempty" jsonschema:"for server: its disk (Docker's, where the databases, volumes and images are)"`
 	// For postgres.
 	Postgres *mcpPostgres `json:"postgres,omitempty" jsonschema:"for postgres: what its latest check reported; none while it has no databases or its server runs hakobu before v0.30.2"`
+}
+
+type mcpLogs struct {
+	Logs       string `json:"logs"`
+	LastLineAt string `json:"last_line_at,omitempty" jsonschema:"when the last line was written; a busy app quiet since then may be stuck, or its log unreadable"`
+	Note       string `json:"note,omitempty" jsonschema:"set when Docker couldn't read the log to its end"`
+}
+
+// logsEnd is when the last line of logs (as Docker's timestamps start
+// them) was written, and a note when Docker said it couldn't read on: a
+// line cut short by a full disk leaves the rest of a log unreadable, and
+// the lines before it look like all there is.
+func logsEnd(logs string) (lastAt, note string) {
+	lines := strings.Split(strings.TrimRight(logs, "\n"), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.Contains(lines[i], "Error grabbing logs") && note == "" {
+			note = "Docker couldn't read the log past here (it's damaged, as after a full disk): the app may have written more since. Its next deploy starts a new log."
+			continue
+		}
+		stamp, _, _ := strings.Cut(lines[i], " ")
+		if t, err := time.Parse(time.RFC3339Nano, stamp); err == nil {
+			return t.UTC().Format(time.RFC3339), note
+		}
+	}
+	return "", note
 }
 
 type mcpDisk struct {

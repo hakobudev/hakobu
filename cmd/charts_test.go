@@ -117,3 +117,19 @@ func TestTargetTitle(t *testing.T) {
 		}
 	}
 }
+
+// get_app_logs says when the last line was written, and when Docker
+// couldn't read the log to its end.
+func TestLogsEnd(t *testing.T) {
+	logs := "2026-10-16T15:43:59.123456789Z GET /health 200\n2026-10-16T15:44:01.5Z POST /runs 500\n"
+	if at, note := logsEnd(logs); at != "2026-10-16T15:44:01Z" || note != "" {
+		t.Errorf("%q %q", at, note)
+	}
+	cut := logs + "Error grabbing logs: invalid character '\\x00' looking for beginning of value\n"
+	if at, note := logsEnd(cut); at != "2026-10-16T15:44:01Z" || !strings.Contains(note, "damaged") {
+		t.Errorf("damaged: %q %q", at, note)
+	}
+	if at, note := logsEnd(""); at != "" || note != "" {
+		t.Errorf("empty: %q %q", at, note)
+	}
+}

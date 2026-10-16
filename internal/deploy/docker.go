@@ -116,9 +116,15 @@ func ensureNetwork(ctx context.Context, name string) error {
 	return nil
 }
 
+// logConfig caps what Docker keeps of a container's output: without it a
+// log grows until the disk is full, and a line cut short there leaves the
+// rest of the log unreadable.
+var logConfig = map[string]any{"Type": "json-file", "Config": map[string]string{"max-size": "10m", "max-file": "3"}}
+
 // runContainer replaces any container with the same name and starts a new
 // one on the hakobu network (or hostConfig's NetworkMode), with
-// restart=unless-stopped unless hostConfig sets another restart policy.
+// restart=unless-stopped unless hostConfig sets another restart policy, and
+// its output capped (logConfig).
 func runContainer(ctx context.Context, name string, spec map[string]any, hostConfig map[string]any) (string, error) {
 	if n, _ := hostConfig["NetworkMode"].(string); n == "" {
 		hostConfig["NetworkMode"] = NetworkName
@@ -132,6 +138,7 @@ func runContainer(ctx context.Context, name string, spec map[string]any, hostCon
 	if hostConfig["RestartPolicy"] == nil {
 		hostConfig["RestartPolicy"] = map[string]string{"Name": "unless-stopped"}
 	}
+	hostConfig["LogConfig"] = logConfig
 	spec["HostConfig"] = hostConfig
 
 	respBody, status, err := dockerRequest(ctx, "POST", "/containers/create?name="+url.QueryEscape(name), spec)
