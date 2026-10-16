@@ -1015,3 +1015,73 @@ func TestDockerDataStatus(t *testing.T) {
 		t.Errorf("the volume counts %d bytes, want 300000 or more", n)
 	}
 }
+
+// TestDockerPostgresShm gives a Postgres made with Docker's 64 MB /dev/shm
+// the size hakobu wants, keeping its data and its project networks.
+func TestDockerPostgresShm(t *testing.T) {
+	if os.Getenv("HAKOBU_DOCKER_TEST") == "" {
+		t.Skip("set HAKOBU_DOCKER_TEST=1 to run against the local Docker")
+	}
+	suffix, _ := RandomHex(3)
+	old := node.PostgresContainer
+	node.PostgresContainer = "zt-pg-" + suffix
+	t.Cleanup(func() {
+		_ = deploy.RemoveContainer(ctx(), node.PostgresContainer)
+		_ = deploy.RemoveVolume(ctx(), node.PostgresContainer+"_data")
+		node.PostgresContainer = old
+	})
+	s, err := store.Open(filepath.Join(t.TempDir(), "hakobu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := newDockerTestApp(t, s)
+	t.Cleanup(func() { _ = DeleteApp(s, app.ID) })
+
+	// As hakobu made it before: no ShmSize.
+	if _, err := deploy.RunServiceContainer(ctx(), node.PostgresContainer, config.PostgresImage, []string{"POSTGRES_PASSWORD=x"}, "/var/lib/postgresql", 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CreateDatabase(s, app.ProjectID, "zt"+suffix); err != nil {
+		t.Fatal(err)
+	}
+	d, _ := getDB(s, "zt"+suffix)
+	sql := func(q string) string {
+		t.Helper()
+		return dockerOut(t, "exec", node.PostgresContainer, "psql", "-U", d.Key(), "-d", d.Key(), "-Atc", q)
+	}
+	sql(`CREATE TABLE notes (s text); INSERT INTO notes VALUES ('kept')`)
+	if got := dockerOut(t, "exec", node.PostgresContainer, "df", "-m", "--output=size", "/dev/shm"); !strings.HasSuffix(got, "64") {
+		t.Fatalf("/dev/shm before: %q, want Docker's 64 MB", got)
+	}
+
+	// What a start does (startIngestRelay, serverConnected).
+	start := func() {
+		t.Helper()
+		fitPostgres(server{}, local)
+		if err := ensureServerNetworks(s, server{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	start()
+	shm, _ := deploy.ShmSize(ctx(), node.PostgresContainer)
+	if shm != 1<<30 {
+		t.Errorf("ShmSize %d, want 1 GB", shm)
+	}
+	if got := sql(`SELECT s FROM notes`); got != "kept" {
+		t.Errorf("data after resizing: %q", got)
+	}
+	nets := dockerOut(t, "inspect", "-f", "{{range $n, $_ := .NetworkSettings.Networks}}{{$n}} {{end}}", node.PostgresContainer)
+	p, _ := s.GetProjectByID(ctx(), app.ProjectID)
+	if !strings.Contains(nets, ProjectNetwork(p.Key())) {
+		t.Errorf("postgres is on %q, not back on its project's network", nets)
+	}
+	if logs := dockerOut(t, "logs", node.PostgresContainer); strings.Contains(logs, "not properly shut down") {
+		t.Errorf("postgres went through crash recovery:\n%s", logs)
+	}
+	// A second start finds nothing to do.
+	id := dockerOut(t, "inspect", "-f", "{{.Id}}", node.PostgresContainer)
+	start()
+	if again := dockerOut(t, "inspect", "-f", "{{.Id}}", node.PostgresContainer); again != id {
+		t.Error("postgres was made anew though its /dev/shm was right")
+	}
+}

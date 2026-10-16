@@ -46,13 +46,55 @@ func (Local) EnsurePostgres(ctx context.Context) error {
 			return err
 		}
 		// Postgres 18+ images expect the volume at /var/lib/postgresql, older ones work with it too.
-		_, err = deploy.RunServiceContainer(ctx, PostgresContainer, config.PostgresImage, []string{"POSTGRES_PASSWORD=" + hex.EncodeToString(b)}, "/var/lib/postgresql")
+		shm, _ := postgresShm() // unknown: Docker's 64 MB, and FitPostgres tries again
+		_, err = deploy.RunServiceContainer(ctx, PostgresContainer, config.PostgresImage, []string{"POSTGRES_PASSWORD=" + hex.EncodeToString(b)}, "/var/lib/postgresql", shm)
 	}
 	if err != nil {
 		return err
 	}
 	if !deploy.WaitHealthy(60, time.Second, func() bool { return deploy.PostgresReady(ctx, PostgresContainer) }) {
 		return fmt.Errorf("postgres service failed to become ready")
+	}
+	return nil
+}
+
+// postgresShm is the /dev/shm Postgres gets: it keeps the memory of
+// parallel queries, hashes and sorts there, and Docker's 64 MB fail them
+// with "could not resize shared memory segment". A quarter of the RAM at
+// most, so one big query hits a clean error before the host runs out, and
+// in steps of 64 MB, so the size stays put as the kernel's share moves.
+func postgresShm() (int64, error) {
+	total, _, err := readMemInfo()
+	if err != nil {
+		return 0, err
+	}
+	const step = 64 << 20
+	return max(step, min(1<<30, total/4)/step*step), nil
+}
+
+// FitPostgres makes the Postgres container anew if its /dev/shm isn't
+// postgresShm, keeping its data, after a clean shutdown. Apps lose their
+// connections for the seconds it takes; the caller connects it to the
+// projects' networks again. A node without Postgres is left alone.
+func (Local) FitPostgres(ctx context.Context) error {
+	want, err := postgresShm()
+	if err != nil {
+		return err
+	}
+	have, err := deploy.ShmSize(ctx, PostgresContainer)
+	if err != nil || have < 0 || have == want {
+		return err
+	}
+	panellog.Infof("postgres: resizing /dev/shm from %d MB to %d MB, restarting it", have>>20, want>>20)
+	if err := deploy.ResizeShm(ctx, PostgresContainer, want, 2*time.Minute); err != nil {
+		return fmt.Errorf("resizing postgres's /dev/shm: %w", err)
+	}
+	if !deploy.WaitHealthy(60, time.Second, func() bool { return deploy.PostgresReady(ctx, PostgresContainer) }) {
+		return fmt.Errorf("postgres failed to become ready after resizing /dev/shm")
+	}
+	// ALTER SYSTEM lives in the volume: a type set there wouldn't use the new size.
+	if rows, err := deploy.PostgresQuery(ctx, PostgresContainer, "SHOW dynamic_shared_memory_type"); err == nil && len(rows) == 1 && len(rows[0]) == 1 && rows[0][0] != "posix" {
+		panellog.Warnf("postgres: dynamic_shared_memory_type is %s (set by ALTER SYSTEM?), so the larger /dev/shm goes unused", rows[0][0])
 	}
 	return nil
 }

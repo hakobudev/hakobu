@@ -240,14 +240,56 @@ func RunWorkerContainer(ctx context.Context, imageTag, name, command string, opt
 }
 
 // RunServiceContainer starts a hakobu-managed backing service (Postgres)
-// with a persistent named volume.
-func RunServiceContainer(ctx context.Context, name, image string, env []string, mountPath string) (string, error) {
+// with a persistent named volume and shmSize bytes of /dev/shm (0:
+// Docker's 64 MB).
+func RunServiceContainer(ctx context.Context, name, image string, env []string, mountPath string, shmSize int64) (string, error) {
 	if err := pullImageIfMissing(ctx, image); err != nil {
 		return "", fmt.Errorf("failed to pull image %q: %w", image, err)
 	}
-	return runContainer(ctx, name, map[string]any{"Image": image, "Env": env}, map[string]any{
-		"Binds": []string{name + "_data:" + mountPath},
-	})
+	host := map[string]any{"Binds": []string{name + "_data:" + mountPath}}
+	if shmSize > 0 {
+		host["ShmSize"] = shmSize
+	}
+	return runContainer(ctx, name, map[string]any{"Image": image, "Env": env}, host)
+}
+
+// ShmSize is the size of the container's /dev/shm in bytes, or -1 if
+// there's no such container.
+func ShmSize(ctx context.Context, name string) (int64, error) {
+	info, err := inspect(ctx, name)
+	if err != nil || info == nil {
+		return -1, err
+	}
+	return info.HostConfig.ShmSize, nil
+}
+
+// ResizeShm makes the container anew with shmSize bytes of /dev/shm, as
+// Docker can't change it on one that exists: the same image, environment,
+// command, labels, volumes, network and restart policy, started again.
+// The old one gets stop to shut down cleanly first. Networks it was
+// connected to besides its own are left for the caller to connect again.
+func ResizeShm(ctx context.Context, name string, shmSize int64, stop time.Duration) error {
+	info, err := inspect(ctx, name)
+	if err != nil {
+		return err
+	}
+	if info == nil {
+		return fmt.Errorf("no container %s", name)
+	}
+	if err := stopContainer(ctx, name, stop); err != nil {
+		return err
+	}
+	spec := map[string]any{"Image": info.Image, "Env": info.Config.Env, "Cmd": info.Config.Cmd, "Labels": info.Config.Labels}
+	host := map[string]any{
+		"Binds":       info.HostConfig.Binds,
+		"NetworkMode": info.HostConfig.NetworkMode,
+		"ShmSize":     shmSize,
+	}
+	if len(info.HostConfig.RestartPolicy) > 0 {
+		host["RestartPolicy"] = info.HostConfig.RestartPolicy
+	}
+	_, err = runContainer(ctx, name, spec, host)
+	return err
 }
 
 // RunCacheContainer runs a Valkey server for one cache on network, its
@@ -393,7 +435,14 @@ func RemoveNetwork(ctx context.Context, name string) error {
 // StopContainer stops a container but keeps it, so it can be started again;
 // a no-op if it doesn't exist or isn't running.
 func StopContainer(ctx context.Context, name string) error {
-	respBody, status, err := dockerRequest(ctx, "POST", "/containers/"+url.PathEscape(name)+"/stop?t=10", nil)
+	return stopContainer(ctx, name, 10*time.Second)
+}
+
+// stopContainer gives the container wait to exit before it's killed.
+func stopContainer(ctx context.Context, name string, wait time.Duration) error {
+	ctx, cancel := withDeadline(ctx, wait+time.Minute)
+	defer cancel()
+	respBody, status, err := dockerRequest(ctx, "POST", fmt.Sprintf("/containers/%s/stop?t=%d", url.PathEscape(name), int(wait.Seconds())), nil)
 	if err != nil {
 		return err
 	}
@@ -751,9 +800,18 @@ func ContainerLogs(ctx context.Context, containerName string, tailLines int) (st
 }
 
 type containerInfo struct {
+	Image  string `json:"Image"` // the image's ID, whatever tag it was run by
 	Config struct {
-		Env []string `json:"Env"`
+		Env    []string          `json:"Env"`
+		Cmd    []string          `json:"Cmd"`
+		Labels map[string]string `json:"Labels"`
 	} `json:"Config"`
+	HostConfig struct {
+		Binds         []string        `json:"Binds"`
+		NetworkMode   string          `json:"NetworkMode"`
+		RestartPolicy json.RawMessage `json:"RestartPolicy"`
+		ShmSize       int64           `json:"ShmSize"`
+	} `json:"HostConfig"`
 	State struct {
 		Status    string `json:"Status"`
 		Pid       int    `json:"Pid"`

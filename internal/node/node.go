@@ -63,6 +63,7 @@ type Node interface {
 
 	// Databases (data.go).
 	EnsurePostgres(ctx context.Context) error
+	FitPostgres(ctx context.Context) error
 	PostgresReady(ctx context.Context) bool
 	CreateDatabase(ctx context.Context, d DBSpec) error
 	EnsureDatabase(ctx context.Context, d DBSpec) error

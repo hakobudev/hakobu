@@ -289,6 +289,10 @@ func (r *Remote) EnsurePostgres(ctx context.Context) error {
 	return r.call(ctx, "EnsurePostgres", nil, nil, nil)
 }
 
+func (r *Remote) FitPostgres(ctx context.Context) error {
+	return r.call(ctx, "FitPostgres", nil, nil, nil)
+}
+
 func (r *Remote) PostgresReady(ctx context.Context) (ok bool) {
 	_ = r.call(ctx, "PostgresReady", nil, nil, nil, &ok)
 	return ok

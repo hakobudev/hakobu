@@ -359,6 +359,12 @@ func (f *Fake) EnsurePostgres(ctx context.Context) error {
 	return err
 }
 
+func (f *Fake) FitPostgres(ctx context.Context) error {
+	unlock, err := f.call("FitPostgres")
+	defer unlock()
+	return err
+}
+
 func (f *Fake) PostgresReady(ctx context.Context) bool {
 	unlock, err := f.call("PostgresReady")
 	defer unlock()

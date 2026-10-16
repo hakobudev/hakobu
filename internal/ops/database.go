@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/hakobudev/hakobu/internal/node"
+	"github.com/hakobudev/hakobu/internal/panellog"
 	"github.com/hakobudev/hakobu/internal/secret"
 	"github.com/hakobudev/hakobu/internal/store"
 )
@@ -63,6 +64,19 @@ func CreateDatabase(s *store.Store, projectID int64, name string) (int64, error)
 		return 0, err
 	}
 	return id, nil
+}
+
+// fitPostgres gives the server's Postgres the /dev/shm this hakobu wants
+// (node.Local.FitPostgres), run as the server comes up, before its
+// networks are ensured. Not while a backup or restore runs: the next start
+// does it.
+func fitPostgres(sv server, n node.Node) {
+	if dbJobsRunning() {
+		return
+	}
+	if err := n.FitPostgres(ctx()); err != nil {
+		panellog.Warn("postgres of", sv.label()+":", err)
+	}
 }
 
 // ensureInPostgres creates d, empty, with its role if Postgres lacks it, as

@@ -475,11 +475,12 @@ func serverConnected(s *store.Store, sv server, n node.Node, watching context.Co
 			panellog.Errorf("%s: %v", t.label(), err)
 		}
 	}
-	// The relay its apps send errors and traces to; it joins the projects'
-	// networks next.
+	// The relay its apps send errors and traces to, and Postgres if it
+	// was made anew; they join the projects' networks next.
 	if err := n.StartIngestRelay(ctx(), IngestSocket()); err != nil {
 		panellog.Warn("ingest relay of", sv.label()+":", err)
 	}
+	fitPostgres(sv, n)
 	if err := ensureServerNetworks(s, sv); err != nil {
 		panellog.Warn("networks of", sv.label()+":", err)
 	}
