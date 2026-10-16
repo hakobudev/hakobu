@@ -154,7 +154,10 @@ SELECT count(*) FROM panel_log WHERE level >= 2 AND created_at >= ?;
 DELETE FROM panel_log WHERE created_at < ?;
 
 -- name: PutDataCheck :exec
-INSERT OR REPLACE INTO data_checks (target, ts, up, why) VALUES (?, ?, ?, ?);
+INSERT OR REPLACE INTO data_checks (target, ts, up, why, size) VALUES (?, ?, ?, ?, ?);
+
+-- name: DataSizeAt :one
+SELECT ts, size FROM data_checks WHERE target = ? AND ts <= ? AND size > 0 ORDER BY ts DESC LIMIT 1;
 
 -- name: DataCheckWindow :one
 SELECT count(*) AS n, CAST(coalesce(sum(up), 0) AS INTEGER) AS up FROM data_checks WHERE target = ? AND ts >= ?;

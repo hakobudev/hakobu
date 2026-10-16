@@ -241,6 +241,27 @@ func (q *Queries) DataChecksDown(ctx context.Context, arg DataChecksDownParams) 
 	return items, nil
 }
 
+const dataSizeAt = `-- name: DataSizeAt :one
+SELECT ts, size FROM data_checks WHERE target = ? AND ts <= ? AND size > 0 ORDER BY ts DESC LIMIT 1
+`
+
+type DataSizeAtParams struct {
+	Target string
+	Ts     int64
+}
+
+type DataSizeAtRow struct {
+	Ts   int64
+	Size int64
+}
+
+func (q *Queries) DataSizeAt(ctx context.Context, arg DataSizeAtParams) (DataSizeAtRow, error) {
+	row := q.db.QueryRowContext(ctx, dataSizeAt, arg.Target, arg.Ts)
+	var i DataSizeAtRow
+	err := row.Scan(&i.Ts, &i.Size)
+	return i, err
+}
+
 const deleteDataChecksOf = `-- name: DeleteDataChecksOf :exec
 DELETE FROM data_checks WHERE target = ?
 `
@@ -916,7 +937,7 @@ func (q *Queries) PruneTraces(ctx context.Context, createdAt int64) error {
 }
 
 const putDataCheck = `-- name: PutDataCheck :exec
-INSERT OR REPLACE INTO data_checks (target, ts, up, why) VALUES (?, ?, ?, ?)
+INSERT OR REPLACE INTO data_checks (target, ts, up, why, size) VALUES (?, ?, ?, ?, ?)
 `
 
 type PutDataCheckParams struct {
@@ -924,6 +945,7 @@ type PutDataCheckParams struct {
 	Ts     int64
 	Up     int64
 	Why    string
+	Size   int64
 }
 
 func (q *Queries) PutDataCheck(ctx context.Context, arg PutDataCheckParams) error {
@@ -932,6 +954,7 @@ func (q *Queries) PutDataCheck(ctx context.Context, arg PutDataCheckParams) erro
 		arg.Ts,
 		arg.Up,
 		arg.Why,
+		arg.Size,
 	)
 	return err
 }

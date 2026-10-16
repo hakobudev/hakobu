@@ -755,7 +755,12 @@ func PostgresHasDatabase(ctx context.Context, containerName, name string) (bool,
 // PostgresQuery runs a query as the postgres superuser (local trust auth)
 // and returns its rows unaligned, a line each, fields split by "|".
 func PostgresQuery(ctx context.Context, containerName, sql string) ([][]string, error) {
-	out, exitCode, err := execInContainer(ctx, containerName, []string{"psql", "-U", "postgres", "-Atc", sql})
+	return PostgresQueryIn(ctx, containerName, "postgres", sql)
+}
+
+// PostgresQueryIn is PostgresQuery in database db.
+func PostgresQueryIn(ctx context.Context, containerName, db, sql string) ([][]string, error) {
+	out, exitCode, err := execInContainer(ctx, containerName, []string{"psql", "-U", "postgres", "-d", db, "-Atc", sql})
 	if err != nil {
 		return nil, err
 	}

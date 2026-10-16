@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/hakobudev/hakobu/internal/config"
+	"github.com/hakobudev/hakobu/internal/node"
 	"github.com/hakobudev/hakobu/internal/ops"
 	"github.com/hakobudev/hakobu/internal/store"
 )
@@ -61,6 +62,11 @@ templ databaseView(v databasePage) {
 							</div>
 						}
 					</details>
+				</div>
+			}
+			@section("tables", "Tables", "This database's largest tables, as PostgreSQL counts them now.", nil) {
+				<div hx-get={ dbURL(v.Project.Name, v.DB.Name) + "/tables" } hx-trigger="load" hx-swap="outerHTML">
+					@skeleton(2, false)
 				</div>
 			}
 			@section("", "Usage", "The shared PostgreSQL server, all databases together.", nil) {
@@ -218,4 +224,60 @@ templ backupNow(v databasePage) {
 			Back up now
 		</button>
 	}
+}
+
+// dbTablesView is a database's size, growth and largest tables.
+type dbTablesView struct {
+	Size   int64
+	Grown  []dbGrowth
+	Tables []node.TableSize
+	Err    string
+}
+
+type dbGrowth struct {
+	Span  string
+	Bytes int64
+}
+
+templ dbTables(v dbTablesView) {
+	<div class="space-y-3">
+		if v.Size > 0 {
+			<p class="meta-item small">
+				@ic("database", "icon-sm icon-muted")
+				{ bytesText(float64(v.Size)) } in all
+				for _, g := range v.Grown {
+					<span class={ templ.KV("text-attention", g.Bytes >= 1<<30), templ.KV("muted", g.Bytes < 1<<30) }>· { growthText(g.Bytes) } in the last { g.Span }</span>
+				}
+			</p>
+		}
+		if v.Err != "" {
+			@flash("danger") {
+				{ v.Err }
+			}
+		} else if len(v.Tables) == 0 {
+			<p class="muted small">No tables yet.</p>
+		} else {
+			<div class="box overflow-x-auto">
+				<table class="table">
+					<thead>
+						<tr><th>Table</th><th class="num">Size</th><th class="num">Indexes</th><th class="num">Rows</th><th class="num" title="old versions of rows VACUUM hasn't cleared yet">Dead rows</th><th class="num">Vacuumed</th></tr>
+					</thead>
+					<tbody>
+						for _, t := range v.Tables {
+							<tr>
+								<td class="mono">{ t.Name }</td>
+								<td class="num">{ bytesText(float64(t.TotalBytes)) }</td>
+								<td class="num muted">{ bytesText(float64(t.IndexBytes)) }</td>
+								<td class="num muted">{ fmt.Sprint(t.Rows) }</td>
+								<td class={ "num", templ.KV("text-attention", t.DeadRows > 1000 && t.DeadRows > t.Rows), templ.KV("muted", t.DeadRows <= 1000 || t.DeadRows <= t.Rows) }>{ fmt.Sprint(t.DeadRows) }</td>
+								<td class="num muted">
+									@timeAgo(t.LastVacuum)
+								</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+		}
+	</div>
 }

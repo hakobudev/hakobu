@@ -1081,6 +1081,12 @@ func TestDockerPostgresShm(t *testing.T) {
 	if logs := dockerOut(t, "logs", node.PostgresContainer); strings.Contains(logs, "not properly shut down") {
 		t.Errorf("postgres went through crash recovery:\n%s", logs)
 	}
+	// Its largest tables, as get_database and the page show them.
+	sql(`UPDATE notes SET s = repeat('x', 5000)`)
+	tables, err := local.DatabaseTables(ctx(), d.Key())
+	if err != nil || len(tables) != 1 || tables[0].Name != "public.notes" || tables[0].TotalBytes == 0 {
+		t.Errorf("tables %+v, %v", tables, err)
+	}
 	// A second start finds nothing to do.
 	id := dockerOut(t, "inspect", "-f", "{{.Id}}", node.PostgresContainer)
 	start()

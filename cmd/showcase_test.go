@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -147,6 +148,9 @@ func TestShowcase(t *testing.T) {
 			out := "PONG\n"
 			if len(body.Cmd) > 0 && body.Cmd[0] == "psql" {
 				out = dbAnswer
+				if i := slices.Index(body.Cmd, "-d"); i >= 0 && i+1 < len(body.Cmd) && body.Cmd[i+1] != "postgres" { // a database's tables
+					out = "public.orders|31457280|6291456|184220|312|2026-10-16T09:12:00Z\npublic.customers|9437184|2097152|20114|40|2026-10-16T08:40:00Z\npublic.sessions|4194304|1048576|1802|9120|2026-10-15T22:03:00Z\n"
+				}
 			}
 			id := fmt.Sprint(time.Now().UnixNano())
 			execs.Store(id, out)

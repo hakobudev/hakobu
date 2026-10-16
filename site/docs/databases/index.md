@@ -12,6 +12,10 @@ PostgreSQL keeps the memory of parallel queries, hashes and sorts in `/dev/shm`.
 
 A PostgreSQL server made by an older hakobu has Docker's 64 MB, and Docker can't change it in place: when such a server comes up after updating (the panel's own server as the panel starts, any other as it connects), hakobu stops PostgreSQL cleanly and makes its container anew with the same data. Apps lose their database connections for those few seconds, once. It waits while a backup or restore runs. `dynamic_shared_memory_type` is left as PostgreSQL's default, `posix`; don't change it with `ALTER SYSTEM`, or the larger `/dev/shm` goes unused.
 
+## Size and tables
+
+The database's page shows its size, how much it grew over the last hour and day (from the checks every 30 seconds), and its ten largest tables: their size with indexes and TOAST (where PostgreSQL keeps long values), live rows, dead rows and when they were last vacuumed. Many more dead rows than live ones means rows are updated faster than autovacuum clears their old versions: a table rewritten in place over and over grows until it fills the disk. Claude sees the same through `get_database`.
+
 ## Backups
 
 With backups on (one click in **Settings**), every database is backed up daily to a private R2 bucket hakobu creates in your Cloudflare account. Each backup is:

@@ -202,6 +202,10 @@ PostgreSQL keeps the memory of parallel queries, hashes and sorts in `/dev/shm`.
 
 A PostgreSQL server made by an older hakobu has Docker's 64 MB, and Docker can't change it in place: when such a server comes up after updating (the panel's own server as the panel starts, any other as it connects), hakobu stops PostgreSQL cleanly and makes its container anew with the same data. Apps lose their database connections for those few seconds, once. It waits while a backup or restore runs. `dynamic_shared_memory_type` is left as PostgreSQL's default, `posix`; don't change it with `ALTER SYSTEM`, or the larger `/dev/shm` goes unused.
 
+## Size and tables
+
+The database's page shows its size, how much it grew over the last hour and day (from the checks every 30 seconds), and its ten largest tables: their size with indexes and TOAST (where PostgreSQL keeps long values), live rows, dead rows and when they were last vacuumed. Many more dead rows than live ones means rows are updated faster than autovacuum clears their old versions: a table rewritten in place over and over grows until it fills the disk. Claude sees the same through `get_database`.
+
 ## Backups
 
 With backups on (one click in **Settings**), every database is backed up daily to a private R2 bucket hakobu creates in your Cloudflare account. Each backup is:
@@ -347,7 +351,7 @@ hakobu is an MCP server at `https://<panel address>/mcp` (on the hosted panel, `
 
 ## What it can do
 
-Its tools list apps and show one in detail (variable names, never values), read deploy logs, the apps' output and errors with stack traces, resolve an error once it's fixed, show the CPU and memory of an app or a server and the PostgreSQL server's version and shared memory, and wait for a deploy to finish, so Claude can push a fix and check it landed.
+Its tools list apps and show one in detail (variable names, never values), read deploy logs, the apps' output and errors with stack traces, resolve an error once it's fixed, show the CPU and memory of an app or a server, a server's disk and how fast it fills, the PostgreSQL server's version and shared memory, a database's size, growth and largest tables, and wait for a deploy to finish, so Claude can push a fix and check it landed.
 
 With the **Deploy and set up** box ticked when you allow the app, it can also deploy, roll back and restart workers, and set a repository up from nothing: make a project, the app, a PostgreSQL database, a cache or a volume, set variables and how the app builds and starts. Tell your agent "deploy this repo" and it can do the rest.
 

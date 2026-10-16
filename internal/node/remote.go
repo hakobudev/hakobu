@@ -289,6 +289,11 @@ func (r *Remote) EnsurePostgres(ctx context.Context) error {
 	return r.call(ctx, "EnsurePostgres", nil, nil, nil)
 }
 
+func (r *Remote) DatabaseTables(ctx context.Context, name string) (tables []TableSize, err error) {
+	err = r.call(ctx, "DatabaseTables", nil, nil, []any{name}, &tables)
+	return tables, err
+}
+
 func (r *Remote) FitPostgres(ctx context.Context) error {
 	return r.call(ctx, "FitPostgres", nil, nil, nil)
 }

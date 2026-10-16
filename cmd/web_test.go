@@ -21,6 +21,7 @@ import (
 	"github.com/hakobudev/hakobu/internal/config"
 	"github.com/hakobudev/hakobu/internal/deploy"
 	"github.com/hakobudev/hakobu/internal/detect"
+	"github.com/hakobudev/hakobu/internal/node"
 	"github.com/hakobudev/hakobu/internal/ops"
 	"github.com/hakobudev/hakobu/internal/store"
 	"github.com/hakobudev/hakobu/internal/store/teldb"
@@ -139,6 +140,8 @@ func TestPagesRender(t *testing.T) {
 	pages["switch projects"] = switchProjects([]store.Project{project, {Name: "b"}}, "demo")
 	pages["switch resources"] = switchResources("demo", []store.App{app.App, {Name: "x", BuildStrategy: "dockerfile"}}, []store.Database{db}, []store.Cache{{ID: 3, Name: "cache"}}, storages, "web")
 	pages["cache"] = cacheView(cachePage{Cache: store.Cache{ID: 3, Name: "cache", MemoryMB: 256}, Project: project, Health: ops.DataHealth{Answering: true}, Checked: true, Env: splitEnv([]string{"REDIS_URL=redis://default:x@cache-3:6379/0"}), UsedBy: []string{"web"}})
+	pages["database tables"] = dbTables(dbTablesView{Size: 27 << 30, Grown: []dbGrowth{{"hour", 20 << 30}, {"day", -1 << 20}}, Tables: []node.TableSize{{Name: "public.runs", TotalBytes: 27 << 30, IndexBytes: 1 << 20, Rows: 114, DeadRows: 15560, LastVacuum: "2026-10-16T12:00:00Z"}}})
+	pages["database tables, failed"] = dbTables(dbTablesView{Err: "Couldn't list its tables: boom"})
 	pages["app problems"] = appProblems("/x/errors", 3, false)
 	pages["app problems, more"] = appProblems("/x/errors", 100, true)
 	pages["cache, unused and down"] = cacheView(cachePage{Cache: store.Cache{ID: 3, Name: "cache", MemoryMB: 64}, Project: project, Health: ops.DataHealth{Why: "isn't running (exited)"}, Checked: true})

@@ -213,3 +213,31 @@ func TestPostgresHealth(t *testing.T) {
 		t.Error("another server's Postgres reported")
 	}
 }
+
+// A database's growth comes from the sizes its checks kept; with no check
+// from back then, there's none.
+func TestDatabaseGrowth(t *testing.T) {
+	s, f, _ := dataStore(t)
+	web := seedApp(t, s, "shop", "web")
+	id, err := s.CreateDatabase(ctx(), store.CreateDatabaseParams{ProjectID: web.ProjectID, Name: "main", Password: "pw"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := store.Database{ID: id}.Key()
+	f.DBs[key] = strings.Repeat("x", 3000)
+	checkData(s) // now: 3000 bytes
+	if _, ok := DatabaseGrowth(s, id, time.Hour); ok {
+		t.Error("growth without a check an hour ago")
+	}
+	recordDataCheck(s, DBTarget(id), time.Now().Add(-61*time.Minute), DataHealth{Answering: true, SizeBytes: 1000})
+	if grown, ok := DatabaseGrowth(s, id, time.Hour); !ok || grown != 2000 {
+		t.Errorf("grown %d (%v), want 2000", grown, ok)
+	}
+	if _, ok := DatabaseGrowth(s, id, 24*time.Hour); ok {
+		t.Error("growth over a day from an hour of checks")
+	}
+	d, _ := s.GetDatabaseByID(ctx(), id)
+	if tables, err := DatabaseTables(s, d); err != nil || len(tables) != 1 || tables[0].TotalBytes != 3000 {
+		t.Errorf("tables %+v, %v", tables, err)
+	}
+}

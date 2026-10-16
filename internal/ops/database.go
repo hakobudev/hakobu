@@ -66,6 +66,11 @@ func CreateDatabase(s *store.Store, projectID int64, name string) (int64, error)
 	return id, nil
 }
 
+// DatabaseTables lists the database's largest tables, largest first.
+func DatabaseTables(s *store.Store, d store.Database) ([]node.TableSize, error) {
+	return ProjectNode(s, d.ProjectID).DatabaseTables(ctx(), d.Key())
+}
+
 // fitPostgres gives the server's Postgres the /dev/shm this hakobu wants
 // (node.Local.FitPostgres), run as the server comes up, before its
 // networks are ensured. Not while a backup or restore runs: the next start

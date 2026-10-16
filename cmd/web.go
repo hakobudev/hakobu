@@ -973,6 +973,28 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 		}))
 	})
 
+	handle("GET "+dbRoute+"/tables", func(w http.ResponseWriter, r *http.Request) {
+		d := reqDB(r)
+		v := dbTablesView{}
+		if h, ok := ops.DatabaseHealth(d.ID); ok {
+			v.Size = h.SizeBytes
+		}
+		for _, g := range []struct {
+			span string
+			ago  time.Duration
+		}{{"hour", time.Hour}, {"day", 24 * time.Hour}} {
+			if grown, ok := ops.DatabaseGrowth(s, d.ID, g.ago); ok {
+				v.Grown = append(v.Grown, dbGrowth{Span: g.span, Bytes: grown})
+			}
+		}
+		tables, err := ops.DatabaseTables(s, d)
+		if err != nil {
+			v.Err = "Couldn't list its tables: " + err.Error()
+		}
+		v.Tables = tables
+		renderPage(w, r, dbTables(v))
+	})
+
 	action("DELETE "+dbRoute, func(r *http.Request) (string, error) {
 		return projectPath(reqProject(r).Name), ops.DeleteDatabase(s, reqDB(r).ID)
 	})

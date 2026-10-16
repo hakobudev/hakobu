@@ -23,9 +23,24 @@ func recordDataCheck(s *store.Store, target string, at time.Time, h DataHealth) 
 	if h.Answering {
 		up = 1
 	}
-	if err := s.Tel.PutDataCheck(ctx(), teldb.PutDataCheckParams{Target: target, Ts: at.Unix(), Up: up, Why: h.Why}); err != nil {
+	if err := s.Tel.PutDataCheck(ctx(), teldb.PutDataCheckParams{Target: target, Ts: at.Unix(), Up: up, Why: h.Why, Size: h.SizeBytes}); err != nil {
 		panellog.Warn("failed to keep the check of", target+":", err)
 	}
+}
+
+// DatabaseGrowth is how much database id grew (negative: shrank) since
+// ago, by its checks: ok is false without a size from back then.
+func DatabaseGrowth(s *store.Store, id int64, ago time.Duration) (grown int64, ok bool) {
+	h, fresh := DatabaseHealth(id)
+	if !fresh || h.SizeBytes == 0 {
+		return 0, false
+	}
+	from := time.Now().Add(-ago).Unix()
+	then, err := s.Tel.DataSizeAt(ctx(), teldb.DataSizeAtParams{Target: DBTarget(id), Ts: from})
+	if err != nil || then.Ts < from-10*60 { // no checks from back then
+		return 0, false
+	}
+	return h.SizeBytes - then.Size, true
 }
 
 // dataUptime is target's record over the windows, days and outages the

@@ -362,6 +362,20 @@ func (f *Fake) EnsurePostgres(ctx context.Context) error {
 	return err
 }
 
+// DatabaseTables reports one table holding the database's content.
+func (f *Fake) DatabaseTables(ctx context.Context, name string) ([]node.TableSize, error) {
+	unlock, err := f.call("DatabaseTables")
+	defer unlock()
+	if err != nil {
+		return nil, err
+	}
+	content, ok := f.DBs[name]
+	if !ok {
+		return nil, fmt.Errorf("no database %s", name)
+	}
+	return []node.TableSize{{Name: "public.notes", TotalBytes: int64(len(content)), Rows: 1}}, nil
+}
+
 func (f *Fake) FitPostgres(ctx context.Context) error {
 	unlock, err := f.call("FitPostgres")
 	defer unlock()

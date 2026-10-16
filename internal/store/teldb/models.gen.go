@@ -13,6 +13,7 @@ type DataCheck struct {
 	Ts     int64
 	Up     int64
 	Why    string
+	Size   int64
 }
 
 type PanelLog struct {

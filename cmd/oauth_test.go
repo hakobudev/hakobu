@@ -51,6 +51,9 @@ func TestOAuthAndMCP(t *testing.T) {
 		if _, err := s.CreateApp(ctx, store.CreateAppParams{ProjectID: p, Name: a.app, BuildStrategy: "dockerfile"}); err != nil {
 			t.Fatal(err)
 		}
+		if _, err := s.CreateDatabase(ctx, store.CreateDatabaseParams{ProjectID: p, Name: a.app + "db", Password: "x"}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	keyFreshFor = time.Hour
 	t.Cleanup(func() { keyFreshFor = 5 * time.Minute })
@@ -180,6 +183,9 @@ func TestOAuthAndMCP(t *testing.T) {
 	if out := call(access, "get_metrics", `{"target":"postgres"}`); out["result"] == nil || out["result"].(map[string]any)["isError"] == true ||
 		strings.Contains(jsonString(out), `"postgres":`) {
 		t.Errorf("get_metrics of postgres, no databases checked: %v", out)
+	}
+	if out := call(access, "get_database", `{"database":"other/theirsdb"}`); !strings.Contains(jsonString(out), "no database") {
+		t.Errorf("get_database of someone else's: %v", out)
 	}
 	if out := call(access, "get_app", `{"app":"other/theirs"}`); !strings.Contains(jsonString(out), `no app \"other/theirs\"`) {
 		t.Errorf("get_app of someone else's: %v", out)

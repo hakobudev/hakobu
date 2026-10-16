@@ -228,6 +228,14 @@ func flashClass(kind string) string {
 	return "flash"
 }
 
+// growthText is a change in size, signed.
+func growthText(b int64) string {
+	if b < 0 {
+		return "−" + bytesText(float64(-b))
+	}
+	return "+" + bytesText(float64(b))
+}
+
 func diskText(disk string, low bool) string {
 	if low {
 		return disk + ": running low, deploys and databases fail on a full disk"

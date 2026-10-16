@@ -111,6 +111,46 @@ func postgresStatus(ctx context.Context, databases []string) (why, version strin
 	return "", version, dbs
 }
 
+// TableSize is a table as Postgres counts it.
+type TableSize struct {
+	Name       string // schema.table
+	TotalBytes int64  // with its indexes and TOAST (long values, kept apart)
+	IndexBytes int64
+	Rows       int64 // live rows, as last counted
+	DeadRows   int64 // old versions of rows not yet vacuumed away
+	LastVacuum string
+}
+
+// tablesShown is how many of a database's largest tables are told.
+const tablesShown = 10
+
+// DatabaseTables lists database name's largest tables, largest first.
+func (Local) DatabaseTables(ctx context.Context, name string) ([]TableSize, error) {
+	ctx, cancel := context.WithTimeout(ctx, DataCheckTimeout)
+	defer cancel()
+	rows, err := deploy.PostgresQueryIn(ctx, PostgresContainer, name, `SELECT n.nspname || '.' || c.relname, pg_total_relation_size(c.oid), pg_indexes_size(c.oid),
+		coalesce(s.n_live_tup, 0), coalesce(s.n_dead_tup, 0), coalesce(to_char(greatest(s.last_vacuum, s.last_autovacuum) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), '')
+		FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid
+		WHERE c.relkind IN ('r', 'm', 'p') AND n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg_toast%'
+		ORDER BY 2 DESC LIMIT `+strconv.Itoa(tablesShown))
+	if err != nil {
+		return nil, err
+	}
+	out := []TableSize{}
+	for _, r := range rows {
+		if len(r) != 6 {
+			continue
+		}
+		t := TableSize{Name: r[0], LastVacuum: r[5]}
+		t.TotalBytes, _ = strconv.ParseInt(r[1], 10, 64)
+		t.IndexBytes, _ = strconv.ParseInt(r[2], 10, 64)
+		t.Rows, _ = strconv.ParseInt(r[3], 10, 64)
+		t.DeadRows, _ = strconv.ParseInt(r[4], 10, 64)
+		out = append(out, t)
+	}
+	return out, nil
+}
+
 func cacheStatus(ctx context.Context, c CacheProbe) string {
 	ctx, cancel := context.WithTimeout(ctx, DataCheckTimeout)
 	defer cancel()
