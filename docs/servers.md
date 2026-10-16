@@ -20,6 +20,22 @@ The server needs no open port: it connects to the panel through the panel's tunn
 
 Each server's row shows how full its disk is (Docker's, where the databases, volumes, images and logs are), and **Usage** under it charts its CPU, memory, load and disk. The owner is emailed when the disk passes 80% and 90%, and when it fills fast enough to be full within 2 hours: a table or a log growing out of hand fills a disk in under an hour. Claude sees the same through `get_metrics` with `target: server`.
 
+## When a disk fills
+
+Each server keeps a reserve of 1 GB (2% of a small disk) in `/opt/hakobu/data/disk-reserve`, on the same disk as Docker's data. When under 256 MB are left or the disk is 98% full, hakobu deletes it, so the databases, the logs and hakobu itself can write again while you find the cause, and makes it again once the disk has room. Then:
+
+1. Find what grew: a database's page (or Claude's `get_database`) shows its size, its growth over the last hour and day and its largest tables, with their dead rows; **Usage** under the server charts its disk.
+2. Stop what makes it grow: the app's job, or the app itself (**Settings → Danger zone → Stop app**).
+3. Give the space back. A table bloated by updates shrinks with `VACUUM FULL <table>` (it locks the table while it rewrites it, and needs room for the table's live rows: the reserve is for that). hakobu already drops unused build cache and old images daily; `docker system df` (below) shows what else takes room. Don't run `docker system prune`: it deletes stopped containers, a stopped app's among them.
+
+hakobu runs its own rootless Docker, which a plain `docker` on the server doesn't see. As root, `/opt/hakobu/hakobu docker …` runs docker against it:
+
+```bash
+/opt/hakobu/hakobu docker ps
+/opt/hakobu/hakobu docker exec -it hakobu-postgres psql -U postgres -d db_2
+/opt/hakobu/hakobu docker system df
+```
+
 ## Projects on a server
 
 A project is put on a server when it's made; it can move only while it has no apps or databases. Its apps, databases, caches and volumes run there, reached through a tunnel of their Cloudflare account on that server, and its backups go from that server straight to R2 through URLs the panel signs for each part.

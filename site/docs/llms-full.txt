@@ -125,6 +125,8 @@ The app gets `PORT` to listen on; hakobu detects the port it actually listens on
 
 A deploy builds the new image, snapshots the app's database (so a rollback can undo a migration), starts the new version next to the running one and checks its health: any response for `/`, or a 2xx for the **Health check path** you set. Only then does traffic switch, and the old version stops. A version that doesn't come up never gets traffic, and the deploy's log says why.
 
+The old version gets SIGTERM and up to 10 seconds to finish the requests it's answering, still reachable by the tunnel so their answers get through; new requests go to the new version meanwhile. An app that exits at once on SIGTERM drops the requests it was answering: most servers (uvicorn, gunicorn, Node's) finish them first if told to shut down gracefully.
+
 An app with [volumes](https://hakobu.dev/docs/volumes/index.md) is stopped before the new version starts (a few seconds of downtime), unless you let both versions share them.
 
 **Redeploy** rebuilds the latest commit. **Rollback** returns to the build before; with **with data** it also restores the database snapshot taken before the live build's deploy, so a bad migration is undone too (rows written since are lost).
@@ -386,6 +388,22 @@ The server needs no open port: it connects to the panel through the panel's tunn
 ## Usage and disk
 
 Each server's row shows how full its disk is (Docker's, where the databases, volumes, images and logs are), and **Usage** under it charts its CPU, memory, load and disk. The owner is emailed when the disk passes 80% and 90%, and when it fills fast enough to be full within 2 hours: a table or a log growing out of hand fills a disk in under an hour. Claude sees the same through `get_metrics` with `target: server`.
+
+## When a disk fills
+
+Each server keeps a reserve of 1 GB (2% of a small disk) in `/opt/hakobu/data/disk-reserve`, on the same disk as Docker's data. When under 256 MB are left or the disk is 98% full, hakobu deletes it, so the databases, the logs and hakobu itself can write again while you find the cause, and makes it again once the disk has room. Then:
+
+1. Find what grew: a database's page (or Claude's `get_database`) shows its size, its growth over the last hour and day and its largest tables, with their dead rows; **Usage** under the server charts its disk.
+2. Stop what makes it grow: the app's job, or the app itself (**Settings → Danger zone → Stop app**).
+3. Give the space back. A table bloated by updates shrinks with `VACUUM FULL <table>` (it locks the table while it rewrites it, and needs room for the table's live rows: the reserve is for that). hakobu already drops unused build cache and old images daily; `docker system df` (below) shows what else takes room. Don't run `docker system prune`: it deletes stopped containers, a stopped app's among them.
+
+hakobu runs its own rootless Docker, which a plain `docker` on the server doesn't see. As root, `/opt/hakobu/hakobu docker …` runs docker against it:
+
+```bash
+/opt/hakobu/hakobu docker ps
+/opt/hakobu/hakobu docker exec -it hakobu-postgres psql -U postgres -d db_2
+/opt/hakobu/hakobu docker system df
+```
 
 ## Projects on a server
 
