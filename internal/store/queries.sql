@@ -675,3 +675,16 @@ SELECT app_id FROM pending_promotions ORDER BY app_id;
 
 -- name: DeletePendingPromotion :exec
 DELETE FROM pending_promotions WHERE app_id = ?;
+
+-- name: GetTailscaleClient :one
+SELECT * FROM tailscale_clients WHERE user_id = ?;
+
+-- name: SaveTailscaleClient :exec
+INSERT INTO tailscale_clients (user_id, client_id, client_secret, tag) VALUES (?, ?, ?, ?)
+ON CONFLICT (user_id) DO UPDATE SET client_id = excluded.client_id, client_secret = excluded.client_secret, tag = excluded.tag;
+
+-- name: DeleteTailscaleClient :exec
+DELETE FROM tailscale_clients WHERE user_id = ?;
+
+-- name: SetNodeTailnet :exec
+UPDATE nodes SET tailnet_device = ?, tailnet_ip = ? WHERE id = ?;

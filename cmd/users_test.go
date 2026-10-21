@@ -155,6 +155,9 @@ func TestUsersSignIn(t *testing.T) {
 	if w := do("GET", "/settings", cookie(sessionCookie, friend)); w.Code != http.StatusOK || strings.Contains(w.Body.String(), `id="users"`) || strings.Contains(w.Body.String(), `id="update"`) {
 		t.Errorf("a user's settings show the admin's parts: %d", w.Code)
 	}
+	if w := do("GET", "/settings", cookie(sessionCookie, friend)); !strings.Contains(w.Body.String(), `id="tailscale"`) {
+		t.Error("a user can't connect their tailnet")
+	}
 
 	if w := do("DELETE", "/settings/users/1", cookie(sessionCookie, admin)); w.Code != http.StatusBadRequest {
 		t.Errorf("the admin removed themselves: %d", w.Code)

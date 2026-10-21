@@ -30,6 +30,7 @@ sql:
           oauth_token: OAuthToken
           redirect_uri: RedirectURI
           redirect_uris: RedirectURIs
+          tailnet_ip: TailnetIP
         # Secrets are encrypted in the database (internal/secret).
         overrides:
           - column: projects.shared_env
@@ -57,6 +58,8 @@ sql:
           - column: github_app.client_secret
             go_type: {import: github.com/hakobudev/hakobu/internal/secret, type: String}
           - column: cloudflare.api_token
+            go_type: {import: github.com/hakobudev/hakobu/internal/secret, type: String}
+          - column: tailscale_clients.client_secret
             go_type: {import: github.com/hakobudev/hakobu/internal/secret, type: String}
           - column: cloudflare.tunnel_token
             go_type: {import: github.com/hakobudev/hakobu/internal/secret, type: String}

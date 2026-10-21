@@ -358,7 +358,7 @@ func TestInstallUnits(t *testing.T) {
 	if err := f.InstallUnits(); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"hakobu-update.path", "hakobu-rollback.path"} {
+	for _, name := range []string{"hakobu-update.path", "hakobu-rollback.path", "hakobu-tailscale.path"} {
 		if !UnitsInstalled(name) {
 			t.Errorf("%s not installed", name)
 		}
@@ -371,7 +371,11 @@ func TestInstallUnits(t *testing.T) {
 	if !strings.Contains(string(b), "PathExists="+filepath.Join(f.Dir, RollbackRequestFile)) {
 		t.Errorf("rollback path unit:\n%s", b)
 	}
-	if got := strings.Join(f.commands, "\n"); got != "systemctl daemon-reload\nsystemctl enable --now hakobu-update.path hakobu-rollback.path" {
+	b, _ = os.ReadFile(filepath.Join(unitDir, "hakobu-tailscale.service"))
+	if !strings.Contains(string(b), "ExecStart="+filepath.Join(f.Dir, binaryFile)+" tailscale --requested") {
+		t.Errorf("tailscale unit:\n%s", b)
+	}
+	if got := strings.Join(f.commands, "\n"); got != "systemctl daemon-reload\nsystemctl enable --now hakobu-update.path hakobu-rollback.path hakobu-tailscale.path" {
 		t.Errorf("commands:\n%s", got)
 	}
 }

@@ -115,6 +115,11 @@ type Node interface {
 	CheckHealth(ctx context.Context, app AppSpec, port int64) (ok bool, why string, checked bool)
 	// KeyState is what the panel may know of the node's keys (keys.go).
 	KeyState(ctx context.Context) (KeyState, error)
+	// Its place in its owner's tailnet (tailnet.go): joining and leaving
+	// are asked of root, and done shortly after.
+	Tailnet(ctx context.Context) (TailnetState, error)
+	JoinTailnet(ctx context.Context, r TailnetRequest) error
+	LeaveTailnet(ctx context.Context) error
 
 	// Networks and shared containers (networks.go). tunnels is every
 	// tunnel the node runs, as it should be.

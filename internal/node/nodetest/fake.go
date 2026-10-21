@@ -46,6 +46,8 @@ type Fake struct {
 	Networks   map[string]bool                  // projects with networks
 	Caches     map[string]node.CacheSpec        // container → spec
 	Keys       node.KeyState                    // what KeyState tells
+	InTailnet  node.TailnetState                // what Tailnet tells
+	TailnetAsk []node.TailnetRequest            // what root was asked, in order
 	Postgres   string                           // why Postgres doesn't answer, "" if it does
 	// What DataStatus reports of Postgres when it answers.
 	PostgresVersion        string
@@ -834,6 +836,31 @@ func (f *Fake) KeyState(ctx context.Context) (node.KeyState, error) {
 	unlock, err := f.call("KeyState")
 	defer unlock()
 	return f.Keys, err
+}
+
+func (f *Fake) Tailnet(ctx context.Context) (node.TailnetState, error) {
+	unlock, err := f.call("Tailnet")
+	defer unlock()
+	return f.InTailnet, err
+}
+
+func (f *Fake) JoinTailnet(ctx context.Context, r node.TailnetRequest) error {
+	unlock, err := f.call("JoinTailnet")
+	defer unlock()
+	if err == nil {
+		r.Up = true
+		f.TailnetAsk = append(f.TailnetAsk, r)
+	}
+	return err
+}
+
+func (f *Fake) LeaveTailnet(ctx context.Context) error {
+	unlock, err := f.call("LeaveTailnet")
+	defer unlock()
+	if err == nil {
+		f.TailnetAsk = append(f.TailnetAsk, node.TailnetRequest{})
+	}
+	return err
 }
 
 func (f *Fake) Cleanup(ctx context.Context, c node.CleanupSpec) (int64, int, error) {

@@ -1061,10 +1061,17 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			v.Usage = usageRows(usage, func(target string) (string, string, bool) { return targetPage(s, target) })
 		}
 		servers, _ := ops.Servers(s)
+		v.Tailnets = map[int64]ops.ServerTailnet{}
 		for _, sv := range servers {
 			if sv.UserID == user.ID {
 				v.Servers = append(v.Servers, sv)
+				if n, err := ops.UserServer(s, user.ID, sv.Name); err == nil && sv.Joined {
+					v.Tailnets[sv.ID] = ops.TailnetOf(s, n)
+				}
 			}
+		}
+		if c, ok := ops.TailscaleClientOf(s, user.ID); ok {
+			v.TailscaleID, v.TailscaleTag = c.ID, c.Tag
 		}
 		grants, _ := s.LiveOAuthGrants(r.Context())
 		for _, g := range grants {
@@ -1144,6 +1151,22 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			return "", err
 		}
 		return "", ops.RemoveServer(s, n.ID)
+	})
+
+	action("POST /settings/servers/{name}/tailnet", func(r *http.Request) (string, error) {
+		return "", ops.ConnectServerTailnet(s, requestUser(r).ID, r.PathValue("name"))
+	})
+
+	action("DELETE /settings/servers/{name}/tailnet", func(r *http.Request) (string, error) {
+		return "", ops.DisconnectServerTailnet(s, requestUser(r).ID, r.PathValue("name"))
+	})
+
+	action("POST /settings/tailscale", func(r *http.Request) (string, error) {
+		return "", ops.SetTailscaleClient(s, requestUser(r).ID, r.FormValue("client_id"), r.FormValue("client_secret"), r.FormValue("tag"))
+	})
+
+	action("DELETE /settings/tailscale", func(r *http.Request) (string, error) {
+		return "", ops.RemoveTailscaleClient(s, requestUser(r).ID)
 	})
 
 	// A user's token connects every account it reaches, and keeps doing so

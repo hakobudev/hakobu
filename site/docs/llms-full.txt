@@ -423,6 +423,31 @@ A new server takes a lost one's keys with `HAKOBU_NODE_KEYS=<that file>` next to
 
 > Without its key, a lost server's backups can't be opened by anyone: not you, not the panel.
 
+## Tailscale
+
+A server in your tailnet gives its apps the tailnet: they reach its devices by their 100.x addresses, a database at home or an agent on someone's PC, with no sidecar and nothing in the app. Tailscale runs on the server itself, and the containers go through it like the server does.
+
+1. In Tailscale, on the [Trust credentials](https://console.tailscale.com/admin/settings/trust-credentials) page, add an OAuth credential with Write on `auth_keys` and `devices:core`, and a tag for servers, say `tag:hakobu`. Your tailnet's policy needs the tag in `tagOwners`:
+
+   ```json
+   "tagOwners": { "tag:hakobu": ["autogroup:admin"] }
+   ```
+
+2. Paste its client ID and secret in **Settings → Tailscale**, with the tag.
+3. **Connect to tailnet** on a server's row. hakobu installs Tailscale there if it isn't, and the server joins as `hakobu-<server>` with the tag, for good: it stays while it's off. The row then shows its 100.x address.
+
+What the server may reach is up to your tailnet's policy. Give the tag only what its apps need:
+
+```json
+"grants": [
+  { "src": ["tag:hakobu"], "dst": ["tag:agents"], "ip": ["tcp:8700"] }
+]
+```
+
+Apps reach devices by address, not by name: there's no MagicDNS in their containers. A server already in the tailnet, put there by hand, shows its address as it is; **Disconnect** logs it out and removes it from the tailnet.
+
+The server's Tailscale accepts no routes or DNS from the tailnet, offers no SSH and is nobody's exit node: hakobu runs it that way whatever it's asked. A server that's an Incus container needs `/dev/net/tun` first, which its row says how to give it.
+
 # Cloudflare accounts
 
 hakobu works in your Cloudflare accounts with one API token of yours: it reads your domains, manages their DNS records, creates tunnels, keeps backups in R2 and sends you email.

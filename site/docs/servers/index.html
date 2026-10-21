@@ -92,6 +92,28 @@
 <blockquote>
 <p>Without its key, a lost server's backups can't be opened by anyone: not you, not the panel.</p>
 </blockquote>
+<h2 id="tailscale">Tailscale</h2>
+<p>A server in your tailnet gives its apps the tailnet: they reach its devices by their 100.x addresses, a database at home or an agent on someone's PC, with no sidecar and nothing in the app. Tailscale runs on the server itself, and the containers go through it like the server does.</p>
+<ol>
+<li>
+<p>In Tailscale, on the <a href="https://console.tailscale.com/admin/settings/trust-credentials">Trust credentials</a> page, add an OAuth credential with Write on <code>auth_keys</code> and <code>devices:core</code>, and a tag for servers, say <code>tag:hakobu</code>. Your tailnet's policy needs the tag in <code>tagOwners</code>:</p>
+<pre><code class="language-json">&quot;tagOwners&quot;: { &quot;tag:hakobu&quot;: [&quot;autogroup:admin&quot;] }
+</code></pre>
+</li>
+<li>
+<p>Paste its client ID and secret in <strong>Settings → Tailscale</strong>, with the tag.</p>
+</li>
+<li>
+<p><strong>Connect to tailnet</strong> on a server's row. hakobu installs Tailscale there if it isn't, and the server joins as <code>hakobu-&lt;server&gt;</code> with the tag, for good: it stays while it's off. The row then shows its 100.x address.</p>
+</li>
+</ol>
+<p>What the server may reach is up to your tailnet's policy. Give the tag only what its apps need:</p>
+<pre><code class="language-json">&quot;grants&quot;: [
+  { &quot;src&quot;: [&quot;tag:hakobu&quot;], &quot;dst&quot;: [&quot;tag:agents&quot;], &quot;ip&quot;: [&quot;tcp:8700&quot;] }
+]
+</code></pre>
+<p>Apps reach devices by address, not by name: there's no MagicDNS in their containers. A server already in the tailnet, put there by hand, shows its address as it is; <strong>Disconnect</strong> logs it out and removes it from the tailnet.</p>
+<p>The server's Tailscale accepts no routes or DNS from the tailnet, offers no SSH and is nobody's exit node: hakobu runs it that way whatever it's asked. A server that's an Incus container needs <code>/dev/net/tun</code> first, which its row says how to give it.</p>
 
     </article>
     <nav class="docs-pager" aria-label="Pages"><a class="docs-prev" href="/docs/claude/"><span>Previous</span>Claude (MCP)</a><a class="docs-next" href="/docs/cloudflare/"><span>Next</span>Cloudflare accounts</a>
@@ -104,6 +126,7 @@
     <a href="#when-a-disk-fills" class="toc-2">When a disk fills</a>
     <a href="#projects-on-a-server" class="toc-2">Projects on a server</a>
     <a href="#server-keys" class="toc-2">Server keys</a>
+    <a href="#tailscale" class="toc-2">Tailscale</a>
   </aside>
 </div>
 <footer class="footer">

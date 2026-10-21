@@ -8,13 +8,18 @@ import (
 
 // The panel's Update and Roll back buttons: hakobu, which can't write its
 // own binary, creates a request file in data/, and systemd runs the job as
-// root. Neither job reads the request: an update installs the latest
+// root. Neither job reads its request: an update installs the latest
 // signed release, a rollback the version that ran before the last update.
+// Joining the tailnet does read its own (TailscaleRequestFile).
 // Each version installs its own units (InstallUnits), so a new button
 // works right after the update that brings it.
 
 // RollbackRequestFile, under the install's directory, asks for a rollback.
 const RollbackRequestFile = "data/rollback-request"
+
+// TailscaleRequestFile asks root to join or leave the tailnet; unlike the
+// others it is read (node.TailnetRequestFile, cmd/tailscale.go).
+const TailscaleRequestFile = "data/tailscale-request"
 
 var unitDir = "/etc/systemd/system"
 
@@ -57,6 +62,24 @@ WorkingDirectory=%s
 ExecStart=%s rollback --requested
 TimeoutStartSec=20min
 `, dir, bin),
+		"hakobu-tailscale.path": fmt.Sprintf(`[Unit]
+Description=hakobu's requests to join or leave the owner's tailnet
+
+[Path]
+PathExists=%s
+
+[Install]
+WantedBy=multi-user.target
+`, filepath.Join(dir, TailscaleRequestFile)),
+		"hakobu-tailscale.service": fmt.Sprintf(`[Unit]
+Description=Join or leave the tailnet as hakobu's panel asked
+
+[Service]
+Type=oneshot
+WorkingDirectory=%s
+ExecStart=%s tailscale --requested
+TimeoutStartSec=15min
+`, dir, bin),
 	}
 }
 
@@ -71,7 +94,7 @@ func (in *Install) InstallUnits() error {
 	if err := in.systemctl("daemon-reload"); err != nil {
 		return err
 	}
-	return in.systemctl("enable", "--now", "hakobu-update.path", "hakobu-rollback.path")
+	return in.systemctl("enable", "--now", "hakobu-update.path", "hakobu-rollback.path", "hakobu-tailscale.path")
 }
 
 // UnitsInstalled reports whether the panel's requests are picked up: the

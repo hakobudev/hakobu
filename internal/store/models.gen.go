@@ -189,6 +189,8 @@ type Node struct {
 	Version        string
 	LastSeen       string
 	CreatedAt      string
+	TailnetDevice  string
+	TailnetIP      string
 }
 
 type Notify struct {
@@ -274,6 +276,13 @@ type Storage struct {
 	SecretAccessKey secret.String
 	Bucket          string
 	Region          string
+}
+
+type TailscaleClient struct {
+	UserID       int64
+	ClientID     string
+	ClientSecret secret.String
+	Tag          string
 }
 
 type User struct {

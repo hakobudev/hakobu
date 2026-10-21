@@ -115,6 +115,7 @@ var secretColumns = map[string][]string{
 	"link_key":            {"private_key"},
 	"server_tunnels":      {"tunnel_token"},
 	"sealed_vars":         {"value"},
+	"tailscale_clients":   {"client_secret"},
 	// Build output: scripts print secrets now and then.
 	"deploy_logs": {"output"},
 }

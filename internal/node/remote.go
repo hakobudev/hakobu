@@ -509,6 +509,19 @@ func (r *Remote) KeyState(ctx context.Context) (k KeyState, err error) {
 	return k, err
 }
 
+func (r *Remote) Tailnet(ctx context.Context) (st TailnetState, err error) {
+	err = r.call(ctx, "Tailnet", nil, nil, nil, &st)
+	return st, err
+}
+
+func (r *Remote) JoinTailnet(ctx context.Context, req TailnetRequest) error {
+	return r.call(ctx, "JoinTailnet", nil, nil, []any{req})
+}
+
+func (r *Remote) LeaveTailnet(ctx context.Context) error {
+	return r.call(ctx, "LeaveTailnet", nil, nil, nil)
+}
+
 func (r *Remote) Cleanup(ctx context.Context, c CleanupSpec) (freed int64, images int, err error) {
 	err = r.call(ctx, "Cleanup", nil, nil, []any{c}, &freed, &images)
 	return freed, images, err
