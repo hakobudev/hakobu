@@ -88,7 +88,9 @@ func tailnetUp(ctx context.Context, r node.TailnetRequest) node.TailnetOutcome {
 	if err := run(ctx, time.Minute, "systemctl", "enable", "--now", "tailscaled"); err != nil {
 		return node.TailnetOutcome{Error: "starting tailscaled: " + err.Error()}
 	}
-	err := run(ctx, 3*time.Minute, "tailscale", "up", "--reset",
+	// --force-reauth: a server still logged in to a tailnet (its logout
+	// refused) takes the new key rather than going back there.
+	err := run(ctx, 3*time.Minute, "tailscale", "up", "--reset", "--force-reauth",
 		"--auth-key="+r.Key, "--hostname="+r.Hostname, "--advertise-tags="+r.Tag,
 		"--accept-routes=false", "--accept-dns=false", "--ssh=false", "--timeout=2m")
 	if err != nil {
@@ -101,7 +103,15 @@ func tailnetDown(ctx context.Context) error {
 	if _, err := exec.LookPath("tailscale"); err != nil {
 		return nil
 	}
-	if err := run(ctx, time.Minute, "tailscale", "logout"); err != nil {
+	err := run(ctx, time.Minute, "tailscale", "logout")
+	if err == nil {
+		return nil
+	}
+	// The tailnet may refuse a logout, one whose key it no longer knows
+	// say: the server stops using it all the same, and its device is
+	// removed there by the panel or by hand.
+	fmt.Fprintln(os.Stderr, "logging out of the tailnet:", err)
+	if err := run(ctx, time.Minute, "tailscale", "down"); err != nil {
 		return fmt.Errorf("leaving the tailnet: %w", err)
 	}
 	return nil

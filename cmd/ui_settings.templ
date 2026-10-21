@@ -841,7 +841,7 @@ templ serverTailnetNote(v settingsPage, sv ops.Server) {
 	} else if tn.Error != "" && tn.IP == "" {
 		<div class="box-body">
 			@flash("warn") {
-				{ sv.Name } didn't join the tailnet: { tn.Error }
+				Tailscale on { sv.Name }: { tn.Error }
 			}
 		</div>
 	}
