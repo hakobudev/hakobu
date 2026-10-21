@@ -1154,7 +1154,7 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 	})
 
 	action("POST /settings/servers/{name}/tailnet", func(r *http.Request) (string, error) {
-		return "", ops.ConnectServerTailnet(s, requestUser(r).ID, r.PathValue("name"))
+		return "", ops.ConnectServerTailnet(s, requestUser(r).ID, r.PathValue("name"), r.FormValue("tag"))
 	})
 
 	action("DELETE /settings/servers/{name}/tailnet", func(r *http.Request) (string, error) {

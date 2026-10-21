@@ -133,19 +133,29 @@ func do(req *http.Request, out any) error {
 	return json.Unmarshal(b, out)
 }
 
-// AuthKey mints a key that puts one server in the tailnet with the
-// client's tag, approved, for good (not ephemeral: the server stays while
-// it's off). It works once, within ten minutes.
-func (c Client) AuthKey(ctx context.Context, description string) (string, error) {
+// AuthKey mints a key that puts one server in the tailnet with tag (the
+// client's, or one the client's tag owns in the tailnet's policy),
+// approved, for good (not ephemeral: the server stays while it's off). It
+// works once, within ten minutes.
+func (c Client) AuthKey(ctx context.Context, description, tag string) (string, error) {
+	if tag == "" {
+		tag = c.Tag
+	}
+	if !ValidTag.MatchString(tag) {
+		return "", fmt.Errorf("%q isn't a tag: one like tag:hakobu", tag)
+	}
 	body := map[string]any{
 		"description":   description,
 		"expirySeconds": 600,
 		"capabilities": map[string]any{"devices": map[string]any{"create": map[string]any{
-			"reusable": false, "ephemeral": false, "preauthorized": true, "tags": []string{c.Tag},
+			"reusable": false, "ephemeral": false, "preauthorized": true, "tags": []string{tag},
 		}}},
 	}
 	var out struct{ Key string }
 	if err := c.call(ctx, "POST", "/tailnet/-/keys", body, &out); err != nil {
+		if tag != c.Tag {
+			return "", fmt.Errorf(`%w (for %s, the tailnet's policy needs "%s": ["%s"] in tagOwners)`, err, tag, tag, c.Tag)
+		}
 		return "", err
 	}
 	if !strings.HasPrefix(out.Key, "tskey-auth-") {
@@ -179,7 +189,7 @@ func (c Client) Check(ctx context.Context) error {
 	if _, err := c.Devices(ctx); err != nil {
 		return fmt.Errorf("listing devices (scope devices:core): %w", err)
 	}
-	if _, err := c.AuthKey(ctx, "hakobu check"); err != nil {
+	if _, err := c.AuthKey(ctx, "hakobu check", ""); err != nil {
 		return fmt.Errorf("minting a key with %s (scope auth_keys, and the client must have the tag): %w", c.Tag, err)
 	}
 	return nil

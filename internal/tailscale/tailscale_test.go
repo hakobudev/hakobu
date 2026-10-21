@@ -40,7 +40,8 @@ func newFake(t *testing.T) *fakeAPI {
 			var body map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			tags := body["capabilities"].(map[string]any)["devices"].(map[string]any)["create"].(map[string]any)["tags"].([]any)
-			if len(tags) != 1 || tags[0] != "tag:hakobu" {
+			// tag:hakobu owns tag:kasl-server in the fake's policy.
+			if len(tags) != 1 || (tags[0] != "tag:hakobu" && tags[0] != "tag:kasl-server") {
 				w.WriteHeader(http.StatusBadRequest)
 				fmt.Fprint(w, `{"message":"requested tags are invalid or not permitted"}`)
 				return
@@ -76,13 +77,22 @@ func TestClient(t *testing.T) {
 	if err := c.Check(ctx); err != nil {
 		t.Fatal(err)
 	}
-	key, err := c.AuthKey(ctx, "hakobu kasl")
+	key, err := c.AuthKey(ctx, "hakobu kasl", "")
 	if err != nil || key != "tskey-auth-k1-abc" {
 		t.Fatalf("key = %q (%v)", key, err)
 	}
 	create := f.keys[1]["capabilities"].(map[string]any)["devices"].(map[string]any)["create"].(map[string]any)
 	if create["reusable"] != false || create["ephemeral"] != false || create["preauthorized"] != true {
 		t.Errorf("key capabilities = %v", create)
+	}
+	if _, err := c.AuthKey(ctx, "hakobu kasl", "tag:kasl-server"); err != nil {
+		t.Errorf("a tag the client's owns: %v", err)
+	}
+	if _, err := c.AuthKey(ctx, "hakobu kasl", "tag:other"); err == nil || !strings.Contains(err.Error(), "tagOwners") {
+		t.Errorf("a tag the client can't give: %v", err)
+	}
+	if _, err := c.AuthKey(ctx, "hakobu kasl", "kasl"); err == nil {
+		t.Error("a key for a malformed tag")
 	}
 	devices, err := c.Devices(ctx)
 	if err != nil || len(devices) != 1 || devices[0].IPv4() != "100.78.99.72" || !devices[0].Online {

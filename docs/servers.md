@@ -65,15 +65,21 @@ A server in your tailnet gives its apps the tailnet: they reach its devices by t
    ```
 
 2. Paste its client ID and secret in **Settings → Tailscale**, with the tag.
-3. **Connect to tailnet** on a server's row. hakobu installs Tailscale there if it isn't, and the server joins as `hakobu-<server>` with the tag, for good: it stays while it's off. The row then shows its 100.x address.
+3. **Connect to tailnet** on a server's row, with a tag. hakobu installs Tailscale there if it isn't, and the server joins as `hakobu-<server>` with that tag, for good: it stays while it's off. The row then shows its 100.x address.
 
-What the server may reach is up to your tailnet's policy. Give the tag only what its apps need:
+What a server may reach is up to your tailnet's policy, by its tag. Servers whose apps need different things get tags of their own, which the OAuth client's tag owns:
 
 ```json
+"tagOwners": {
+  "tag:hakobu": ["autogroup:admin"],
+  "tag:crm-server": ["tag:hakobu"]
+},
 "grants": [
-  { "src": ["tag:hakobu"], "dst": ["tag:agents"], "ip": ["tcp:8700"] }
+  { "src": ["tag:crm-server"], "dst": ["tag:agents"], "ip": ["tcp:8700", "tcp:41001-41100"] }
 ]
 ```
+
+A server already in the tailnet keeps its tag: to change it, **Disconnect** and connect again with the new one.
 
 Apps reach devices by address, not by name: there's no MagicDNS in their containers. A server already in the tailnet, put there by hand, shows its address as it is; **Disconnect** logs it out and removes it from the tailnet.
 

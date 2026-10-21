@@ -770,17 +770,27 @@ templ serverTailnetBadge(v settingsPage, sv ops.Server) {
 			}
 		</span>
 	} else if v.TailscaleID != "" && sv.Connected {
-		<button
-			class="btn btn-sm"
-			hx-post={ "/settings/servers/" + sv.Name + "/tailnet" }
-			hx-confirm={ "Tailscale is installed on " + sv.Name + " if it isn't there, and the server joins your tailnet as hakobu-" + sv.Name + " with " + v.TailscaleTag + ". Its apps then reach the tailnet's devices by their 100.x addresses, as your tailnet's policy allows." }
-			data-confirm-title={ "Connect " + sv.Name + " to your tailnet?" }
-			data-confirm-action="Connect"
-		>Connect to tailnet</button>
+		<button type="button" class="btn btn-sm" popovertarget={ "tailnet-server-" + itoa(sv.ID) }>Connect to tailnet</button>
+		<div id={ "tailnet-server-" + itoa(sv.ID) } popover class="menu">
+			<form hx-post={ "/settings/servers/" + sv.Name + "/tailnet" } class="space-y-3 p-3">
+				<p class="field-hint">{ sv.Name } joins your tailnet as hakobu-{ sv.Name }; Tailscale is installed there if it isn't. Its apps then reach the tailnet's devices by their 100.x addresses, as your tailnet's policy allows its tag.</p>
+				@field("Tag", "Your OAuth client's, or one it owns in the policy's tagOwners: a tag of its own lets the policy tell this server apart.") {
+					<input name="tag" required value={ v.TailscaleTag } pattern="tag:[a-zA-Z0-9][a-zA-Z0-9\-]{0,62}" spellcheck="false" autocomplete="off" class="input mono"/>
+				}
+				@submit("Connect", true)
+			</form>
+		</div>
 	}
 }
 
 func tailnetTitle(tn ops.ServerTailnet) string {
+	if tn.Device && len(tn.Tags) > 0 {
+		return strings.Join(tn.Tags, " ") + ", " + tailnetState(tn)
+	}
+	return tailnetState(tn)
+}
+
+func tailnetState(tn ops.ServerTailnet) string {
 	switch {
 	case !tn.Device:
 		return "its address in a tailnet"

@@ -58,7 +58,7 @@ func TestServerTailnet(t *testing.T) {
 	f := nodetest.New()
 	joinServer(t, s, "box", f)
 
-	if err := ConnectServerTailnet(s, 0, "box"); err == nil || !strings.Contains(err.Error(), "Settings → Tailscale") {
+	if err := ConnectServerTailnet(s, 0, "box", ""); err == nil || !strings.Contains(err.Error(), "Settings → Tailscale") {
 		t.Errorf("without a client: %v", err)
 	}
 	if err := SetTailscaleClient(s, 0, "id", "wrong", ""); err == nil {
@@ -74,7 +74,7 @@ func TestServerTailnet(t *testing.T) {
 		t.Errorf("client = %+v", c)
 	}
 
-	if err := ConnectServerTailnet(s, 0, "box"); err != nil {
+	if err := ConnectServerTailnet(s, 0, "box", ""); err != nil {
 		t.Fatal(err)
 	}
 	want := node.TailnetRequest{Up: true, Key: "tskey-auth-k1-abc", Hostname: "hakobu-box", Tag: "tag:hakobu"}
@@ -97,7 +97,7 @@ func TestServerTailnet(t *testing.T) {
 		t.Errorf("away: state = %+v", st)
 	}
 	f.Fail("Tailnet", nil)
-	if err := ConnectServerTailnet(s, 0, "box"); err == nil || !strings.Contains(err.Error(), "already") {
+	if err := ConnectServerTailnet(s, 0, "box", ""); err == nil || !strings.Contains(err.Error(), "already") {
 		t.Errorf("connecting again: %v", err)
 	}
 
@@ -112,6 +112,18 @@ func TestServerTailnet(t *testing.T) {
 	}
 	if n, _ = UserServer(s, 0, "box"); n.TailnetDevice != "" || n.TailnetIP != "" {
 		t.Errorf("still kept device %q at %q", n.TailnetDevice, n.TailnetIP)
+	}
+
+	// A server told apart from the rest by a tag of its own.
+	f.InTailnet = node.TailnetState{}
+	if err := ConnectServerTailnet(s, 0, "box", "tag:kasl-server"); err != nil {
+		t.Fatal(err)
+	}
+	if last := f.TailnetAsk[len(f.TailnetAsk)-1]; last.Tag != "tag:kasl-server" {
+		t.Errorf("joined with %q, want tag:kasl-server", last.Tag)
+	}
+	if err := ConnectServerTailnet(s, 0, "box", "kasl-server"); err == nil {
+		t.Error("joined with a malformed tag")
 	}
 }
 

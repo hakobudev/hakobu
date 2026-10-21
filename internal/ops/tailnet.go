@@ -67,8 +67,9 @@ type ServerTailnet struct {
 	node.TailnetState
 	Known    bool   // the server told its state
 	Device   bool   // its device was found in the tailnet
-	Online   bool   // the device is connected to Tailscale
-	LastSeen string // when it last was, if it isn't
+	Online   bool     // the device is connected to Tailscale
+	LastSeen string   // when it last was, if it isn't
+	Tags     []string // the device's tags
 }
 
 // tailnetDevices caches each client's device list briefly: a Settings page
@@ -128,7 +129,7 @@ func TailnetOf(s *store.Store, n store.Node) ServerTailnet {
 	}
 	for _, d := range devices {
 		if d.IPv4() == ip {
-			out.Device, out.Online, out.LastSeen = true, d.Online, d.LastSeen
+			out.Device, out.Online, out.LastSeen, out.Tags = true, d.Online, d.LastSeen, d.Tags
 			if d.NodeID != n.TailnetDevice || ip != n.TailnetIP {
 				_ = s.SetNodeTailnet(ctx(), store.SetNodeTailnetParams{TailnetDevice: d.NodeID, TailnetIP: ip, ID: n.ID})
 			}
@@ -138,9 +139,10 @@ func TailnetOf(s *store.Store, n store.Node) ServerTailnet {
 	return out
 }
 
-// ConnectServerTailnet puts a server of the user's in their tailnet: a
-// one-off key for it, which root on the server joins with.
-func ConnectServerTailnet(s *store.Store, userID int64, serverName string) error {
+// ConnectServerTailnet puts a server of the user's in their tailnet with
+// tag ("" for the client's), so the tailnet's policy can tell servers
+// apart: a one-off key for it, which root on the server joins with.
+func ConnectServerTailnet(s *store.Store, userID int64, serverName, tag string) error {
 	c, ok := TailscaleClientOf(s, userID)
 	if !ok {
 		return errors.New("connect your tailnet first (Settings → Tailscale)")
@@ -160,12 +162,15 @@ func ConnectServerTailnet(s *store.Store, userID int64, serverName string) error
 	} else if st.IP != "" {
 		return fmt.Errorf("server %s is in a tailnet already, at %s", n.Name, st.IP)
 	}
-	key, err := c.AuthKey(cctx, "hakobu server "+n.Name)
+	if tag = strings.TrimSpace(tag); tag == "" {
+		tag = c.Tag
+	}
+	key, err := c.AuthKey(cctx, "hakobu server "+n.Name, tag)
 	if err != nil {
 		return err
 	}
 	forgetDevices(c)
-	return nd.JoinTailnet(cctx, node.TailnetRequest{Key: key, Hostname: "hakobu-" + n.Name, Tag: c.Tag})
+	return nd.JoinTailnet(cctx, node.TailnetRequest{Key: key, Hostname: "hakobu-" + n.Name, Tag: tag})
 }
 
 // DisconnectServerTailnet takes a server of the user's out of the tailnet:
