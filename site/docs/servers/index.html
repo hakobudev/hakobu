@@ -101,10 +101,10 @@
 </code></pre>
 </li>
 <li>
-<p>Paste its client ID and secret in <strong>Settings → Tailscale</strong>, with the tag.</p>
+<p>Paste its client ID and secret in <strong>Settings → Tailscale</strong>, with the tag and a name of yours for the tailnet. Connect each tailnet you have servers for this way, yours and a client's say.</p>
 </li>
 <li>
-<p><strong>Connect to tailnet</strong> on a server's row, with a tag. hakobu installs Tailscale there if it isn't, and the server joins as <code>hakobu-&lt;server&gt;</code> with that tag, for good: it stays while it's off. The row then shows its 100.x address.</p>
+<p><strong>Connect to tailnet</strong> on a server's row: pick the tailnet and, if it's to be told apart from your other servers there, a tag. hakobu installs Tailscale there if it isn't, and the server joins as <code>hakobu-&lt;server&gt;</code> with that tag, for good: it stays while it's off. The row then shows its 100.x address.</p>
 </li>
 </ol>
 <p>What a server may reach is up to your tailnet's policy, by its tag. Servers whose apps need different things get tags of their own, which the OAuth client's tag owns:</p>
@@ -117,7 +117,7 @@
 ]
 </code></pre>
 <p>A server already in the tailnet keeps its tag: to change it, <strong>Disconnect</strong> and connect again with the new one.</p>
-<p>Apps reach devices by address, not by name: there's no MagicDNS in their containers. A server already in the tailnet, put there by hand, shows its address as it is; <strong>Disconnect</strong> logs it out and removes it from the tailnet.</p>
+<p>Apps reach devices by address, not by name: there's no MagicDNS in their containers. A server already in a tailnet you connected, put there by hand, is found by its address; <strong>Disconnect</strong> logs it out and removes it from the tailnet.</p>
 <p>The server's Tailscale accepts no routes or DNS from the tailnet, offers no SSH and is nobody's exit node: hakobu runs it that way whatever it's asked. A server that's an Incus container needs <code>/dev/net/tun</code> first, which its row says how to give it.</p>
 
     </article>

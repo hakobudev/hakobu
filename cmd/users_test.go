@@ -229,6 +229,8 @@ func TestUsersSeeOnlyTheirOwn(t *testing.T) {
 	must(s.CreateNode(ctx, store.CreateNodeParams{Name: "adminsrv", UserID: admin}))
 	_, err = s.CreateCloudflareAccount(ctx, store.CreateCloudflareAccountParams{Name: "adminclient", ApiToken: "x", AccountID: "acc", UserID: admin})
 	must(err)
+	_, err = s.CreateTailnet(ctx, store.CreateTailnetParams{UserID: admin, Name: "admintn", ClientID: "x", ClientSecret: "x", Tag: "tag:hakobu"})
+	must(err)
 
 	mux := http.NewServeMux()
 	registerWebRoutes(mux, s)
@@ -238,13 +240,13 @@ func TestUsersSeeOnlyTheirOwn(t *testing.T) {
 	src := strings.NewReplacer(`"+appRoute+"`, "/projects/{p}/apps/{a}", `"+appRoute)`, `/projects/{p}/apps/{a}")`,
 		`"+dbRoute+"`, "/projects/{p}/databases/{d}", `"+dbRoute)`, `/projects/{p}/databases/{d}")`).Replace(string(b))
 	names := map[string]string{
-		"{p}": "adminp", "{a}": "adminapp", "{d}": "admindb", "{st}": "adminst", "{cache}": "admincache", "{name}": "adminsrv", "{c}": "adminclient",
+		"{p}": "adminp", "{a}": "adminapp", "{d}": "admindb", "{st}": "adminst", "{cache}": "admincache", "{name}": "adminsrv", "{c}": "adminclient", "{tn}": "admintn",
 		"{scope}": "app", "{key}": "K", "{v}": "data", "{id}": "1", "{trace}": "t",
 	}
 	checked := 0
 	for _, m := range regexp.MustCompile(`(?:handle|action)\("(GET|POST|DELETE) ([^"]+)"`).FindAllStringSubmatch(src, -1) {
 		method, path := m[1], m[2]
-		if !regexp.MustCompile(`\{(p|a|d|st|cache|name|c)\}`).MatchString(path) {
+		if !regexp.MustCompile(`\{(p|a|d|st|cache|name|c|tn)\}`).MatchString(path) {
 			continue
 		}
 		for k, v := range names {

@@ -73,9 +73,14 @@ func resolve(r *http.Request, s *store.Store) (*http.Request, error) {
 			res.cache = &c
 		}
 	}
-	// /settings/servers/{name} and /settings/clients/{c}.
+	// /settings/servers/{name}, /settings/tailscale/{tn} and /settings/clients/{c}.
 	if name := r.PathValue("name"); name != "" && strings.HasPrefix(r.URL.Path, "/settings/servers/") {
 		if _, err := ops.UserServer(s, u.ID, name); err != nil {
+			return r, errNotFound
+		}
+	}
+	if name := r.PathValue("tn"); name != "" {
+		if _, err := s.GetTailnetByName(ctx, store.GetTailnetByNameParams{UserID: u.ID, Name: name}); err != nil {
 			return r, errNotFound
 		}
 	}

@@ -433,8 +433,8 @@ A server in your tailnet gives its apps the tailnet: they reach its devices by t
    "tagOwners": { "tag:hakobu": ["autogroup:admin"] }
    ```
 
-2. Paste its client ID and secret in **Settings → Tailscale**, with the tag.
-3. **Connect to tailnet** on a server's row, with a tag. hakobu installs Tailscale there if it isn't, and the server joins as `hakobu-<server>` with that tag, for good: it stays while it's off. The row then shows its 100.x address.
+2. Paste its client ID and secret in **Settings → Tailscale**, with the tag and a name of yours for the tailnet. Connect each tailnet you have servers for this way, yours and a client's say.
+3. **Connect to tailnet** on a server's row: pick the tailnet and, if it's to be told apart from your other servers there, a tag. hakobu installs Tailscale there if it isn't, and the server joins as `hakobu-<server>` with that tag, for good: it stays while it's off. The row then shows its 100.x address.
 
 What a server may reach is up to your tailnet's policy, by its tag. Servers whose apps need different things get tags of their own, which the OAuth client's tag owns:
 
@@ -450,7 +450,7 @@ What a server may reach is up to your tailnet's policy, by its tag. Servers whos
 
 A server already in the tailnet keeps its tag: to change it, **Disconnect** and connect again with the new one.
 
-Apps reach devices by address, not by name: there's no MagicDNS in their containers. A server already in the tailnet, put there by hand, shows its address as it is; **Disconnect** logs it out and removes it from the tailnet.
+Apps reach devices by address, not by name: there's no MagicDNS in their containers. A server already in a tailnet you connected, put there by hand, is found by its address; **Disconnect** logs it out and removes it from the tailnet.
 
 The server's Tailscale accepts no routes or DNS from the tailnet, offers no SSH and is nobody's exit node: hakobu runs it that way whatever it's asked. A server that's an Incus container needs `/dev/net/tun` first, which its row says how to give it.
 

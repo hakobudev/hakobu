@@ -191,6 +191,7 @@ type Node struct {
 	CreatedAt      string
 	TailnetDevice  string
 	TailnetIP      string
+	TailnetID      sql.NullInt64
 }
 
 type Notify struct {
@@ -278,8 +279,10 @@ type Storage struct {
 	Region          string
 }
 
-type TailscaleClient struct {
+type TailscaleTailnet struct {
+	ID           int64
 	UserID       int64
+	Name         string
 	ClientID     string
 	ClientSecret secret.String
 	Tag          string

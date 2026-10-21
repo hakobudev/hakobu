@@ -536,6 +536,31 @@ func (q *Queries) CreateStorage(ctx context.Context, arg CreateStorageParams) (i
 	return id, err
 }
 
+const createTailnet = `-- name: CreateTailnet :one
+INSERT INTO tailscale_tailnets (user_id, name, client_id, client_secret, tag) VALUES (?, ?, ?, ?, ?) RETURNING id
+`
+
+type CreateTailnetParams struct {
+	UserID       int64
+	Name         string
+	ClientID     string
+	ClientSecret secret.String
+	Tag          string
+}
+
+func (q *Queries) CreateTailnet(ctx context.Context, arg CreateTailnetParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, createTailnet,
+		arg.UserID,
+		arg.Name,
+		arg.ClientID,
+		arg.ClientSecret,
+		arg.Tag,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (github_id, github_login, admin) VALUES (?, ?, ?) RETURNING id
 `
@@ -845,12 +870,12 @@ func (q *Queries) DeleteStorage(ctx context.Context, id int64) error {
 	return err
 }
 
-const deleteTailscaleClient = `-- name: DeleteTailscaleClient :exec
-DELETE FROM tailscale_clients WHERE user_id = ?
+const deleteTailnet = `-- name: DeleteTailnet :exec
+DELETE FROM tailscale_tailnets WHERE id = ?
 `
 
-func (q *Queries) DeleteTailscaleClient(ctx context.Context, userID int64) error {
-	_, err := q.db.ExecContext(ctx, deleteTailscaleClient, userID)
+func (q *Queries) DeleteTailnet(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteTailnet, id)
 	return err
 }
 
@@ -1375,7 +1400,7 @@ func (q *Queries) GetLiveInvite(ctx context.Context, arg GetLiveInviteParams) (I
 }
 
 const getNode = `-- name: GetNode :one
-SELECT id, name, user_id, public_key, join_secret_hash, join_expires, version, last_seen, created_at, tailnet_device, tailnet_ip FROM nodes WHERE id = ?
+SELECT id, name, user_id, public_key, join_secret_hash, join_expires, version, last_seen, created_at, tailnet_device, tailnet_ip, tailnet_id FROM nodes WHERE id = ?
 `
 
 func (q *Queries) GetNode(ctx context.Context, id int64) (Node, error) {
@@ -1393,12 +1418,13 @@ func (q *Queries) GetNode(ctx context.Context, id int64) (Node, error) {
 		&i.CreatedAt,
 		&i.TailnetDevice,
 		&i.TailnetIP,
+		&i.TailnetID,
 	)
 	return i, err
 }
 
 const getNodeByJoinSecret = `-- name: GetNodeByJoinSecret :one
-SELECT id, name, user_id, public_key, join_secret_hash, join_expires, version, last_seen, created_at, tailnet_device, tailnet_ip FROM nodes WHERE join_secret_hash = ? AND join_secret_hash != ''
+SELECT id, name, user_id, public_key, join_secret_hash, join_expires, version, last_seen, created_at, tailnet_device, tailnet_ip, tailnet_id FROM nodes WHERE join_secret_hash = ? AND join_secret_hash != ''
 `
 
 func (q *Queries) GetNodeByJoinSecret(ctx context.Context, joinSecretHash string) (Node, error) {
@@ -1416,12 +1442,13 @@ func (q *Queries) GetNodeByJoinSecret(ctx context.Context, joinSecretHash string
 		&i.CreatedAt,
 		&i.TailnetDevice,
 		&i.TailnetIP,
+		&i.TailnetID,
 	)
 	return i, err
 }
 
 const getNodeByKey = `-- name: GetNodeByKey :one
-SELECT id, name, user_id, public_key, join_secret_hash, join_expires, version, last_seen, created_at, tailnet_device, tailnet_ip FROM nodes WHERE public_key = ? AND public_key != ''
+SELECT id, name, user_id, public_key, join_secret_hash, join_expires, version, last_seen, created_at, tailnet_device, tailnet_ip, tailnet_id FROM nodes WHERE public_key = ? AND public_key != ''
 `
 
 func (q *Queries) GetNodeByKey(ctx context.Context, publicKey string) (Node, error) {
@@ -1439,12 +1466,13 @@ func (q *Queries) GetNodeByKey(ctx context.Context, publicKey string) (Node, err
 		&i.CreatedAt,
 		&i.TailnetDevice,
 		&i.TailnetIP,
+		&i.TailnetID,
 	)
 	return i, err
 }
 
 const getNodeByName = `-- name: GetNodeByName :one
-SELECT id, name, user_id, public_key, join_secret_hash, join_expires, version, last_seen, created_at, tailnet_device, tailnet_ip FROM nodes WHERE user_id = ? AND name = ?
+SELECT id, name, user_id, public_key, join_secret_hash, join_expires, version, last_seen, created_at, tailnet_device, tailnet_ip, tailnet_id FROM nodes WHERE user_id = ? AND name = ?
 `
 
 type GetNodeByNameParams struct {
@@ -1467,6 +1495,7 @@ func (q *Queries) GetNodeByName(ctx context.Context, arg GetNodeByNameParams) (N
 		&i.CreatedAt,
 		&i.TailnetDevice,
 		&i.TailnetIP,
+		&i.TailnetID,
 	)
 	return i, err
 }
@@ -1676,15 +1705,40 @@ func (q *Queries) GetStorageByID(ctx context.Context, id int64) (Storage, error)
 	return i, err
 }
 
-const getTailscaleClient = `-- name: GetTailscaleClient :one
-SELECT user_id, client_id, client_secret, tag FROM tailscale_clients WHERE user_id = ?
+const getTailnet = `-- name: GetTailnet :one
+SELECT id, user_id, name, client_id, client_secret, tag FROM tailscale_tailnets WHERE id = ?
 `
 
-func (q *Queries) GetTailscaleClient(ctx context.Context, userID int64) (TailscaleClient, error) {
-	row := q.db.QueryRowContext(ctx, getTailscaleClient, userID)
-	var i TailscaleClient
+func (q *Queries) GetTailnet(ctx context.Context, id int64) (TailscaleTailnet, error) {
+	row := q.db.QueryRowContext(ctx, getTailnet, id)
+	var i TailscaleTailnet
 	err := row.Scan(
+		&i.ID,
 		&i.UserID,
+		&i.Name,
+		&i.ClientID,
+		&i.ClientSecret,
+		&i.Tag,
+	)
+	return i, err
+}
+
+const getTailnetByName = `-- name: GetTailnetByName :one
+SELECT id, user_id, name, client_id, client_secret, tag FROM tailscale_tailnets WHERE user_id = ? AND name = ?
+`
+
+type GetTailnetByNameParams struct {
+	UserID int64
+	Name   string
+}
+
+func (q *Queries) GetTailnetByName(ctx context.Context, arg GetTailnetByNameParams) (TailscaleTailnet, error) {
+	row := q.db.QueryRowContext(ctx, getTailnetByName, arg.UserID, arg.Name)
+	var i TailscaleTailnet
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Name,
 		&i.ClientID,
 		&i.ClientSecret,
 		&i.Tag,
@@ -2553,7 +2607,7 @@ func (q *Queries) ListInvites(ctx context.Context, expiresAt string) ([]Invite, 
 
 const listNodes = `-- name: ListNodes :many
 
-SELECT id, name, user_id, public_key, join_secret_hash, join_expires, version, last_seen, created_at, tailnet_device, tailnet_ip FROM nodes ORDER BY name, id
+SELECT id, name, user_id, public_key, join_secret_hash, join_expires, version, last_seen, created_at, tailnet_device, tailnet_ip, tailnet_id FROM nodes ORDER BY name, id
 `
 
 // Nodes
@@ -2578,6 +2632,7 @@ func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
 			&i.CreatedAt,
 			&i.TailnetDevice,
 			&i.TailnetIP,
+			&i.TailnetID,
 		); err != nil {
 			return nil, err
 		}
@@ -2916,6 +2971,40 @@ func (q *Queries) ListStoragesByProject(ctx context.Context, projectID int64) ([
 	return items, nil
 }
 
+const listTailnets = `-- name: ListTailnets :many
+SELECT id, user_id, name, client_id, client_secret, tag FROM tailscale_tailnets WHERE user_id = ? ORDER BY name
+`
+
+func (q *Queries) ListTailnets(ctx context.Context, userID int64) ([]TailscaleTailnet, error) {
+	rows, err := q.db.QueryContext(ctx, listTailnets, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TailscaleTailnet
+	for rows.Next() {
+		var i TailscaleTailnet
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Name,
+			&i.ClientID,
+			&i.ClientSecret,
+			&i.Tag,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUsers = `-- name: ListUsers :many
 SELECT id, github_id, github_login, github_email, admin, notify_email, created_at, shared_domain FROM users ORDER BY id
 `
@@ -3213,6 +3302,20 @@ func (q *Queries) RenameProject(ctx context.Context, arg RenameProjectParams) er
 	return err
 }
 
+const renameTailnet = `-- name: RenameTailnet :exec
+UPDATE tailscale_tailnets SET name = ? WHERE id = ?
+`
+
+type RenameTailnetParams struct {
+	Name string
+	ID   int64
+}
+
+func (q *Queries) RenameTailnet(ctx context.Context, arg RenameTailnetParams) error {
+	_, err := q.db.ExecContext(ctx, renameTailnet, arg.Name, arg.ID)
+	return err
+}
+
 const saveAccountEmail = `-- name: SaveAccountEmail :exec
 INSERT INTO account_alerts (cloudflare_account_id, email, added_address, sender_domain, zone_id, routed_domain) VALUES (?, ?, ?, ?, ?, ?)
 ON CONFLICT (cloudflare_account_id) DO UPDATE SET email = excluded.email, added_address = excluded.added_address,
@@ -3356,28 +3459,6 @@ func (q *Queries) SaveNotify(ctx context.Context, arg SaveNotifyParams) error {
 		arg.ZoneID,
 		arg.AddedAddress,
 		arg.RoutedDomain,
-	)
-	return err
-}
-
-const saveTailscaleClient = `-- name: SaveTailscaleClient :exec
-INSERT INTO tailscale_clients (user_id, client_id, client_secret, tag) VALUES (?, ?, ?, ?)
-ON CONFLICT (user_id) DO UPDATE SET client_id = excluded.client_id, client_secret = excluded.client_secret, tag = excluded.tag
-`
-
-type SaveTailscaleClientParams struct {
-	UserID       int64
-	ClientID     string
-	ClientSecret secret.String
-	Tag          string
-}
-
-func (q *Queries) SaveTailscaleClient(ctx context.Context, arg SaveTailscaleClientParams) error {
-	_, err := q.db.ExecContext(ctx, saveTailscaleClient,
-		arg.UserID,
-		arg.ClientID,
-		arg.ClientSecret,
-		arg.Tag,
 	)
 	return err
 }
@@ -3829,17 +3910,23 @@ func (q *Queries) SetNodeJoin(ctx context.Context, arg SetNodeJoinParams) error 
 }
 
 const setNodeTailnet = `-- name: SetNodeTailnet :exec
-UPDATE nodes SET tailnet_device = ?, tailnet_ip = ? WHERE id = ?
+UPDATE nodes SET tailnet_id = ?, tailnet_device = ?, tailnet_ip = ? WHERE id = ?
 `
 
 type SetNodeTailnetParams struct {
+	TailnetID     sql.NullInt64
 	TailnetDevice string
 	TailnetIP     string
 	ID            int64
 }
 
 func (q *Queries) SetNodeTailnet(ctx context.Context, arg SetNodeTailnetParams) error {
-	_, err := q.db.ExecContext(ctx, setNodeTailnet, arg.TailnetDevice, arg.TailnetIP, arg.ID)
+	_, err := q.db.ExecContext(ctx, setNodeTailnet,
+		arg.TailnetID,
+		arg.TailnetDevice,
+		arg.TailnetIP,
+		arg.ID,
+	)
 	return err
 }
 
@@ -4103,6 +4190,27 @@ type UpdateDeployLogParams struct {
 
 func (q *Queries) UpdateDeployLog(ctx context.Context, arg UpdateDeployLogParams) error {
 	_, err := q.db.ExecContext(ctx, updateDeployLog, arg.Status, arg.Output, arg.ID)
+	return err
+}
+
+const updateTailnetClient = `-- name: UpdateTailnetClient :exec
+UPDATE tailscale_tailnets SET client_id = ?, client_secret = ?, tag = ? WHERE id = ?
+`
+
+type UpdateTailnetClientParams struct {
+	ClientID     string
+	ClientSecret secret.String
+	Tag          string
+	ID           int64
+}
+
+func (q *Queries) UpdateTailnetClient(ctx context.Context, arg UpdateTailnetClientParams) error {
+	_, err := q.db.ExecContext(ctx, updateTailnetClient,
+		arg.ClientID,
+		arg.ClientSecret,
+		arg.Tag,
+		arg.ID,
+	)
 	return err
 }
 

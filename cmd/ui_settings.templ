@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/hakobudev/hakobu/internal/cloudflare"
@@ -38,8 +39,8 @@ type settingsPage struct {
 	R2Off                        bool   // R2 isn't on in the panel's account
 	R2URL                        string // where it's turned on
 	Servers                      []ops.Server
-	Tailnets                     map[int64]ops.ServerTailnet // by server
-	TailscaleID, TailscaleTag    string                      // the user's OAuth client, "" for none
+	ServerTailnets               map[int64]ops.ServerTailnet // by server
+	Tailnets                     []ops.Tailnet               // the user's
 	Usage                        []usageRow
 	OAuthGrants                  []store.OAuthGrant
 }
@@ -745,13 +746,13 @@ templ settingsServers(v settingsPage) {
 // serverTailnetBadge is the server's place in its owner's tailnet, with
 // the button that changes it.
 templ serverTailnetBadge(v settingsPage, sv ops.Server) {
-	{{ tn := v.Tailnets[sv.ID] }}
+	{{ tn := v.ServerTailnets[sv.ID] }}
 	if tn.IP != "" {
 		<span class={ "badge", "mono", templ.KV("badge-attention", tn.Device && !tn.Online) } title={ tailnetTitle(tn) }>
 			@ic("network", "icon-sm")
 			{ tn.IP }
 		</span>
-		if v.TailscaleID != "" && tn.Pending == "" {
+		if len(v.Tailnets) > 0 && tn.Pending == "" {
 			<button
 				class="btn btn-sm"
 				hx-delete={ "/settings/servers/" + sv.Name + "/tailnet" }
@@ -769,13 +770,22 @@ templ serverTailnetBadge(v settingsPage, sv ops.Server) {
 				leaving the tailnet
 			}
 		</span>
-	} else if v.TailscaleID != "" && sv.Connected {
+	} else if len(v.Tailnets) > 0 && sv.Connected {
 		<button type="button" class="btn btn-sm" popovertarget={ "tailnet-server-" + itoa(sv.ID) }>Connect to tailnet</button>
 		<div id={ "tailnet-server-" + itoa(sv.ID) } popover class="menu">
 			<form hx-post={ "/settings/servers/" + sv.Name + "/tailnet" } class="space-y-3 p-3">
-				<p class="field-hint">{ sv.Name } joins your tailnet as hakobu-{ sv.Name }; Tailscale is installed there if it isn't. Its apps then reach the tailnet's devices by their 100.x addresses, as your tailnet's policy allows its tag.</p>
-				@field("Tag", "Your OAuth client's, or one it owns in the policy's tagOwners: a tag of its own lets the policy tell this server apart.") {
-					<input name="tag" required value={ v.TailscaleTag } pattern="tag:[a-zA-Z0-9][a-zA-Z0-9\-]{0,62}" spellcheck="false" autocomplete="off" class="input mono"/>
+				<p class="field-hint">{ sv.Name } joins the tailnet as hakobu-{ sv.Name }; Tailscale is installed there if it isn't. Its apps then reach the tailnet's devices by their 100.x addresses, as the tailnet's policy allows its tag.</p>
+				if len(v.Tailnets) > 1 {
+					@field("Tailnet", "") {
+						<select name="tailnet" class="input" required>
+							for _, tn := range v.Tailnets {
+								<option value={ tn.Name }>{ tn.Name }</option>
+							}
+						</select>
+					}
+				}
+				@field("Tag", "Empty for the tailnet's own; or one its tag owns in the policy's tagOwners, so the policy can tell this server apart.") {
+					<input name="tag" placeholder={ tailnetTags(v.Tailnets) } pattern="tag:[a-zA-Z0-9][a-zA-Z0-9\-]{0,62}" spellcheck="false" autocomplete="off" class="input mono"/>
 				}
 				@submit("Connect", true)
 			</form>
@@ -783,9 +793,23 @@ templ serverTailnetBadge(v settingsPage, sv ops.Server) {
 	}
 }
 
+// tailnetTags are the tailnets' own tags, for a placeholder.
+func tailnetTags(tailnets []ops.Tailnet) string {
+	var tags []string
+	for _, tn := range tailnets {
+		if !slices.Contains(tags, tn.Client.Tag) {
+			tags = append(tags, tn.Client.Tag)
+		}
+	}
+	return strings.Join(tags, " / ")
+}
+
 func tailnetTitle(tn ops.ServerTailnet) string {
 	if tn.Device && len(tn.Tags) > 0 {
-		return strings.Join(tn.Tags, " ") + ", " + tailnetState(tn)
+		return "tailnet " + tn.Tailnet + ", " + strings.Join(tn.Tags, " ") + ", " + tailnetState(tn)
+	}
+	if tn.Device {
+		return "tailnet " + tn.Tailnet + ", " + tailnetState(tn)
 	}
 	return tailnetState(tn)
 }
@@ -793,18 +817,18 @@ func tailnetTitle(tn ops.ServerTailnet) string {
 func tailnetState(tn ops.ServerTailnet) string {
 	switch {
 	case !tn.Device:
-		return "its address in a tailnet"
+		return "its address in a tailnet not connected here"
 	case tn.Online:
-		return "in your tailnet, online"
+		return "online"
 	case tn.LastSeen != "":
-		return "in your tailnet, offline since " + tn.LastSeen
+		return "offline since " + tn.LastSeen
 	}
-	return "in your tailnet, offline"
+	return "offline"
 }
 
 // serverTailnetNote says why joining the tailnet failed.
 templ serverTailnetNote(v settingsPage, sv ops.Server) {
-	{{ tn := v.Tailnets[sv.ID] }}
+	{{ tn := v.ServerTailnets[sv.ID] }}
 	if tn.NoTUN {
 		<div class="box-body">
 			<p class="field-hint">{ sv.Name } has no <span class="mono">/dev/net/tun</span>, an Incus container without it say, so Tailscale can't give its apps the tailnet. On the machine it runs on, give it one, then connect again:</p>
@@ -824,38 +848,59 @@ templ serverTailnetNote(v settingsPage, sv ops.Server) {
 }
 
 templ settingsTailscale(v settingsPage) {
-	@section("tailscale", "Tailscale", "Your tailnet, for servers of yours to join: their apps then reach its devices by their 100.x addresses, a database at home or an agent on someone's PC, as your tailnet's policy allows. Connect a server in its row above.", nil) {
-		if v.TailscaleID != "" {
-			<div class="box">
-				<div class="box-row">
-					<span class="row-main">
-						@ic("network", "icon-muted")
-						<span class="row-title mono">{ v.TailscaleID }</span>
-						<span class="row-meta mono">{ v.TailscaleTag }</span>
-					</span>
-					<button
-						class="btn btn-sm btn-danger"
-						hx-delete="/settings/tailscale"
-						hx-confirm="Servers in the tailnet stay there; hakobu just no longer connects or disconnects them. Delete the OAuth client in Tailscale too."
-						data-confirm-title="Forget the OAuth client?"
-						data-confirm-action="Forget"
-					>Forget</button>
+	@section("tailscale", "Tailscale", "Your tailnets, yours and your clients', for servers of yours to join: their apps then reach the tailnet's devices by their 100.x addresses, a database at home or an agent on someone's PC, as its policy allows. Connect a server in its row above.", nil) {
+		<div class="space-y-6">
+			if len(v.Tailnets) > 0 {
+				<div class="box">
+					for _, tn := range v.Tailnets {
+						<div class="box-row">
+							<span class="row-main">
+								@ic("network", "icon-muted")
+								<span class="row-title mono">{ tn.Name }</span>
+								<span class="row-meta mono">{ tn.Client.Tag } · { tn.Client.ID }</span>
+							</span>
+							<span class="row-meta flex items-center gap-2">
+								<button type="button" class="btn btn-sm" popovertarget={ "rename-tailnet-" + itoa(tn.ID) } title="Rename" aria-label={ "Rename " + tn.Name }>
+									@ic("pencil")
+								</button>
+								<div id={ "rename-tailnet-" + itoa(tn.ID) } popover class="menu">
+									<form hx-post={ "/settings/tailscale/" + tn.Name + "/rename" } class="space-y-3 p-3">
+										@field("New name", "Only a label.") {
+											<input name="to" required pattern="[a-z][a-z0-9\-]{0,39}" value={ tn.Name } spellcheck="false" autocomplete="off" class="input mono"/>
+										}
+										@submit("Rename", false)
+									</form>
+								</div>
+								<button
+									class="btn btn-sm btn-danger"
+									hx-delete={ "/settings/tailscale/" + tn.Name }
+									hx-confirm="Servers in the tailnet stay there; hakobu just no longer connects or disconnects them. Delete the OAuth client in Tailscale too."
+									data-confirm-title={ "Forget tailnet " + tn.Name + "?" }
+									data-confirm-action="Forget"
+								>
+									@ic("trash-2")
+								</button>
+							</span>
+						</div>
+					}
 				</div>
-			</div>
-		} else {
+			}
 			<form class="box" hx-post="/settings/tailscale">
-				<div class="box-header">Connect your tailnet</div>
+				<div class="box-header">Connect a tailnet</div>
 				<div class="box-body space-y-4">
 					<p class="field-hint">
-						On Tailscale's <a href="https://console.tailscale.com/admin/settings/trust-credentials" target="_blank" rel="noopener">Trust credentials</a> page, add an OAuth credential with Write on <span class="mono">auth_keys</span> and <span class="mono">devices:core</span>, and the tag servers are to carry. Your tailnet's policy must have that tag in <span class="mono">tagOwners</span>.
+						On the tailnet's <a href="https://console.tailscale.com/admin/settings/trust-credentials" target="_blank" rel="noopener">Trust credentials</a> page, add an OAuth credential with Write on <span class="mono">auth_keys</span> and <span class="mono">devices:core</span>, both with the tag servers are to carry. The tailnet's policy must have that tag in <span class="mono">tagOwners</span>.
 					</p>
+					@field("Name", "Yours for it, e.g. home or the client's name.") {
+						<input name="name" required pattern="[a-z][a-z0-9\-]{0,39}" spellcheck="false" autocomplete="off" class="input mono"/>
+					}
 					@field("Client ID", "") {
 						<input name="client_id" required autocomplete="off" spellcheck="false" class="input mono"/>
 					}
 					@field("Client secret", "") {
 						<input name="client_secret" type="password" required autocomplete="off" class="input mono"/>
 					}
-					@field("Tag", "The OAuth client's tag; servers join with it.") {
+					@field("Tag", "The OAuth client's tag.") {
 						<input name="tag" value={ ops.DefaultTailnetTag } pattern="tag:[a-zA-Z0-9][a-zA-Z0-9\-]{0,62}" spellcheck="false" class="input mono"/>
 					}
 				</div>
@@ -863,7 +908,7 @@ templ settingsTailscale(v settingsPage) {
 					@submit("Connect", true)
 				}
 			</form>
-		}
+		</div>
 	}
 }
 

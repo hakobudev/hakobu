@@ -676,15 +676,26 @@ SELECT app_id FROM pending_promotions ORDER BY app_id;
 -- name: DeletePendingPromotion :exec
 DELETE FROM pending_promotions WHERE app_id = ?;
 
--- name: GetTailscaleClient :one
-SELECT * FROM tailscale_clients WHERE user_id = ?;
+-- name: ListTailnets :many
+SELECT * FROM tailscale_tailnets WHERE user_id = ? ORDER BY name;
 
--- name: SaveTailscaleClient :exec
-INSERT INTO tailscale_clients (user_id, client_id, client_secret, tag) VALUES (?, ?, ?, ?)
-ON CONFLICT (user_id) DO UPDATE SET client_id = excluded.client_id, client_secret = excluded.client_secret, tag = excluded.tag;
+-- name: GetTailnet :one
+SELECT * FROM tailscale_tailnets WHERE id = ?;
 
--- name: DeleteTailscaleClient :exec
-DELETE FROM tailscale_clients WHERE user_id = ?;
+-- name: GetTailnetByName :one
+SELECT * FROM tailscale_tailnets WHERE user_id = ? AND name = ?;
+
+-- name: CreateTailnet :one
+INSERT INTO tailscale_tailnets (user_id, name, client_id, client_secret, tag) VALUES (?, ?, ?, ?, ?) RETURNING id;
+
+-- name: UpdateTailnetClient :exec
+UPDATE tailscale_tailnets SET client_id = ?, client_secret = ?, tag = ? WHERE id = ?;
+
+-- name: RenameTailnet :exec
+UPDATE tailscale_tailnets SET name = ? WHERE id = ?;
+
+-- name: DeleteTailnet :exec
+DELETE FROM tailscale_tailnets WHERE id = ?;
 
 -- name: SetNodeTailnet :exec
-UPDATE nodes SET tailnet_device = ?, tailnet_ip = ? WHERE id = ?;
+UPDATE nodes SET tailnet_id = ?, tailnet_device = ?, tailnet_ip = ? WHERE id = ?;

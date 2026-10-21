@@ -2,8 +2,10 @@ package ops
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -14,52 +16,95 @@ import (
 	"github.com/hakobudev/hakobu/internal/tailscale"
 )
 
-// Tailnets. A user connects their tailnet with an OAuth client
-// (Settings → Tailscale), then puts servers of theirs in it, so the apps
-// there reach its devices by their 100.x addresses (node/tailnet.go).
+// Tailnets. A user connects tailnets with an OAuth client each
+// (Settings → Tailscale), theirs and a client's say, then puts servers of
+// theirs in one, so the apps there reach its devices by their 100.x
+// addresses (node/tailnet.go).
 
 // DefaultTailnetTag is the tag a server's key carries unless the user
 // names another.
 const DefaultTailnetTag = "tag:hakobu"
 
-// TailscaleClientOf is the user's OAuth client, if they connected one.
-func TailscaleClientOf(s *store.Store, userID int64) (tailscale.Client, bool) {
-	row, err := s.GetTailscaleClient(ctx(), userID)
-	if err != nil {
-		return tailscale.Client{}, false
-	}
-	return tailscale.Client{ID: row.ClientID, Secret: string(row.ClientSecret), Tag: row.Tag}, true
+// Tailnet is a tailnet a user connected, under their name for it.
+type Tailnet struct {
+	ID     int64
+	Name   string
+	Client tailscale.Client
 }
 
-// SetTailscaleClient checks and keeps the user's OAuth client; a secret
-// left empty keeps the one saved.
-func SetTailscaleClient(s *store.Store, userID int64, id, sec, tag string) error {
+func tailnetOf(row store.TailscaleTailnet) Tailnet {
+	return Tailnet{ID: row.ID, Name: row.Name, Client: tailscale.Client{ID: row.ClientID, Secret: string(row.ClientSecret), Tag: row.Tag}}
+}
+
+// Tailnets are the user's tailnets, by name.
+func Tailnets(s *store.Store, userID int64) []Tailnet {
+	rows, _ := s.ListTailnets(ctx(), userID)
+	out := make([]Tailnet, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, tailnetOf(r))
+	}
+	return out
+}
+
+func userTailnet(s *store.Store, userID int64, name string) (Tailnet, error) {
+	row, err := s.GetTailnetByName(ctx(), store.GetTailnetByNameParams{UserID: userID, Name: name})
+	if err != nil {
+		return Tailnet{}, fmt.Errorf("tailnet %q not found", name)
+	}
+	return tailnetOf(row), nil
+}
+
+// AddTailnet checks and keeps an OAuth client of a tailnet of the user's,
+// under name.
+func AddTailnet(s *store.Store, userID int64, name, id, sec, tag string) error {
+	name = strings.TrimSpace(name)
+	if err := checkName("tailnet", name); err != nil {
+		return err
+	}
 	c := tailscale.Client{ID: strings.TrimSpace(id), Secret: strings.TrimSpace(sec), Tag: strings.TrimSpace(tag)}
 	if c.Tag == "" {
 		c.Tag = DefaultTailnetTag
 	}
-	if c.Secret == "" {
-		old, ok := TailscaleClientOf(s, userID)
-		if !ok || old.ID != c.ID {
-			return errors.New("the client secret is missing")
-		}
-		c.Secret = old.Secret
+	if c.ID == "" || c.Secret == "" {
+		return errors.New("the client ID and secret are both needed")
 	}
-	if c.ID == "" {
-		return errors.New("the client ID is missing")
+	if _, err := userTailnet(s, userID, name); err == nil {
+		return fmt.Errorf("a tailnet named %q already exists", name)
 	}
 	cctx, cancel := context.WithTimeout(ctx(), 30*time.Second)
 	defer cancel()
 	if err := c.Check(cctx); err != nil {
 		return err
 	}
-	return s.SaveTailscaleClient(ctx(), store.SaveTailscaleClientParams{UserID: userID, ClientID: c.ID, ClientSecret: secret.String(c.Secret), Tag: c.Tag})
+	_, err := s.CreateTailnet(ctx(), store.CreateTailnetParams{UserID: userID, Name: name, ClientID: c.ID, ClientSecret: secret.String(c.Secret), Tag: c.Tag})
+	return err
 }
 
-// RemoveTailscaleClient forgets the user's OAuth client. Their servers stay
-// in the tailnet; hakobu just no longer sees it.
-func RemoveTailscaleClient(s *store.Store, userID int64) error {
-	return s.DeleteTailscaleClient(ctx(), userID)
+// RenameTailnet gives a tailnet of the user's another name, a label.
+func RenameTailnet(s *store.Store, userID int64, name, to string) error {
+	tn, err := userTailnet(s, userID, name)
+	if err != nil {
+		return err
+	}
+	to = strings.TrimSpace(to)
+	if err := checkName("tailnet", to); err != nil {
+		return err
+	}
+	if err := s.RenameTailnet(ctx(), store.RenameTailnetParams{Name: to, ID: tn.ID}); err != nil {
+		return taken(err, "a tailnet named %q", to)
+	}
+	return nil
+}
+
+// ForgetTailnet forgets a tailnet's OAuth client. Servers in it stay
+// there; hakobu just no longer sees it.
+func ForgetTailnet(s *store.Store, userID int64, name string) error {
+	tn, err := userTailnet(s, userID, name)
+	if err != nil {
+		return err
+	}
+	forgetDevices(tn.Client)
+	return s.DeleteTailnet(ctx(), tn.ID)
 }
 
 // ServerTailnet is a server's place in its owner's tailnet, for its row.
@@ -67,6 +112,7 @@ type ServerTailnet struct {
 	node.TailnetState
 	Known    bool   // the server told its state
 	Device   bool   // its device was found in the tailnet
+	Tailnet  string   // the name of the one it was found in
 	Online   bool     // the device is connected to Tailscale
 	LastSeen string   // when it last was, if it isn't
 	Tags     []string // the device's tags
@@ -104,9 +150,9 @@ func forgetDevices(c tailscale.Client) {
 	tailnetDevices.Unlock()
 }
 
-// TailnetOf is where server n stands in its owner's tailnet. A server
-// already in it, put there by hand, is taken as it is: hakobu finds its
-// device by its address.
+// TailnetOf is where server n stands in its owner's tailnets. A server
+// put in one by hand is taken as it is: hakobu finds its device by its
+// address, in the tailnet it was last in first.
 func TailnetOf(s *store.Store, n store.Node) ServerTailnet {
 	var out ServerTailnet
 	if nd, err := serverNode(server{ID: n.ID, Name: n.Name}); err == nil {
@@ -118,34 +164,60 @@ func TailnetOf(s *store.Store, n store.Node) ServerTailnet {
 	if !out.Known { // away: where it was last
 		out.IP = n.TailnetIP
 	}
-	ip := out.IP
-	c, ok := TailscaleClientOf(s, n.UserID)
-	if !ok || ip == "" {
+	if out.IP == "" {
 		return out
 	}
-	devices, err := devicesOf(c)
-	if err != nil {
-		return out
-	}
-	for _, d := range devices {
-		if d.IPv4() == ip {
-			out.Device, out.Online, out.LastSeen, out.Tags = true, d.Online, d.LastSeen, d.Tags
-			if d.NodeID != n.TailnetDevice || ip != n.TailnetIP {
-				_ = s.SetNodeTailnet(ctx(), store.SetNodeTailnetParams{TailnetDevice: d.NodeID, TailnetIP: ip, ID: n.ID})
+	tailnets := Tailnets(s, n.UserID)
+	slices.SortStableFunc(tailnets, func(a, b Tailnet) int { // its own first
+		return cmpBool(b.ID == n.TailnetID.Int64, a.ID == n.TailnetID.Int64)
+	})
+	for _, tn := range tailnets {
+		devices, err := devicesOf(tn.Client)
+		if err != nil {
+			continue
+		}
+		for _, d := range devices {
+			if d.IPv4() != out.IP {
+				continue
 			}
-			break
+			out.Device, out.Tailnet, out.Online, out.LastSeen, out.Tags = true, tn.Name, d.Online, d.LastSeen, d.Tags
+			if d.NodeID != n.TailnetDevice || out.IP != n.TailnetIP || n.TailnetID.Int64 != tn.ID {
+				_ = s.SetNodeTailnet(ctx(), store.SetNodeTailnetParams{TailnetID: sql.NullInt64{Int64: tn.ID, Valid: true}, TailnetDevice: d.NodeID, TailnetIP: out.IP, ID: n.ID})
+			}
+			return out
 		}
 	}
 	return out
 }
 
-// ConnectServerTailnet puts a server of the user's in their tailnet with
-// tag ("" for the client's), so the tailnet's policy can tell servers
-// apart: a one-off key for it, which root on the server joins with.
-func ConnectServerTailnet(s *store.Store, userID int64, serverName, tag string) error {
-	c, ok := TailscaleClientOf(s, userID)
-	if !ok {
-		return errors.New("connect your tailnet first (Settings → Tailscale)")
+func cmpBool(a, b bool) int {
+	switch {
+	case a == b:
+		return 0
+	case a:
+		return 1
+	}
+	return -1
+}
+
+// ConnectServerTailnet puts a server of the user's in their tailnet named
+// tailnet ("" when they have one) with tag ("" for its client's), so the
+// tailnet's policy can tell servers apart: a one-off key for it, which
+// root on the server joins with.
+func ConnectServerTailnet(s *store.Store, userID int64, serverName, tailnet, tag string) error {
+	var tn Tailnet
+	switch all := Tailnets(s, userID); {
+	case len(all) == 0:
+		return errors.New("connect a tailnet first (Settings → Tailscale)")
+	case tailnet == "" && len(all) == 1:
+		tn = all[0]
+	case tailnet == "":
+		return errors.New("pick one of your tailnets")
+	default:
+		var err error
+		if tn, err = userTailnet(s, userID, tailnet); err != nil {
+			return err
+		}
 	}
 	n, err := UserServer(s, userID, serverName)
 	if err != nil {
@@ -163,17 +235,21 @@ func ConnectServerTailnet(s *store.Store, userID int64, serverName, tag string) 
 		return fmt.Errorf("server %s is in a tailnet already, at %s", n.Name, st.IP)
 	}
 	if tag = strings.TrimSpace(tag); tag == "" {
-		tag = c.Tag
+		tag = tn.Client.Tag
 	}
-	key, err := c.AuthKey(cctx, "hakobu server "+n.Name, tag)
+	key, err := tn.Client.AuthKey(cctx, "hakobu server "+n.Name, tag)
 	if err != nil {
 		return err
 	}
-	forgetDevices(c)
+	forgetDevices(tn.Client)
+	// Its device is found there once it has joined.
+	if err := s.SetNodeTailnet(ctx(), store.SetNodeTailnetParams{TailnetID: sql.NullInt64{Int64: tn.ID, Valid: true}, ID: n.ID}); err != nil {
+		return err
+	}
 	return nd.JoinTailnet(cctx, node.TailnetRequest{Key: key, Hostname: "hakobu-" + n.Name, Tag: tag})
 }
 
-// DisconnectServerTailnet takes a server of the user's out of the tailnet:
+// DisconnectServerTailnet takes a server of the user's out of its tailnet:
 // it logs out, and its device is removed.
 func DisconnectServerTailnet(s *store.Store, userID int64, serverName string) error {
 	n, err := UserServer(s, userID, serverName)
@@ -184,22 +260,23 @@ func DisconnectServerTailnet(s *store.Store, userID int64, serverName string) er
 	if err != nil {
 		return err
 	}
-	if n.TailnetDevice == "" { // found by its address
-		TailnetOf(s, n)
-		if n, err = UserServer(s, userID, serverName); err != nil {
-			return err
-		}
+	TailnetOf(s, n) // which tailnet, and its device there
+	if n, err = UserServer(s, userID, serverName); err != nil {
+		return err
 	}
 	cctx, cancel := context.WithTimeout(ctx(), 30*time.Second)
 	defer cancel()
 	if err := nd.LeaveTailnet(cctx); err != nil {
 		return err
 	}
-	if c, ok := TailscaleClientOf(s, userID); ok && n.TailnetDevice != "" {
-		if err := c.DeleteDevice(cctx, n.TailnetDevice); err != nil {
-			return fmt.Errorf("server %s logs out, but its device stays in the tailnet: %w", n.Name, err)
+	if n.TailnetID.Valid && n.TailnetDevice != "" {
+		if row, err := s.GetTailnet(ctx(), n.TailnetID.Int64); err == nil {
+			tn := tailnetOf(row)
+			if err := tn.Client.DeleteDevice(cctx, n.TailnetDevice); err != nil {
+				return fmt.Errorf("server %s logs out, but its device stays in tailnet %s: %w", n.Name, tn.Name, err)
+			}
+			forgetDevices(tn.Client)
 		}
-		forgetDevices(c)
 	}
 	return s.SetNodeTailnet(ctx(), store.SetNodeTailnetParams{ID: n.ID})
 }
