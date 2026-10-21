@@ -23,6 +23,7 @@ type mcpPlaces struct {
 	Servers        []string     `json:"servers" jsonschema:"the user's servers a new project can run on"`
 	Accounts       []string     `json:"cloudflare_accounts" jsonschema:"the user's Cloudflare accounts a new project can use"`
 	PanelOnly      bool         `json:"panel_only,omitempty" jsonschema:"a new project must name one of servers and of cloudflare_accounts: the panel runs no apps itself"`
+	SharedDomain   string       `json:"shared_domain,omitempty" jsonschema:"on a panel_only panel, a new project with an empty cloudflare_account goes in the panel's account anyway, and its apps take addresses <name>.shared_domain (one level, 3+ characters, first come first served)"`
 	SettingsURL    string       `json:"settings_url" jsonschema:"where the user adds a server or a Cloudflare account"`
 	RepoAccessHint string       `json:"repo_access,omitempty" jsonschema:"where the user gives the GitHub App access to more repositories"`
 }
@@ -64,7 +65,7 @@ func addSetupTools(server *mcp.Server, s *store.Store, getApp func(context.Conte
 		func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, mcpPlaces, error) {
 			u := mcpUserOf(ctx)
 			where := placesOf(s, u)
-			out := mcpPlaces{Projects: []mcpProject{}, Servers: where.Servers, Accounts: where.Clients, PanelOnly: where.PanelOnly, SettingsURL: "https://" + config.PublicHost() + "/settings"}
+			out := mcpPlaces{Projects: []mcpProject{}, Servers: where.Servers, Accounts: where.Clients, PanelOnly: where.PanelOnly, SharedDomain: where.Shared, SettingsURL: "https://" + config.PublicHost() + "/settings"}
 			if out.Servers == nil {
 				out.Servers = []string{}
 			}
@@ -148,7 +149,7 @@ func addSetupTools(server *mcp.Server, s *store.Store, getApp func(context.Conte
 			return nil, out, nil
 		})
 
-	mcp.AddTool(server, &mcp.Tool{Name: "create_project", Description: "Create a project: a group of apps with the databases they use, on one server and in one Cloudflare account (their names from list_projects; empty for the panel's own, unless panel_only).", Annotations: creates},
+	mcp.AddTool(server, &mcp.Tool{Name: "create_project", Description: "Create a project: a group of apps with the databases they use, on one server and in one Cloudflare account (their names from list_projects; empty for the panel's own, unless panel_only: then the account may be empty only when list_projects gives a shared_domain).", Annotations: creates},
 		func(ctx context.Context, req *mcp.CallToolRequest, in struct {
 			Name    string `json:"name" jsonschema:"lowercase letters, digits and dashes"`
 			Server  string `json:"server,omitempty"`

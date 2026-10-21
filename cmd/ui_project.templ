@@ -14,6 +14,7 @@ type projectView struct {
 	Tab              string // "", "variables" or "settings"
 	PanelOnly        bool   // the panel's own server and account aren't offered
 	PanelAccount     string // how the panel's account is offered
+	Shared           string // on a panel-only panel, the domain it gives the owner addresses in
 	Apps             []appView
 	Workers          map[string]workerCard
 	LastDeploy       map[string]store.DeployLog
@@ -646,6 +647,8 @@ templ projectSettings(v projectView) {
 				<select name="client" class="input">
 					if !v.PanelOnly {
 						<option value="" selected?={ v.Client == "" }>{ v.PanelAccount }</option>
+					} else if v.Shared != "" {
+						<option value="" selected?={ v.Client == "" }>{ v.Shared + ", from the panel" }</option>
 					}
 					for _, c := range v.Clients {
 						<option value={ c } selected?={ v.Client == c }>{ c }</option>

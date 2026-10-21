@@ -60,8 +60,11 @@ func CreateProjectOn(s *store.Store, userID int64, name, serverName, client stri
 	if err := checkName("project", name); err != nil {
 		return 0, err
 	}
-	if config.PanelOnly && (serverName == "" || client == "") {
+	if config.PanelOnly && serverName == "" {
 		return 0, errPanelOnly
+	}
+	if config.PanelOnly && client == "" && !CanShareDomain(s, userID) {
+		return 0, errNotShared
 	}
 	var account sql.NullInt64
 	if client != "" {
@@ -174,8 +177,13 @@ func CreateAppWith(s *store.Store, app store.CreateAppParams, domain, startComma
 	if app.BuildPath, app.BuildStrategy, err = checkBuild(app.BuildPath, app.BuildStrategy); err != nil {
 		return 0, err
 	}
-	if _, err := s.GetProjectByID(ctx(), app.ProjectID); err != nil {
+	p, err := s.GetProjectByID(ctx(), app.ProjectID)
+	if err != nil {
 		return 0, fmt.Errorf("project not found: %w", err)
+	}
+	domain = strings.Trim(strings.ToLower(strings.TrimSpace(domain)), ".")
+	if err := checkSharedAddress(s, p, domain); err != nil {
+		return 0, err
 	}
 	if err := CheckDomain(s, 0, domain); err != nil {
 		return 0, err

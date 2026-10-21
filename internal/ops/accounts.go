@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -268,8 +269,8 @@ func SetProjectAccount(s *store.Store, projectID int64, client string) error {
 	if err != nil {
 		return fmt.Errorf("project not found: %w", err)
 	}
-	if config.PanelOnly && client == "" {
-		return errPanelOnly
+	if config.PanelOnly && client == "" && !CanShareDomain(s, p.UserID) {
+		return errNotShared
 	}
 	var id sql.NullInt64
 	if client != "" {
@@ -321,6 +322,16 @@ func ProjectZones(s *store.Store, p store.Project) (zones []string, def string, 
 	}
 	for _, z := range list {
 		zones = append(zones, z.Name)
+	}
+	if inSharedDomain(p) {
+		// Of the panel's domains, its users get the shared one alone.
+		if !SharedDomainOn() {
+			return nil, "", errNotShared
+		}
+		if !slices.Contains(zones, config.SharedDomain) {
+			return nil, "", fmt.Errorf("the panel's Cloudflare token doesn't reach %s: its admin adds the domain to the token (Zone → DNS → Edit)", config.SharedDomain)
+		}
+		return []string{config.SharedDomain}, config.SharedDomain, nil
 	}
 	if a.isPanel() {
 		return zones, config.AppsDomain(), nil

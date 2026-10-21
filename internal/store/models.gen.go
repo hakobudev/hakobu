@@ -277,13 +277,14 @@ type Storage struct {
 }
 
 type User struct {
-	ID          int64
-	GitHubID    int64
-	GitHubLogin string
-	GitHubEmail string
-	Admin       int64
-	NotifyEmail string
-	CreatedAt   string
+	ID           int64
+	GitHubID     int64
+	GitHubLogin  string
+	GitHubEmail  string
+	Admin        int64
+	NotifyEmail  string
+	CreatedAt    string
+	SharedDomain int64
 }
 
 type Volume struct {

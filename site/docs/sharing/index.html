@@ -70,6 +70,20 @@
 Environment=HAKOBU_PANEL_ONLY=1
 </code></pre>
 <p>Then every project runs on a server of its owner's (<strong>Settings → Servers</strong>) and in a Cloudflare account of theirs (<strong>Settings → Cloudflare</strong>), with its domains, storages and backups there; the panel's server and account serve only the panel. The installer's token stays the panel's too, so <a href="/docs/install/#narrowing-the-token">narrow it</a> to the panel's account and domain; you connect your own accounts under <strong>Settings → Cloudflare</strong> like everyone else. Set the drop-in before you first sign in. Anyone with a GitHub account signs up by signing in: no invites. <a href="/docs/hosted/">dash.hakobu.dev</a> is such a panel.</p>
+<h2 id="addresses-from-the-panel">Addresses from the panel</h2>
+<p>A panel-only panel can still give the people you trust addresses of its own, so they deploy without a Cloudflare account: a domain of the panel's account just for this, say <code>hakobu.app</code>. Add it to the panel's token (Zone → DNS → Edit on that zone) and to the drop-in:</p>
+<pre><code class="language-ini">[Service]
+Environment=HAKOBU_PANEL_ONLY=1
+Environment=HAKOBU_SHARED_DOMAIN=hakobu.app
+</code></pre>
+<p><strong>Settings → Users → Give hakobu.app</strong> then lets a user make projects in the panel's account, still on a server of theirs. Their apps take addresses <code>&lt;name&gt;.hakobu.app</code> and nothing else of the account:</p>
+<ul>
+<li>one level under the domain, so Cloudflare's free certificate covers it;</li>
+<li>3 to 63 lowercase letters, digits and dashes, not first or last, nor two after the first two characters (<code>xn--</code>);</li>
+<li>not one the panel keeps, such as <code>www</code>, <code>dash</code>, <code>docs</code>, <code>api</code>, <code>admin</code>, <code>mail</code>, <code>status</code>, <code>login</code>, <code>auth</code> or <code>cdn</code>;</li>
+<li>first come, first served.</li>
+</ul>
+<p>Their backups go to the panel's R2 bucket, so keep an eye on its size (R2 is free up to 10 GB). Their projects get no R2 storages in the panel's account: an app's files go to S3 storage of theirs. <strong>Take hakobu.app</strong> stops them making more such projects and addresses; the addresses they have keep working until they make the apps private or move the projects to a Cloudflare account of theirs.</p>
 
     </article>
     <nav class="docs-pager" aria-label="Pages"><a class="docs-prev" href="/docs/updates/"><span>Previous</span>Updates</a><a class="docs-next" href="/docs/security/"><span>Next</span>Security</a>
@@ -79,6 +93,7 @@ Environment=HAKOBU_PANEL_ONLY=1
     <div class="docs-toc-title">On this page</div>
     <a href="#users" class="toc-2">Users</a>
     <a href="#panel-only" class="toc-2">Panel-only</a>
+    <a href="#addresses-from-the-panel" class="toc-2">Addresses from the panel</a>
   </aside>
 </div>
 <footer class="footer">

@@ -461,7 +461,7 @@ func TestPanelOnlyProjectsUseTheirOwnersPlaces(t *testing.T) {
 	t.Cleanup(func() { config.PanelOnly = false })
 
 	for _, place := range [][2]string{{"", ""}, {"box", ""}, {"", "acme"}} {
-		if _, err := CreateProjectOn(s, 0, "web", place[0], place[1]); !errors.Is(err, errPanelOnly) {
+		if _, err := CreateProjectOn(s, 0, "web", place[0], place[1]); !errors.Is(err, errPanelOnly) && !errors.Is(err, errNotShared) {
 			t.Errorf("server %q, account %q: %v, want errPanelOnly", place[0], place[1], err)
 		}
 		if _, err := getProject(s, "web"); err == nil {
@@ -484,7 +484,7 @@ func TestPanelOnlyProjectsUseTheirOwnersPlaces(t *testing.T) {
 	if err := SetProjectServer(s, projectID(t, s, "web"), ""); !errors.Is(err, errPanelOnly) {
 		t.Errorf("moved to the panel's server: %v", err)
 	}
-	if err := SetProjectAccount(s, projectID(t, s, "web"), ""); !errors.Is(err, errPanelOnly) {
+	if err := SetProjectAccount(s, projectID(t, s, "web"), ""); !errors.Is(err, errNotShared) {
 		t.Errorf("moved to the panel's account: %v", err)
 	}
 }

@@ -952,7 +952,7 @@ func (q *Queries) GetAccountAlerts(ctx context.Context, cloudflareAccountID int6
 }
 
 const getAdmin = `-- name: GetAdmin :one
-SELECT id, github_id, github_login, github_email, admin, notify_email, created_at FROM users WHERE admin = 1 ORDER BY id LIMIT 1
+SELECT id, github_id, github_login, github_email, admin, notify_email, created_at, shared_domain FROM users WHERE admin = 1 ORDER BY id LIMIT 1
 `
 
 func (q *Queries) GetAdmin(ctx context.Context) (User, error) {
@@ -966,6 +966,7 @@ func (q *Queries) GetAdmin(ctx context.Context) (User, error) {
 		&i.Admin,
 		&i.NotifyEmail,
 		&i.CreatedAt,
+		&i.SharedDomain,
 	)
 	return i, err
 }
@@ -1659,7 +1660,7 @@ func (q *Queries) GetStorageByID(ctx context.Context, id int64) (Storage, error)
 }
 
 const getUser = `-- name: GetUser :one
-SELECT id, github_id, github_login, github_email, admin, notify_email, created_at FROM users WHERE id = ?
+SELECT id, github_id, github_login, github_email, admin, notify_email, created_at, shared_domain FROM users WHERE id = ?
 `
 
 func (q *Queries) GetUser(ctx context.Context, id int64) (User, error) {
@@ -1673,13 +1674,14 @@ func (q *Queries) GetUser(ctx context.Context, id int64) (User, error) {
 		&i.Admin,
 		&i.NotifyEmail,
 		&i.CreatedAt,
+		&i.SharedDomain,
 	)
 	return i, err
 }
 
 const getUserByGitHubID = `-- name: GetUserByGitHubID :one
 
-SELECT id, github_id, github_login, github_email, admin, notify_email, created_at FROM users WHERE github_id = ?
+SELECT id, github_id, github_login, github_email, admin, notify_email, created_at, shared_domain FROM users WHERE github_id = ?
 `
 
 // Users and invites
@@ -1694,6 +1696,7 @@ func (q *Queries) GetUserByGitHubID(ctx context.Context, githubID int64) (User, 
 		&i.Admin,
 		&i.NotifyEmail,
 		&i.CreatedAt,
+		&i.SharedDomain,
 	)
 	return i, err
 }
@@ -2879,7 +2882,7 @@ func (q *Queries) ListStoragesByProject(ctx context.Context, projectID int64) ([
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT id, github_id, github_login, github_email, admin, notify_email, created_at FROM users ORDER BY id
+SELECT id, github_id, github_login, github_email, admin, notify_email, created_at, shared_domain FROM users ORDER BY id
 `
 
 func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
@@ -2899,6 +2902,7 @@ func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
 			&i.Admin,
 			&i.NotifyEmail,
 			&i.CreatedAt,
+			&i.SharedDomain,
 		); err != nil {
 			return nil, err
 		}
@@ -3938,6 +3942,20 @@ type SetUserNotifyEmailParams struct {
 
 func (q *Queries) SetUserNotifyEmail(ctx context.Context, arg SetUserNotifyEmailParams) error {
 	_, err := q.db.ExecContext(ctx, setUserNotifyEmail, arg.NotifyEmail, arg.ID)
+	return err
+}
+
+const setUserSharedDomain = `-- name: SetUserSharedDomain :exec
+UPDATE users SET shared_domain = ? WHERE id = ?
+`
+
+type SetUserSharedDomainParams struct {
+	SharedDomain int64
+	ID           int64
+}
+
+func (q *Queries) SetUserSharedDomain(ctx context.Context, arg SetUserSharedDomainParams) error {
+	_, err := q.db.ExecContext(ctx, setUserSharedDomain, arg.SharedDomain, arg.ID)
 	return err
 }
 

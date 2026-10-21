@@ -24,6 +24,12 @@ var (
 	// Cloudflare account serves only the panel. Each project runs on a
 	// server of its owner's, in a Cloudflare account of theirs.
 	PanelOnly = envBool("HAKOBU_PANEL_ONLY")
+	// SharedDomain is a domain of the panel's Cloudflare account whose
+	// names the panel gives out: on a panel-only panel, users the admin
+	// marks may make projects in the panel's account, and their apps take
+	// addresses <name>.<SharedDomain> (one level, so Cloudflare's free
+	// certificate covers them). Empty: none given out.
+	SharedDomain = strings.ToLower(strings.Trim(os.Getenv("HAKOBU_SHARED_DOMAIN"), ". "))
 )
 
 // The master key lives outside data/, so a copy of data/ (a backup of the

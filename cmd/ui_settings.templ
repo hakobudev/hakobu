@@ -19,6 +19,7 @@ type settingsPage struct {
 	Users                        []store.User
 	Invites                      []store.Invite
 	OpenSignup                   bool // anyone with GitHub signs up: no invites
+	SharedDomain                 string // the panel gives marked users addresses here; "" for none
 	MyNotify                     ops.UserNotify
 	Disk, LastCleanup            string
 	DiskLow                      bool
@@ -907,12 +908,36 @@ templ settingsUsers(v settingsPage) {
 									if u.Admin == 1 {
 										{ "admin · " }
 									}
+									if v.SharedDomain != "" && u.SharedDomain == 1 {
+										{ v.SharedDomain + " · " }
+									}
 									{ "joined " }
 									@timeAgo(u.CreatedAt)
 								</span>
 							</span>
 						</span>
 						<span class="flex gap-2">
+							if v.SharedDomain != "" {
+								if u.SharedDomain == 1 {
+									<button
+										class="btn btn-sm"
+										hx-post={ "/settings/users/" + itoa(u.ID) + "/shared" }
+										hx-vals='{"shared":"0"}'
+										hx-confirm={ "Their apps keep the addresses they have, but they make no new projects in the panel's account and take no new names in " + v.SharedDomain + "." }
+										data-confirm-title={ "Take " + v.SharedDomain + " from " + u.GitHubLogin + "?" }
+										data-confirm-action={ "Take " + v.SharedDomain }
+									>{ "Take " + v.SharedDomain }</button>
+								} else {
+									<button
+										class="btn btn-sm"
+										hx-post={ "/settings/users/" + itoa(u.ID) + "/shared" }
+										hx-vals='{"shared":"1"}'
+										hx-confirm={ "They make projects in the panel's Cloudflare account, on servers of theirs, and their apps take addresses <name>." + v.SharedDomain + ". Their backups go to the panel's R2." }
+										data-confirm-title={ "Give " + u.GitHubLogin + " " + v.SharedDomain + "?" }
+										data-confirm-action={ "Give " + v.SharedDomain }
+									>{ "Give " + v.SharedDomain }</button>
+								}
+							}
 							if u.Admin == 1 {
 								<button
 									class="btn btn-sm"

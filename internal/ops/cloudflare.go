@@ -563,6 +563,11 @@ func SetAppDomain(s *store.Store, app store.App, domain string) error {
 	if err := CheckDomain(s, app.ID, domain); err != nil {
 		return err
 	}
+	if p, err := s.GetProjectByID(ctx(), app.ProjectID); err != nil {
+		return err
+	} else if err := checkSharedAddress(s, p, domain); err != nil {
+		return err
+	}
 	params := store.SetAppDomainParams{ID: app.ID, Domain: domain}
 	connected := TunnelReady(s)
 	var a cfAccount

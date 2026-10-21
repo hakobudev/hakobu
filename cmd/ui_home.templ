@@ -123,8 +123,19 @@ templ homePage(projects []homeProject, lacking []cloudflare.Permission, expiring
 					@field("Server", "Where its apps, databases and volumes run. It moves only while it has none.") {
 						@placeSelect("server", where.Servers)
 					}
-					@field("Cloudflare account", "Where its domains, R2 storages and backups are.") {
-						@placeSelect("client", where.Clients)
+					if where.Shared != "" {
+						@field("Cloudflare account", "Where its domains, R2 storages and backups are. The panel's gives its apps addresses <name>."+where.Shared+" and keeps its backups.") {
+							<select name="client" class="input">
+								<option value="">{ where.Shared + ", from the panel" }</option>
+								for _, c := range where.Clients {
+									<option value={ c }>{ c }</option>
+								}
+							</select>
+						}
+					} else {
+						@field("Cloudflare account", "Where its domains, R2 storages and backups are.") {
+							@placeSelect("client", where.Clients)
+						}
 					}
 				} else {
 					if len(where.Servers) > 0 {
@@ -163,6 +174,7 @@ type projectPlaces struct {
 	Servers, Clients []string
 	PanelOnly        bool
 	PanelAccount     string // how the panel's account is offered
+	Shared           string // on a panel-only panel, the domain it gives the user addresses in
 }
 
 // placeSelect picks one of the user's own servers or Cloudflare accounts,

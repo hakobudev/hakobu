@@ -276,6 +276,13 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 		}
 		return "", ops.SetUserAdmin(s, id, r.FormValue("admin") == "1")
 	}))
+	action("POST /settings/users/{id}/shared", adminOnly(func(r *http.Request) (string, error) {
+		id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+		if err != nil {
+			return "", err
+		}
+		return "", ops.SetUserSharedDomain(s, id, r.FormValue("shared") == "1")
+	}))
 	action("POST /settings/my-notify", func(r *http.Request) (string, error) {
 		return "", ops.SetUserNotify(s, requestUser(r), r.FormValue("email"))
 	})
@@ -421,6 +428,8 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			v.PanelOnly = config.PanelOnly
 			if !v.PanelOnly {
 				v.PanelAccount = ops.PanelAccountLabel(s)
+			} else if ops.CanShareDomain(s, p.UserID) || !p.CloudflareAccountID.Valid {
+				v.Shared = config.SharedDomain // or where it is still
 			}
 			if clients, err := ops.ClientAccounts(s); err == nil {
 				for _, c := range clients {
@@ -1082,6 +1091,9 @@ func registerWebRoutes(mux *http.ServeMux, s *store.Store) {
 			v.PanelLogErrors = ops.PanelErrorsToday(s)
 			v.Users, _ = s.ListUsers(r.Context())
 			v.OpenSignup = config.PanelOnly
+			if ops.SharedDomainOn() {
+				v.SharedDomain = config.SharedDomain
+			}
 			if !v.OpenSignup {
 				v.Invites, _ = s.LiveInvites(r.Context())
 			}
@@ -1726,6 +1738,8 @@ func placesOf(s *store.Store, u store.User) projectPlaces {
 	where := projectPlaces{Servers: joinedServers(s, u), PanelOnly: config.PanelOnly}
 	if !config.PanelOnly {
 		where.PanelAccount = ops.PanelAccountLabel(s)
+	} else if ops.CanShareDomain(s, u.ID) {
+		where.Shared = config.SharedDomain
 	}
 	clients, _ := ops.ClientAccounts(s)
 	for _, c := range clients {

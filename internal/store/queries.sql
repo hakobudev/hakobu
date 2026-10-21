@@ -341,6 +341,9 @@ UPDATE users SET notify_email = ? WHERE id = ?;
 -- name: SetUserAdmin :exec
 UPDATE users SET admin = ? WHERE id = ?;
 
+-- name: SetUserSharedDomain :exec
+UPDATE users SET shared_domain = ? WHERE id = ?;
+
 -- name: CountAdmins :one
 SELECT COUNT(*) FROM users WHERE admin = 1;
 

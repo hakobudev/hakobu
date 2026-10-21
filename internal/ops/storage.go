@@ -2,6 +2,7 @@ package ops
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -42,6 +43,10 @@ func CreateStorage(s *store.Store, st store.Storage) (int64, error) {
 	}
 	switch st.Provider {
 	case "r2":
+		if inSharedDomain(p) {
+			// The panel's R2 holds its users' backups, not their files.
+			return 0, errors.New("a project in the panel's Cloudflare account has no R2 storage: use S3 storage of yours")
+		}
 		create := createR2Bucket
 		if st.Bucket != "" {
 			create = useR2Bucket
@@ -105,6 +110,9 @@ func createR2Bucket(s *store.Store, p store.Project, st *store.Storage) error {
 // R2Buckets are the buckets of the project's account a storage may use:
 // all but the backups'.
 func R2Buckets(s *store.Store, p store.Project) ([]string, error) {
+	if inSharedDomain(p) {
+		return nil, nil // the panel's, with other users' buckets
+	}
 	a, err := projectAccount(s, p)
 	if err != nil {
 		return nil, err
