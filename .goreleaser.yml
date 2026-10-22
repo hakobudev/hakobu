@@ -8,7 +8,7 @@ before:
 
 builds:
   - id: hakobu
-    main: .
+    main: ./v1
     binary: hakobu
     env:
       - CGO_ENABLED=0
@@ -18,7 +18,7 @@ builds:
       - amd64
       - arm64
     ldflags:
-      - -s -w -X github.com/hakobudev/hakobu/cmd.version={{ .Version }}
+      - -s -w -X main.version={{ .Version }}
 
 # Raw binaries, not tar/zip archives: install.sh downloads
 # hakobu-<os>-<arch> directly by name, no unpacking step.
@@ -60,5 +60,8 @@ changelog:
     - title: "Other changes"
       order: 999
 
+# v1.0.0-alpha.N and -beta.N are pre-releases: GitHub's latest release, which
+# v0 servers' updates ask for, stays a v0 one until v1.0.0.
 release:
   name_template: "{{ .Tag }}"
+  prerelease: auto

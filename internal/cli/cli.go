@@ -21,6 +21,7 @@ import (
 	"github.com/hakobudev/hakobu/internal/apply"
 	"github.com/hakobudev/hakobu/internal/backups"
 	"github.com/hakobudev/hakobu/internal/client"
+	"github.com/hakobudev/hakobu/internal/deploy"
 	"github.com/hakobudev/hakobu/internal/node"
 	"github.com/hakobudev/hakobu/internal/seal"
 	"github.com/hakobudev/hakobu/internal/server"
@@ -42,7 +43,7 @@ func Root(version string) *cobra.Command {
 	}
 	root.PersistentFlags().String("server", "", "the server to talk to (default: the one the project is on, or the only one)")
 	root.AddCommand(serveCmd(), serverCmd(), statusCmd(), deploysCmd(), logsCmd(), deployCmd(), rollbackCmd(),
-		backupCmd(), backupsCmd(), restoreCmd(), destroyCmd(), secretCmd(), validateCmd(), mcpCmd())
+		backupCmd(), backupsCmd(), restoreCmd(), destroyCmd(), secretCmd(), validateCmd(), mcpCmd(), dialerCmd())
 	return root
 }
 
@@ -160,6 +161,20 @@ func newToken() string {
 		panic(err)
 	}
 	return "hk_" + hex.EncodeToString(b)
+}
+
+// dialerCmd serves hakobu's connections to containers: the Docker user's
+// unit runs it inside rootless Docker's namespaces.
+func dialerCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "dialer SOCKET",
+		Short:  "Serve hakobu's connections to containers (run by the Docker user)",
+		Args:   cobra.ExactArgs(1),
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return deploy.ServeDialerSocket(args[0])
+		},
+	}
 }
 
 // On the laptop.
