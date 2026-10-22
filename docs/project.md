@@ -8,7 +8,7 @@ hakobu init --server kasl-1
 
 It writes, leaving any file that's already there:
 
-- **`hakobu.toml`**, with an app for each directory (the root and one level down) that has a Dockerfile or a stack Railpack builds;
+- **`hakobu.toml`**, with an app for each directory (the root and one level down) that has a Dockerfile, or a stack it recognizes (Node, Python, Go, …), marked as needing a Dockerfile: hakobu builds each app from its own;
 - **`.github/workflows/hakobu.yml`**, which builds each push to the default branch and waits for its deploy;
 - **`.claude/skills/hakobu/SKILL.md`**, a section in **`CLAUDE.md`**, **`.mcp.json`** and **`.claude/settings.json`**: see [Agents](agents.md).
 

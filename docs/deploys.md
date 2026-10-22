@@ -4,7 +4,7 @@ Nothing pushes to a server. CI builds each commit into a **release image** and p
 
 ## The release image
 
-`hakobu build`, which the workflow runs, builds each app of `hakobu.toml` (with its Dockerfile, or Railpack), pushes it as `IMAGE-APP`, then pushes the release last: a tiny image whose labels carry `hakobu.toml`, the sealed `hakobu.secrets.toml`, each app's image pinned by digest, and the repository and commit it came from. The release goes last, so a server never sees one whose apps aren't pushed yet. Every app of a commit deploys together.
+`hakobu build`, which the workflow runs, builds each app of `hakobu.toml` from the Dockerfile in its directory, pushes it as `IMAGE-APP`, then pushes the release last: a tiny image whose labels carry `hakobu.toml`, the sealed `hakobu.secrets.toml`, each app's image pinned by digest, and the repository and commit it came from. The release goes last, so a server never sees one whose apps aren't pushed yet. Every app of a commit deploys together.
 
 ## A deploy
 
@@ -48,8 +48,6 @@ deploys the release before the current one, with today's secrets, and holds the 
 | `version` | the hakobu release to build with; the same as the workflow's ref |
 | `image` | the release image, without its tag; default `ghcr.io/OWNER/REPO` |
 | `tag` | the tag the server polls; default `main` |
-| `railpack` | install Railpack, for apps without a Dockerfile |
-| `railpack-version` | which Railpack; its BuildKit frontend is the same version |
 | `runner` | the runner, whose architecture the images get; `ubuntu-24.04-arm` for an arm64 server |
 | `wait` | how long to wait for the deploy; default `15m` |
 

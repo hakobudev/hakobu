@@ -18,7 +18,7 @@ project = "crm"            # lowercase letters, digits, -
 server = "kasl-1"          # the server it deploys to (a guard: another server refuses it)
 
 [apps.web]                 # an app: one image, serving HTTP
-path = "."                 # its directory (with a Dockerfile, or one Railpack builds)
+path = "."                 # its directory, with its Dockerfile
 domain = "crm.example.com" # its address on the web; none = not served
 health = "/up"             # the default; must answer 2xx once it takes requests
 port = 8080                # default: the image's EXPOSE, else $PORT (always set)
@@ -63,7 +63,7 @@ The live version keeps serving while `release` migrates the database, and if any
 
 ## Builds
 
-An app's directory with a `Dockerfile` is built from it; one without is built by Railpack (Node, Python, Go, Ruby, PHP, …), which needs `railpack: true` in the workflow. The image is built on CI's runner, so its architecture is the runner's: an arm64 server needs `runner: ubuntu-24.04-arm`.
+Each app is built from the `Dockerfile` in its directory (`path`), and nothing else: if an app has none, write one. Keep it small and reproducible: a multi-stage build, a pinned base image, the app listening on `$PORT`, and a shell in the final image if the app has a `release` or `worker`. The image is built on CI's runner, so its architecture is the runner's: an arm64 server needs `runner: ubuntu-24.04-arm`.
 
 ## Commands and MCP
 

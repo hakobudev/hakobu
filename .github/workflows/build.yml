@@ -19,14 +19,6 @@ on:
         description: the tag the server polls (releases in its config)
         type: string
         default: main
-      railpack:
-        description: install Railpack, for apps without a Dockerfile
-        type: boolean
-        default: false
-      railpack-version:
-        description: the Railpack to install (its BuildKit frontend follows)
-        type: string
-        default: 0.39.0
       runner:
         description: the runner, whose architecture the images get (ubuntu-24.04-arm for an arm64 server)
         type: string
@@ -102,14 +94,6 @@ jobs:
           hakobu --version
 
       - run: hakobu validate
-
-      - name: Install Railpack
-        if: inputs.railpack
-        # A version given: asking GitHub's API for the latest fails on a
-        # runner over its rate limit.
-        env:
-          RAILPACK_VERSION: ${{ inputs.railpack-version }}
-        run: curl -fsSL https://railpack.com/install.sh | sudo RAILPACK_VERSION="$RAILPACK_VERSION" sh -s -- --yes --bin-dir /usr/local/bin
 
       - uses: docker/setup-buildx-action@v4
 

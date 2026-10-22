@@ -34,24 +34,14 @@ func write(t *testing.T, dir string, files map[string]string) {
 // fakeDocker records the commands and answers buildx with a digest made
 // from the tag.
 type fakeDocker struct {
-	calls     []string
-	buildArgs []string
-	labels    map[string]map[string]string // tag → labels
+	calls  []string
+	labels map[string]map[string]string // tag → labels
 }
 
 func (f *fakeDocker) run(ctx context.Context, dir string, log io.Writer, name string, args ...string) error {
-	if name == "railpack" && args[0] == "--version" {
-		_, err := io.WriteString(log, "railpack version 0.39.0\n")
-		return err
-	}
 	f.calls = append(f.calls, filepath.Base(dir)+": "+name+" "+args[0])
 	if name != "docker" {
 		return nil
-	}
-	for i, a := range args {
-		if a == "--build-arg" {
-			f.buildArgs = append(f.buildArgs, args[i+1])
-		}
 	}
 	var tag, meta string
 	labels := map[string]string{}
@@ -81,7 +71,7 @@ func TestRelease(t *testing.T) {
 		"hakobu.toml":         spec,
 		"hakobu.secrets.toml": "",
 		"Dockerfile":          "FROM busybox\n",
-		"jobs/go.mod":         "module jobs\n",
+		"jobs/Dockerfile":     "FROM busybox\n",
 	})
 	f := &fakeDocker{}
 	b := Build{Dir: dir, Image: "ghcr.io/kasl/crm", Tag: "main", Source: "https://github.com/kasl/crm", Revision: sha, Run: f.run}
@@ -94,14 +84,10 @@ func TestRelease(t *testing.T) {
 	}
 	want := []string{
 		filepath.Base(dir) + ": docker buildx",
-		"jobs: railpack prepare",
 		"jobs: docker buildx",
 	}
-	if len(f.calls) != 4 || !slices.Equal(f.calls[:3], want) || !strings.HasSuffix(f.calls[3], ": docker buildx") {
+	if len(f.calls) != 3 || !slices.Equal(f.calls[:2], want) || !strings.HasSuffix(f.calls[2], ": docker buildx") {
 		t.Fatalf("calls %q", f.calls)
-	}
-	if !slices.Equal(f.buildArgs, []string{"BUILDKIT_SYNTAX=ghcr.io/railwayapp/railpack-frontend:v0.39.0"}) {
-		t.Errorf("build args %q", f.buildArgs)
 	}
 	rel := f.labels["ghcr.io/kasl/crm:main"]
 	if rel[apply.LabelSpec] != spec || rel[apply.LabelRevision] != sha || rel[apply.LabelSource] != "https://github.com/kasl/crm" {
@@ -124,6 +110,20 @@ func TestRelease(t *testing.T) {
 	// The release reads back as one the server takes.
 	if _, meta, err := apply.ReadRelease(rel, nil); err == nil || meta.Revision != sha || !strings.Contains(err.Error(), "token") {
 		t.Errorf("ReadRelease: %v, %+v", err, meta)
+	}
+}
+
+func TestReleaseNeedsDockerfiles(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, map[string]string{
+		"hakobu.toml": "project = \"crm\"\nserver = \"kasl-1\"\n[apps.web]\n[apps.api]\npath = \"api\"\n[apps.jobs]\npath = \"jobs\"\n",
+		"Dockerfile":  "FROM busybox\n",
+		"api/go.mod":  "module api\n",
+	})
+	f := &fakeDocker{}
+	_, err := Build{Dir: dir, Image: "i", Tag: "main", Revision: sha, Run: f.run}.Release(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "apps.api: no Dockerfile in api") || !strings.Contains(err.Error(), "apps.jobs") || len(f.calls) != 0 {
+		t.Errorf("err %v, calls %q", err, f.calls)
 	}
 }
 

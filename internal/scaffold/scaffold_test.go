@@ -45,12 +45,12 @@ func TestInit(t *testing.T) {
 	if p.Name != "kasl-crm" || p.Server != "kasl-1" || len(p.Apps) != 2 || p.Apps["web"].Port != 3000 || p.Apps["worker"].Path != "worker" {
 		t.Errorf("hakobu.toml:\n%s", b)
 	}
-	if !strings.Contains(string(b), "Node.js · Next.js, built from its Dockerfile") {
+	if !strings.Contains(string(b), "Node.js · Next.js, built from its Dockerfile") || !strings.Contains(string(b), "Python; it needs a Dockerfile") {
 		t.Errorf("no stack comment:\n%s", b)
 	}
 
 	wf, _ := os.ReadFile(filepath.Join(dir, ".github/workflows/hakobu.yml"))
-	for _, want := range []string{"branches: [main]", Workflow + "@v1.0.0-alpha.1", "version: v1.0.0-alpha.1", "image: ghcr.io/kasl/crm", "railpack: true", "packages: write"} {
+	for _, want := range []string{"branches: [main]", Workflow + "@v1.0.0-alpha.1", "version: v1.0.0-alpha.1", "image: ghcr.io/kasl/crm", "packages: write"} {
 		if !strings.Contains(string(wf), want) {
 			t.Errorf("workflow lacks %q:\n%s", want, wf)
 		}
@@ -97,7 +97,7 @@ func TestInitEmptyRepo(t *testing.T) {
 		t.Fatal(err)
 	}
 	wf, _ := os.ReadFile(filepath.Join(dir, ".github/workflows/hakobu.yml"))
-	if !strings.Contains(string(wf), "@main") || !strings.Contains(string(wf), "railpack: false") {
+	if !strings.Contains(string(wf), "@main") || strings.Contains(string(wf), "railpack") {
 		t.Errorf("workflow:\n%s", wf)
 	}
 	for _, bad := range []Options{{Dir: dir, Server: "S", Image: "ghcr.io/a/b"}, {Dir: dir, Server: "s", Image: "ghcr.io/a/b:main"}, {Dir: dir, Server: "s", Image: "b"}} {

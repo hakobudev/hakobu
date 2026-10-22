@@ -94,7 +94,7 @@ hakobu init --server kasl-1
 
 It writes, leaving any file that's already there:
 
-- **`hakobu.toml`**, with an app for each directory (the root and one level down) that has a Dockerfile or a stack Railpack builds;
+- **`hakobu.toml`**, with an app for each directory (the root and one level down) that has a Dockerfile, or a stack it recognizes (Node, Python, Go, …), marked as needing a Dockerfile: hakobu builds each app from its own;
 - **`.github/workflows/hakobu.yml`**, which builds each push to the default branch and waits for its deploy;
 - **`.claude/skills/hakobu/SKILL.md`**, a section in **`CLAUDE.md`**, **`.mcp.json`** and **`.claude/settings.json`**: see [Agents](https://hakobu.dev/docs/agents/index.md).
 
@@ -175,7 +175,7 @@ An app is one image serving HTTP, and optionally a worker from the same image.
 
 | Key | |
 |---|---|
-| `path` | its directory in the repository, default the root. Built with its `Dockerfile`, or by [Railpack](https://railpack.com) if it has none |
+| `path` | its directory in the repository, default the root; the app is built from the `Dockerfile` there |
 | `domain` | where it's served on the web; without one, it isn't |
 | `health` | a path that answers 2xx once the app takes requests; default `/up`. A deploy goes live only once it does |
 | `port` | the port it listens on; default the image's `EXPOSE`, else 8080. It's in `$PORT` too |
@@ -260,7 +260,7 @@ Nothing pushes to a server. CI builds each commit into a **release image** and p
 
 ## The release image
 
-`hakobu build`, which the workflow runs, builds each app of `hakobu.toml` (with its Dockerfile, or Railpack), pushes it as `IMAGE-APP`, then pushes the release last: a tiny image whose labels carry `hakobu.toml`, the sealed `hakobu.secrets.toml`, each app's image pinned by digest, and the repository and commit it came from. The release goes last, so a server never sees one whose apps aren't pushed yet. Every app of a commit deploys together.
+`hakobu build`, which the workflow runs, builds each app of `hakobu.toml` from the Dockerfile in its directory, pushes it as `IMAGE-APP`, then pushes the release last: a tiny image whose labels carry `hakobu.toml`, the sealed `hakobu.secrets.toml`, each app's image pinned by digest, and the repository and commit it came from. The release goes last, so a server never sees one whose apps aren't pushed yet. Every app of a commit deploys together.
 
 ## A deploy
 
@@ -304,8 +304,6 @@ deploys the release before the current one, with today's secrets, and holds the 
 | `version` | the hakobu release to build with; the same as the workflow's ref |
 | `image` | the release image, without its tag; default `ghcr.io/OWNER/REPO` |
 | `tag` | the tag the server polls; default `main` |
-| `railpack` | install Railpack, for apps without a Dockerfile |
-| `railpack-version` | which Railpack; its BuildKit frontend is the same version |
 | `runner` | the runner, whose architecture the images get; `ubuntu-24.04-arm` for an arm64 server |
 | `wait` | how long to wait for the deploy; default `15m` |
 

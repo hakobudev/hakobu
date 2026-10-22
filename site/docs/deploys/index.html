@@ -56,7 +56,7 @@
       </div>
       <p>Nothing pushes to a server. CI builds each commit into a <strong>release image</strong> and pushes it to a registry under a tag (<code>main</code>); the server checks that tag every 30 seconds and deploys each new one. CI needs no access to the server, and the server no inbound connection.</p>
 <h2 id="the-release-image">The release image</h2>
-<p><code>hakobu build</code>, which the workflow runs, builds each app of <code>hakobu.toml</code> (with its Dockerfile, or Railpack), pushes it as <code>IMAGE-APP</code>, then pushes the release last: a tiny image whose labels carry <code>hakobu.toml</code>, the sealed <code>hakobu.secrets.toml</code>, each app's image pinned by digest, and the repository and commit it came from. The release goes last, so a server never sees one whose apps aren't pushed yet. Every app of a commit deploys together.</p>
+<p><code>hakobu build</code>, which the workflow runs, builds each app of <code>hakobu.toml</code> from the Dockerfile in its directory, pushes it as <code>IMAGE-APP</code>, then pushes the release last: a tiny image whose labels carry <code>hakobu.toml</code>, the sealed <code>hakobu.secrets.toml</code>, each app's image pinned by digest, and the repository and commit it came from. The release goes last, so a server never sees one whose apps aren't pushed yet. Every app of a commit deploys together.</p>
 <h2 id="a-deploy">A deploy</h2>
 <ol>
 <li><strong>Plan</strong>: the file against what runs. A wrong file, a secret the server can't open or a renamed database stops here, before anything changes.</li>
@@ -102,14 +102,6 @@
 <tr>
 <td><code>tag</code></td>
 <td>the tag the server polls; default <code>main</code></td>
-</tr>
-<tr>
-<td><code>railpack</code></td>
-<td>install Railpack, for apps without a Dockerfile</td>
-</tr>
-<tr>
-<td><code>railpack-version</code></td>
-<td>which Railpack; its BuildKit frontend is the same version</td>
 </tr>
 <tr>
 <td><code>runner</code></td>

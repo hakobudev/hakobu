@@ -42,7 +42,7 @@ An app is one image serving HTTP, and optionally a worker from the same image.
 
 | Key | |
 |---|---|
-| `path` | its directory in the repository, default the root. Built with its `Dockerfile`, or by [Railpack](https://railpack.com) if it has none |
+| `path` | its directory in the repository, default the root; the app is built from the `Dockerfile` there |
 | `domain` | where it's served on the web; without one, it isn't |
 | `health` | a path that answers 2xx once the app takes requests; default `/up`. A deploy goes live only once it does |
 | `port` | the port it listens on; default the image's `EXPOSE`, else 8080. It's in `$PORT` too |

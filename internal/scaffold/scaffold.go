@@ -54,7 +54,7 @@ func Init(o Options) ([]File, error) {
 	if o.Branch == "" {
 		o.Branch = "main"
 	}
-	toml, railpack, err := projectFile(o)
+	toml, err := projectFile(o)
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +78,7 @@ func Init(o Options) ([]File, error) {
 		ref = v
 	}
 	var wf bytes.Buffer
-	if err := workflow.Execute(&wf, map[string]any{"Branch": o.Branch, "Uses": Workflow + "@" + ref, "Version": ref, "Image": o.Image, "Railpack": railpack}); err != nil {
+	if err := workflow.Execute(&wf, map[string]any{"Branch": o.Branch, "Uses": Workflow + "@" + ref, "Version": ref, "Image": o.Image}); err != nil {
 		return nil, err
 	}
 	steps := []func() error{
@@ -103,8 +103,9 @@ var (
 )
 
 // projectFile is a hakobu.toml with an app for each directory that has a
-// Dockerfile or a stack Railpack builds, checked like any other.
-func projectFile(o Options) (text string, railpack bool, err error) {
+// Dockerfile or a stack detect knows (which then needs a Dockerfile
+// written), checked like any other.
+func projectFile(o Options) (string, error) {
 	presets := detect.Scan(repoFiles(o.Dir), func(name string) string {
 		b, _ := os.ReadFile(filepath.Join(o.Dir, filepath.FromSlash(name)))
 		return string(b)
@@ -112,12 +113,12 @@ func projectFile(o Options) (text string, railpack bool, err error) {
 	type app struct {
 		Name, Path, Stack string
 		Port              int
-		Railpack          bool
+		Dockerfile        bool
 	}
 	var apps []app
 	seen := map[string]bool{}
 	for _, p := range presets {
-		if seen[p.Path] { // a Dockerfile comes before Railpack's guess
+		if seen[p.Path] { // a Dockerfile comes before the stack alone
 			continue
 		}
 		seen[p.Path] = true
@@ -125,8 +126,7 @@ func projectFile(o Options) (text string, railpack bool, err error) {
 		if p.Path != "." {
 			name = toName(p.Path)
 		}
-		apps = append(apps, app{Name: name, Path: p.Path, Stack: p.Stack, Port: p.Port, Railpack: p.Strategy == "railpack"})
-		railpack = railpack || p.Strategy == "railpack"
+		apps = append(apps, app{Name: name, Path: p.Path, Stack: p.Stack, Port: p.Port, Dockerfile: p.Strategy == "dockerfile"})
 	}
 	if len(apps) == 0 {
 		apps = []app{{Name: "web", Path: "."}}
@@ -138,8 +138,10 @@ func projectFile(o Options) (text string, railpack bool, err error) {
 	for _, a := range apps {
 		fmt.Fprintf(&b, "\n[apps.%s]\n", a.Name)
 		switch {
-		case a.Stack != "" && a.Railpack:
-			fmt.Fprintf(&b, "# %s, built by Railpack (no Dockerfile)\n", a.Stack)
+		case !a.Dockerfile && a.Stack != "":
+			fmt.Fprintf(&b, "# %s; it needs a Dockerfile, which hakobu builds it from\n", a.Stack)
+		case !a.Dockerfile:
+			b.WriteString("# it needs a Dockerfile, which hakobu builds it from\n")
 		case a.Stack != "":
 			fmt.Fprintf(&b, "# %s, built from its Dockerfile\n", a.Stack)
 		}
@@ -153,9 +155,9 @@ func projectFile(o Options) (text string, railpack bool, err error) {
 	}
 	b.WriteString("\n# A database for an app: [databases.main], then uses = [\"main\"] in the app.\n")
 	if _, err := spec.Parse([]byte(b.String())); err != nil {
-		return "", false, fmt.Errorf("the %s init made is wrong (a bug): %w", spec.File, err)
+		return "", fmt.Errorf("the %s init made is wrong (a bug): %w", spec.File, err)
 	}
-	return b.String(), railpack, nil
+	return b.String(), nil
 }
 
 // repoFiles lists the root's files and those one directory down, as
@@ -221,7 +223,6 @@ jobs:
     with:
       version: {{.Version}}
       image: {{.Image}}
-      railpack: {{.Railpack}}
       # runner: ubuntu-24.04-arm  # for an arm64 server
 `))
 

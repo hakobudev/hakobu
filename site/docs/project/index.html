@@ -59,7 +59,7 @@
 </code></pre>
 <p>It writes, leaving any file that's already there:</p>
 <ul>
-<li><strong><code>hakobu.toml</code></strong>, with an app for each directory (the root and one level down) that has a Dockerfile or a stack Railpack builds;</li>
+<li><strong><code>hakobu.toml</code></strong>, with an app for each directory (the root and one level down) that has a Dockerfile, or a stack it recognizes (Node, Python, Go, …), marked as needing a Dockerfile: hakobu builds each app from its own;</li>
 <li><strong><code>.github/workflows/hakobu.yml</code></strong>, which builds each push to the default branch and waits for its deploy;</li>
 <li><strong><code>.claude/skills/hakobu/SKILL.md</code></strong>, a section in <strong><code>CLAUDE.md</code></strong>, <strong><code>.mcp.json</code></strong> and <strong><code>.claude/settings.json</code></strong>: see <a href="/docs/agents/">Agents</a>.</li>
 </ul>

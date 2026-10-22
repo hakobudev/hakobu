@@ -4,7 +4,6 @@
 package ci
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,10 +11,9 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
-	"regexp"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/hakobudev/hakobu/internal/apply"
@@ -45,8 +43,8 @@ type Build struct {
 	Log      io.Writer
 }
 
-// Release builds and pushes each app (with its Dockerfile, or Railpack
-// where it has none), then the release image: FROM scratch, carrying
+// Release builds and pushes each app from the Dockerfile in its
+// directory, then the release image: FROM scratch, carrying
 // hakobu.toml, the sealed secrets and each app's image pinned by digest
 // in labels.
 // The release goes last, so a server never sees one whose apps aren't
@@ -83,6 +81,17 @@ func (b Build) Release(ctx context.Context) (string, error) {
 		names = append(names, name)
 	}
 	sort.Strings(names)
+	// Every app's Dockerfile before any build, so one missing doesn't
+	// show only after the others have built.
+	var missing []error
+	for _, name := range names {
+		if _, err := os.Stat(dockerfile(b.Dir, p.Apps[name])); err != nil {
+			missing = append(missing, fmt.Errorf("apps.%s: no Dockerfile in %s: hakobu builds each app from its own", name, path.Join(".", p.Apps[name].Path)))
+		}
+	}
+	if err := errors.Join(missing...); err != nil {
+		return "", err
+	}
 	images := map[string]string{}
 	for _, name := range names {
 		ref, err := b.app(ctx, tmp, name, p.Apps[name])
@@ -114,39 +123,15 @@ func (b Build) Release(ctx context.Context) (string, error) {
 
 // app builds one app and returns its image, pinned.
 func (b Build) app(ctx context.Context, tmp, name string, a spec.App) (string, error) {
-	dir := filepath.Join(b.Dir, filepath.FromSlash(a.Path))
 	repo := b.Image + "-" + name
-	tag := repo + ":" + b.Revision
-	if _, err := os.Stat(filepath.Join(dir, "Dockerfile")); err == nil {
-		fmt.Fprintf(b.log(), "%s: Dockerfile → %s\n", name, repo)
-		digest, err := b.push(ctx, dir, tmp, name, tag)
-		return repo + "@" + digest, err
-	}
-	fmt.Fprintf(b.log(), "%s: no Dockerfile, Railpack → %s\n", name, repo)
-	plan := filepath.Join(tmp, name+".railpack-plan.json")
-	if err := b.Run(ctx, dir, b.log(), "railpack", "prepare", ".", "--plan-out", plan); err != nil {
-		return "", fmt.Errorf("railpack prepare (has the CI railpack? the workflow's railpack: true installs it): %w", err)
-	}
-	digest, err := b.push(ctx, dir, tmp, name, tag, "-f", plan, "--build-arg", "BUILDKIT_SYNTAX="+b.railpackFrontend(ctx))
+	fmt.Fprintf(b.log(), "%s → %s\n", name, repo)
+	digest, err := b.push(ctx, filepath.Dir(dockerfile(b.Dir, a)), tmp, name, repo+":"+b.Revision)
 	return repo + "@" + digest, err
 }
 
-// railpackFrontend is the BuildKit frontend of the Railpack that made the
-// plan, so the two always agree on its format.
-func (b Build) railpackFrontend(ctx context.Context) string {
-	const image = "ghcr.io/railwayapp/railpack-frontend"
-	var out bytes.Buffer
-	if err := b.Run(ctx, b.Dir, &out, "railpack", "--version"); err != nil {
-		return image
-	}
-	fields := strings.Fields(out.String()) // "railpack version 0.39.0"
-	if len(fields) == 0 || !semver.MatchString(fields[len(fields)-1]) {
-		return image
-	}
-	return image + ":v" + fields[len(fields)-1]
+func dockerfile(root string, a spec.App) string {
+	return filepath.Join(root, filepath.FromSlash(a.Path), "Dockerfile")
 }
-
-var semver = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
 
 // push builds dir with buildx and pushes it as tag, returning its digest.
 func (b Build) push(ctx context.Context, dir, tmp, name, tag string, extra ...string) (string, error) {
