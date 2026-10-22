@@ -43,7 +43,8 @@ func Root(version string) *cobra.Command {
 	}
 	root.PersistentFlags().String("server", "", "the server to talk to (default: the one the project is on, or the only one)")
 	root.AddCommand(serveCmd(), serverCmd(), statusCmd(), deploysCmd(), logsCmd(), deployCmd(), rollbackCmd(),
-		backupCmd(), backupsCmd(), restoreCmd(), destroyCmd(), secretCmd(), validateCmd(), mcpCmd(), dialerCmd())
+		backupCmd(), backupsCmd(), restoreCmd(), destroyCmd(), initCmd(), secretCmd(), validateCmd(), buildCmd(), waitCmd(),
+		mcpCmd(), dialerCmd())
 	return root
 }
 

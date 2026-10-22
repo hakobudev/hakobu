@@ -70,3 +70,24 @@ func TestRepo(t *testing.T) {
 		}
 	}
 }
+
+func TestGet(t *testing.T) {
+	statuses := `[]`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/kasl/crm/commits/"+sha+"/statuses" || r.Header.Get("Authorization") != "Bearer gh_t" {
+			t.Errorf("%s with %q", r.URL.Path, r.Header.Get("Authorization"))
+		}
+		_, _ = w.Write([]byte(statuses))
+	}))
+	defer srv.Close()
+	g := GitHub{API: srv.URL}
+	c := Commit{"https://github.com/kasl/crm", sha, "gh_t"}
+	if _, _, ok, err := g.Get(context.Background(), c); ok || err != nil {
+		t.Errorf("none: ok %v, %v", ok, err)
+	}
+	statuses = `[{"state":"success","context":"ci/other"},{"state":"failure","context":"hakobu/deploy","description":"release failed"},{"state":"pending","context":"hakobu/deploy"}]`
+	state, desc, ok, err := g.Get(context.Background(), c)
+	if !ok || err != nil || state != Failure || desc != "release failed" {
+		t.Errorf("got %s %q %v %v", state, desc, ok, err)
+	}
+}

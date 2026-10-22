@@ -69,22 +69,11 @@ func (g GitHub) Report(ctx context.Context, c Commit, state State, description s
 		description = string(r[:139]) + "…"
 	}
 	body, _ := json.Marshal(map[string]string{"state": string(state), "context": Context, "description": description})
-	api := g.API
-	if api == "" {
-		api = "https://api.github.com"
-	}
-	req, err := http.NewRequestWithContext(ctx, "POST", api+"/repos/"+repo+"/statuses/"+revision, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", g.api()+"/repos/"+repo+"/statuses/"+revision, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-	client := g.HTTP
-	if client == nil {
-		client = &http.Client{Timeout: 20 * time.Second}
-	}
-	resp, err := client.Do(req)
+	resp, err := g.do(req, token)
 	if err != nil {
 		return err
 	}
@@ -94,6 +83,63 @@ func (g GitHub) Report(ctx context.Context, c Commit, state State, description s
 		return fmt.Errorf("setting the status on %s@%s: %d %s", repo, revision[:7], resp.StatusCode, strings.TrimSpace(string(b)))
 	}
 	return nil
+}
+
+// Get reads the commit's hakobu/deploy status, as CI waits for it: ok is
+// false while the server hasn't set one.
+func (g GitHub) Get(ctx context.Context, c Commit) (state State, description string, ok bool, err error) {
+	repo, err := Repo(c.Source)
+	if err != nil {
+		return "", "", false, err
+	}
+	req, err := http.NewRequestWithContext(ctx, "GET", g.api()+"/repos/"+repo+"/commits/"+c.Revision+"/statuses?per_page=100", nil)
+	if err != nil {
+		return "", "", false, err
+	}
+	resp, err := g.do(req, c.Token)
+	if err != nil {
+		return "", "", false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return "", "", false, fmt.Errorf("reading the statuses of %s@%s: %d %s", repo, c.Revision, resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+	var statuses []struct {
+		State       State  `json:"state"`
+		Context     string `json:"context"`
+		Description string `json:"description"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&statuses); err != nil {
+		return "", "", false, err
+	}
+	// Newest first.
+	for _, s := range statuses {
+		if s.Context == Context {
+			return s.State, s.Description, true, nil
+		}
+	}
+	return "", "", false, nil
+}
+
+func (g GitHub) api() string {
+	if g.API != "" {
+		return g.API
+	}
+	return "https://api.github.com"
+}
+
+func (g GitHub) do(req *http.Request, token string) (*http.Response, error) {
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	client := g.HTTP
+	if client == nil {
+		client = &http.Client{Timeout: 20 * time.Second}
+	}
+	return client.Do(req)
 }
 
 // Repo is "owner/name" of a GitHub repository's URL, as CI puts it in

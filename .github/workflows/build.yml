@@ -1,0 +1,123 @@
+# The workflow a project's CI calls (hakobu init writes the call): it
+# builds each app in hakobu.toml, pushes it, then pushes the release image
+# the project's server polls, and waits for the server's hakobu/deploy
+# status, so the job fails when the deploy does.
+name: hakobu
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: the hakobu release to build with (v1.0.0-alpha.1), the same as this workflow's ref; a branch is built from source
+        type: string
+        required: true
+      image:
+        description: the release image, without its tag; app NAME goes to IMAGE-NAME
+        type: string
+        default: ""
+      tag:
+        description: the tag the server polls (releases in its config)
+        type: string
+        default: main
+      railpack:
+        description: install Railpack, for apps without a Dockerfile
+        type: boolean
+        default: false
+      runner:
+        description: the runner, whose architecture the images get (ubuntu-24.04-arm for an arm64 server)
+        type: string
+        default: ubuntu-latest
+      wait:
+        description: how long to wait for the server's deploy
+        type: string
+        default: 15m
+    secrets:
+      registry-username:
+        description: for a registry other than ghcr.io
+        required: false
+      registry-password:
+        required: false
+
+jobs:
+  release:
+    runs-on: ${{ inputs.runner }}
+    # One release at a time: each waits for its deploy before the next
+    # pushes, so no commit's status is left pending behind a newer one.
+    concurrency:
+      group: hakobu-${{ github.repository }}-${{ inputs.tag }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # A branch instead of a release (to try one before it's released):
+      # built from source.
+      - if: ${{ !startsWith(inputs.version, 'v') }}
+        uses: actions/checkout@v7
+        with:
+          repository: hakobudev/hakobu
+          ref: ${{ inputs.version }}
+          path: .hakobu-src
+          persist-credentials: false
+      - if: ${{ !startsWith(inputs.version, 'v') }}
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: .hakobu-src/go.mod
+          cache: false
+      - if: ${{ !startsWith(inputs.version, 'v') }}
+        run: |
+          (cd .hakobu-src && go build -o "$RUNNER_TEMP/hakobu" ./v1)
+          rm -rf .hakobu-src
+          sudo install -m 0755 "$RUNNER_TEMP/hakobu" /usr/local/bin/hakobu
+
+      - name: Install hakobu ${{ inputs.version }}
+        if: ${{ startsWith(inputs.version, 'v') }}
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -eu
+          case "$(uname -m)" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; *) echo "unsupported $(uname -m)"; exit 1 ;; esac
+          url="https://github.com/hakobudev/hakobu/releases/download/$VERSION"
+          tmp="$(mktemp -d)"
+          curl -fsSL "$url/hakobu-linux-$arch" -o "$tmp/hakobu"
+          curl -fsSL "$url/checksums.txt" -o "$tmp/checksums.txt"
+          curl -fsSL "$url/checksums.txt.sig" -o "$tmp/checksums.txt.sig"
+          printf '%s\n' '-----BEGIN PUBLIC KEY-----' 'MCowBQYDK2VwAyEAWBkGQ8EE1VzJYgZkPLxDY1JCviWclccA/tDM/FnQ0fI=' '-----END PUBLIC KEY-----' > "$tmp/key.pub"
+          { printf 'hakobu %s\n' "$VERSION"; cat "$tmp/checksums.txt"; } > "$tmp/signed"
+          openssl pkeyutl -verify -rawin -pubin -inkey "$tmp/key.pub" -in "$tmp/signed" -sigfile "$tmp/checksums.txt.sig" >/dev/null
+          want="$(awk -v f="hakobu-linux-$arch" '$2 == f {print $1}' "$tmp/checksums.txt")"
+          [ -n "$want" ] && [ "$want" = "$(sha256sum "$tmp/hakobu" | cut -d' ' -f1)" ]
+          sudo install -m 0755 "$tmp/hakobu" /usr/local/bin/hakobu
+          hakobu --version
+
+      - run: hakobu validate
+
+      - name: Install Railpack
+        if: inputs.railpack
+        run: curl -fsSL https://railpack.com/install.sh | sudo sh -s -- --yes --bin-dir /usr/local/bin
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Image
+        id: image
+        env:
+          IMAGE: ${{ inputs.image }}
+        run: |
+          image="${IMAGE:-ghcr.io/$GITHUB_REPOSITORY}"
+          echo "image=${image,,}" >> "$GITHUB_OUTPUT"
+          echo "registry=${image%%/*}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ${{ steps.image.outputs.registry }}
+          username: ${{ steps.image.outputs.registry == 'ghcr.io' && github.actor || secrets.registry-username }}
+          password: ${{ steps.image.outputs.registry == 'ghcr.io' && github.token || secrets.registry-password }}
+
+      - name: Build and push
+        run: hakobu build --image "${{ steps.image.outputs.image }}" --tag "${{ inputs.tag }}"
+
+      - name: Wait for the deploy
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: hakobu wait --timeout "${{ inputs.wait }}"
