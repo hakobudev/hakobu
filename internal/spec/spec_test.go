@@ -126,7 +126,7 @@ func TestSize(t *testing.T) {
 			t.Errorf("%q = %v, %v; want %v", in, s, err, want)
 		}
 	}
-	for _, in := range []string{"", "256", "mb", "-1mb", "1tb"} {
+	for _, in := range []string{"256", "mb", "-1mb", "1tb", "0.1mb"} {
 		var s Size
 		if err := s.UnmarshalText([]byte(in)); err == nil {
 			t.Errorf("%q = %v, want an error", in, s)
@@ -134,5 +134,12 @@ func TestSize(t *testing.T) {
 	}
 	if got := Size(1 << 30).String(); got != "1gb" {
 		t.Errorf("String = %s", got)
+	}
+	for _, s := range []Size{0, 300 << 20, 2 << 30} {
+		b, _ := s.MarshalText()
+		var back Size
+		if err := back.UnmarshalText(b); err != nil || back != s {
+			t.Errorf("%v → %q → %v, %v", s, b, back, err)
+		}
 	}
 }

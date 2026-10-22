@@ -6,6 +6,7 @@ package spec
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"path"
 	"regexp"
@@ -96,13 +97,18 @@ func (u *Uses) UnmarshalTOML(v any) error {
 	return nil
 }
 
-// Size is an amount of memory, written like "256mb" or "1gb".
+// Size is an amount of memory, written like "256mb" or "1gb", in whole
+// megabytes; "" is none.
 type Size int64
 
 const mb = 1 << 20
 
 func (s *Size) UnmarshalText(b []byte) error {
 	t := strings.ToLower(strings.TrimSpace(string(b)))
+	if t == "" {
+		*s = 0
+		return nil
+	}
 	unit := int64(0)
 	for suffix, n := range map[string]int64{"mb": mb, "gb": 1 << 30} {
 		if strings.HasSuffix(t, suffix) {
@@ -113,8 +119,18 @@ func (s *Size) UnmarshalText(b []byte) error {
 	if unit == 0 || err != nil || n <= 0 {
 		return fmt.Errorf("%q isn't a size like 256mb or 1gb", b)
 	}
-	*s = Size(n * float64(unit))
+	*s = Size(math.Round(n*float64(unit)/mb)) * mb
+	if *s == 0 {
+		return fmt.Errorf("%q is less than 1mb", b)
+	}
 	return nil
+}
+
+func (s Size) MarshalText() ([]byte, error) {
+	if s == 0 {
+		return nil, nil
+	}
+	return []byte(s.String()), nil
 }
 
 func (s Size) String() string {
