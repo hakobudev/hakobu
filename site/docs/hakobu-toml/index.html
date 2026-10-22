@@ -112,8 +112,12 @@ memory = &quot;128mb&quot;
 <td>its directory in the repository, default the root; the app is built from the <code>Dockerfile</code> there</td>
 </tr>
 <tr>
+<td><code>image</code></td>
+<td>a ready image to run instead, <code>evoapicloud/evolution-api:v2.3.7</code> say: nothing is built. It names a version; the build pins the digest that version names then, which the server runs until the file names another</td>
+</tr>
+<tr>
 <td><code>domain</code></td>
-<td>where it's served on the web; without one, it isn't. One project's on the server: another's deploy with it is refused</td>
+<td>where it's served on the web; without one, only the project's other apps reach it. One project's on the server: another's deploy with it is refused</td>
 </tr>
 <tr>
 <td><code>health</code></td>
@@ -145,7 +149,7 @@ memory = &quot;128mb&quot;
 </tr>
 <tr>
 <td><code>env</code></td>
-<td>variables, plain values only: secrets go in <a href="/docs/secrets/">hakobu.secrets.toml</a></td>
+<td>variables, plain values only: secrets go in <a href="/docs/secrets/">hakobu.secrets.toml</a>. A value may name one hakobu gives the app as <code>${NAME}</code>: see below</td>
 </tr>
 <tr>
 <td><code>uses</code></td>
@@ -158,6 +162,15 @@ memory = &quot;128mb&quot;
 <h3 id="uses"><code>uses</code></h3>
 <p>A database gives the app <code>DATABASE_URL</code>, <code>POSTGRES_HOST</code>, <code>POSTGRES_PORT</code>, <code>POSTGRES_DB</code>, <code>POSTGRES_USER</code> and <code>POSTGRES_PASSWORD</code>; a cache <code>REDIS_URL</code>, <code>VALKEY_URL</code>, <code>REDIS_HOST</code>, <code>REDIS_PORT</code> and <code>REDIS_PASSWORD</code>. Two of a kind would set the same variables, so give one a prefix:</p>
 <pre><code class="language-toml">uses = { main = &quot;&quot;, jobs = &quot;JOBS&quot; }   # JOBS_REDIS_URL, JOBS_REDIS_HOST, …
+</code></pre>
+<h3 id="one-app-to-another">One app to another</h3>
+<p>The project's apps reach each other by name: <code>http://web:8000</code> from another app of the project, or its worker, is web's live version, whichever that is during a deploy. The port is the one the app listens on. Nothing outside the project reaches it so.</p>
+<h3 id="variables-from-variables">Variables from variables</h3>
+<p>A ready image often wants what hakobu gives under a name of its own. <code>${NAME}</code> in a value is a variable hakobu gives the app: one from <code>uses</code>, <code>PORT</code> or <code>HAKOBU_REVISION</code>.</p>
+<pre><code class="language-toml">[apps.wa]
+image = &quot;evoapicloud/evolution-api:v2.3.7&quot;
+uses = [&quot;gateway&quot;]
+env = { DATABASE_CONNECTION_URI = &quot;${DATABASE_URL}?schema=evolution&quot; }
 </code></pre>
 <h3 id="volumes">Volumes</h3>
 <p>An app with volumes is stopped before its new version starts, so two versions never write the same files: a few seconds down on each deploy. The worker shares them.</p>
@@ -195,6 +208,8 @@ memory = &quot;128mb&quot;
     <a href="#the-project" class="toc-2">The project</a>
     <a href="#apps-appsname" class="toc-2">Apps: [apps.NAME]</a>
     <a href="#uses" class="toc-3">uses</a>
+    <a href="#one-app-to-another" class="toc-3">One app to another</a>
+    <a href="#variables-from-variables" class="toc-3">Variables from variables</a>
     <a href="#volumes" class="toc-3">Volumes</a>
     <a href="#databases-databasesname" class="toc-2">Databases: [databases.NAME]</a>
     <a href="#caches-cachesname" class="toc-2">Caches: [caches.NAME]</a>

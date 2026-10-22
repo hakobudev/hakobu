@@ -130,6 +130,22 @@ func TestAppGetsItsRevision(t *testing.T) {
 	}
 }
 
+func TestEnvNamesWhatHakobuGives(t *testing.T) {
+	h := newHarness(t)
+	toml := strings.Replace(crm, `worker = "bun run worker"`, `worker = "bun run worker"`+"\nrelease = \"bun run migrate\"", 1)
+	toml = strings.Replace(toml, `env = { NODE_ENV = "production" }`, `env = { DB_URI = "${DATABASE_URL}?schema=x", SELF = "http://crm:${PORT}" }`, 1)
+	if _, err := h.apply(t, toml, map[string]string{"crm": "reg/crm@sha256:aaa"}); err != nil {
+		t.Fatal(err)
+	}
+	pw := h.state(t).Databases["main"].Password
+	env := h.releases[0].Env
+	for _, want := range []string{"DB_URI=postgres://kasl_main:" + pw + "@hakobu-postgres:5432/kasl_main?schema=x", "SELF=http://crm:8080"} {
+		if !slices.Contains(env, want) {
+			t.Errorf("%q missing from the env: %v", want, env)
+		}
+	}
+}
+
 func TestApplyAgainChangesNothing(t *testing.T) {
 	h := newHarness(t)
 	images := map[string]string{"crm": "reg/crm@sha256:aaa"}

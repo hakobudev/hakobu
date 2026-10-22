@@ -69,6 +69,28 @@ uses = { main = "", stats = "STATS" }
 	}
 }
 
+func TestReadyImage(t *testing.T) {
+	p, err := Parse([]byte(`project = "p"
+server = "s"
+[apps.wa]
+image = "evoapicloud/evolution-api:v2.3.7"
+uses = ["gateway"]
+env = { DATABASE_CONNECTION_URI = "${DATABASE_URL}?schema=evolution", SERVER_URL = "http://wa:${PORT}" }
+[databases.gateway]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := Expand(p.Apps["wa"].Env["DATABASE_CONNECTION_URI"], map[string]string{"DATABASE_URL": "postgres://x"}); got != "postgres://x?schema=evolution" {
+		t.Errorf("Expand = %q", got)
+	}
+	for ref, tag := range map[string]string{"a/b:1.2": "1.2", "host:5000/a/b": "", "a/b@sha256:00": "sha256:00", "b": ""} {
+		if got := ImageTag(ref); got != tag {
+			t.Errorf("ImageTag(%q) = %q, want %q", ref, got, tag)
+		}
+	}
+}
+
 func TestParseRefuses(t *testing.T) {
 	head := "project = \"p\"\nserver = \"s\"\n"
 	for _, c := range []struct{ name, toml, want string }{
@@ -82,6 +104,10 @@ func TestParseRefuses(t *testing.T) {
 		{"bad prefix", head + "[apps.web]\nuses = { a = \"low\" }\n[databases.a]", "prefix \"low\""},
 		{"env clash", head + "[apps.web]\nuses = [\"a\"]\nenv = { DATABASE_URL = \"x\" }\n[databases.a]", "uses a sets it already"},
 		{"env PORT", head + "[apps.web]\nenv = { PORT = \"80\" }", "set port instead"},
+		{"image and path", head + "[apps.wa]\npath = \"wa\"\nimage = \"evo/api:2.3.7\"", "path or image, not both"},
+		{"image untagged", head + "[apps.wa]\nimage = \"evo/api\"", "should name its version"},
+		{"image latest", head + "[apps.wa]\nimage = \"registry:5000/evo/api:latest\"", "should name its version"},
+		{"env names nothing", head + "[apps.web]\nenv = { DB = \"${DATABASE_URL}\" }", "${DATABASE_URL} isn't a variable hakobu gives"},
 		{"env HAKOBU_REVISION", head + "[apps.web]\nenv = { HAKOBU_REVISION = \"x\" }", "hakobu sets it"},
 		{"env name", head + "[apps.web]\nenv = { \"node-env\" = \"x\" }", "not a variable name"},
 		{"same name", head + "[apps.web]\n[databases.x]\n[caches.x]", "a database has that name"},

@@ -43,6 +43,10 @@ func (f *fakeDocker) run(ctx context.Context, dir string, log io.Writer, name st
 	if name != "docker" {
 		return nil
 	}
+	if len(args) > 2 && args[1] == "imagetools" {
+		fmt.Fprintf(log, "sha256:%064x\n", len(args[3]))
+		return nil
+	}
 	var tag, meta string
 	labels := map[string]string{}
 	for i := 0; i < len(args)-1; i++ {
@@ -110,6 +114,28 @@ func TestRelease(t *testing.T) {
 	// The release reads back as one the server takes.
 	if _, meta, err := apply.ReadRelease(rel, nil); err == nil || meta.Revision != sha || !strings.Contains(err.Error(), "token") {
 		t.Errorf("ReadRelease: %v, %+v", err, meta)
+	}
+}
+
+func TestReleaseOfAReadyImage(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, map[string]string{
+		"hakobu.toml": "project = \"crm\"\nserver = \"kasl-1\"\n[apps.web]\n[apps.wa]\nimage = \"evoapicloud/evolution-api:v2.3.7\"\n",
+		"Dockerfile":  "FROM busybox\n",
+	})
+	f := &fakeDocker{}
+	if _, err := (Build{Dir: dir, Image: "ghcr.io/kasl/crm", Tag: "main", Revision: sha, Run: f.run}).Release(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var images map[string]string
+	if err := json.Unmarshal([]byte(f.labels["ghcr.io/kasl/crm:main"][apply.LabelImages]), &images); err != nil {
+		t.Fatal(err)
+	}
+	if want := fmt.Sprintf("evoapicloud/evolution-api@sha256:%064x", len("evoapicloud/evolution-api:v2.3.7")); images["wa"] != want {
+		t.Errorf("wa runs %q, want %q", images["wa"], want)
+	}
+	if _, built := f.labels["ghcr.io/kasl/crm-wa:"+sha]; built {
+		t.Error("a ready image was built")
 	}
 }
 

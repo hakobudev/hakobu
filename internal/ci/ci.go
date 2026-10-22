@@ -4,6 +4,7 @@
 package ci
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/hakobudev/hakobu/internal/apply"
@@ -91,6 +93,9 @@ func (b Build) Release(ctx context.Context) (string, error) {
 	// show only after the others have built.
 	var missing []error
 	for _, name := range names {
+		if p.Apps[name].Image != "" {
+			continue
+		}
 		if _, err := os.Stat(dockerfile(b.Dir, p.Apps[name])); err != nil {
 			missing = append(missing, fmt.Errorf("apps.%s: no Dockerfile in %s: hakobu builds each app from its own", name, path.Join(".", p.Apps[name].Path)))
 		}
@@ -127,12 +132,39 @@ func (b Build) Release(ctx context.Context) (string, error) {
 	return b.Image + "@" + digest, nil
 }
 
-// app builds one app and returns its image, pinned.
+// app builds one app and returns its image, pinned. An app of a ready
+// image is pinned to the digest its tag names now.
 func (b Build) app(ctx context.Context, tmp, name string, a spec.App) (string, error) {
+	if a.Image != "" {
+		return b.pin(ctx, tmp, a.Image)
+	}
 	repo := b.Image + "-" + name
 	fmt.Fprintf(b.log(), "%s → %s\n", name, repo)
 	digest, err := b.push(ctx, filepath.Dir(dockerfile(b.Dir, a)), tmp, name, repo+":"+b.Revision)
 	return repo + "@" + digest, err
+}
+
+// pin is ref by the digest of what it names now: the server runs that,
+// whatever the tag names later.
+func (b Build) pin(ctx context.Context, tmp, ref string) (string, error) {
+	fmt.Fprintf(b.log(), "%s, as it is\n", ref)
+	if strings.Contains(ref, "@") {
+		return ref, nil
+	}
+	var out bytes.Buffer
+	if err := b.Run(ctx, tmp, &out, "docker", "buildx", "imagetools", "inspect", ref, "--format", "{{.Manifest.Digest}}"); err != nil {
+		return "", fmt.Errorf("%s: %w: %s", ref, err, strings.TrimSpace(out.String()))
+	}
+	digest := ""
+	for _, line := range strings.Fields(out.String()) {
+		if strings.HasPrefix(line, "sha256:") {
+			digest = line
+		}
+	}
+	if digest == "" {
+		return "", fmt.Errorf("%s: no digest in %q", ref, out.String())
+	}
+	return strings.TrimSuffix(ref, ":"+spec.ImageTag(ref)) + "@" + digest, nil
 }
 
 func dockerfile(root string, a spec.App) string {

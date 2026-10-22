@@ -20,6 +20,14 @@ import (
 // "_", so no two projects' networks clash.
 func ProjectNetwork(project string) string { return "hakobu_" + project }
 
+// NamesNetwork is where a project's apps find each other by name: each app's
+// live container is on it as the app's name (Retire moves the name to a new
+// version once it serves), its worker without one, so http://web:8000
+// reaches whichever version of web is live. Not the project's network: both
+// versions are on that one during a deploy, and Docker can't give a
+// container another name on a network it's on.
+func NamesNetwork(project string) string { return "hakobu_" + project + "_names" }
+
 // Image is one of an app's builds: the one being rolled out, the live one,
 // and the one before it, which Rollback returns to.
 type Image string
@@ -54,6 +62,16 @@ type AppSpec struct {
 	// Stopped: its owner stopped it, so nothing starts it again but a
 	// deploy (which clears this) or Start.
 	Stopped bool
+}
+
+// Short is the app's name in hakobu.toml, by which the project's other apps
+// reach it.
+func (a AppSpec) Short() string { return strings.TrimPrefix(a.Name, a.Project+"-") }
+
+// nameLive puts the app's live container on its project's NamesNetwork as
+// the app's name; a no-op if it's there already.
+func nameLive(ctx context.Context, app AppSpec, container string) error {
+	return deploy.ConnectNetwork(ctx, container, NamesNetwork(app.Project), app.Short())
 }
 
 // Live is the app's live container.
@@ -242,6 +260,12 @@ func (Local) Switch(ctx context.Context, app AppSpec, c Candidate) error {
 // flight, the proxy sending new ones to the new version already, and
 // removes it.
 func (Local) Retire(ctx context.Context, app AppSpec, c Candidate, out io.Writer) {
+	// The name goes to the new version before the old one stops: for a
+	// moment both answer to it, never neither. Removing the old one takes
+	// it off the network.
+	if err := nameLive(ctx, app, c.Container); err != nil {
+		fmt.Fprintf(out, "warning: the project's other apps can't reach %s as %q: %v\n", app.Name, app.Short(), err)
+	}
 	if err := deploy.StopContainer(ctx, c.Old); err != nil {
 		fmt.Fprintln(out, "warning:", err) // removing it below kills it anyway
 	}
@@ -385,6 +409,17 @@ func (Local) Reconcile(ctx context.Context, apps []AppSpec) {
 		// A release command left running goes on to its end (a migration
 		// cut short could leave the database half done); one that ended
 		// is removed.
+		// Deployed before apps had names, or hakobu stopped before naming it.
+		if status == "running" {
+			if err := nameLive(ctx, app, live); err != nil {
+				panellog.Error("failed to name", live+":", err)
+			}
+		}
+		if st, _ := deploy.ContainerStatus(ctx, WorkerContainer(app.Name)); st == "running" {
+			if err := deploy.ConnectNetwork(ctx, WorkerContainer(app.Name), NamesNetwork(app.Project)); err != nil {
+				panellog.Error("failed to connect", WorkerContainer(app.Name), "to", NamesNetwork(app.Project)+":", err)
+			}
+		}
 		release := app.Name + "-release"
 		if st, _ := deploy.ContainerStatus(ctx, release); st == "exited" || st == "created" || st == "dead" {
 			panellog.Info("removing", release+", left by an unfinished deploy")
@@ -404,8 +439,14 @@ func WorkerContainer(app string) string { return app + "-worker" }
 // RunWorker (re)starts the app's worker.
 func (Local) RunWorker(ctx context.Context, w WorkerSpec, out io.Writer) error {
 	fmt.Fprintln(out, "starting worker", WorkerContainer(w.App.Name))
-	_, err := deploy.RunWorkerContainer(ctx, Tag(w.App.Name, Latest), WorkerContainer(w.App.Name), w.Command, w.App.options())
-	return err
+	if _, err := deploy.RunWorkerContainer(ctx, Tag(w.App.Name, Latest), WorkerContainer(w.App.Name), w.Command, w.App.options()); err != nil {
+		return err
+	}
+	// It reaches the project's apps by name, as the app does.
+	if err := deploy.ConnectNetwork(ctx, WorkerContainer(w.App.Name), NamesNetwork(w.App.Project)); err != nil {
+		fmt.Fprintln(out, "warning: the worker can't reach the project's apps by name:", err)
+	}
+	return nil
 }
 
 func (Local) RemoveWorker(ctx context.Context, app string) error {

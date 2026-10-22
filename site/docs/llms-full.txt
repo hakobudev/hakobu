@@ -176,7 +176,8 @@ An app is one image serving HTTP, and optionally a worker from the same image.
 | Key | |
 |---|---|
 | `path` | its directory in the repository, default the root; the app is built from the `Dockerfile` there |
-| `domain` | where it's served on the web; without one, it isn't. One project's on the server: another's deploy with it is refused |
+| `image` | a ready image to run instead, `evoapicloud/evolution-api:v2.3.7` say: nothing is built. It names a version; the build pins the digest that version names then, which the server runs until the file names another |
+| `domain` | where it's served on the web; without one, only the project's other apps reach it. One project's on the server: another's deploy with it is refused |
 | `health` | a path that answers 2xx once the app takes requests; default `/up`. A deploy goes live only once it does |
 | `port` | the port it listens on; default the image's `EXPOSE`, else 8080. It's in `$PORT` too |
 | `release` | a command run once per deploy in the new image before it takes traffic, for migrations: if it fails, the running version stays. See [Deploys](https://hakobu.dev/docs/deploys/index.md) |
@@ -184,7 +185,7 @@ An app is one image serving HTTP, and optionally a worker from the same image.
 | `memory` | its limit, `512mb` or `1gb`; at least `64mb` |
 | `cpus` | its CPU limit, `0.5` or `2` |
 | `volumes` | name → mount path. Survives deploys and is backed up |
-| `env` | variables, plain values only: secrets go in [hakobu.secrets.toml](https://hakobu.dev/docs/secrets/index.md) |
+| `env` | variables, plain values only: secrets go in [hakobu.secrets.toml](https://hakobu.dev/docs/secrets/index.md). A value may name one hakobu gives the app as `${NAME}`: see below |
 | `uses` | the databases and caches it uses: a list, or a map of name → prefix |
 
 The app must listen on all interfaces (not only 127.0.0.1). `release` and `worker` run with `/bin/sh -c` in its image, which therefore needs a shell.
@@ -197,6 +198,21 @@ A database gives the app `DATABASE_URL`, `POSTGRES_HOST`, `POSTGRES_PORT`, `POST
 
 ```toml
 uses = { main = "", jobs = "JOBS" }   # JOBS_REDIS_URL, JOBS_REDIS_HOST, …
+```
+
+### One app to another
+
+The project's apps reach each other by name: `http://web:8000` from another app of the project, or its worker, is web's live version, whichever that is during a deploy. The port is the one the app listens on. Nothing outside the project reaches it so.
+
+### Variables from variables
+
+A ready image often wants what hakobu gives under a name of its own. `${NAME}` in a value is a variable hakobu gives the app: one from `uses`, `PORT` or `HAKOBU_REVISION`.
+
+```toml
+[apps.wa]
+image = "evoapicloud/evolution-api:v2.3.7"
+uses = ["gateway"]
+env = { DATABASE_CONNECTION_URI = "${DATABASE_URL}?schema=evolution" }
 ```
 
 ### Volumes

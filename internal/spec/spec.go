@@ -38,6 +38,10 @@ type Project struct {
 type App struct {
 	// Path is the app's directory in a monorepo, for the build.
 	Path string `toml:"path"`
+	// Image is a ready image to run instead of building one, a service
+	// such as evoapicloud/evolution-api:v2.3.7. The build pins it to the
+	// digest its tag names then.
+	Image string `toml:"image"`
 	// Domain is where it's served; empty for an app only other apps of
 	// the project reach.
 	Domain string `toml:"domain"`
@@ -185,8 +189,11 @@ func (p *Project) defaults() {
 }
 
 var (
-	namePattern   = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)
-	envPattern    = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
+	namePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)
+	envPattern  = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
+	// refPattern is ${NAME} in a variable's value: another variable hakobu
+	// gives the app, for an image that wants it under its own name.
+	refPattern    = regexp.MustCompile(`\$\{([A-Z_][A-Z0-9_]*)\}`)
 	prefixPattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 	labelPattern  = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 )
@@ -255,6 +262,14 @@ func (p *Project) check() error {
 		if a.Path != "" && (path.IsAbs(a.Path) || strings.HasPrefix(path.Clean(a.Path), "..")) {
 			bad("%s.path: %q should be a directory inside the repository", at, a.Path)
 		}
+		if a.Image != "" {
+			if a.Path != "" {
+				bad("%s: path or image, not both: a path is built, an image is run as it is", at)
+			}
+			if tag := ImageTag(a.Image); tag == "" || tag == "latest" {
+				bad("%s.image: %q should name its version, as in name:1.2.3 (a deploy pins what the tag names at build time)", at, a.Image)
+			}
+		}
 		mounts := map[string]string{}
 		for _, v := range sorted(a.Volumes) {
 			mount := a.Volumes[v]
@@ -289,6 +304,11 @@ func (p *Project) check() error {
 			}
 		}
 		for _, k := range sorted(a.Env) {
+			for _, m := range refPattern.FindAllStringSubmatch(a.Env[k], -1) {
+				if _, ok := given[m[1]]; !ok && m[1] != "PORT" && m[1] != RevisionVar {
+					bad("%s.env.%s: ${%s} isn't a variable hakobu gives the app (from uses, PORT or %s)", at, k, m[1], RevisionVar)
+				}
+			}
 			if !envPattern.MatchString(k) {
 				bad("%s.env.%s: not a variable name (uppercase letters, digits and _)", at, k)
 			}
@@ -304,6 +324,26 @@ func (p *Project) check() error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// ImageTag is the tag of an image reference, "" if it has none (a digest
+// counts as one).
+func ImageTag(ref string) string {
+	if _, digest, ok := strings.Cut(ref, "@"); ok {
+		return digest
+	}
+	name := ref[strings.LastIndex(ref, "/")+1:]
+	if _, tag, ok := strings.Cut(name, ":"); ok {
+		return tag
+	}
+	return ""
+}
+
+// Expand replaces each ${NAME} in value with vars[NAME].
+func Expand(value string, vars map[string]string) string {
+	return refPattern.ReplaceAllStringFunc(value, func(m string) string {
+		return vars[refPattern.FindStringSubmatch(m)[1]]
+	})
 }
 
 // Vars are the variables a database or cache gives an app that uses it,

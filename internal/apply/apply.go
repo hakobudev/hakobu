@@ -398,15 +398,22 @@ func (a *Applier) appSpec(ctx context.Context, r Release, ps *ProjectState, name
 			env = append(env, values(spec.Vars("cache", prefix), []string{url, url, host, "6379", pw})...)
 		}
 	}
-	for _, k := range sortedKeys(w.Env) {
-		env = append(env, k+"="+w.Env[k])
-	}
-	for _, k := range sortedKeys(r.Secrets[name]) {
-		env = append(env, k+"="+r.Secrets[name][k])
-	}
+	// What hakobu gives the app, which the file's variables may name as
+	// ${NAME}.
 	env = append(env, fmt.Sprintf("PORT=%d", hint))
 	if r.Revision != "" {
 		env = append(env, spec.RevisionVar+"="+r.Revision)
+	}
+	given := map[string]string{}
+	for _, kv := range env {
+		k, v, _ := strings.Cut(kv, "=")
+		given[k] = v
+	}
+	for _, k := range sortedKeys(w.Env) {
+		env = append(env, k+"="+spec.Expand(w.Env[k], given))
+	}
+	for _, k := range sortedKeys(r.Secrets[name]) {
+		env = append(env, k+"="+r.Secrets[name][k])
 	}
 	var binds []string
 	for _, v := range sortedKeys(w.Volumes) {

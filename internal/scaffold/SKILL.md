@@ -37,6 +37,8 @@ memory = "256mb"
 ```
 
 - `uses` a database sets `DATABASE_URL`, `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`; a cache sets `REDIS_URL`, `VALKEY_URL`, `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`. With a prefix, `<PREFIX>_` goes in front. Passwords are made on the server; never put one in the file.
+- `image = "name:version"` instead of `path` runs a ready image (nothing built); `env` values can name what hakobu gives as `${DATABASE_URL}`, `${PORT}`… for an image that wants other names.
+- Apps of a project reach each other by app name: `http://web:8000` (the port it listens on); an app without `domain` is reached only so.
 - Every app gets `HAKOBU_REVISION`, the commit it was deployed from (an error tracker's release, for one).
 - The app must listen on `$PORT` (or `port`) on all interfaces, not 127.0.0.1, and answer `health`. A missing health endpoint is the most common failed deploy: add one, or point `health` at a path that answers 2xx without a login.
 - `release` and `worker` run with `/bin/sh -c` in the app's image, so the image needs a shell (not distroless or scratch).

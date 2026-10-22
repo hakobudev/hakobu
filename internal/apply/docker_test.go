@@ -51,6 +51,7 @@ func TestDockerApply(t *testing.T) {
 			_ = deploy.RemoveVolume(ctx, v)
 		}
 		_ = deploy.RemoveNetwork(ctx, node.ProjectNetwork(id))
+		_ = deploy.RemoveNetwork(ctx, node.NamesNetwork(id))
 		for _, v := range []string{"v1", "v2", "broken"} {
 			_ = deploy.RemoveImage(ctx, "zt-apply:"+id+"-"+v)
 		}
@@ -104,12 +105,19 @@ memory = "32mb"
 	if st, _ := deploy.ContainerStatus(ctx, id+"-web-worker"); st != "running" {
 		t.Errorf("worker is %s", st)
 	}
+	// The project's apps reach the live version by the app's name.
+	if got := byName(t, id+"-web-worker"); got != "v1" {
+		t.Errorf("http://web/ from the worker: %q", got)
+	}
 
 	if err := apply(toml(release), v2); err != nil {
 		t.Fatalf("second deploy: %v\n%s", err, &log)
 	}
 	if got := get(t, "/"); got != "v2" {
 		t.Errorf("serves %q after the second deploy", got)
+	}
+	if got := byName(t, id+"-web-worker"); got != "v2" {
+		t.Errorf("http://web/ from the worker after the second deploy: %q", got)
 	}
 
 	// A failing release command stops the deploy before the new version.
@@ -152,6 +160,16 @@ func buildImage(t *testing.T, id, version string) string {
 		t.Fatalf("docker build: %v\n%s", err, out)
 	}
 	return deploy.ImageID(context.Background(), tag)
+}
+
+// byName is what http://web:8080/ answers inside container.
+func byName(t *testing.T, container string) string {
+	t.Helper()
+	out, err := exec.Command("docker", "exec", container, "wget", "-qO-", "http://web:8080/").CombinedOutput()
+	if err != nil {
+		return fmt.Sprintf("%v: %s", err, out)
+	}
+	return string(out)
 }
 
 func get(t *testing.T, path string) string {
