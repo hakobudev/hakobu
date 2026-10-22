@@ -153,7 +153,8 @@ func TestWatchDoesntRetryAFailure(t *testing.T) {
 	regs.publish(releaseLabels(toml, crmImage("a")))
 	h.failRun = deploy.ErrReleaseFailed
 	res, _ := w.Check(ctx, ref, false)
-	if res == nil || !strings.Contains(res.Error, "release command") {
+	// The release's last line says why, and "release command" once.
+	if res == nil || !strings.Contains(res.Error, "release command failed: migrated; the live version keeps running") || strings.Count(res.Error, "release command") != 1 {
 		t.Fatalf("result %+v", res)
 	}
 	if res, _ := w.Check(ctx, ref, false); res != nil {

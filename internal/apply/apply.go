@@ -311,7 +311,12 @@ func (a *Applier) release(ctx context.Context, r Release, ps *ProjectState, name
 	})
 	fmt.Fprint(out, output)
 	if err != nil {
-		return fmt.Errorf("release command: %w; the live version keeps running", err)
+		// Its last words go in the error, so the commit's status and the
+		// mail say why without opening the log.
+		if last := lastLine(output); last != "" {
+			return fmt.Errorf("%w: %s; the live version keeps running", err, last)
+		}
+		return fmt.Errorf("%w; the live version keeps running", err)
 	}
 	return nil
 }
@@ -462,4 +467,17 @@ func randomHex() string {
 		panic(err) // crypto/rand doesn't fail on Linux
 	}
 	return hex.EncodeToString(b)
+}
+
+// lastLine is the last line of output that says something, without the
+// time Docker puts before each.
+func lastLine(output string) string {
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	last := strings.TrimSpace(lines[len(lines)-1])
+	if at, rest, ok := strings.Cut(last, " "); ok {
+		if _, err := time.Parse(time.RFC3339Nano, at); err == nil {
+			last = strings.TrimSpace(rest)
+		}
+	}
+	return last
 }

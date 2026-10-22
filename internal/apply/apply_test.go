@@ -26,7 +26,7 @@ type harness struct {
 func newHarness(t *testing.T) *harness {
 	h := &harness{f: nodetest.New()}
 	h.a = &Applier{
-		Node:      h.f,
+		Node:        h.f,
 		StateFile:   filepath.Join(t.TempDir(), "state.json"),
 		SnapshotDir: filepath.Join(t.TempDir(), "snapshots"),
 		// A pull makes the image the app's Next build, as Docker would.
@@ -68,7 +68,6 @@ func (h *harness) state(t *testing.T) *ProjectState {
 	}
 	return s.Projects["kasl"]
 }
-
 
 func TestApplyFirstDeploy(t *testing.T) {
 	h := newHarness(t)
@@ -288,5 +287,19 @@ func TestEnsureProxies(t *testing.T) {
 	}
 	if h.f.Proxies["kasl-crm"] == "" {
 		t.Errorf("proxies %v", h.f.Proxies)
+	}
+}
+
+func TestLastLine(t *testing.T) {
+	for in, want := range map[string]string{
+		"":           "",
+		"migrated\n": "migrated",
+		"a\nb\n\n":   "b",
+		"2026-10-22T14:57:57.082623881Z ERROR: relation \"x\" does not exist\n": `ERROR: relation "x" does not exist`,
+		"2026/10/22 14:57:57 boom": "2026/10/22 14:57:57 boom",
+	} {
+		if got := lastLine(in); got != want {
+			t.Errorf("%q: %q", in, got)
+		}
 	}
 }
