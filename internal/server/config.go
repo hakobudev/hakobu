@@ -17,6 +17,7 @@ import (
 
 	"filippo.io/age"
 	"github.com/BurntSushi/toml"
+	"github.com/hakobudev/hakobu/internal/alert"
 	"github.com/hakobudev/hakobu/internal/registry"
 )
 
@@ -43,8 +44,24 @@ type Config struct {
 	// Registries sign in to pull from, by host ("ghcr.io").
 	Registries map[string]Credentials `toml:"registries"`
 	Backups    Backups                `toml:"backups"`
+	Alerts     Alerts                 `toml:"alerts"`
 	// Every is the time between polls of the release images.
 	Every Duration `toml:"poll_every"`
+}
+
+type Alerts struct {
+	// SMTP sends the owner email; without it, problems show only in
+	// hakobu status.
+	SMTP *alert.SMTP `toml:"smtp"`
+	// Pulse is fetched every 15 minutes while hakobu runs (a dead man's
+	// switch, such as healthchecks.io, mails when it stops); PulseFail
+	// instead while a problem is open.
+	Pulse     string `toml:"pulse_url"`
+	PulseFail string `toml:"pulse_fail_url"`
+	// AllowPorts may listen beyond loopback and the tailnet: 80 and 443
+	// for a server that serves the web itself, 22 for SSH on every
+	// address.
+	AllowPorts []int `toml:"allow_ports"`
 }
 
 type Credentials struct {
@@ -180,6 +197,14 @@ func (c *Config) check() error {
 	if !atPattern.MatchString(c.Backups.At) {
 		bad("backups.at: %q should be a time of day like 03:00", c.Backups.At)
 	}
+	if m := c.Alerts.SMTP; m != nil && (m.Host == "" || m.Port == 0 || m.From == "" || m.To == "") {
+		bad("alerts.smtp: needs host, port, from and to")
+	}
+	for _, u := range []string{c.Alerts.Pulse, c.Alerts.PulseFail} {
+		if u != "" && !strings.HasPrefix(u, "https://") {
+			bad("alerts: %s should be https://", u)
+		}
+	}
 	if c.Backups.Primary == nil && len(c.Backups.Copies) > 0 {
 		bad("backups: copies but no primary")
 	}
@@ -201,6 +226,7 @@ func (c *Config) WatchFile() string   { return filepath.Join(c.DataDir, "watch.j
 func (c *Config) DeploysFile() string { return filepath.Join(c.DataDir, "deploys.jsonl") }
 func (c *Config) Snapshots() string   { return filepath.Join(c.DataDir, "snapshots") }
 func (c *Config) TempDir() string     { return filepath.Join(c.DataDir, "tmp") }
+func (c *Config) AlertsFile() string  { return filepath.Join(c.DataDir, "alerts.json") }
 
 // Level is what a token may do.
 type Level int

@@ -287,6 +287,12 @@ func printStatus(w io.Writer, st server.Status) {
 		}
 		fmt.Fprintf(w, "  last deploy: %s %s %s, %s\n", ago(d.At), d.Project, shortRev(d.Revision), outcome)
 	}
+	for _, p := range st.Problems {
+		fmt.Fprintf(w, "  PROBLEM since %s: %s\n", ago(p.Since), p.Subject)
+	}
+	if !st.Mail {
+		fmt.Fprintln(w, "  mail: none configured — problems show only here")
+	}
 	switch b := st.LastBackup; {
 	case !st.Backups:
 		fmt.Fprintln(w, "  backups: NONE — no bucket configured")

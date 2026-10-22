@@ -1294,3 +1294,31 @@ func Disk(ctx context.Context) (used, total uint64, err error) {
 	total = st.Blocks * uint64(st.Bsize)
 	return total - st.Bavail*uint64(st.Bsize), total, nil
 }
+
+// Listener is a TCP socket listening, from /proc/net/tcp{,6}.
+type Listener struct {
+	IP   net.IP
+	Port int
+}
+
+// Listeners reads every listening socket from /proc/net/tcp{,6} tables.
+func Listeners(tables string) []Listener {
+	var out []Listener
+	for _, line := range strings.Split(tables, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 4 || fields[3] != "0A" { // 0A = LISTEN
+			continue
+		}
+		addrHex, portHex, ok := strings.Cut(fields[1], ":")
+		if !ok {
+			continue
+		}
+		port, err := strconv.ParseInt(portHex, 16, 32)
+		ip := procAddr(addrHex)
+		if err != nil || ip == nil {
+			continue
+		}
+		out = append(out, Listener{IP: ip, Port: int(port)})
+	}
+	return out
+}

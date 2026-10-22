@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"filippo.io/age"
+	"github.com/hakobudev/hakobu/internal/alert"
 	"github.com/hakobudev/hakobu/internal/apply"
 	"github.com/hakobudev/hakobu/internal/backups"
 	"github.com/hakobudev/hakobu/internal/deploy"
@@ -42,7 +43,11 @@ type Daemon struct {
 	// Vault is nil when no bucket is configured: then nothing is backed
 	// up, and status says so.
 	Vault *backups.Vault
-	Log   io.Writer
+	// Alerts mail the owner; with no mail server they're only in status.
+	Alerts *alert.Alerts
+	// Containers names the running containers, for the audit.
+	Containers func(ctx context.Context) ([]string, error)
+	Log        io.Writer
 
 	mu         sync.Mutex
 	lastBackup BackupRun
@@ -88,7 +93,16 @@ func New(c *Config, m Machine, log io.Writer) (*Daemon, error) {
 		Every: time.Duration(c.Every), WatchFile: c.WatchFile(), DeploysFile: c.DeploysFile(), Log: log,
 	}
 	w.ReportTo(status.GitHub{})
-	d := &Daemon{Config: c, Machine: m, Applier: a, Watch: w, Log: log}
+	d := &Daemon{Config: c, Machine: m, Applier: a, Watch: w, Log: log, Containers: RunningContainers,
+		Alerts: &alert.Alerts{Server: c.Name, File: c.AlertsFile()}}
+	if c.Alerts.SMTP != nil {
+		d.Alerts.Mailer = *c.Alerts.SMTP
+	}
+	report := w.Done
+	w.Done = func(m apply.Meta, r apply.Result) {
+		report(m, r)
+		d.deployDone(m, r)
+	}
 	if p := c.Backups.Primary; p != nil {
 		d.Vault = &backups.Vault{
 			Source: m, Primary: target(*p), Recipients: []string{id.Recipient().String(), c.OwnerKey},
@@ -122,6 +136,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	srv := &http.Server{Handler: d.API(), ReadHeaderTimeout: 10 * time.Second}
 	go d.Watch.Run(ctx)
 	go d.backupDaily(ctx)
+	go d.monitor(ctx)
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -198,6 +213,7 @@ func (d *Daemon) BackupAll(ctx context.Context) BackupRun {
 	d.mu.Lock()
 	d.lastBackup = run
 	d.mu.Unlock()
+	d.backupsDone(run)
 	return run
 }
 

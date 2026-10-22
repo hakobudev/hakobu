@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hakobudev/hakobu/internal/alert"
 	"github.com/hakobudev/hakobu/internal/apply"
 	"github.com/hakobudev/hakobu/internal/backups"
 	"github.com/hakobudev/hakobu/internal/registry"
@@ -104,6 +105,8 @@ type Status struct {
 	LastDeploy *apply.Result                        `json:"last_deploy,omitempty"`
 	LastBackup *BackupRun                           `json:"last_backup,omitempty"`
 	Backups    bool                                 `json:"backups"` // a bucket is configured
+	Problems   []alert.Problem                      `json:"problems,omitempty"`
+	Mail       bool                                 `json:"mail"` // a mail server is configured
 }
 
 type ResourceStatus struct {
@@ -114,7 +117,10 @@ type ResourceStatus struct {
 }
 
 func (d *Daemon) status(w http.ResponseWriter, r *http.Request) (any, error) {
-	s := Status{Server: d.Config.Name, Releases: d.Config.Releases, Backups: d.Vault != nil}
+	s := Status{Server: d.Config.Name, Releases: d.Config.Releases, Backups: d.Vault != nil, Mail: d.Config.Alerts.SMTP != nil}
+	if d.Alerts != nil {
+		s.Problems, _ = d.Alerts.Open()
+	}
 	var err error
 	if s.Apps, err = d.Applier.Apps(); err != nil {
 		return nil, err

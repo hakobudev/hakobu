@@ -94,7 +94,12 @@ func TestNextAt(t *testing.T) {
 }
 
 // machine is the fake node with the few calls the daemon adds.
-type machine struct{ *nodetest.Fake }
+type machine struct {
+	*nodetest.Fake
+	used, total uint64
+}
+
+func (m machine) Disk(context.Context) (uint64, uint64, error) { return m.used, m.total, nil }
 
 func (machine) Logs(context.Context, string, int) (string, error) { return "listening on :8080", nil }
 func (machine) CheckDump(context.Context, node.DBSpec, io.Reader) (int, error) {
@@ -115,7 +120,7 @@ func newDaemon(t *testing.T) (*Daemon, *httptest.Server) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := New(c, machine{nodetest.New()}, io.Discard); err == nil {
+	if _, err := New(c, machine{Fake: nodetest.New()}, io.Discard); err == nil {
 		t.Fatal("started without a key")
 	}
 	recipient, err := InitKey(c)
@@ -125,7 +130,7 @@ func newDaemon(t *testing.T) (*Daemon, *httptest.Server) {
 	if again, _ := InitKey(c); again != recipient {
 		t.Fatal("InitKey replaced the key")
 	}
-	d, err := New(c, machine{nodetest.New()}, io.Discard)
+	d, err := New(c, machine{Fake: nodetest.New()}, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}

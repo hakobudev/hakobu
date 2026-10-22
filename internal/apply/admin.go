@@ -186,3 +186,24 @@ func (a *Applier) Apps() (map[string]map[string]AppState, error) {
 	}
 	return out, nil
 }
+
+// Specs are each app's health path, from the specs last applied.
+func (a *Applier) Specs() (map[string]map[string]string, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st, err := LoadState(a.StateFile)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]map[string]string{}
+	for p, ps := range st.Projects {
+		if ps.Spec == nil {
+			continue
+		}
+		out[p] = map[string]string{}
+		for n, app := range ps.Spec.Apps {
+			out[p][n] = app.Health
+		}
+	}
+	return out, nil
+}
