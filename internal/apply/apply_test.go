@@ -320,9 +320,13 @@ func TestReadsDontWaitForADeploy(t *testing.T) {
 		<-done
 		return "", nil
 	}
-	go func() { _, _ = h.apply(t, toml, map[string]string{"crm": "reg/crm@sha256:bbb"}) }()
+	applied := make(chan struct{})
+	go func() {
+		defer close(applied)
+		_, _ = h.a.Apply(context.Background(), Release{Spec: parse(t, toml), Images: map[string]string{"crm": "reg/crm@sha256:bbb"}}, io.Discard)
+	}()
 	<-migrating
-	defer close(done)
+	defer func() { close(done); <-applied }() // the deploy ends before its files go
 
 	read := make(chan map[string]int64)
 	go func() {
