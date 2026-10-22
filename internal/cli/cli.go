@@ -300,7 +300,8 @@ func printStatus(w io.Writer, st server.Status) {
 		if d.Error != "" {
 			outcome = "FAILED: " + firstLine(d.Error)
 		}
-		fmt.Fprintf(w, "  last deploy: %s %s %s, %s\n", ago(d.At), d.Project, shortRev(d.Revision), outcome)
+		what := strings.TrimSpace(d.Project + " " + shortRev(d.Revision))
+		fmt.Fprintf(w, "  last deploy: %s %s, %s\n", ago(d.At), what, outcome)
 	}
 	for _, p := range st.Problems {
 		fmt.Fprintf(w, "  PROBLEM since %s: %s\n", ago(p.Since), p.Subject)

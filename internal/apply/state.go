@@ -42,6 +42,10 @@ type AppState struct {
 	Port int64 `json:"port"`
 	Image     string `json:"image"`    // digest live now
 	Previous  string `json:"previous"` // digest before it, the rollback target
+	// The local IDs of those images: a rollback takes the previous one
+	// from here, with no registry, which may have dropped it.
+	ImageID    string `json:"image_id,omitempty"`
+	PreviousID string `json:"previous_id,omitempty"`
 }
 
 type DatabaseState struct {

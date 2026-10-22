@@ -124,21 +124,35 @@ as_docker() {
 as_docker systemctl --user -q is-enabled docker 2>/dev/null || as_docker dockerd-rootless-setuptool.sh install >/dev/null
 UNITS=/home/hakobu-docker/.config/systemd/user
 install -d -o hakobu-docker -g hakobu-docker "$UNITS/docker.service.d"
-cat > "$UNITS/docker.service.d/hakobu.conf" <<EOF
-[Service]
+DOCKER_CONF="[Service]
 ExecStart=
-ExecStart=$(command -v dockerd-rootless.sh) -H unix://$SOCK_DIR/docker.sock --group 0
-EOF
+ExecStart=$(command -v dockerd-rootless.sh) -H unix://$SOCK_DIR/docker.sock --group 0"
+# Restarting Docker restarts every app: only when its settings change.
+RESTART_DOCKER=""
+if [ "$(cat "$UNITS/docker.service.d/hakobu.conf" 2>/dev/null)" != "$DOCKER_CONF" ]; then
+  printf '%s\n' "$DOCKER_CONF" > "$UNITS/docker.service.d/hakobu.conf"
+  RESTART_DOCKER=1
+fi
 # The dialer runs in RootlessKit's namespaces, which only the Docker user
 # can enter, and restarts with Docker.
+# It waits for Docker to answer, so the namespaces it enters are those of
+# the Docker running now, and keeps trying: without it hakobu can't reach
+# a container.
 cat > "$UNITS/hakobu-dialer.service" <<EOF
 [Unit]
 Description=hakobu's connections to containers
 BindsTo=docker.service
 After=docker.service
+StartLimitIntervalSec=0
 
 [Service]
-ExecStart=/bin/sh -c 'exec nsenter -U --preserve-credentials -n -t "\$\$(cat "\$\$XDG_RUNTIME_DIR/dockerd-rootless/child_pid")" -- $BIN dialer $SOCK_DIR/dialer.sock'
+Environment=DOCKER_HOST=unix://$SOCK_DIR/docker.sock
+ExecStartPre=/bin/sh -c 'for i in \$\$(seq 1 60); do docker info >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
+# Docker 29's RootlessKit keeps the containers' network in a namespace of
+# its own (--detach-netns), bound at netns in its mount namespace, which
+# /proc/<pid>/root reaches without leaving the host's (where the sockets
+# are). Older ones have it as the child process's.
+ExecStart=/bin/sh -c 'R="\$\$XDG_RUNTIME_DIR/dockerd-rootless"; P="\$\$(cat "\$\$R/child_pid")"; N="/proc/\$\$P/root\$\$R/netns"; if nsenter -U --preserve-credentials -t "\$\$P" --net="\$\$N" -- true 2>/dev/null; then exec nsenter -U --preserve-credentials -t "\$\$P" --net="\$\$N" -- $BIN dialer $SOCK_DIR/dialer.sock; fi; exec nsenter -U --preserve-credentials -n -t "\$\$P" -- $BIN dialer $SOCK_DIR/dialer.sock'
 Restart=always
 RestartSec=2
 
@@ -148,7 +162,11 @@ EOF
 chown -R hakobu-docker:hakobu-docker /home/hakobu-docker/.config
 as_docker systemctl --user daemon-reload
 as_docker systemctl --user -q enable docker hakobu-dialer
-as_docker systemctl --user restart docker
+if [ -n "$RESTART_DOCKER" ]; then
+  as_docker systemctl --user restart docker
+else
+  as_docker systemctl --user start docker
+fi
 for _ in $(seq 1 60); do
   as_docker env DOCKER_HOST="unix://$SOCK_DIR/docker.sock" docker info >/dev/null 2>&1 && break
   sleep 1

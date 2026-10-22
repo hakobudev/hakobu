@@ -247,11 +247,15 @@ func (d *Daemon) pulse(ctx context.Context) {
 // deployDone mails a failed deploy and closes the alert on the next one
 // that works.
 func (d *Daemon) deployDone(m apply.Meta, r apply.Result) {
-	key := "deploy:" + r.Project
-	if r.Project == "" {
-		key = "deploy:" + r.Release
+	// By the release image, not the project: a release that failed before
+	// its project was known is closed by the next that works.
+	image, _, _ := strings.Cut(r.Release, "@")
+	key := "deploy:" + image
+	name := r.Project
+	if name == "" {
+		name = image
 	}
-	subject := fmt.Sprintf("deploy of %s failed: %s", r.Project, firstLine(r.Error))
+	subject := fmt.Sprintf("deploy of %s failed: %s", name, firstLine(r.Error))
 	body := fmt.Sprintf("Release %s (commit %s of %s) didn't go live; the live version keeps running.\n\n%s\n\n%s", r.Release, r.Revision, r.Source, r.Error, r.Log)
 	d.raise(key, r.Error != "", subject, body)
 }

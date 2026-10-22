@@ -119,11 +119,19 @@ func TestAuditContainers(t *testing.T) {
 
 func TestDeployAlerts(t *testing.T) {
 	d, _, box := watched(t)
-	d.Watch.Done(apply.Meta{}, apply.Result{Project: "kasl", Error: "apps.crm: release command: exit 3\nmore"})
+	d.Watch.Done(apply.Meta{}, apply.Result{Release: "ghcr.io/kasl/rel@sha256:1", Error: "not found"})
+	if !strings.Contains(box.last(), "deploy of ghcr.io/kasl/rel failed: not found") {
+		t.Fatalf("%q", box.subjects)
+	}
+	d.Watch.Done(apply.Meta{}, apply.Result{Release: "ghcr.io/kasl/rel@sha256:2", Project: "kasl"})
+	if !strings.Contains(box.last(), "resolved: deploy of ghcr.io/kasl/rel") {
+		t.Fatalf("a failure before the project was known stays open: %q", box.subjects)
+	}
+	d.Watch.Done(apply.Meta{}, apply.Result{Release: "ghcr.io/kasl/rel@sha256:3", Project: "kasl", Error: "apps.crm: release command: exit 3\nmore"})
 	if !strings.Contains(box.last(), "deploy of kasl failed: apps.crm: release command: exit 3") {
 		t.Fatalf("%q", box.subjects)
 	}
-	d.Watch.Done(apply.Meta{}, apply.Result{Project: "kasl"})
+	d.Watch.Done(apply.Meta{}, apply.Result{Release: "ghcr.io/kasl/rel@sha256:4", Project: "kasl"})
 	if !strings.Contains(box.last(), "resolved: deploy of kasl failed") {
 		t.Errorf("%q", box.subjects)
 	}

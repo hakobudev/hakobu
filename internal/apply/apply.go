@@ -219,10 +219,20 @@ func (a *Applier) deployApp(ctx context.Context, r Release, st *State, ps *Proje
 	if ref == "" {
 		ref = as.Image // settings changed, same image
 	}
-	fmt.Fprintln(out, "pulling", ref)
-	if err := a.pull(ctx, ref, node.Tag(key, node.Next)); err != nil {
-		return err
+	next := node.Tag(key, node.Next)
+	switch id := a.localImage(ctx, ref, as); {
+	case id != "":
+		fmt.Fprintln(out, "using", ref, "from this server")
+		if err := deploy.TagImage(ctx, id, next); err != nil {
+			return err
+		}
+	default:
+		fmt.Fprintln(out, "pulling", ref)
+		if err := a.pull(ctx, ref, next); err != nil {
+			return err
+		}
 	}
+	imageID := a.imageID(ctx, next)
 	app := a.appSpec(ctx, r, ps, name)
 	app.ActiveSlot, app.ProxyPort = as.Slot, as.ProxyPort
 
@@ -239,6 +249,7 @@ func (a *Applier) deployApp(ctx context.Context, r Release, st *State, ps *Proje
 	// the live one, and the other is a leftover to remove.
 	prev := *as
 	as.Slot, as.Port, as.Previous, as.Image = c.Slot, c.Port, as.Image, ref
+	as.PreviousID, as.ImageID = as.ImageID, imageID
 	if err := save(); err != nil {
 		*as = prev
 		return a.Node.Discard(ctx, app, c, out, err)
@@ -396,11 +407,6 @@ func (a *Applier) pull(ctx context.Context, ref, tag string) error {
 	if a.Pull != nil {
 		return a.Pull(ctx, ref, tag)
 	}
-	// An image pinned by digest that's here already is the same image:
-	// a rollback to it needs no registry.
-	if here, _ := deploy.ImageExists(ctx, ref); here {
-		return deploy.TagImage(ctx, ref, tag)
-	}
 	var auth deploy.RegistryAuth
 	if r, err := registry.ParseRef(ref); err == nil {
 		auth = a.Auth[r.Host]
@@ -409,6 +415,30 @@ func (a *Applier) pull(ctx context.Context, ref, tag string) error {
 		return err
 	}
 	return deploy.TagImage(ctx, ref, tag)
+}
+
+// localImage is the ID of an image of the app's this server has already
+// for ref, live or previous, "" if none: Docker can't always find an
+// image by the digest it was pulled by.
+func (a *Applier) localImage(ctx context.Context, ref string, as *AppState) string {
+	if a.Pull != nil {
+		return "" // tests pull into a fake
+	}
+	for _, c := range []struct{ ref, id string }{{as.Image, as.ImageID}, {as.Previous, as.PreviousID}} {
+		if c.ref == ref && c.id != "" {
+			if here, _ := deploy.ImageExists(ctx, c.id); here {
+				return c.id
+			}
+		}
+	}
+	return ""
+}
+
+func (a *Applier) imageID(ctx context.Context, tag string) string {
+	if a.Pull != nil {
+		return ""
+	}
+	return deploy.ImageID(ctx, tag)
 }
 
 // freePort is the lowest proxy port no app on the server has.
