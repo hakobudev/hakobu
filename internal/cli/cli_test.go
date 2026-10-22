@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http/httptest"
@@ -16,6 +17,7 @@ import (
 	"github.com/hakobudev/hakobu/internal/node/nodetest"
 	"github.com/hakobudev/hakobu/internal/seal"
 	"github.com/hakobudev/hakobu/internal/server"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 type machine struct{ *nodetest.Fake }
@@ -90,6 +92,38 @@ releases = ["ghcr.io/kasl/crm-release:main"]
 	out, err = run(t, "", "status")
 	if err != nil || !strings.Contains(out, "kasl-1") || !strings.Contains(out, "backups: NONE") {
 		t.Errorf("status: %q, %v", out, err)
+	}
+
+	// The agent's view: the same servers, over MCP, without restore or
+	// destroy.
+	root := Root("test")
+	mcpCmd, _, _ := root.Find([]string{"mcp"})
+	ct, st := mcp.NewInMemoryTransports()
+	ctx := context.Background()
+	if _, err := newMCP(mcpCmd).Connect(ctx, st, nil); err != nil {
+		t.Fatal(err)
+	}
+	session, err := mcp.NewClient(&mcp.Implementation{Name: "test"}, nil).Connect(ctx, ct, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools, err := session.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, tool := range tools.Tools {
+		names = append(names, tool.Name)
+	}
+	if got := strings.Join(names, " "); strings.Contains(got, "restore") || strings.Contains(got, "destroy") || !strings.Contains(got, "rollback") {
+		t.Errorf("tools: %s", got)
+	}
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "status"})
+	if err != nil || res.IsError {
+		t.Fatalf("status: %+v, %v", res, err)
+	}
+	if b, _ := json.Marshal(res.StructuredContent); !strings.Contains(string(b), `"server":"kasl-1"`) {
+		t.Errorf("status over MCP: %s", b)
 	}
 
 	// A project's secrets, in its repository.
