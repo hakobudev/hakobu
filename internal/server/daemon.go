@@ -17,6 +17,7 @@ import (
 	"github.com/hakobudev/hakobu/internal/apply"
 	"github.com/hakobudev/hakobu/internal/backups"
 	"github.com/hakobudev/hakobu/internal/deploy"
+	"github.com/hakobudev/hakobu/internal/ingress"
 	"github.com/hakobudev/hakobu/internal/node"
 	"github.com/hakobudev/hakobu/internal/registry"
 	"github.com/hakobudev/hakobu/internal/s3"
@@ -137,6 +138,12 @@ func (d *Daemon) Run(ctx context.Context) error {
 	go d.Watch.Run(ctx)
 	go d.backupDaily(ctx)
 	go d.monitor(ctx)
+	go func() {
+		if err := ingress.Serve(ctx, d.Config.Ingress, d.Applier.Domains, d.Config.CertDir(), d.log()); err != nil {
+			fmt.Fprintln(d.log(), err)
+			d.raise("ingress", true, "the apps can't be reached: "+err.Error(), err.Error())
+		}
+	}()
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)

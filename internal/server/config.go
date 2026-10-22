@@ -18,6 +18,7 @@ import (
 	"filippo.io/age"
 	"github.com/BurntSushi/toml"
 	"github.com/hakobudev/hakobu/internal/alert"
+	"github.com/hakobudev/hakobu/internal/ingress"
 	"github.com/hakobudev/hakobu/internal/registry"
 )
 
@@ -45,6 +46,7 @@ type Config struct {
 	Registries map[string]Credentials `toml:"registries"`
 	Backups    Backups                `toml:"backups"`
 	Alerts     Alerts                 `toml:"alerts"`
+	Ingress    ingress.Config         `toml:"ingress"`
 	// Every is the time between polls of the release images.
 	Every Duration `toml:"poll_every"`
 }
@@ -197,6 +199,9 @@ func (c *Config) check() error {
 	if !atPattern.MatchString(c.Backups.At) {
 		bad("backups.at: %q should be a time of day like 03:00", c.Backups.At)
 	}
+	if err := c.Ingress.Check(); err != nil {
+		errs = append(errs, err)
+	}
 	if m := c.Alerts.SMTP; m != nil && (m.Host == "" || m.Port == 0 || m.From == "" || m.To == "") {
 		bad("alerts.smtp: needs host, port, from and to")
 	}
@@ -227,6 +232,7 @@ func (c *Config) DeploysFile() string { return filepath.Join(c.DataDir, "deploys
 func (c *Config) Snapshots() string   { return filepath.Join(c.DataDir, "snapshots") }
 func (c *Config) TempDir() string     { return filepath.Join(c.DataDir, "tmp") }
 func (c *Config) AlertsFile() string  { return filepath.Join(c.DataDir, "alerts.json") }
+func (c *Config) CertDir() string     { return filepath.Join(c.DataDir, "certs") }
 
 // Level is what a token may do.
 type Level int

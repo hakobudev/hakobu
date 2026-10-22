@@ -207,3 +207,25 @@ func (a *Applier) Specs() (map[string]map[string]string, error) {
 	}
 	return out, nil
 }
+
+// Domains are each app domain's proxy port, for the ingress.
+func (a *Applier) Domains() map[string]int64 {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st, err := LoadState(a.StateFile)
+	if err != nil {
+		return nil
+	}
+	out := map[string]int64{}
+	for _, ps := range st.Projects {
+		if ps.Spec == nil {
+			continue
+		}
+		for n, app := range ps.Spec.Apps {
+			if as := ps.Apps[n]; app.Domain != "" && as != nil && as.Slot != "" {
+				out[app.Domain] = as.ProxyPort
+			}
+		}
+	}
+	return out
+}

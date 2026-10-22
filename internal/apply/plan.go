@@ -224,7 +224,6 @@ func appDiff(l, w spec.App) []string {
 	}
 	field("memory", l.Memory, w.Memory)
 	field("cpus", l.CPUs, w.CPUs)
-	field("tailnet", l.Tailnet, w.Tailnet)
 	field("path", l.Path, w.Path)
 	if !maps.Equal(l.Volumes, w.Volumes) {
 		d = append(d, "volumes")

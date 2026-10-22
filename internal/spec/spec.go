@@ -51,8 +51,6 @@ type App struct {
 	Volumes map[string]string `toml:"volumes"` // name → mount path
 	Env     map[string]string `toml:"env"`
 	Uses    Uses              `toml:"uses"`
-	// Tailnet lets it reach the server's tailnet (100.x).
-	Tailnet bool `toml:"tailnet"`
 }
 
 // Database is a database and its user on the server's PostgreSQL, whose

@@ -15,7 +15,6 @@ release = "bun run migrate"
 worker  = "bun run worker"
 memory  = "1gb"
 uses    = ["main", "cache"]
-tailnet = true
 volumes = { uploads = "/app/data" }
 env     = { NODE_ENV = "production" }
 
@@ -30,7 +29,7 @@ func TestParse(t *testing.T) {
 		t.Fatal(err)
 	}
 	crm := p.Apps["crm"]
-	if p.Name != "kasl" || p.Server != "kasl-1" || crm.Domain != "crm.kaslauto.com" || !crm.Tailnet {
+	if p.Name != "kasl" || p.Server != "kasl-1" || crm.Domain != "crm.kaslauto.com" {
 		t.Errorf("read %+v", p)
 	}
 	if crm.Health != DefaultHealth {

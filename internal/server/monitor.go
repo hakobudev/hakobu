@@ -161,7 +161,8 @@ func (d *Daemon) checkPostgres(ctx context.Context) {
 // each thing out of place and closing those that are fixed.
 func (d *Daemon) Audit(ctx context.Context) []audit.Finding {
 	var found []audit.Finding
-	if ports, err := audit.HostPorts(d.Config.Alerts.AllowPorts); err == nil {
+	allow := append(d.Config.Ingress.Ports(), d.Config.Alerts.AllowPorts...)
+	if ports, err := audit.HostPorts(allow); err == nil {
 		found = append(found, ports...)
 	}
 	if d.Containers != nil {
