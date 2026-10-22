@@ -14,25 +14,11 @@ import (
 	"github.com/hakobudev/hakobu/internal/proxy"
 )
 
-// Names on a node. Each project has its own networks, so an app can't
-// reach the apps of other projects, private ones included:
-//   - hakobu_<project>: its apps and workers, plus the shared Postgres
-//     (whose databases have their own credentials);
-//   - hakobu_<project>_edge: its live app containers under their aliases,
-//     plus cloudflared, which reaches them there.
-//
-// A container on several networks doesn't route between them. Project
-// names have no "_", so no two projects' network names can clash.
-
+// ProjectNetwork is the project's own network: its apps, workers and
+// caches, and the shared Postgres (whose databases have their own
+// credentials). An app can't reach another project's. Project names have no
+// "_", so no two projects' networks clash.
 func ProjectNetwork(project string) string { return "hakobu_" + project }
-func ProjectEdge(project string) string    { return "hakobu_" + project + "_edge" }
-
-// EdgeAlias is the app's name on the edge network. App and container names
-// have no dots, so it can't clash with a container name.
-func EdgeAlias(app string) string { return app + ".hakobu" }
-
-// WorkDir holds the app's clone while it builds.
-func WorkDir(app string) string { return "data/work/" + app }
 
 // Image is one of an app's builds: the one being rolled out, the live one,
 // and the one before it, which Rollback returns to.
@@ -47,8 +33,8 @@ const (
 // Tag is the Docker tag of the app's image.
 func Tag(app string, img Image) string { return "hakobu/" + app + ":" + string(img) }
 
-// AppSpec is what a node needs to know of an app to run it; the panel
-// fills it from its records, variables and secrets resolved.
+// AppSpec is what the machine needs to know of an app to run it, its
+// variables and secrets resolved.
 type AppSpec struct {
 	Name          string
 	Project       string
@@ -98,11 +84,6 @@ func (Local) ExposedPort(ctx context.Context, app string, img Image) int64 {
 	return int64(deploy.ExposedPort(ctx, Tag(app, img)))
 }
 
-// HasImage reports whether the app has that build.
-func (Local) HasImage(ctx context.Context, app string, img Image) (bool, error) {
-	return deploy.ImageExists(ctx, Tag(app, img))
-}
-
 // DropImage deletes the app's build; one that isn't there is no error.
 func (Local) DropImage(ctx context.Context, app string, img Image) {
 	_ = deploy.RemoveImage(ctx, Tag(app, img))
@@ -135,29 +116,15 @@ func (Local) Promote(ctx context.Context, app string) error {
 	return kept
 }
 
-// SwapForRollback makes Previous, which just went live, Latest and the
-// build it replaced Previous, so rolling back again returns to it.
-func (Local) SwapForRollback(ctx context.Context, app string) error {
-	prev, latest, swap := Tag(app, Previous), Tag(app, Latest), Tag(app, Next)
-	defer func() { _ = deploy.RemoveImage(ctx, swap) }()
-	for _, t := range [][2]string{{latest, swap}, {prev, latest}, {swap, prev}} {
-		if err := deploy.TagImage(ctx, t[0], t[1]); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // CandidateWait is how long a new version gets to answer its health check;
 // tests, whose apps answer at once, wait less.
 var CandidateWait = time.Minute
 
 // StartCandidate starts img in the app's inactive slot and waits up to
-// CandidateWait for it to answer its health check on the project's network. A
-// candidate that doesn't is removed, and the live version keeps serving
-// (or, for Recreate, is started again). A healthy one joins the edge
-// network under the app's alias next to the live version; Switch then
-// points the proxy at it, or Discard drops it.
+// CandidateWait for it to answer its health check on the project's network.
+// A candidate that doesn't is removed, and the live version keeps serving
+// (or, for Recreate, is started again). Switch then points the proxy at a
+// healthy one, or Discard drops it.
 func (n Local) StartCandidate(ctx context.Context, app AppSpec, img Image, out io.Writer) (Candidate, error) {
 	oldSlot, newSlot := "blue", "green"
 	if app.ActiveSlot == "green" {
@@ -240,14 +207,9 @@ func (n Local) StartCandidate(ctx context.Context, app AppSpec, img Image, out i
 		return c, fmt.Errorf("new version %s; %s\n--- container output ---\n%s", reason, kept, logs)
 	}
 
-	// Healthy: keep it running, and let the tunnel find it under the app's
-	// alias next to the old version. Until the proxy points at it, any
-	// failure removes it and leaves the old version serving: two versions
-	// left answering under the alias would split the traffic.
+	// Healthy: keep it running. Until the proxy points at it, any failure
+	// removes it and leaves the old version serving.
 	if err := deploy.KeepRestarting(ctx, c.Container); err != nil {
-		return c, n.Discard(ctx, app, c, out, err)
-	}
-	if err := deploy.ConnectNetwork(ctx, c.Container, ProjectEdge(app.Project), EdgeAlias(app.Name)); err != nil {
 		return c, n.Discard(ctx, app, c, out, err)
 	}
 	if _, err := proxy.Ensure(app.Name, app.ProxyPort); err != nil {
@@ -268,20 +230,17 @@ func (n Local) Discard(ctx context.Context, app AppSpec, c Candidate, out io.Wri
 	return err
 }
 
-// Switch points the app's proxy at the candidate. The panel records the
-// candidate's slot as live first: after a crash in between, the node's
-// proxy follows the record (EnsureProxy) and Reconcile removes the other.
+// Switch points the app's proxy at the candidate. The state names the
+// candidate's slot as live first: after a crash in between, the proxy
+// follows the state (EnsureProxy) and Reconcile removes the other.
 func (Local) Switch(ctx context.Context, app AppSpec, c Candidate) error {
 	u, _ := url.Parse(fmt.Sprintf("http://%s:%d", c.IP, c.Port))
 	return proxy.SetTarget(app.Name, u)
 }
 
 // Retire gives the old version up to 10 seconds to finish the requests in
-// flight and removes it. It stays on the edge network until it has
-// stopped: taken off first, its answers couldn't reach the tunnel, which
-// waited on them, and on its kept-alive connections, until it timed out.
-// While it stops it refuses new connections, and the tunnel's dialer
-// goes on to the new version's address under the same alias.
+// flight, the proxy sending new ones to the new version already, and
+// removes it.
 func (Local) Retire(ctx context.Context, app AppSpec, c Candidate, out io.Writer) {
 	if err := deploy.StopContainer(ctx, c.Old); err != nil {
 		fmt.Fprintln(out, "warning:", err) // removing it below kills it anyway
@@ -337,13 +296,19 @@ func (Local) StopApp(ctx context.Context, app AppSpec) error {
 	return nil
 }
 
-// StartApp starts the app's stopped live container again and points the
-// proxy at it.
+// StartApp starts the app's stopped live container and its worker again,
+// and points the proxy at the app.
 func (n Local) StartApp(ctx context.Context, app AppSpec, out io.Writer) {
 	if app.Stopped {
 		return // stopped by its owner before the restore that paused it
 	}
 	n.restart(ctx, app, app.Live(), out)
+	worker := WorkerContainer(app.Name)
+	if st, _ := deploy.ContainerStatus(ctx, worker); st == "exited" || st == "created" {
+		if err := deploy.StartContainer(ctx, worker); err != nil {
+			fmt.Fprintln(out, "failed to start the worker again:", err)
+		}
+	}
 }
 
 func (Local) restart(ctx context.Context, app AppSpec, name string, out io.Writer) {
@@ -373,8 +338,8 @@ func (Local) restart(ctx context.Context, app AppSpec, name string, out io.Write
 	fmt.Fprintln(out, "started the previous version again:", name)
 }
 
-// EnsureProxy starts the app's proxy, after an agent restart say, and
-// points it at the live container.
+// EnsureProxy starts the app's proxy, as hakobu starts, and points it at
+// the live container.
 func (Local) EnsureProxy(ctx context.Context, app AppSpec) {
 	isNew, err := proxy.Ensure(app.Name, app.ProxyPort)
 	if err != nil || !isNew {
@@ -390,11 +355,10 @@ func (Local) EnsureProxy(ctx context.Context, app AppSpec) {
 
 func (Local) RemoveProxy(app string) { proxy.Remove(app) }
 
-// Reconcile tidies up after a job the node didn't live to finish: the slot
-// the record doesn't name is a leftover candidate or old version (still
-// answering under the app's edge alias), and a stopped live container was
-// stopped by a recreate deploy or data rollback that never started it
-// again. Apps with a job running mustn't be passed.
+// Reconcile tidies up after a deploy hakobu didn't live to finish: the slot
+// the state doesn't name is a leftover candidate or old version, and a
+// stopped live container was stopped by a deploy of an app with volumes
+// that never started it again. It runs as hakobu starts, before any deploy.
 func (Local) Reconcile(ctx context.Context, apps []AppSpec) {
 	for _, app := range apps {
 		live := app.Live()
@@ -417,6 +381,14 @@ func (Local) Reconcile(ctx context.Context, apps []AppSpec) {
 			if err := deploy.StartContainer(ctx, live); err != nil {
 				panellog.Error("failed to start", live+":", err)
 			}
+		}
+		// A release command left running goes on to its end (a migration
+		// cut short could leave the database half done); one that ended
+		// is removed.
+		release := app.Name + "-release"
+		if st, _ := deploy.ContainerStatus(ctx, release); st == "exited" || st == "created" || st == "dead" {
+			panellog.Info("removing", release+", left by an unfinished deploy")
+			_ = deploy.RemoveContainer(ctx, release)
 		}
 	}
 }

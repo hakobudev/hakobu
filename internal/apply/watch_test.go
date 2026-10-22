@@ -347,3 +347,30 @@ func TestShort(t *testing.T) {
 		}
 	}
 }
+
+// A deploy cut short by hakobu stopping isn't a failed release: the next
+// hakobu deploys it.
+func TestWatchStoppedMidDeployTriesAgain(t *testing.T) {
+	h, regs := newHarness(t), newReleases(t)
+	w, ref := newWatch(t, h, regs)
+	var done []string
+	w.Done = func(m Meta, r Result) { done = append(done, r.Error) }
+	toml := strings.Replace(crm, "[apps.crm]", "[apps.crm]\nrelease = \"m\"", 1)
+	regs.publish(releaseLabels(toml, crmImage("a")))
+
+	ctx, stop := context.WithCancel(context.Background())
+	h.a.RunOnce = func(context.Context, string, string, string, deploy.AppOptions) (string, error) {
+		stop() // hakobu is told to stop during the migration
+		return "", deploy.ErrReleaseFailed
+	}
+	if res, err := w.Check(ctx, ref, false); res != nil || err == nil {
+		t.Fatalf("cut short: %+v, %v", res, err)
+	}
+	if len(done) != 0 {
+		t.Errorf("reported as done: %q", done)
+	}
+	h.a.RunOnce = func(context.Context, string, string, string, deploy.AppOptions) (string, error) { return "", nil }
+	if res, err := w.Check(context.Background(), ref, false); err != nil || res == nil || res.Error != "" {
+		t.Fatalf("again: %+v, %v", res, err)
+	}
+}

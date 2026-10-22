@@ -85,8 +85,7 @@ func (Local) CheckArchive(archive io.Reader) (files int, err error) {
 }
 
 // LoadArchive replaces the volume's contents with archive, the app and its
-// worker stopped meanwhile; the app starts again after, the worker is the
-// caller's to start.
+// worker stopped meanwhile and started again after.
 func (n Local) LoadArchive(ctx context.Context, app AppSpec, name string, archive io.Reader, out io.Writer) error {
 	fmt.Fprintln(out, "stopping", app.Name)
 	if err := n.StopApp(ctx, app); err != nil {

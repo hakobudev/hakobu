@@ -35,6 +35,10 @@ type SMTP struct {
 	To       string `toml:"to"`
 }
 
+// sendTimeout bounds a whole mail, from the connection to QUIT: a mail
+// server that hangs mustn't hold the alerts, nor the deploys that raise them.
+var sendTimeout = time.Minute
+
 func (s SMTP) Send(subject, body string) error {
 	addr := net.JoinHostPort(s.Host, strconv.Itoa(s.Port))
 	msg := strings.Join([]string{
@@ -45,15 +49,19 @@ func (s SMTP) Send(subject, body string) error {
 		"Content-Type: text/plain; charset=utf-8",
 		"", body,
 	}, "\r\n")
-	var auth smtp.Auth
-	if s.Username != "" {
-		auth = smtp.PlainAuth("", s.Username, s.Password, s.Host)
+	dialer := &net.Dialer{Timeout: sendTimeout}
+	var conn net.Conn
+	var err error
+	if s.Port == 465 {
+		conn, err = tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{ServerName: s.Host, MinVersion: tls.VersionTLS12})
+	} else {
+		conn, err = dialer.Dial("tcp", addr)
 	}
-	if s.Port != 465 {
-		return smtp.SendMail(addr, auth, s.From, []string{s.To}, []byte(msg))
-	}
-	conn, err := tls.Dial("tcp", addr, &tls.Config{ServerName: s.Host, MinVersion: tls.VersionTLS12})
 	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if err := conn.SetDeadline(time.Now().Add(sendTimeout)); err != nil {
 		return err
 	}
 	c, err := smtp.NewClient(conn, s.Host)
@@ -61,8 +69,16 @@ func (s SMTP) Send(subject, body string) error {
 		return err
 	}
 	defer c.Close()
-	if auth != nil {
-		if err := c.Auth(auth); err != nil {
+	if s.Port != 465 {
+		if ok, _ := c.Extension("STARTTLS"); ok {
+			if err := c.StartTLS(&tls.Config{ServerName: s.Host, MinVersion: tls.VersionTLS12}); err != nil {
+				return err
+			}
+		}
+	}
+	if s.Username != "" {
+		// PlainAuth refuses to send the password unencrypted.
+		if err := c.Auth(smtp.PlainAuth("", s.Username, s.Password, s.Host)); err != nil {
 			return err
 		}
 	}

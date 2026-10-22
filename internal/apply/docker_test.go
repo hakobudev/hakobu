@@ -50,9 +50,7 @@ func TestDockerApply(t *testing.T) {
 		for _, v := range []string{node.PostgresContainer + "_data", id + "-cache_data", node.Volume(id+"-web", "data")} {
 			_ = deploy.RemoveVolume(ctx, v)
 		}
-		for _, n := range []string{node.ProjectNetwork(id), node.ProjectEdge(id)} {
-			_ = deploy.RemoveNetwork(ctx, n)
-		}
+		_ = deploy.RemoveNetwork(ctx, node.ProjectNetwork(id))
 		for _, v := range []string{"v1", "v2", "broken"} {
 			_ = deploy.RemoveImage(ctx, "zt-apply:"+id+"-"+v)
 		}

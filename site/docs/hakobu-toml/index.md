@@ -43,7 +43,7 @@ An app is one image serving HTTP, and optionally a worker from the same image.
 | Key | |
 |---|---|
 | `path` | its directory in the repository, default the root; the app is built from the `Dockerfile` there |
-| `domain` | where it's served on the web; without one, it isn't |
+| `domain` | where it's served on the web; without one, it isn't. One project's on the server: another's deploy with it is refused |
 | `health` | a path that answers 2xx once the app takes requests; default `/up`. A deploy goes live only once it does |
 | `port` | the port it listens on; default the image's `EXPOSE`, else 8080. It's in `$PORT` too |
 | `release` | a command run once per deploy in the new image before it takes traffic, for migrations: if it fails, the running version stays. See [Deploys](https://hakobu.dev/docs/deploys/index.md) |

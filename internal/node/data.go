@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"os"
 	"time"
 
 	"github.com/hakobudev/hakobu/internal/backup"
@@ -43,7 +42,7 @@ func (Local) EnsurePostgres(ctx context.Context) error {
 			return err
 		}
 		// Postgres 18+ images expect the volume at /var/lib/postgresql, older ones work with it too.
-		shm, _ := postgresShm() // unknown: Docker's 64 MB, and FitPostgres tries again
+		shm, _ := postgresShm() // unknown: Docker's 64 MB
 		_, err = deploy.RunServiceContainer(ctx, PostgresContainer, config.PostgresImage, []string{"POSTGRES_PASSWORD=" + hex.EncodeToString(b)}, "/var/lib/postgresql", shm)
 	}
 	if err != nil {
@@ -69,33 +68,6 @@ func postgresShm() (int64, error) {
 	return max(step, min(1<<30, total/4)/step*step), nil
 }
 
-// FitPostgres makes the Postgres container anew if its /dev/shm isn't
-// postgresShm, keeping its data, after a clean shutdown. Apps lose their
-// connections for the seconds it takes; the caller connects it to the
-// projects' networks again. A node without Postgres is left alone.
-func (Local) FitPostgres(ctx context.Context) error {
-	want, err := postgresShm()
-	if err != nil {
-		return err
-	}
-	have, err := deploy.ShmSize(ctx, PostgresContainer)
-	if err != nil || have < 0 || have == want {
-		return err
-	}
-	panellog.Infof("postgres: resizing /dev/shm from %d MB to %d MB, restarting it", have>>20, want>>20)
-	if err := deploy.ResizeShm(ctx, PostgresContainer, want, 2*time.Minute); err != nil {
-		return fmt.Errorf("resizing postgres's /dev/shm: %w", err)
-	}
-	if !deploy.WaitHealthy(60, time.Second, func() bool { return deploy.PostgresReady(ctx, PostgresContainer) }) {
-		return fmt.Errorf("postgres failed to become ready after resizing /dev/shm")
-	}
-	// ALTER SYSTEM lives in the volume: a type set there wouldn't use the new size.
-	if rows, err := deploy.PostgresQuery(ctx, PostgresContainer, "SHOW dynamic_shared_memory_type"); err == nil && len(rows) == 1 && len(rows[0]) == 1 && rows[0][0] != "posix" {
-		panellog.Warnf("postgres: dynamic_shared_memory_type is %s (set by ALTER SYSTEM?), so the larger /dev/shm goes unused", rows[0][0])
-	}
-	return nil
-}
-
 func (Local) PostgresReady(ctx context.Context) bool {
 	return deploy.PostgresReady(ctx, PostgresContainer)
 }
@@ -117,7 +89,7 @@ func (Local) CreateDatabase(ctx context.Context, d DBSpec) error {
 }
 
 // EnsureDatabase creates the database, empty, with its role if Postgres
-// lacks it, as on a new server the panel was restored to.
+// lacks it.
 func (n Local) EnsureDatabase(ctx context.Context, d DBSpec) error {
 	exists, err := deploy.PostgresHasDatabase(ctx, PostgresContainer, d.Name)
 	if err != nil || exists {
@@ -136,10 +108,6 @@ func (Local) DropDatabase(ctx context.Context, d DBSpec) error {
 		}
 	}
 	return nil
-}
-
-func (Local) SetPassword(ctx context.Context, d DBSpec) error {
-	return deploy.PostgresExec(ctx, PostgresContainer, fmt.Sprintf(`ALTER USER "%s" WITH PASSWORD '%s'`, d.User, d.Password))
 }
 
 // scratchDatabase (re)creates an empty database owned by d's role and
@@ -196,32 +164,11 @@ const volumePrefix = "hakobu-vol-"
 // Volume is the Docker volume of an app's volume.
 func Volume(app, name string) string { return volumePrefix + app + "_" + name }
 
-func (Local) HasVolume(ctx context.Context, app, name string) (bool, error) {
-	return deploy.VolumeExists(ctx, Volume(app, name))
-}
-
 func (Local) RemoveVolume(ctx context.Context, app, name string) error {
 	return deploy.RemoveVolume(ctx, Volume(app, name))
 }
 
-// RemoveVolumesExcept deletes the app volumes not in keep (by Volume
-// name); volumes still attached to a container are skipped.
-func (Local) RemoveVolumesExcept(ctx context.Context, keep map[string]bool) error {
-	names, err := deploy.VolumeNames(ctx, volumePrefix)
-	if err != nil {
-		return err
-	}
-	for _, n := range names {
-		if !keep[n] {
-			if err := deploy.RemoveVolume(ctx, n); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-// RemoveApp deletes the app's containers, builds, clone, snapshot and the
+// RemoveApp deletes the app's containers, images and proxy, and the
 // given volumes with their data.
 func (n Local) RemoveApp(ctx context.Context, app string, volumes []string) error {
 	n.RemoveProxy(app)
@@ -233,7 +180,6 @@ func (n Local) RemoveApp(ctx context.Context, app string, volumes []string) erro
 	for _, img := range []Image{Latest, Previous, Next} {
 		n.DropImage(ctx, app, img)
 	}
-	os.RemoveAll(WorkDir(app))
 	for _, v := range volumes {
 		if err := n.RemoveVolume(ctx, app, v); err != nil {
 			return err

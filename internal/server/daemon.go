@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +32,7 @@ type Machine interface {
 	apply.Node
 	apply.Destroyer
 	apply.Proxier
+	apply.Reconciler
 	backups.Source
 	Logs(ctx context.Context, container string, lines int) (string, error)
 }
@@ -124,12 +126,17 @@ func target(b Bucket) backups.Target {
 	return backups.Target{Name: name, Store: s3.New(b.Endpoint, b.Region, b.Bucket, b.AccessKey, b.SecretKey), Prefix: b.Prefix}
 }
 
-// Run starts the apps' proxies, then polls, backs up and serves the API
+// Run tidies up after an unfinished deploy and starts the apps' proxies,
+// then polls, backs up and serves the API
 // until ctx ends.
 func (d *Daemon) Run(ctx context.Context) error {
+	if err := d.Applier.Reconcile(ctx, d.Machine); err != nil {
+		return err
+	}
 	if err := d.Applier.EnsureProxies(ctx, d.Machine); err != nil {
 		return err
 	}
+	d.closeGoneReleases()
 	l, err := net.Listen("tcp", d.Config.Listen)
 	if err != nil {
 		return fmt.Errorf("the API can't listen on %s: %w (is the server in the tailnet?)", d.Config.Listen, err)
@@ -155,6 +162,21 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+// closeGoneReleases closes the failed-deploy alerts of release images the
+// config no longer has: no deploy of theirs would ever close them.
+func (d *Daemon) closeGoneReleases() {
+	if d.Alerts == nil {
+		return
+	}
+	keys, _ := d.Alerts.Keys("deploy:")
+	for _, k := range keys {
+		image := strings.TrimPrefix(k, "deploy:")
+		if !slices.ContainsFunc(d.Watch.Releases, func(r registry.Ref) bool { return r.Host+"/"+r.Repo == image }) {
+			d.raise(k, false, "", "")
+		}
+	}
 }
 
 // backupDaily backs everything up at the configured time each day.

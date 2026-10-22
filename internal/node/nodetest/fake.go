@@ -32,14 +32,9 @@ type Fake struct {
 	DBs        map[string]string                // database → content
 	Passwords  map[string]string                // role → password
 	Volumes    map[string]string                // node.Volume name → content
-	Tunnels    map[string]node.TunnelSpec       // container → spec
-	Edges      map[string][]string              // container → projects whose edge network it's on
 	Networks   map[string]bool                  // projects with networks
 	Caches     map[string]node.CacheSpec        // container → spec
 	Postgres   string                           // why Postgres doesn't answer, "" if it does
-	// What DataStatus reports of Postgres when it answers.
-	PostgresVersion        string
-	PostgresShm, ShmWanted int64
 }
 
 func New() *Fake {
@@ -47,8 +42,7 @@ func New() *Fake {
 		fail: map[string]error{}, hooks: map[string]func(){}, Port: 8080,
 		Containers: map[string]string{}, Runs: map[string]string{}, Images: map[string]map[node.Image]string{},
 		Proxies: map[string]string{}, DBs: map[string]string{}, Passwords: map[string]string{},
-		Volumes: map[string]string{}, Tunnels: map[string]node.TunnelSpec{},
-		Edges: map[string][]string{}, Networks: map[string]bool{}, Caches: map[string]node.CacheSpec{},
+		Volumes: map[string]string{}, Networks: map[string]bool{}, Caches: map[string]node.CacheSpec{},
 	}
 }
 
@@ -109,21 +103,6 @@ func (f *Fake) image(app string) map[node.Image]string {
 
 // Containers.
 
-func (f *Fake) State(ctx context.Context, container string) node.State {
-	unlock, _ := f.call("State")
-	defer unlock()
-	if st, ok := f.Containers[container]; ok {
-		return node.State{Status: st}
-	}
-	return node.State{Status: "not found"}
-}
-
-func (f *Fake) Statuses(ctx context.Context) (map[string]string, error) {
-	unlock, err := f.call("Statuses")
-	defer unlock()
-	return clone(f.Containers), err
-}
-
 func clone(m map[string]string) map[string]string {
 	out := make(map[string]string, len(m))
 	for k, v := range m {
@@ -141,12 +120,6 @@ func (f *Fake) Logs(ctx context.Context, container string, lines int) (string, e
 // Builds.
 
 func (f *Fake) ExposedPort(ctx context.Context, app string, img node.Image) int64 { return 0 }
-
-func (f *Fake) HasImage(ctx context.Context, app string, img node.Image) (bool, error) {
-	unlock, err := f.call("HasImage")
-	defer unlock()
-	return f.Images[app][img] != "", err
-}
 
 func (f *Fake) DropImage(ctx context.Context, app string, img node.Image) {
 	unlock, _ := f.call("DropImage")
@@ -327,26 +300,6 @@ func (f *Fake) EnsurePostgres(ctx context.Context) error {
 	return err
 }
 
-// DatabaseTables reports one table holding the database's content.
-func (f *Fake) DatabaseTables(ctx context.Context, name string) ([]node.TableSize, error) {
-	unlock, err := f.call("DatabaseTables")
-	defer unlock()
-	if err != nil {
-		return nil, err
-	}
-	content, ok := f.DBs[name]
-	if !ok {
-		return nil, fmt.Errorf("no database %s", name)
-	}
-	return []node.TableSize{{Name: "public.notes", TotalBytes: int64(len(content)), Rows: 1}}, nil
-}
-
-func (f *Fake) FitPostgres(ctx context.Context) error {
-	unlock, err := f.call("FitPostgres")
-	defer unlock()
-	return err
-}
-
 func (f *Fake) PostgresReady(ctx context.Context) bool {
 	unlock, err := f.call("PostgresReady")
 	defer unlock()
@@ -395,62 +348,12 @@ func (f *Fake) EnsureCache(ctx context.Context, c node.CacheSpec) error {
 	return err
 }
 
-// DataStatus reports the databases in DBs (their content's length as
-// their size) and the caches whose containers run as answering.
-func (f *Fake) DataStatus(ctx context.Context, databases []string, caches []node.CacheProbe) (node.DataStatus, error) {
-	unlock, err := f.call("DataStatus")
-	defer unlock()
-	st := node.DataStatus{Databases: map[string]node.DBStatus{}, Caches: map[string]string{}}
-	if err != nil {
-		return st, err
-	}
-	if len(databases) > 0 {
-		st.Postgres = f.Postgres
-		if st.Postgres == "" {
-			st.PostgresVersion, st.PostgresShm, st.PostgresShmWanted = f.PostgresVersion, f.PostgresShm, f.ShmWanted
-		}
-		for _, name := range databases {
-			if st.Postgres == "" {
-				content, ok := f.DBs[name]
-				st.Databases[name] = node.DBStatus{Missing: !ok, SizeBytes: int64(len(content))}
-			}
-		}
-	}
-	for _, c := range caches {
-		if status := f.Containers[c.Name]; status != "running" {
-			st.Caches[c.Name] = "isn't running (" + status + ")"
-		} else {
-			st.Caches[c.Name] = ""
-		}
-	}
-	return st, nil
-}
-
-func (f *Fake) VolumeSizes(ctx context.Context) (map[string]int64, error) {
-	unlock, err := f.call("VolumeSizes")
-	defer unlock()
-	sizes := map[string]int64{}
-	for name, content := range f.Volumes {
-		sizes[name] = int64(len(content))
-	}
-	return sizes, err
-}
-
 func (f *Fake) DropCache(ctx context.Context, name string) error {
 	unlock, err := f.call("DropCache")
 	defer unlock()
 	if err == nil {
 		delete(f.Caches, name)
 		delete(f.Containers, name)
-	}
-	return err
-}
-
-func (f *Fake) SetPassword(ctx context.Context, d node.DBSpec) error {
-	unlock, err := f.call("SetPassword")
-	defer unlock()
-	if err == nil {
-		f.Passwords[d.User] = d.Password
 	}
 	return err
 }
@@ -470,13 +373,6 @@ func (f *Fake) DumpDatabase(ctx context.Context, d node.DBSpec, w io.Writer) err
 
 // Volumes.
 
-func (f *Fake) HasVolume(ctx context.Context, app, name string) (bool, error) {
-	unlock, err := f.call("HasVolume")
-	defer unlock()
-	_, ok := f.Volumes[node.Volume(app, name)]
-	return ok, err
-}
-
 func (f *Fake) RemoveVolume(ctx context.Context, app, name string) error {
 	unlock, err := f.call("RemoveVolume")
 	defer unlock()
@@ -484,48 +380,12 @@ func (f *Fake) RemoveVolume(ctx context.Context, app, name string) error {
 	return err
 }
 
-func (f *Fake) RemoveVolumesExcept(ctx context.Context, keep map[string]bool) error {
-	unlock, err := f.call("RemoveVolumesExcept")
-	defer unlock()
-	for v := range f.Volumes {
-		if !keep[v] {
-			delete(f.Volumes, v)
-		}
-	}
-	return err
-}
-
 // The machine.
-
-func (f *Fake) Readings(ctx context.Context, containers map[string]bool) (node.Readings, error) {
-	unlock, err := f.call("Readings")
-	defer unlock()
-	return node.Readings{}, err
-}
 
 func (f *Fake) Disk(ctx context.Context) (uint64, uint64, error) {
 	unlock, err := f.call("Disk")
 	defer unlock()
 	return 0, 0, err
-}
-
-// Telemetry goes to Tel, a real telemetry.db (the panel's in most tests).
-
-func (f *Fake) Cleanup(ctx context.Context, c node.CleanupSpec) (int64, int, error) {
-	unlock, err := f.call("Cleanup")
-	defer unlock()
-	return 0, 0, err
-}
-
-// WatchDeaths reports nothing until ctx ends.
-func (f *Fake) WatchDeaths(ctx context.Context, fn func(container, app string, d node.Death)) error {
-	unlock, err := f.call("WatchDeaths")
-	unlock()
-	if err != nil {
-		return err
-	}
-	<-ctx.Done()
-	return ctx.Err()
 }
 
 func (f *Fake) CheckHealth(ctx context.Context, app node.AppSpec, port int64) (bool, string, bool) {
@@ -542,55 +402,12 @@ func (f *Fake) CheckHealth(ctx context.Context, app node.AppSpec, port int64) (b
 
 // Networks.
 
-func (f *Fake) EnsureProjectNetworks(ctx context.Context, project string, tunnels []node.TunnelSpec) error {
+func (f *Fake) EnsureProjectNetworks(ctx context.Context, project string) error {
 	unlock, err := f.call("EnsureProjectNetworks")
 	defer unlock()
 	if err != nil {
 		return err
 	}
 	f.Networks[project] = true
-	for _, t := range tunnels {
-		edges := slices.DeleteFunc(f.Edges[t.Container()], func(p string) bool { return p == project })
-		if slices.Contains(t.Projects, project) {
-			edges = append(edges, project)
-		}
-		f.Edges[t.Container()] = edges
-	}
 	return nil
-}
-
-func (f *Fake) RemoveProjectNetworks(ctx context.Context, project string, tunnels []node.TunnelSpec) error {
-	unlock, err := f.call("RemoveProjectNetworks")
-	defer unlock()
-	if err != nil {
-		return err
-	}
-	delete(f.Networks, project)
-	for c, edges := range f.Edges {
-		f.Edges[c] = slices.DeleteFunc(edges, func(p string) bool { return p == project })
-	}
-	return nil
-}
-
-func (f *Fake) RunTunnel(ctx context.Context, t node.TunnelSpec) error {
-	unlock, err := f.call("RunTunnel")
-	defer unlock()
-	if err == nil && t.Token != "" {
-		f.Tunnels[t.Container()] = t
-		f.Containers[t.Container()] = "running"
-		if _, ok := f.Edges[t.Container()]; !ok {
-			f.Edges[t.Container()] = slices.Clone(t.Projects)
-		}
-	}
-	return err
-}
-
-func (f *Fake) RemoveTunnel(ctx context.Context, client string) error {
-	unlock, err := f.call("RemoveTunnel")
-	defer unlock()
-	name := node.TunnelName(client)
-	delete(f.Tunnels, name)
-	delete(f.Containers, name)
-	delete(f.Edges, name)
-	return err
 }

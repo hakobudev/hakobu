@@ -4,10 +4,12 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +27,8 @@ type Release struct {
 	Images map[string]string
 	// Secrets are each app's secret variables, decrypted.
 	Secrets map[string]map[string]string
+	// Force redeploys every app, even with nothing changed: a restart.
+	Force bool
 }
 
 // Node is what apply needs of the machine; node.Local is the real one.
@@ -42,7 +46,7 @@ type Node interface {
 	EnsureDatabase(ctx context.Context, d node.DBSpec) error
 	EnsureCache(ctx context.Context, c node.CacheSpec) error
 	DumpDatabase(ctx context.Context, d node.DBSpec, w io.Writer) error
-	EnsureProjectNetworks(ctx context.Context, project string, tunnels []node.TunnelSpec) error
+	EnsureProjectNetworks(ctx context.Context, project string) error
 }
 
 // Applier deploys releases on this server, one at a time.
@@ -64,7 +68,13 @@ type Applier struct {
 	// wrong. It's on the server's disk next to the database itself.
 	SnapshotDir string
 
+	// mu is held by whatever changes the state (a deploy, a destroy);
+	// reads go without it (read).
 	mu sync.Mutex
+	// The ingress's routes, as of the state file's stamp (Domains).
+	routesMu    sync.Mutex
+	routes      map[string]int64
+	routesStamp string
 }
 
 // FirstProxyPort is where apps' proxies on 127.0.0.1 start.
@@ -91,10 +101,21 @@ func (a *Applier) Apply(ctx context.Context, r Release, out io.Writer) (Plan, er
 	if err != nil {
 		return Plan{}, err
 	}
+	if err := domainsFree(st, r.Spec); err != nil {
+		return Plan{Project: r.Spec.Name}, err
+	}
 	ps := st.Project(r.Spec.Name)
 	plan, err := MakePlan(r.Spec, r.Images, ps)
 	if err != nil {
 		return plan, err
+	}
+	if r.Force {
+		for _, n := range sortedKeys(r.Spec.Apps) {
+			if !slices.Contains(plan.Redeploy, n) {
+				plan.Changes = append(plan.Changes, Change{Update, "app", n, "redeployed (forced)"})
+				plan.Redeploy = append(plan.Redeploy, n)
+			}
+		}
 	}
 	fmt.Fprint(out, plan)
 	if plan.Empty() {
@@ -108,7 +129,7 @@ func (a *Applier) Apply(ctx context.Context, r Release, out io.Writer) (Plan, er
 			return plan, fmt.Errorf("postgres: %w", err)
 		}
 	}
-	if err := a.Node.EnsureProjectNetworks(ctx, project, nil); err != nil {
+	if err := a.Node.EnsureProjectNetworks(ctx, project); err != nil {
 		return plan, err
 	}
 	for _, n := range sortedKeys(r.Spec.Databases) {
@@ -184,6 +205,27 @@ func (a *Applier) Apply(ctx context.Context, r Release, out io.Writer) (Plan, er
 	}
 	ps.Spec = r.Spec
 	return plan, save()
+}
+
+// domainsFree refuses a domain another project on the server serves: the
+// ingress could send its requests to either.
+func domainsFree(st *State, want *spec.Project) error {
+	var errs []error
+	for _, other := range sortedKeys(st.Projects) {
+		ps := st.Projects[other]
+		if other == want.Name || ps.Spec == nil {
+			continue
+		}
+		for _, n := range sortedKeys(want.Apps) {
+			d := want.Apps[n].Domain
+			for _, m := range sortedKeys(ps.Spec.Apps) {
+				if d != "" && ps.Spec.Apps[m].Domain == d {
+					errs = append(errs, fmt.Errorf("apps.%s.domain: %s is project %s's (apps.%s) on this server", n, d, other, m))
+				}
+			}
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // database is d's spec, its password made and saved on first use, before

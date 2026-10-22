@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/hakobudev/hakobu/internal/node"
@@ -27,9 +28,7 @@ type Resource struct {
 // Resources are every database, cache and volume hakobu made, orphans
 // included, project by project.
 func (a *Applier) Resources() ([]Resource, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	st, err := LoadState(a.StateFile)
+	st, err := a.read()
 	if err != nil {
 		return nil, err
 	}
@@ -130,6 +129,35 @@ type Proxier interface {
 	EnsureProxy(ctx context.Context, app node.AppSpec)
 }
 
+// Reconciler tidies up after a deploy hakobu didn't live to finish
+// (node.Local.Reconcile).
+type Reconciler interface {
+	Reconcile(ctx context.Context, apps []node.AppSpec)
+}
+
+// Reconcile has r tidy every live app as hakobu starts: the slot the state
+// doesn't name goes, and a live container a stopped deploy left stopped
+// starts again.
+func (a *Applier) Reconcile(ctx context.Context, r Reconciler) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st, err := LoadState(a.StateFile)
+	if err != nil {
+		return err
+	}
+	var apps []node.AppSpec
+	for _, project := range sortedKeys(st.Projects) {
+		ps := st.Projects[project]
+		for _, n := range sortedKeys(ps.Apps) {
+			if as := ps.Apps[n]; as.Slot != "" {
+				apps = append(apps, node.AppSpec{Name: AppKey(project, n), Project: project, ActiveSlot: as.Slot})
+			}
+		}
+	}
+	r.Reconcile(ctx, apps)
+	return nil
+}
+
 // EnsureProxies starts every live app's proxy, as hakobu starts: they run
 // in its process, and went with the last one.
 func (a *Applier) EnsureProxies(ctx context.Context, p Proxier) error {
@@ -155,9 +183,7 @@ func (a *Applier) EnsureProxies(ctx context.Context, p Proxier) error {
 // Live is the app's live container on the server and its spec, as a
 // restore of its volume stops and starts it.
 func (a *Applier) Live(project, app string) (node.AppSpec, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	st, err := LoadState(a.StateFile)
+	st, err := a.read()
 	if err != nil {
 		return node.AppSpec{}, err
 	}
@@ -171,9 +197,7 @@ func (a *Applier) Live(project, app string) (node.AppSpec, error) {
 
 // Apps are the apps on the server, project by project.
 func (a *Applier) Apps() (map[string]map[string]AppState, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	st, err := LoadState(a.StateFile)
+	st, err := a.read()
 	if err != nil {
 		return nil, err
 	}
@@ -189,9 +213,7 @@ func (a *Applier) Apps() (map[string]map[string]AppState, error) {
 
 // Specs are each app's health path, from the specs last applied.
 func (a *Applier) Specs() (map[string]map[string]string, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	st, err := LoadState(a.StateFile)
+	st, err := a.read()
 	if err != nil {
 		return nil, err
 	}
@@ -208,13 +230,22 @@ func (a *Applier) Specs() (map[string]map[string]string, error) {
 	return out, nil
 }
 
-// Domains are each app domain's proxy port, for the ingress.
+// Domains are each app domain's proxy port, for the ingress, which asks on
+// every request: they're read again only once the state file changed.
 func (a *Applier) Domains() map[string]int64 {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	st, err := LoadState(a.StateFile)
+	fi, err := os.Stat(a.StateFile)
 	if err != nil {
 		return nil
+	}
+	a.routesMu.Lock()
+	defer a.routesMu.Unlock()
+	stamp := fmt.Sprint(fi.ModTime().UnixNano(), fi.Size())
+	if a.routes != nil && stamp == a.routesStamp {
+		return a.routes
+	}
+	st, err := a.read()
+	if err != nil {
+		return a.routes // the last ones known
 	}
 	out := map[string]int64{}
 	for _, ps := range st.Projects {
@@ -227,5 +258,10 @@ func (a *Applier) Domains() map[string]int64 {
 			}
 		}
 	}
+	a.routes, a.routesStamp = out, stamp
 	return out
 }
+
+// read is the state as last saved, without waiting for a deploy: Save
+// replaces the file whole, so a read never sees half of one.
+func (a *Applier) read() (*State, error) { return LoadState(a.StateFile) }

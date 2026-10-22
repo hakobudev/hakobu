@@ -133,3 +133,32 @@ func TestSMTP(t *testing.T) {
 		}
 	}
 }
+
+// A mail server that answers nothing is given up on.
+func TestSMTPHungServer(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	go func() {
+		c, err := l.Accept()
+		if err == nil {
+			defer c.Close()
+			time.Sleep(5 * time.Second) // never says hello
+		}
+	}()
+	old := sendTimeout
+	sendTimeout = 200 * time.Millisecond
+	defer func() { sendTimeout = old }()
+	host, port, _ := net.SplitHostPort(l.Addr().String())
+	var p int
+	_, _ = fmt.Sscan(port, &p)
+	start := time.Now()
+	if err := (SMTP{Host: host, Port: p, From: "a@b.c", To: "d@e.f"}).Send("s", "b"); err == nil {
+		t.Error("a hung server took the mail")
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Errorf("gave up after %s", d)
+	}
+}

@@ -9,10 +9,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"time"
 
@@ -63,7 +65,11 @@ func (b Build) Release(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if len(secrets) > 0 {
-		if _, err := seal.Parse(secrets); err != nil {
+		s, err := seal.Parse(secrets)
+		if err == nil {
+			err = s.CheckApps(slices.Sorted(maps.Keys(p.Apps)))
+		}
+		if err != nil {
 			return "", fmt.Errorf("%s: %w", seal.FileName, err)
 		}
 	}

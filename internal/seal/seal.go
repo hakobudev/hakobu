@@ -96,6 +96,18 @@ func (s *Secrets) check() error {
 	return errors.Join(errs...)
 }
 
+// CheckApps reports secrets of apps that aren't among apps (hakobu.toml's),
+// a typo the server would otherwise refuse the release for.
+func (s *Secrets) CheckApps(apps []string) error {
+	var errs []error
+	for _, app := range sorted(s.Apps) {
+		if !slices.Contains(apps, app) {
+			errs = append(errs, fmt.Errorf("apps.%s: hakobu.toml has no such app (it has %s)", app, strings.Join(apps, ", ")))
+		}
+	}
+	return errors.Join(errs...)
+}
+
 // New is an empty file for these recipients.
 func New(recipients ...string) (*Secrets, error) {
 	s := &Secrets{Recipients: recipients}

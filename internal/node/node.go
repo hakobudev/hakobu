@@ -15,14 +15,6 @@ type State = deploy.State
 // Local is the machine hakobu runs on.
 type Local struct{}
 
-func (Local) State(ctx context.Context, container string) State {
-	return deploy.ContainerState(ctx, container)
-}
-
-func (Local) Statuses(ctx context.Context) (map[string]string, error) {
-	return deploy.ContainerStatuses(ctx)
-}
-
 func (Local) Logs(ctx context.Context, container string, lines int) (string, error) {
 	return deploy.ContainerLogs(ctx, container, lines)
 }

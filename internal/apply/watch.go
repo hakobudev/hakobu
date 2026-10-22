@@ -225,6 +225,7 @@ func (w *Watch) Check(ctx context.Context, ref registry.Ref, force bool) (*Resul
 	meta.Ref = pinned
 	res.Source, res.Revision = meta.Source, meta.Revision
 	if err == nil {
+		release.Force = force
 		res.Project = release.Spec.Name
 		if w.Started != nil {
 			w.Started(meta)
@@ -233,6 +234,12 @@ func (w *Watch) Check(ctx context.Context, ref registry.Ref, force bool) (*Resul
 		plan, err = w.Applier.Apply(ctx, release, &log)
 		for _, c := range plan.Changes {
 			res.Changes = append(res.Changes, c.String())
+		}
+		if ctx.Err() != nil {
+			// hakobu is stopping: not a failed release, which polls would
+			// skip, but one to deploy again as hakobu starts.
+			fmt.Fprintln(w.log(), pinned, "deploy cut short by hakobu stopping; it's tried again as hakobu starts")
+			return nil, ctx.Err()
 		}
 	}
 	res.Log = log.String()

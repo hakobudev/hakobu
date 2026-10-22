@@ -7,7 +7,7 @@ With a bucket in the [server's config](https://hakobu.dev/docs/servers/index.md)
 - **sealed** with [age](https://age-encryption.org) to the server's key and to yours, so the bucket alone reads nothing, and you can open a backup without the server;
 - **copied**: written to the primary bucket and to each of `backups.copies`, another provider ideally, with a key that may only write, so a leaked key of the server can't delete the copies;
 - **proved**: read back from the primary bucket and restored into scratch (a database counts its tables, a volume's archive is read through) before it counts as done;
-- **rotated**: the last 7 days and one a week for 4 weeks are kept (`keep_daily`, `keep_weekly`). A bucket with object lock may refuse a deletion; it's tried again on the next rotation.
+- **rotated**: the newest of each of the last 7 days and one a week for 4 weeks are kept (`keep_daily`, `keep_weekly`); one made by hand counts as its day's. A bucket with object lock may refuse a deletion; it's tried again on the next rotation. The parts of a backup that never finished go a day later.
 
 There's no catalog to lose: the backups are listed from the primary bucket itself.
 

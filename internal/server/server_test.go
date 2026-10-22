@@ -200,3 +200,17 @@ func TestAPILogsOfNothing(t *testing.T) {
 		t.Errorf("%d", code)
 	}
 }
+
+// A failed deploy of a release image the config has since dropped closes as
+// hakobu starts; one of an image it still has stays open.
+func TestGoneReleasesAlertsClose(t *testing.T) {
+	d, _ := newDaemon(t)
+	keep := d.Watch.Releases[0]
+	_ = d.Alerts.Raise("deploy:"+keep.Host+"/"+keep.Repo, "deploy of kasl failed", "")
+	_ = d.Alerts.Raise("deploy:ttl.sh/gone", "deploy of gone failed", "")
+	d.closeGoneReleases()
+	keys, _ := d.Alerts.Keys("deploy:")
+	if len(keys) != 1 || keys[0] != "deploy:"+keep.Host+"/"+keep.Repo {
+		t.Errorf("open: %v", keys)
+	}
+}

@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"slices"
 	"strings"
 	"time"
@@ -327,7 +328,42 @@ func (v *Vault) Rotate(ctx context.Context, project string, daily, weekly int) (
 		}
 		deleted = append(deleted, m)
 	}
+	if err := v.dropUnfinished(ctx, project); err != nil {
+		errs = append(errs, err)
+	}
 	return deleted, errors.Join(errs...)
+}
+
+// dropUnfinished deletes the parts of backups that never got a manifest
+// (the upload or its check failed) once they're a day old: a younger one
+// may be uploading now.
+func (v *Vault) dropUnfinished(ctx context.Context, project string) error {
+	keys, err := v.Primary.Store.List(ctx, v.Primary.Prefix+project+"/")
+	if err != nil {
+		return err
+	}
+	parts, finished := map[string][]string{}, map[string]bool{}
+	for _, k := range keys {
+		dir, file := k[:strings.LastIndex(k, "/")+1], k[strings.LastIndex(k, "/")+1:]
+		if file == "manifest.json" {
+			finished[dir] = true
+		} else {
+			parts[dir] = append(parts[dir], k)
+		}
+	}
+	var errs []error
+	for dir, ks := range parts {
+		at, err := time.Parse(stamp, path.Base(dir))
+		if finished[dir] || err != nil || v.now().Sub(at) < 24*time.Hour {
+			continue
+		}
+		for _, k := range ks {
+			if err := v.Primary.Store.Delete(ctx, k); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // delete removes the manifest first: a backup half deleted is one that
@@ -346,8 +382,9 @@ func (v *Vault) delete(ctx context.Context, m Manifest) error {
 }
 
 // Expired are the backups past what's kept of each database and volume:
-// the newest daily ones, then the newest of each of the next weekly ISO
-// weeks that those don't already cover.
+// the newest of each of the last daily days that have one, then the newest
+// of each of the next weekly ISO weeks those don't already cover. Backups
+// made by hand the same day count as that day's, not as days of their own.
 func Expired(all []Manifest, daily, weekly int) []Manifest {
 	groups := map[string][]Manifest{}
 	for _, m := range all {
@@ -357,14 +394,17 @@ func Expired(all []Manifest, daily, weekly int) []Manifest {
 	var out []Manifest
 	for _, g := range groups {
 		slices.SortFunc(g, func(a, b Manifest) int { return b.At.Compare(a.At) })
-		covered := map[string]bool{}
-		weeks := 0
-		for i, m := range g {
-			y, w := m.At.ISOWeek()
+		days, weeks := map[string]bool{}, 0
+		covered := map[string]bool{} // weeks with a backup kept
+		for _, m := range g {
+			day := m.At.UTC().Format("2006-01-02")
+			y, w := m.At.UTC().ISOWeek()
 			week := fmt.Sprint(y, "-", w)
 			switch {
-			case i < daily:
-				covered[week] = true
+			case days[day]:
+				out = append(out, m) // an older one of a day kept already
+			case len(days) < daily:
+				days[day], covered[week] = true, true
 			case !covered[week] && weeks < weekly:
 				covered[week] = true
 				weeks++

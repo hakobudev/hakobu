@@ -10,8 +10,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
@@ -719,11 +722,16 @@ func validateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if _, err := spec.Parse(b); err != nil {
+			p, err := spec.Parse(b)
+			if err != nil {
 				return fmt.Errorf("%s: %w", file, err)
 			}
-			if b, err := os.ReadFile(seal.FileName); err == nil {
-				if _, err := seal.Parse(b); err != nil {
+			if b, err := os.ReadFile(filepath.Join(filepath.Dir(file), seal.FileName)); err == nil {
+				s, err := seal.Parse(b)
+				if err == nil {
+					err = s.CheckApps(slices.Sorted(maps.Keys(p.Apps)))
+				}
+				if err != nil {
 					return fmt.Errorf("%s: %w", seal.FileName, err)
 				}
 			}

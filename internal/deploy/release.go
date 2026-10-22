@@ -76,12 +76,24 @@ func RunOnce(ctx context.Context, imageTag, name, command string, opts AppOption
 	if err != nil {
 		return "", err
 	}
-	defer func() { _ = RemoveContainer(context.Background(), name) }()
+	parent := ctx
+	keep := false
+	defer func() {
+		if !keep {
+			_ = RemoveContainer(context.Background(), name)
+		}
+	}()
 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	respBody, status, err := dockerRequest(ctx, "POST", "/containers/"+id+"/wait", nil)
 	output, _ = ContainerLogs(context.Background(), name, 100)
+	if parent.Err() != nil {
+		// hakobu is stopping: the command goes on to its end rather than
+		// be cut off mid-migration, and hakobu removes it as it starts.
+		keep = true
+		return output, fmt.Errorf("%w: hakobu stopped while it ran; it goes on to its end, and the deploy is tried again as hakobu starts", ErrReleaseFailed)
+	}
 	if ctx.Err() != nil {
 		return output, fmt.Errorf("%w: still running after %s", ErrReleaseFailed, timeout)
 	}

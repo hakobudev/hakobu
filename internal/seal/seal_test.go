@@ -136,3 +136,18 @@ func TestIdentityFile(t *testing.T) {
 		t.Errorf("read back %v, %v", back, err)
 	}
 }
+
+func TestCheckApps(t *testing.T) {
+	id, _ := age.GenerateX25519Identity()
+	s, _ := New(id.Recipient().String())
+	_ = s.Set("web", "KEY", "v")
+	_ = s.Set("wbe", "KEY", "v")
+	err := s.CheckApps([]string{"api", "web"})
+	if err == nil || !strings.Contains(err.Error(), "apps.wbe: hakobu.toml has no such app") || strings.Contains(err.Error(), "apps.web") {
+		t.Errorf("err %v", err)
+	}
+	_ = s.Unset("wbe", "KEY")
+	if err := s.CheckApps([]string{"web"}); err != nil {
+		t.Error(err)
+	}
+}

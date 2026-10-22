@@ -9,10 +9,12 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hakobudev/hakobu/internal/deploy"
 	"github.com/hakobudev/hakobu/internal/node"
 	"github.com/hakobudev/hakobu/internal/node/nodetest"
+	"github.com/hakobudev/hakobu/internal/spec"
 )
 
 type harness struct {
@@ -301,5 +303,91 @@ func TestLastLine(t *testing.T) {
 		if got := lastLine(in); got != want {
 			t.Errorf("%q: %q", in, got)
 		}
+	}
+}
+
+// A deploy can take minutes (a pull, a long migration); the ingress, the
+// status and the health checks read the state meanwhile and mustn't wait
+// for it.
+func TestReadsDontWaitForADeploy(t *testing.T) {
+	h := newHarness(t)
+	toml := strings.Replace(crm, `worker = "bun run worker"`, `worker = "bun run worker"`+"\nrelease = \"bun run migrate\"", 1)
+	h.deploy(t, toml, map[string]string{"crm": "reg/crm@sha256:aaa"})
+
+	migrating, done := make(chan struct{}), make(chan struct{})
+	h.a.RunOnce = func(context.Context, string, string, string, deploy.AppOptions) (string, error) {
+		close(migrating)
+		<-done
+		return "", nil
+	}
+	go func() { _, _ = h.apply(t, toml, map[string]string{"crm": "reg/crm@sha256:bbb"}) }()
+	<-migrating
+	defer close(done)
+
+	read := make(chan map[string]int64)
+	go func() {
+		_, _ = h.a.Apps()
+		_, _ = h.a.Specs()
+		_, _ = h.a.Resources()
+		read <- h.a.Domains()
+	}()
+	select {
+	case d := <-read:
+		if d["crm.kaslauto.com"] == 0 {
+			t.Errorf("domains during the deploy: %v", d)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("reading the state waited for the deploy")
+	}
+}
+
+// Forced, the same release starts every app anew: hakobu deploy --force is
+// how a restart is asked for.
+func TestApplyForcedRedeploys(t *testing.T) {
+	h := newHarness(t)
+	images := map[string]string{"crm": "reg/crm@sha256:aaa"}
+	h.deploy(t, crm, images)
+	slot := h.state(t).Apps["crm"].Slot
+	p, err := h.a.Apply(context.Background(), Release{Spec: parse(t, crm), Images: images, Force: true}, io.Discard)
+	if err != nil || p.Empty() || !slices.Equal(p.Redeploy, []string{"crm"}) {
+		t.Fatalf("plan %v, %v", p, err)
+	}
+	if now := h.state(t).Apps["crm"].Slot; now == slot {
+		t.Errorf("still on slot %s", now)
+	}
+}
+
+// A domain another project on the server has is refused, before anything
+// changes.
+func TestApplyRefusesAnotherProjectsDomain(t *testing.T) {
+	h := newHarness(t)
+	h.deploy(t, crm, map[string]string{"crm": "reg/crm@sha256:aaa"})
+	other, err := spec.Parse([]byte("project = \"shop\"\nserver = \"kasl-1\"\n[apps.web]\ndomain = \"crm.kaslauto.com\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := len(h.f.Calls())
+	_, err = h.a.Apply(context.Background(), Release{Spec: other, Images: map[string]string{"web": "reg/web@sha256:bbb"}}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "is project kasl's") {
+		t.Fatalf("err %v", err)
+	}
+	if len(h.f.Calls()) != before {
+		t.Error("it changed something first")
+	}
+}
+
+type reconciled struct{ apps []node.AppSpec }
+
+func (r *reconciled) Reconcile(_ context.Context, apps []node.AppSpec) { r.apps = apps }
+
+func TestReconcilePassesTheLiveApps(t *testing.T) {
+	h := newHarness(t)
+	h.deploy(t, crm, map[string]string{"crm": "reg/crm@sha256:aaa"})
+	var r reconciled
+	if err := h.a.Reconcile(context.Background(), &r); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.apps) != 1 || r.apps[0].Name != "kasl-crm" || r.apps[0].ActiveSlot != h.state(t).Apps["crm"].Slot {
+		t.Errorf("reconciled %+v", r.apps)
 	}
 }

@@ -255,6 +255,10 @@ func TestExpired(t *testing.T) {
 		all = append(all, day(d))
 	}
 	all = append(all, Manifest{Kind: Database, Name: "other", At: day(0).At})
+	// Made by hand on days already kept: they don't push a day out.
+	for _, d := range []int{0, 1, 2} {
+		all = append(all, Manifest{Kind: Database, Name: "main", At: day(d).At.Add(5 * time.Hour)})
+	}
 	gone := Expired(all, 7, 4)
 	kept := map[time.Time]bool{}
 	for _, m := range all {
@@ -272,7 +276,7 @@ func TestExpired(t *testing.T) {
 		t.Errorf("kept %d of main, want 7 daily + 4 weekly", len(kept))
 	}
 	for d := range 7 {
-		if !kept[day(d).At] {
+		if !kept[day(d).At] && !kept[day(d).At.Add(5*time.Hour)] {
 			t.Errorf("day %d expired", d)
 		}
 	}
@@ -296,5 +300,27 @@ func TestRotate(t *testing.T) {
 	}
 	if list, _ := k.v.List(ctx, "kasl"); len(list) != 8 {
 		t.Errorf("%d left, want 7 and the locked one", len(list))
+	}
+}
+
+// Parts of a backup that never finished are deleted once they're a day old.
+func TestRotateDropsUnfinished(t *testing.T) {
+	k := newKit(t)
+	ctx := context.Background()
+	old := k.now.Add(-48 * time.Hour).UTC().Format(stamp)
+	young := k.now.Add(-time.Hour).UTC().Format(stamp)
+	for _, at := range []string{old, young} {
+		_ = k.primary.Put(ctx, k.v.Primary.Prefix+"kasl/databases/main/"+at+"/part-0000", []byte("x"))
+	}
+	if _, err := k.v.BackupDatabase(ctx, "kasl", "main", db); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := k.v.Rotate(ctx, "kasl", 7, 4); err != nil {
+		t.Fatal(err)
+	}
+	keys, _ := k.primary.List(ctx, k.v.Primary.Prefix+"kasl/")
+	joined := strings.Join(keys, " ")
+	if strings.Contains(joined, old) || !strings.Contains(joined, young) || !strings.Contains(joined, "manifest.json") {
+		t.Errorf("left %v", keys)
 	}
 }

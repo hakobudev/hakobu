@@ -17,7 +17,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 )
@@ -260,45 +259,6 @@ func RunServiceContainer(ctx context.Context, name, image string, env []string, 
 	return runContainer(ctx, name, map[string]any{"Image": image, "Env": env}, host)
 }
 
-// ShmSize is the size of the container's /dev/shm in bytes, or -1 if
-// there's no such container.
-func ShmSize(ctx context.Context, name string) (int64, error) {
-	info, err := inspect(ctx, name)
-	if err != nil || info == nil {
-		return -1, err
-	}
-	return info.HostConfig.ShmSize, nil
-}
-
-// ResizeShm makes the container anew with shmSize bytes of /dev/shm, as
-// Docker can't change it on one that exists: the same image, environment,
-// command, labels, volumes, network and restart policy, started again.
-// The old one gets stop to shut down cleanly first. Networks it was
-// connected to besides its own are left for the caller to connect again.
-func ResizeShm(ctx context.Context, name string, shmSize int64, stop time.Duration) error {
-	info, err := inspect(ctx, name)
-	if err != nil {
-		return err
-	}
-	if info == nil {
-		return fmt.Errorf("no container %s", name)
-	}
-	if err := stopContainer(ctx, name, stop); err != nil {
-		return err
-	}
-	spec := map[string]any{"Image": info.Image, "Env": info.Config.Env, "Cmd": info.Config.Cmd, "Labels": info.Config.Labels}
-	host := map[string]any{
-		"Binds":       info.HostConfig.Binds,
-		"NetworkMode": info.HostConfig.NetworkMode,
-		"ShmSize":     shmSize,
-	}
-	if len(info.HostConfig.RestartPolicy) > 0 {
-		host["RestartPolicy"] = info.HostConfig.RestartPolicy
-	}
-	_, err = runContainer(ctx, name, spec, host)
-	return err
-}
-
 // RunCacheContainer runs a Valkey server for one cache on network, its
 // data in the volume <name>_data, capped at memoryMB: Valkey evicts
 // nothing at the cap (a queue mustn't lose jobs) but refuses writes, and
@@ -330,37 +290,6 @@ func ValkeyReady(ctx context.Context, name, password string) bool {
 	return err == nil && code == 0 && strings.TrimSpace(out) == "PONG"
 }
 
-// RunTunnelContainer runs cloudflared for the tunnel with the given token on
-// network and, from the start, on edges: the edge networks of the projects
-// it serves. socketDir, holding the panel's unix socket, is mounted at
-// /run/hakobu; "" mounts nothing, for a tunnel that must not reach the panel.
-func RunTunnelContainer(ctx context.Context, name, image, token, network, socketDir string, edges []string) (string, error) {
-	if err := pullImageIfMissing(ctx, image); err != nil {
-		return "", fmt.Errorf("failed to pull image %q: %w", image, err)
-	}
-	endpoints := map[string]any{network: map[string]any{}}
-	for _, n := range edges {
-		if err := ensureNetwork(ctx, n); err != nil {
-			return "", err
-		}
-		endpoints[n] = map[string]any{}
-	}
-	host := map[string]any{
-		"NetworkMode": network,
-		"SecurityOpt": []string{"no-new-privileges"},
-		"CapDrop":     []string{"ALL"}, // it runs as a plain user and needs none
-	}
-	if socketDir != "" {
-		host["Binds"] = []string{socketDir + ":/run/hakobu:z"}
-	}
-	return runContainer(ctx, name, map[string]any{
-		"Image":            image,
-		"Cmd":              []string{"tunnel", "run"},
-		"Env":              []string{"TUNNEL_TOKEN=" + token},
-		"NetworkingConfig": map[string]any{"EndpointsConfig": endpoints},
-	}, host)
-}
-
 // ConnectNetwork adds a container to another network, with aliases if
 // given; a no-op if it's on it already. Joining a network leaves the
 // container's connections on its other networks alone.
@@ -389,29 +318,6 @@ func ConnectNetwork(ctx context.Context, container, network string, aliases ...s
 			return fmt.Errorf("%w: connecting %s to %s: %s", ErrNotRunning, container, network, respBody)
 		}
 		return fmt.Errorf("connecting %s to %s failed (%d): %s", container, network, status, respBody)
-	}
-	return nil
-}
-
-// DisconnectNetwork takes a container off a network; a no-op if it isn't
-// on it or doesn't exist.
-func DisconnectNetwork(ctx context.Context, container, network string) error {
-	info, err := inspect(ctx, container)
-	if err != nil || info == nil {
-		return err
-	}
-	if _, ok := info.NetworkSettings.Networks[network]; !ok {
-		return nil
-	}
-	respBody, status, err := dockerRequest(ctx, "POST", "/networks/"+url.PathEscape(network)+"/disconnect", map[string]any{"Container": container})
-	if err != nil {
-		return err
-	}
-	if status != http.StatusOK {
-		if strings.Contains(string(respBody), "is not connected") {
-			return fmt.Errorf("%w: %s from %s", ErrStaleNetwork, container, network)
-		}
-		return fmt.Errorf("disconnecting %s from %s failed (%d): %s", container, network, status, respBody)
 	}
 	return nil
 }
@@ -473,21 +379,6 @@ func RemoveVolume(ctx context.Context, name string) error {
 	return fmt.Errorf("failed to remove volume %s (%d): %s", name, status, respBody)
 }
 
-// VolumeExists reports whether Docker has a volume named name.
-func VolumeExists(ctx context.Context, name string) (bool, error) {
-	respBody, status, err := dockerRequest(ctx, "GET", "/volumes/"+url.PathEscape(name), nil)
-	if err != nil {
-		return false, err
-	}
-	switch status {
-	case http.StatusOK:
-		return true, nil
-	case http.StatusNotFound:
-		return false, nil
-	}
-	return false, fmt.Errorf("volume inspect failed (%d): %s", status, respBody)
-}
-
 // RunningWithVolume lists the running containers that mount volume.
 func RunningWithVolume(ctx context.Context, volume string) ([]string, error) {
 	filters, _ := json.Marshal(map[string][]string{"volume": {volume}, "status": {"running"}})
@@ -530,64 +421,6 @@ func pauseOrUnpause(ctx context.Context, name, action string) error {
 		return fmt.Errorf("%s of %s failed (%d): %s", action, name, status, respBody)
 	}
 	return nil
-}
-
-// VolumeNames lists volumes whose name starts with prefix.
-func VolumeNames(ctx context.Context, prefix string) ([]string, error) {
-	filters, _ := json.Marshal(map[string][]string{"name": {prefix}})
-	respBody, status, err := dockerRequest(ctx, "GET", "/volumes?filters="+url.QueryEscape(string(filters)), nil)
-	if err != nil {
-		return nil, err
-	}
-	if status != http.StatusOK {
-		return nil, fmt.Errorf("volume list failed (%d): %s", status, respBody)
-	}
-	var res struct {
-		Volumes []struct{ Name string } `json:"Volumes"`
-	}
-	if err := json.Unmarshal(respBody, &res); err != nil {
-		return nil, err
-	}
-	var names []string
-	for _, v := range res.Volumes {
-		if strings.HasPrefix(v.Name, prefix) { // the filter matches substrings
-			names = append(names, v.Name)
-		}
-	}
-	return names, nil
-}
-
-// VolumeSizes is the size in bytes of each volume whose name starts with
-// prefix, as Docker counts it (it walks their files: not to be asked
-// often).
-func VolumeSizes(ctx context.Context, prefix string) (map[string]int64, error) {
-	ctx, cancel := withDeadline(ctx, 10*time.Minute)
-	defer cancel()
-	respBody, status, err := dockerRequest(ctx, "GET", "/system/df?type=volume", nil)
-	if err != nil {
-		return nil, err
-	}
-	if status != http.StatusOK {
-		return nil, fmt.Errorf("disk usage failed (%d): %s", status, respBody)
-	}
-	var res struct {
-		Volumes []struct {
-			Name      string `json:"Name"`
-			UsageData struct {
-				Size int64 `json:"Size"`
-			} `json:"UsageData"`
-		} `json:"Volumes"`
-	}
-	if err := json.Unmarshal(respBody, &res); err != nil {
-		return nil, err
-	}
-	sizes := map[string]int64{}
-	for _, v := range res.Volumes {
-		if strings.HasPrefix(v.Name, prefix) && v.UsageData.Size >= 0 { // -1: not counted
-			sizes[v.Name] = v.UsageData.Size
-		}
-	}
-	return sizes, nil
 }
 
 // RemoveContainer force-removes a container; a no-op if it doesn't exist.
@@ -750,30 +583,6 @@ func PostgresHasDatabase(ctx context.Context, containerName, name string) (bool,
 		return false, fmt.Errorf("psql exited %d: %s", exitCode, strings.TrimSpace(out))
 	}
 	return strings.TrimSpace(out) == "1", nil
-}
-
-// PostgresQuery runs a query as the postgres superuser (local trust auth)
-// and returns its rows unaligned, a line each, fields split by "|".
-func PostgresQuery(ctx context.Context, containerName, sql string) ([][]string, error) {
-	return PostgresQueryIn(ctx, containerName, "postgres", sql)
-}
-
-// PostgresQueryIn is PostgresQuery in database db.
-func PostgresQueryIn(ctx context.Context, containerName, db, sql string) ([][]string, error) {
-	out, exitCode, err := execInContainer(ctx, containerName, []string{"psql", "-U", "postgres", "-d", db, "-Atc", sql})
-	if err != nil {
-		return nil, err
-	}
-	if exitCode != 0 {
-		return nil, fmt.Errorf("psql exited %d: %s", exitCode, strings.TrimSpace(out))
-	}
-	var rows [][]string
-	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
-		if line != "" {
-			rows = append(rows, strings.Split(line, "|"))
-		}
-	}
-	return rows, nil
 }
 
 // PostgresExec runs one SQL statement as the postgres superuser (local trust auth).
@@ -1003,7 +812,7 @@ func ContainerIP(ctx context.Context, containerName, network string) (string, er
 	return n.IPAddress, nil
 }
 
-// State is what the panel shows about a container.
+// State is a container's state, as deploys and health checks read it.
 type State struct {
 	Status    string // docker's state ("running", "exited", ...), "not found" or "unknown"
 	Restarts  int    // surfaces crash loops
@@ -1022,31 +831,6 @@ func ContainerState(ctx context.Context, containerName string) State {
 	return State{Status: info.State.Status, Restarts: info.RestartCount, OOMKilled: info.State.OOMKilled, ExitCode: info.State.ExitCode}
 }
 
-// ContainerStatuses is every container's status by name, from one call.
-func ContainerStatuses(ctx context.Context) (map[string]string, error) {
-	respBody, status, err := dockerRequest(ctx, "GET", "/containers/json?all=true", nil)
-	if err != nil {
-		return nil, err
-	}
-	if status != http.StatusOK {
-		return nil, fmt.Errorf("container list failed (%d): %s", status, respBody)
-	}
-	var list []struct {
-		Names []string `json:"Names"`
-		State string   `json:"State"`
-	}
-	if err := json.Unmarshal(respBody, &list); err != nil {
-		return nil, err
-	}
-	statuses := map[string]string{}
-	for _, c := range list {
-		for _, n := range c.Names {
-			statuses[strings.TrimPrefix(n, "/")] = c.State
-		}
-	}
-	return statuses, nil
-}
-
 // ContainerStatus is ContainerState's status and restart count.
 func ContainerStatus(ctx context.Context, containerName string) (status string, restarts int) {
 	st := ContainerState(ctx, containerName)
@@ -1062,90 +846,6 @@ type Death struct {
 	// OOM killer is almost always what sends it.
 	Sure     bool
 	ExitCode string // otherwise: it exited with this code, never "0"
-}
-
-// WatchDeaths calls fn for every container that runs out of memory or exits
-// with an error by itself (a stop or kill through Docker isn't one), until
-// ctx ends or the event stream breaks. app is the container's AppLabel, ""
-// for services such as Postgres.
-func WatchDeaths(ctx context.Context, fn func(container, app string, d Death)) error {
-	filters, _ := json.Marshal(map[string][]string{"type": {"container"}, "event": {"oom", "kill", "die", "start"}})
-	req, err := http.NewRequestWithContext(ctx, "GET", "http://docker/events?filters="+url.QueryEscape(string(filters)), nil)
-	if err != nil {
-		return err
-	}
-	resp, err := dockerClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("docker daemon unreachable: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("events failed (%d): %s", resp.StatusCode, body)
-	}
-
-	// Per container ID, since its last start. The "oom" event may also come
-	// just after "die", so a SIGKILL death is reported after a short wait
-	// unless the "oom" arrives meanwhile.
-	var mu sync.Mutex
-	killed := map[string]bool{}  // Docker sent it a signal
-	oomSeen := map[string]bool{} // reported for sure
-	pending := map[string]bool{} // died from SIGKILL, "oom" may still come
-	dec := json.NewDecoder(resp.Body)
-	for {
-		var ev struct {
-			Action string `json:"Action"`
-			Actor  struct {
-				ID         string            `json:"ID"`
-				Attributes map[string]string `json:"Attributes"`
-			} `json:"Actor"`
-		}
-		if err := dec.Decode(&ev); err != nil {
-			return err
-		}
-		id, attrs := ev.Actor.ID, ev.Actor.Attributes
-		name, app := attrs["name"], attrs[AppLabel]
-		// fn runs outside the lock: it may email the owner, and the event
-		// loop mustn't wait on that.
-		var death *Death
-		mu.Lock()
-		switch ev.Action {
-		case "start":
-			delete(killed, id)
-			delete(oomSeen, id)
-		case "kill":
-			killed[id] = true
-		case "oom":
-			if !oomSeen[id] {
-				oomSeen[id] = true
-				delete(pending, id)
-				death = &Death{OOM: true, Sure: true}
-			}
-		case "die":
-			code := attrs["exitCode"]
-			switch {
-			case killed[id] || oomSeen[id] || code == "0" || code == "":
-			case code == "137":
-				pending[id] = true
-				time.AfterFunc(oomEventGrace, func() {
-					mu.Lock()
-					report := pending[id]
-					delete(pending, id)
-					mu.Unlock()
-					if report {
-						fn(name, app, Death{OOM: true})
-					}
-				})
-			default:
-				death = &Death{ExitCode: code}
-			}
-			delete(killed, id)
-		}
-		mu.Unlock()
-		if death != nil {
-			fn(name, app, *death)
-		}
-	}
 }
 
 // oomEventGrace is how long a SIGKILL death waits for a late "oom" event.
@@ -1210,59 +910,6 @@ func RemoveImage(ctx context.Context, ref string) error {
 	return fmt.Errorf("image remove %s failed (%d): %s", ref, status, respBody)
 }
 
-// ImageTags lists the tags of images whose repository matches pattern,
-// e.g. "hakobu/*".
-func ImageTags(ctx context.Context, pattern string) ([]string, error) {
-	filters, _ := json.Marshal(map[string][]string{"reference": {pattern}})
-	respBody, status, err := dockerRequest(ctx, "GET", "/images/json?filters="+url.QueryEscape(string(filters)), nil)
-	if err != nil {
-		return nil, err
-	}
-	if status != http.StatusOK {
-		return nil, fmt.Errorf("image list failed (%d): %s", status, respBody)
-	}
-	var images []struct {
-		RepoTags []string `json:"RepoTags"`
-	}
-	if err := json.Unmarshal(respBody, &images); err != nil {
-		return nil, err
-	}
-	var tags []string
-	for _, img := range images {
-		tags = append(tags, img.RepoTags...)
-	}
-	return tags, nil
-}
-
-// PruneBuildCache drops build cache unused for longer than keep, both
-// Docker's (Dockerfile builds) and the buildkit container's (Railpack). It
-// returns the bytes Docker reports as freed; buildkit doesn't report it.
-func PruneBuildCache(ctx context.Context, keep time.Duration) (freed int64, err error) {
-	filters, _ := json.Marshal(map[string][]string{"until": {keep.String()}})
-	respBody, status, err := dockerRequest(ctx, "POST", "/build/prune?filters="+url.QueryEscape(string(filters)), nil)
-	if err != nil {
-		return 0, err
-	}
-	if status != http.StatusOK {
-		return 0, fmt.Errorf("build cache prune failed (%d): %s", status, respBody)
-	}
-	var res struct {
-		SpaceReclaimed int64 `json:"SpaceReclaimed"`
-	}
-	json.Unmarshal(respBody, &res)
-
-	if info, _ := inspect(ctx, "buildkit"); info != nil && info.State.Status == "running" {
-		out, code, err := execInContainer(ctx, "buildkit", []string{"buildctl", "prune", "--keep-duration", keep.String()})
-		if err == nil && code != 0 {
-			err = fmt.Errorf("buildctl prune exited %d: %s", code, strings.TrimSpace(out))
-		}
-		if err != nil {
-			return res.SpaceReclaimed, err
-		}
-	}
-	return res.SpaceReclaimed, nil
-}
-
 // DockerRootDir is where Docker keeps images, containers and volumes.
 func DockerRootDir(ctx context.Context) (string, error) {
 	respBody, status, err := dockerRequest(ctx, "GET", "/info", nil)
@@ -1321,4 +968,56 @@ func Listeners(tables string) []Listener {
 		out = append(out, Listener{IP: ip, Port: int(port)})
 	}
 	return out
+}
+
+// RunningContainer is a container Docker runs, by name without the slash.
+type RunningContainer struct {
+	ID   string
+	Name string
+	App  string // its AppLabel, "" if none
+}
+
+// RunningContainers lists the running containers.
+func RunningContainers(ctx context.Context) ([]RunningContainer, error) {
+	respBody, status, err := dockerRequest(ctx, "GET", "/containers/json", nil)
+	if err != nil {
+		return nil, err
+	}
+	if status != http.StatusOK {
+		return nil, fmt.Errorf("container list failed (%d): %s", status, respBody)
+	}
+	var list []struct {
+		ID     string            `json:"Id"`
+		Names  []string          `json:"Names"`
+		Labels map[string]string `json:"Labels"`
+	}
+	if err := json.Unmarshal(respBody, &list); err != nil {
+		return nil, err
+	}
+	out := make([]RunningContainer, 0, len(list))
+	for _, c := range list {
+		if len(c.Names) == 0 {
+			continue
+		}
+		out = append(out, RunningContainer{ID: c.ID, Name: strings.TrimPrefix(c.Names[0], "/"), App: c.Labels[AppLabel]})
+	}
+	return out, nil
+}
+
+// PostgresQueryIn runs sql with psql in database db and returns its rows.
+func PostgresQueryIn(ctx context.Context, containerName, db, sql string) ([][]string, error) {
+	out, exitCode, err := execInContainer(ctx, containerName, []string{"psql", "-U", "postgres", "-d", db, "-Atc", sql})
+	if err != nil {
+		return nil, err
+	}
+	if exitCode != 0 {
+		return nil, fmt.Errorf("psql exited %d: %s", exitCode, strings.TrimSpace(out))
+	}
+	var rows [][]string
+	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
+		if line != "" {
+			rows = append(rows, strings.Split(line, "|"))
+		}
+	}
+	return rows, nil
 }
