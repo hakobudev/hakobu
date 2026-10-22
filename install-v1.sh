@@ -20,7 +20,8 @@
 #   HAKOBU_ACME_EMAIL  Let's Encrypt's contact, for public
 #   CLOUDFLARE_TUNNEL_TOKEN  the tunnel's token, for tunnel: cloudflared runs
 #                      on the server as a system service
-#   HAKOBU_CONFIG_EXTRA  a file whose TOML goes at the end of the config:
+#   HAKOBU_CONFIG_EXTRA  a file whose TOML goes into the config, after its
+#                      top-level keys:
 #                      releases, registries, backups, alerts
 #   HAKOBU_VERSION     a release (default: the latest, pre-releases included)
 #   HAKOBU_BINARY      install this local binary instead of downloading one
@@ -238,11 +239,13 @@ if [ -n "$FIRST" ]; then
     echo "owner_key = \"$HAKOBU_OWNER_KEY\""
     echo "operator_token_sha256 = \"$(sha "$OP_TOKEN")\""
     echo "admin_token_sha256 = \"$(sha "$ADMIN_TOKEN")\""
+    # The extra's top-level keys (releases) must come before any table, so
+    # it goes before [ingress]; its own tables end where [ingress] starts.
+    [ -z "${HAKOBU_CONFIG_EXTRA:-}" ] || { echo; cat "$HAKOBU_CONFIG_EXTRA"; }
     case "${HAKOBU_INGRESS:-none}" in
       public) printf '\n[ingress]\nmode = "public"\nemail = "%s"\n' "${HAKOBU_ACME_EMAIL:-}" ;;
       tunnel) printf '\n[ingress]\nmode = "tunnel"\n' ;;
     esac
-    [ -z "${HAKOBU_CONFIG_EXTRA:-}" ] || { echo; cat "$HAKOBU_CONFIG_EXTRA"; }
   } > "$CONFIG.new"
   chown root:hakobu "$CONFIG.new"
   chmod 0640 "$CONFIG.new"
