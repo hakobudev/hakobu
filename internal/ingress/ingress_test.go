@@ -98,3 +98,29 @@ func TestConfig(t *testing.T) {
 		t.Errorf("public ports %v", p)
 	}
 }
+
+// The visitor's address reaches the app through cloudflared on loopback,
+// but a client elsewhere can't put one of its choosing first.
+func TestForwardedFor(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, r.Header.Get("X-Forwarded-For"))
+	}))
+	t.Cleanup(srv.Close)
+	u, _ := url.Parse(srv.URL)
+	port, _ := strconv.Atoi(u.Port())
+	r := Router(func() map[string]int64 { return map[string]int64{"crm.kaslauto.com": int64(port)} })
+	for remote, want := range map[string]string{
+		"127.0.0.1:41234":   "203.0.113.7, 127.0.0.1",
+		"[::1]:41234":       "203.0.113.7, ::1",
+		"198.51.100.9:5555": "198.51.100.9",
+	} {
+		req := httptest.NewRequest("GET", "http://crm.kaslauto.com/", nil)
+		req.RemoteAddr = remote
+		req.Header.Set("X-Forwarded-For", "203.0.113.7")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if got := w.Body.String(); got != want {
+			t.Errorf("from %s: %q, want %q", remote, got, want)
+		}
+	}
+}

@@ -40,6 +40,13 @@ func Router(routes Routes) http.Handler {
 		p := &httputil.ReverseProxy{
 			Rewrite: func(pr *httputil.ProxyRequest) {
 				pr.SetURL(target)
+				// Behind a tunnel the client is cloudflared on loopback, and
+				// the visitor's address is in the X-Forwarded-For it sent:
+				// keep it, or every visitor would be 127.0.0.1 to the app.
+				// From anywhere else the header is the client's to forge.
+				if fromLoopback(pr.In) {
+					pr.Out.Header["X-Forwarded-For"] = pr.In.Header["X-Forwarded-For"]
+				}
 				pr.SetXForwarded()
 				pr.Out.Host = pr.In.Host // the app sees its own domain
 			},
@@ -49,6 +56,12 @@ func Router(routes Routes) http.Handler {
 		}
 		p.ServeHTTP(w, r)
 	})
+}
+
+func fromLoopback(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	ip := net.ParseIP(host)
+	return err == nil && ip != nil && ip.IsLoopback()
 }
 
 // Mode is how traffic reaches the server.
