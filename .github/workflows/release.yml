@@ -36,3 +36,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HAKOBU_SIGNING_KEY: ${{ secrets.HAKOBU_SIGNING_KEY }}
+          # The tag pushed: with two on one commit (v1.0.0 after its last
+          # alpha) GoReleaser would pick either.
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
