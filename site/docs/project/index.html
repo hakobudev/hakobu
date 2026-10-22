@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A project · hakobu docs</title>
+<meta name="description" content="A project is a repository with a hakobu.toml at its root. In the repository, with a server added:">
+<meta name="color-scheme" content="light dark">
+<link rel="preload" href="/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/style.css?v=ee910246">
+<link rel="stylesheet" href="/docs.css?v=ee910246">
+</head>
+<body class="docs">
+<header class="topbar">
+  <div class="wrap docs-wrap topbar-inner">
+    <span class="docs-brand"><a href="/" class="wordmark">hakobu</a><a href="/docs/" class="docs-label">Docs</a></span>
+    <nav class="nav">
+      <a class="nav-link nav-hide" href="/#self-host">Self-host</a>
+      <a class="nav-link" href="https://github.com/hakobudev/hakobu" aria-label="GitHub"><svg class="icon" viewBox="0 0 24 24"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg></a>
+      <a class="btn" href="https://dash.hakobu.dev">Sign in</a>
+    </nav>
+  </div>
+</header>
+<div class="wrap docs-wrap docs-layout">
+  <details class="docs-menu" open>
+    <summary>Menu</summary>
+    <nav class="docs-nav" aria-label="Documentation">
+      <div class="docs-nav-section">Getting started</div>
+      <a href="/docs/">Introduction</a>
+      <a href="/docs/install/">A server</a>
+      <a href="/docs/project/" aria-current="page">A project</a>
+      <div class="docs-nav-section">Reference</div>
+      <a href="/docs/hakobu-toml/">hakobu.toml</a>
+      <a href="/docs/secrets/">Secrets</a>
+      <a href="/docs/deploys/">Deploys and CI</a>
+      <a href="/docs/databases/">Databases</a>
+      <a href="/docs/agents/">Agents (Claude Code, MCP)</a>
+      <div class="docs-nav-section">Operating</div>
+      <a href="/docs/servers/">Server config</a>
+      <a href="/docs/backups/">Backups and recovery</a>
+      <a href="/docs/alerts/">Alerts and audit</a>
+      <a href="/docs/updates/">Updates</a>
+      <a href="/docs/security/">Security</a>
+      <div class="docs-nav-section">Contributing</div>
+      <a href="/docs/development/">Development</a>
+    </nav>
+  </details>
+  <main class="docs-main">
+    <article class="prose">
+      <div class="docs-head">
+        <h1>A project</h1>
+        <div class="docs-md">
+          <button type="button" class="btn btn-sm" id="copy-md">Copy as Markdown</button>
+          <a class="btn btn-sm" href="index.md">View as Markdown</a>
+        </div>
+      </div>
+      <p>A project is a repository with a <code>hakobu.toml</code> at its root. In the repository, with a <a href="/docs/install/">server</a> added:</p>
+<pre><code class="language-bash">hakobu init --server kasl-1
+</code></pre>
+<p>It writes, leaving any file that's already there:</p>
+<ul>
+<li><strong><code>hakobu.toml</code></strong>, with an app for each directory (the root and one level down) that has a Dockerfile or a stack Railpack builds;</li>
+<li><strong><code>.github/workflows/hakobu.yml</code></strong>, which builds each push to the default branch and waits for its deploy;</li>
+<li><strong><code>.claude/skills/hakobu/SKILL.md</code></strong>, a section in <strong><code>CLAUDE.md</code></strong>, <strong><code>.mcp.json</code></strong> and <strong><code>.claude/settings.json</code></strong>: see <a href="/docs/agents/">Agents</a>.</li>
+</ul>
+<p>The image goes to <code>ghcr.io/OWNER/REPO</code> (from <code>origin</code>); <code>--image</code> gives another.</p>
+<h2 id="then">Then</h2>
+<ol>
+<li>
+<p><strong>The file.</strong> Give each app its <code>domain</code>, a <code>health</code> path it answers once it's ready (<code>/up</code> by default), and the databases and caches it uses: see <a href="/docs/hakobu-toml/">hakobu.toml</a>. <code>hakobu validate</code> checks it.</p>
+</li>
+<li>
+<p><strong>Secrets.</strong> <code>hakobu secret init</code> starts <code>hakobu.secrets.toml</code>, sealed to the server's key and yours. Add the token that lets the server set the commit's status, a <a href="https://github.com/settings/personal-access-tokens/new">fine-grained token</a> with <strong>Commit statuses: Read and write</strong> on this repository alone:</p>
+<pre><code class="language-bash">hakobu secret set hakobu status_token
+</code></pre>
+<p>and your app's own secrets with <code>hakobu secret set APP NAME</code>. See <a href="/docs/secrets/">Secrets</a>.</p>
+</li>
+<li>
+<p><strong>The server</strong> needs to know the release image, and to be allowed to pull it. In its <code>/etc/hakobu/server.toml</code>, then <code>sudo systemctl restart hakobu</code>:</p>
+<pre><code class="language-toml">releases = [&quot;ghcr.io/kasl/crm:main&quot;]
+
+[registries.&quot;ghcr.io&quot;]
+username = &quot;kasl&quot;
+password = &quot;github_pat_…&quot;   # a token that may read the packages
+</code></pre>
+<p>See <a href="/docs/servers/">Server config</a>.</p>
+</li>
+<li>
+<p><strong>Push.</strong> CI builds the apps, pushes them and the release; within 30 seconds the server deploys it, and the job turns green once it's live. <code>hakobu status</code> and <code>hakobu deploys</code> show it from your laptop.</p>
+</li>
+</ol>
+<h2 id="an-arm64-server">An arm64 server</h2>
+<p>Images are built on CI's runner, for its architecture. For an arm64 server, set <code>runner: ubuntu-24.04-arm</code> in the workflow.</p>
+<h2 id="tests-first">Tests first</h2>
+<p>The workflow is a job like any other: put your tests in a job of their own and add <code>needs: [test]</code> to the deploy job.</p>
+
+    </article>
+    <nav class="docs-pager" aria-label="Pages"><a class="docs-prev" href="/docs/install/"><span>Previous</span>A server</a><a class="docs-next" href="/docs/hakobu-toml/"><span>Next</span>hakobu.toml</a>
+    </nav>
+  </main>
+  <aside class="docs-toc">
+    <div class="docs-toc-title">On this page</div>
+    <a href="#then" class="toc-2">Then</a>
+    <a href="#an-arm64-server" class="toc-2">An arm64 server</a>
+    <a href="#tests-first" class="toc-2">Tests first</a>
+  </aside>
+</div>
+<footer class="footer">
+  <div class="wrap docs-wrap footer-inner">
+    <span><span class="wordmark">hakobu</span>&nbsp; Open source, MIT</span>
+    <nav>
+      <a href="https://github.com/hakobudev/hakobu">GitHub</a>
+      <a href="/docs/">Docs</a>
+      <a href="/privacy">Privacy</a>
+      <a href="/terms">Terms</a>
+    </nav>
+  </div>
+</footer>
+<script>
+
+const menu = document.querySelector(".docs-menu");
+if (matchMedia("(max-width: 860px)").matches) menu.open = false;
+
+
+const copy = document.querySelector("#copy-md");
+copy.addEventListener("click", async () => {
+  try {
+    const md = await (await fetch("index.md")).text();
+    await navigator.clipboard.writeText(md);
+    copy.textContent = "Copied";
+  } catch {
+    copy.textContent = "Couldn't copy";
+  }
+  setTimeout(() => { copy.textContent = "Copy as Markdown"; }, 1500);
+});
+</script>
+</body>
+</html>

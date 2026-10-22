@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hakobu.toml · hakobu docs</title>
+<meta name="description" content="What a project&#39;s server runs, at the root of its repository. It&#39;s strict: an unknown key, a typo or a reference to nothing is an error, so a mistake stops the deploy instead of quietly turning…">
+<meta name="color-scheme" content="light dark">
+<link rel="preload" href="/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/style.css?v=ee910246">
+<link rel="stylesheet" href="/docs.css?v=ee910246">
+</head>
+<body class="docs">
+<header class="topbar">
+  <div class="wrap docs-wrap topbar-inner">
+    <span class="docs-brand"><a href="/" class="wordmark">hakobu</a><a href="/docs/" class="docs-label">Docs</a></span>
+    <nav class="nav">
+      <a class="nav-link nav-hide" href="/#self-host">Self-host</a>
+      <a class="nav-link" href="https://github.com/hakobudev/hakobu" aria-label="GitHub"><svg class="icon" viewBox="0 0 24 24"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg></a>
+      <a class="btn" href="https://dash.hakobu.dev">Sign in</a>
+    </nav>
+  </div>
+</header>
+<div class="wrap docs-wrap docs-layout">
+  <details class="docs-menu" open>
+    <summary>Menu</summary>
+    <nav class="docs-nav" aria-label="Documentation">
+      <div class="docs-nav-section">Getting started</div>
+      <a href="/docs/">Introduction</a>
+      <a href="/docs/install/">A server</a>
+      <a href="/docs/project/">A project</a>
+      <div class="docs-nav-section">Reference</div>
+      <a href="/docs/hakobu-toml/" aria-current="page">hakobu.toml</a>
+      <a href="/docs/secrets/">Secrets</a>
+      <a href="/docs/deploys/">Deploys and CI</a>
+      <a href="/docs/databases/">Databases</a>
+      <a href="/docs/agents/">Agents (Claude Code, MCP)</a>
+      <div class="docs-nav-section">Operating</div>
+      <a href="/docs/servers/">Server config</a>
+      <a href="/docs/backups/">Backups and recovery</a>
+      <a href="/docs/alerts/">Alerts and audit</a>
+      <a href="/docs/updates/">Updates</a>
+      <a href="/docs/security/">Security</a>
+      <div class="docs-nav-section">Contributing</div>
+      <a href="/docs/development/">Development</a>
+    </nav>
+  </details>
+  <main class="docs-main">
+    <article class="prose">
+      <div class="docs-head">
+        <h1>hakobu.toml</h1>
+        <div class="docs-md">
+          <button type="button" class="btn btn-sm" id="copy-md">Copy as Markdown</button>
+          <a class="btn btn-sm" href="index.md">View as Markdown</a>
+        </div>
+      </div>
+      <p>What a project's server runs, at the root of its repository. It's strict: an unknown key, a typo or a reference to nothing is an error, so a mistake stops the deploy instead of quietly turning something off. <code>hakobu validate</code> checks it, and CI runs it before each build.</p>
+<pre><code class="language-toml">project = &quot;crm&quot;
+server = &quot;kasl-1&quot;
+
+[apps.web]
+domain = &quot;crm.example.com&quot;
+release = &quot;bin/rails db:migrate&quot;
+worker = &quot;bin/jobs&quot;
+uses = [&quot;main&quot;, &quot;cache&quot;]
+volumes = { uploads = &quot;/rails/storage&quot; }
+env = { RAILS_LOG_LEVEL = &quot;info&quot; }
+
+[apps.admin]
+path = &quot;admin&quot;
+domain = &quot;admin.crm.example.com&quot;
+uses = [&quot;main&quot;]
+
+[databases.main]
+
+[caches.cache]
+memory = &quot;128mb&quot;
+</code></pre>
+<p>Names (the project's, apps', databases', caches', volumes') are lowercase letters, digits and <code>-</code>, starting with a letter, up to 31 characters.</p>
+<h2 id="the-project">The project</h2>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>project</code></td>
+<td>the project's name, unique on its server</td>
+</tr>
+<tr>
+<td><code>server</code></td>
+<td>the server it deploys to; any other server refuses the release</td>
+</tr>
+</tbody>
+</table>
+<p>One repository is one project.</p>
+<h2 id="apps-appsname">Apps: <code>[apps.NAME]</code></h2>
+<p>An app is one image serving HTTP, and optionally a worker from the same image.</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>path</code></td>
+<td>its directory in the repository, default the root. Built with its <code>Dockerfile</code>, or by <a href="https://railpack.com">Railpack</a> if it has none</td>
+</tr>
+<tr>
+<td><code>domain</code></td>
+<td>where it's served on the web; without one, it isn't</td>
+</tr>
+<tr>
+<td><code>health</code></td>
+<td>a path that answers 2xx once the app takes requests; default <code>/up</code>. A deploy goes live only once it does</td>
+</tr>
+<tr>
+<td><code>port</code></td>
+<td>the port it listens on; default the image's <code>EXPOSE</code>, else 8080. It's in <code>$PORT</code> too</td>
+</tr>
+<tr>
+<td><code>release</code></td>
+<td>a command run once per deploy in the new image before it takes traffic, for migrations: if it fails, the running version stays. See <a href="/docs/deploys/">Deploys</a></td>
+</tr>
+<tr>
+<td><code>worker</code></td>
+<td>the command of a background process from the same image</td>
+</tr>
+<tr>
+<td><code>memory</code></td>
+<td>its limit, <code>512mb</code> or <code>1gb</code>; at least <code>64mb</code></td>
+</tr>
+<tr>
+<td><code>cpus</code></td>
+<td>its CPU limit, <code>0.5</code> or <code>2</code></td>
+</tr>
+<tr>
+<td><code>volumes</code></td>
+<td>name → mount path. Survives deploys and is backed up</td>
+</tr>
+<tr>
+<td><code>env</code></td>
+<td>variables, plain values only: secrets go in <a href="/docs/secrets/">hakobu.secrets.toml</a></td>
+</tr>
+<tr>
+<td><code>uses</code></td>
+<td>the databases and caches it uses: a list, or a map of name → prefix</td>
+</tr>
+</tbody>
+</table>
+<p>The app must listen on all interfaces (not only 127.0.0.1).</p>
+<h3 id="uses"><code>uses</code></h3>
+<p>A database gives the app <code>DATABASE_URL</code>, <code>POSTGRES_HOST</code>, <code>POSTGRES_PORT</code>, <code>POSTGRES_DB</code>, <code>POSTGRES_USER</code> and <code>POSTGRES_PASSWORD</code>; a cache <code>REDIS_URL</code>, <code>VALKEY_URL</code>, <code>REDIS_HOST</code>, <code>REDIS_PORT</code> and <code>REDIS_PASSWORD</code>. Two of a kind would set the same variables, so give one a prefix:</p>
+<pre><code class="language-toml">uses = { main = &quot;&quot;, jobs = &quot;JOBS&quot; }   # JOBS_REDIS_URL, JOBS_REDIS_HOST, …
+</code></pre>
+<h3 id="volumes">Volumes</h3>
+<p>An app with volumes is stopped before its new version starts, so two versions never write the same files: a few seconds down on each deploy. The worker shares them.</p>
+<h2 id="databases-databasesname">Databases: <code>[databases.NAME]</code></h2>
+<p>A database and its own user on the server's PostgreSQL, which all its projects share; its version is the server's. It has no keys. See <a href="/docs/databases/">Databases</a>.</p>
+<h2 id="caches-cachesname">Caches: <code>[caches.NAME]</code></h2>
+<p>A Valkey server of the project's own, with its own password.</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>memory</code></td>
+<td>its memory, default <code>256mb</code>, at least <code>16mb</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="what-a-change-does">What a change does</h2>
+<ul>
+<li><strong>Adding</strong> an app, database, cache or volume makes it on the next deploy.</li>
+<li><strong>Removing</strong> one doesn't delete it: a database, cache or volume is kept, <em>orphaned</em>, and only <code>hakobu destroy</code> (a person's, with the admin token, after a last backup) deletes it.</li>
+<li><strong>Renaming</strong> is removing and adding: the new one starts empty and the old one is orphaned. For a database, the deploy stops instead and says so: deploy the new one, move the data, then take the old one out.</li>
+</ul>
+
+    </article>
+    <nav class="docs-pager" aria-label="Pages"><a class="docs-prev" href="/docs/project/"><span>Previous</span>A project</a><a class="docs-next" href="/docs/secrets/"><span>Next</span>Secrets</a>
+    </nav>
+  </main>
+  <aside class="docs-toc">
+    <div class="docs-toc-title">On this page</div>
+    <a href="#the-project" class="toc-2">The project</a>
+    <a href="#apps-appsname" class="toc-2">Apps: [apps.NAME]</a>
+    <a href="#uses" class="toc-3">uses</a>
+    <a href="#volumes" class="toc-3">Volumes</a>
+    <a href="#databases-databasesname" class="toc-2">Databases: [databases.NAME]</a>
+    <a href="#caches-cachesname" class="toc-2">Caches: [caches.NAME]</a>
+    <a href="#what-a-change-does" class="toc-2">What a change does</a>
+  </aside>
+</div>
+<footer class="footer">
+  <div class="wrap docs-wrap footer-inner">
+    <span><span class="wordmark">hakobu</span>&nbsp; Open source, MIT</span>
+    <nav>
+      <a href="https://github.com/hakobudev/hakobu">GitHub</a>
+      <a href="/docs/">Docs</a>
+      <a href="/privacy">Privacy</a>
+      <a href="/terms">Terms</a>
+    </nav>
+  </div>
+</footer>
+<script>
+
+const menu = document.querySelector(".docs-menu");
+if (matchMedia("(max-width: 860px)").matches) menu.open = false;
+
+
+const copy = document.querySelector("#copy-md");
+copy.addEventListener("click", async () => {
+  try {
+    const md = await (await fetch("index.md")).text();
+    await navigator.clipboard.writeText(md);
+    copy.textContent = "Copied";
+  } catch {
+    copy.textContent = "Couldn't copy";
+  }
+  setTimeout(() => { copy.textContent = "Copy as Markdown"; }, 1500);
+});
+</script>
+</body>
+</html>

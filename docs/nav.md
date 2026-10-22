@@ -2,26 +2,21 @@
 
 ## Getting started
 - [Introduction](index.md)
-- [Hosted panel](hosted.md)
-- [Self-hosting](install.md)
+- [A server](install.md)
+- [A project](project.md)
 
-## Guides
-- [Apps](apps.md)
-- [Apps calling apps](apps-calling-apps.md)
-- [Variables and secrets](variables.md)
+## Reference
+- [hakobu.toml](hakobu-toml.md)
+- [Secrets](secrets.md)
+- [Deploys and CI](deploys.md)
 - [Databases](databases.md)
-- [Caches](caches.md)
-- [Storages](storages.md)
-- [Volumes](volumes.md)
-- [Errors, logs and alerts](observability.md)
-- [Claude (MCP)](claude.md)
+- [Agents (Claude Code, MCP)](agents.md)
 
 ## Operating
-- [Servers](servers.md)
-- [Cloudflare accounts](cloudflare.md)
+- [Server config](servers.md)
 - [Backups and recovery](backups.md)
+- [Alerts and audit](alerts.md)
 - [Updates](updates.md)
-- [Sharing a panel](sharing.md)
 - [Security](security.md)
 
 ## Contributing

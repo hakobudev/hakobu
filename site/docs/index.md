@@ -1,28 +1,25 @@
 # Introduction
 
-hakobu deploys apps from GitHub to servers you own. Push to the default branch and it builds the new version and swaps it in with no downtime, behind Cloudflare, so nothing on your servers is open to the internet.
+hakobu runs your projects on servers you own. A project says what it needs in a file in its repository, `hakobu.toml`; CI builds each commit into images; the server pulls the new release and swaps it in with no downtime, then tells the commit how it went. There's no panel and no database: the file is the state, and the code that keeps your data safe (deploys, backups, secrets, alerts) is written and tested once, in hakobu.
 
 ## What it does
 
-- **Apps** come from GitHub repositories, built with their Dockerfile or detected by [Railpack](https://railpack.com). Every push to the default branch deploys; a deploy goes live once it answers its health check, and **Rollback** returns to the build before.
-- **Projects** group apps with their [databases](https://hakobu.dev/docs/databases/index.md) (PostgreSQL), [caches](https://hakobu.dev/docs/caches/index.md) (Valkey, Redis-compatible), [storages](https://hakobu.dev/docs/storages/index.md) (R2 or S3) and [volumes](https://hakobu.dev/docs/volumes/index.md). Each project has its own Docker networks: an app reaches its project's apps and data, never another project's.
-- **Domains and HTTPS** through a Cloudflare Tunnel: hakobu creates the DNS records, and the server needs no public IP and no open port.
-- **Backups** of databases and volumes go to R2 in your Cloudflare account every day, sealed with the server's own key, and each is restored into a scratch database right after upload to prove it restores.
-- **Errors, logs and traces**: any Sentry SDK works, and what your apps send stays on the server they run on.
-- **Claude** can read your apps' logs and errors, deploy and roll back, through hakobu's [MCP server](https://hakobu.dev/docs/claude/index.md).
-- **One binary**: hakobu is a single Go program with SQLite. It needs Docker, which the installer sets up rootless.
+- **Deploys by pull.** CI pushes a release image; the server checks its tag every 30 seconds and deploys a new one. Nothing connects to the server from outside, and any CI that can push an image works. The commit gets a `hakobu/deploy` status, and the CI job waits for it, so a failed deploy is a red commit with the reason.
+- **Safe deploys.** Before a deploy with migrations, hakobu dumps the databases; migrations run in the new image, and if they fail, the running version stays. The new version takes traffic only once it answers its health check. A deploy never deletes data: what the file no longer has is kept until a person deletes it.
+- **Databases and caches.** PostgreSQL databases with their own users, and Valkey (Redis-compatible) caches, with passwords made on the server and handed to the apps as variables.
+- **Secrets in the repository**, each sealed with [age](https://age-encryption.org) to the server and to you: anyone, an agent too, can add one; only the server and you can read them.
+- **Backups** of every database and volume each day, sealed, to any S3 bucket and a copy elsewhere, each restored into scratch right after upload to prove it restores.
+- **Alerts** by email when an app is down, a deploy or backup fails, the disk fills, or the audit finds a port open to the internet or a container hakobu didn't start; a pulse to a dead man's switch says hakobu itself is alive.
+- **Agents welcome.** `hakobu init` gives a repository a skill for Claude Code that says how to change the file and migrations safely, and the `hakobu mcp` server lets an agent see status and logs, deploy and roll back. Deleting or restoring data is a person's to do, and the agent can't.
 
-## Two ways to run it
+## What it needs
 
-The same program runs both.
+- A Linux server (Debian or Ubuntu, amd64 or arm64) with systemd. The installer sets up rootless Docker and Tailscale.
+- A [Tailscale](https://tailscale.com) tailnet: hakobu's API listens there and nowhere else.
+- A registry for the images (GitHub's ghcr.io works with no setup) and a CI to build them (the workflow hakobu provides is for GitHub Actions).
+- For backups, an S3 bucket (Cloudflare R2, Hetzner Object Storage, AWS, any other); for alerts, an SMTP account.
+- For the web, either ports 80 and 443 (hakobu gets Let's Encrypt certificates) or a Cloudflare Tunnel.
 
-- **The hosted panel** at [dash.hakobu.dev](https://dash.hakobu.dev): sign in with GitHub and add your servers. The panel runs no apps of its own and can't open your backups. See [Hosted panel](https://hakobu.dev/docs/hosted/index.md).
-- **Self-hosted**: install the panel on your own server with one command. See [Self-hosting](https://hakobu.dev/docs/install/index.md).
+hakobu calls no provider's API: no DNS, no cloud, no Git host beyond the commit status. What's different in each project (its file, Dockerfile, migrations, DNS records) is for you or your agent to write.
 
-Either way your apps run on your servers, and their domains, files and backups are in your Cloudflare account.
-
-## What you need
-
-- A Linux server (amd64 or arm64). Any VPS works; it needs no public IP.
-- A domain on Cloudflare. The free plan is enough.
-- A GitHub account, and the repositories you want to deploy.
+Start with [a server](https://hakobu.dev/docs/install/index.md), then [a project](https://hakobu.dev/docs/project/index.md).

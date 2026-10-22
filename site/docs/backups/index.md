@@ -1,29 +1,36 @@
 # Backups and recovery
 
-## Turning backups on
+With a bucket in the [server's config](https://hakobu.dev/docs/servers/index.md), every database and volume on the server is backed up each day at `backups.at` (UTC). Caches aren't: they're caches.
 
-One click in **Settings**: hakobu creates a private R2 bucket in the Cloudflare account, and from then on backs up every [database](https://hakobu.dev/docs/databases/index.md) and [volume](https://hakobu.dev/docs/volumes/index.md) daily. No S3 keys exist for it: hakobu writes with its Cloudflare token.
+## Each backup is
 
-## What a backup is
+- **sealed** with [age](https://age-encryption.org) to the server's key and to yours, so the bucket alone reads nothing, and you can open a backup without the server;
+- **copied**: written to the primary bucket and to each of `backups.copies`, another provider ideally, with a key that may only write, so a leaked key of the server can't delete the copies;
+- **proved**: read back from the primary bucket and restored into scratch (a database counts its tables, a volume's archive is read through) before it counts as done;
+- **rotated**: the last 7 days and one a week for 4 weeks are kept (`keep_daily`, `keep_weekly`). A bucket with object lock may refuse a deletion; it's tried again on the next rotation.
 
-- **Sealed** by the server the data lives on, with that server's own key, which the panel never has. A leak of the panel's database, of the bucket or of the panel's disk exposes nothing.
-- **Checked**: its SHA-256 is kept and verified before a restore, and it's restored into a scratch database (or read back, for a volume) right after upload.
-- **Locked** for 7 days by the bucket's lock, even against a bug in hakobu. It doesn't stop someone who has taken over the server: the token can change the lock.
-- **Rotated**: the last 7, and one a week for a month.
+There's no catalog to lose: the backups are listed from the primary bucket itself.
 
-A key that's replaced stays in the server's keyring, so older backups still restore. Keep each server's key away from it: see [Server keys](https://hakobu.dev/docs/servers/index.md).
+A volume's app and worker are paused for the seconds the archive takes, so files that belong together (SQLite and its journal) are copied as of one moment.
 
-## The panel's own backup
+A failed or unproved backup emails you (see [Alerts](https://hakobu.dev/docs/alerts/index.md)).
 
-A self-hosted panel backs up its own database to the bucket daily too, sealed with its master key. The key stays off the bucket: download it from **Settings → Security → Download master key** (it asks you to sign in with GitHub again) and keep the file away from the server; download it again after **Replace all secrets**.
+## Commands
 
-## Bringing a panel back on a new server
-
-```sh
-curl -fsSL https://hakobu.dev/install.sh -o install.sh
-sudo HAKOBU_RESTORE=hakobu-master-key-hakobu.example.com.txt bash install.sh
+```bash
+hakobu backup              # back up everything now
+hakobu backups crm         # list, newest first, with what reading each back found
 ```
 
-It asks for a Cloudflare API token that can read R2 (or takes `CLOUDFLARE_API_TOKEN`), restores the newest panel backup and starts the panel on its old address, with its tunnel, GitHub App, projects and owner. Then restore each database from its backup page and each volume from its app's page, and redeploy the apps. If the old Cloudflare token was rolled since, run `setup --reconnect` (see [Self-hosting](https://hakobu.dev/docs/install/index.md)).
+## Restoring
 
-Caches aren't backed up: a cache's data comes back empty.
+```bash
+hakobu restore crm/main               # a database, from its newest backup
+hakobu restore crm/web/uploads --at 2026-10-20T03:00:12Z
+```
+
+A restore replaces the data, so it needs the admin token (from `HAKOBU_ADMIN_TOKEN` or typed, hidden) and a person at a terminal: an agent can't run it. The database or volume must exist on the server (deploy the project first).
+
+## Before each deploy
+
+A deploy with a `release` command first dumps the databases its app uses, on the server, in `/var/lib/hakobu/snapshots`: the state just before a migration, if it goes wrong.

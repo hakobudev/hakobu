@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Introduction · hakobu docs</title>
-<meta name="description" content="hakobu deploys apps from GitHub to servers you own. Push to the default branch and it builds the new version and swaps it in with no downtime, behind Cloudflare, so nothing on your servers is open to…">
+<meta name="description" content="hakobu runs your projects on servers you own. A project says what it needs in a file in its repository, hakobu.toml; CI builds each commit into images; the server pulls the new release and swaps it…">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/style.css?v=ee910246">
@@ -27,24 +27,19 @@
     <nav class="docs-nav" aria-label="Documentation">
       <div class="docs-nav-section">Getting started</div>
       <a href="/docs/" aria-current="page">Introduction</a>
-      <a href="/docs/hosted/">Hosted panel</a>
-      <a href="/docs/install/">Self-hosting</a>
-      <div class="docs-nav-section">Guides</div>
-      <a href="/docs/apps/">Apps</a>
-      <a href="/docs/apps-calling-apps/">Apps calling apps</a>
-      <a href="/docs/variables/">Variables and secrets</a>
+      <a href="/docs/install/">A server</a>
+      <a href="/docs/project/">A project</a>
+      <div class="docs-nav-section">Reference</div>
+      <a href="/docs/hakobu-toml/">hakobu.toml</a>
+      <a href="/docs/secrets/">Secrets</a>
+      <a href="/docs/deploys/">Deploys and CI</a>
       <a href="/docs/databases/">Databases</a>
-      <a href="/docs/caches/">Caches</a>
-      <a href="/docs/storages/">Storages</a>
-      <a href="/docs/volumes/">Volumes</a>
-      <a href="/docs/observability/">Errors, logs and alerts</a>
-      <a href="/docs/claude/">Claude (MCP)</a>
+      <a href="/docs/agents/">Agents (Claude Code, MCP)</a>
       <div class="docs-nav-section">Operating</div>
-      <a href="/docs/servers/">Servers</a>
-      <a href="/docs/cloudflare/">Cloudflare accounts</a>
+      <a href="/docs/servers/">Server config</a>
       <a href="/docs/backups/">Backups and recovery</a>
+      <a href="/docs/alerts/">Alerts and audit</a>
       <a href="/docs/updates/">Updates</a>
-      <a href="/docs/sharing/">Sharing a panel</a>
       <a href="/docs/security/">Security</a>
       <div class="docs-nav-section">Contributing</div>
       <a href="/docs/development/">Development</a>
@@ -59,40 +54,36 @@
           <a class="btn btn-sm" href="index.md">View as Markdown</a>
         </div>
       </div>
-      <p>hakobu deploys apps from GitHub to servers you own. Push to the default branch and it builds the new version and swaps it in with no downtime, behind Cloudflare, so nothing on your servers is open to the internet.</p>
+      <p>hakobu runs your projects on servers you own. A project says what it needs in a file in its repository, <code>hakobu.toml</code>; CI builds each commit into images; the server pulls the new release and swaps it in with no downtime, then tells the commit how it went. There's no panel and no database: the file is the state, and the code that keeps your data safe (deploys, backups, secrets, alerts) is written and tested once, in hakobu.</p>
 <h2 id="what-it-does">What it does</h2>
 <ul>
-<li><strong>Apps</strong> come from GitHub repositories, built with their Dockerfile or detected by <a href="https://railpack.com">Railpack</a>. Every push to the default branch deploys; a deploy goes live once it answers its health check, and <strong>Rollback</strong> returns to the build before.</li>
-<li><strong>Projects</strong> group apps with their <a href="/docs/databases/">databases</a> (PostgreSQL), <a href="/docs/caches/">caches</a> (Valkey, Redis-compatible), <a href="/docs/storages/">storages</a> (R2 or S3) and <a href="/docs/volumes/">volumes</a>. Each project has its own Docker networks: an app reaches its project's apps and data, never another project's.</li>
-<li><strong>Domains and HTTPS</strong> through a Cloudflare Tunnel: hakobu creates the DNS records, and the server needs no public IP and no open port.</li>
-<li><strong>Backups</strong> of databases and volumes go to R2 in your Cloudflare account every day, sealed with the server's own key, and each is restored into a scratch database right after upload to prove it restores.</li>
-<li><strong>Errors, logs and traces</strong>: any Sentry SDK works, and what your apps send stays on the server they run on.</li>
-<li><strong>Claude</strong> can read your apps' logs and errors, deploy and roll back, through hakobu's <a href="/docs/claude/">MCP server</a>.</li>
-<li><strong>One binary</strong>: hakobu is a single Go program with SQLite. It needs Docker, which the installer sets up rootless.</li>
+<li><strong>Deploys by pull.</strong> CI pushes a release image; the server checks its tag every 30 seconds and deploys a new one. Nothing connects to the server from outside, and any CI that can push an image works. The commit gets a <code>hakobu/deploy</code> status, and the CI job waits for it, so a failed deploy is a red commit with the reason.</li>
+<li><strong>Safe deploys.</strong> Before a deploy with migrations, hakobu dumps the databases; migrations run in the new image, and if they fail, the running version stays. The new version takes traffic only once it answers its health check. A deploy never deletes data: what the file no longer has is kept until a person deletes it.</li>
+<li><strong>Databases and caches.</strong> PostgreSQL databases with their own users, and Valkey (Redis-compatible) caches, with passwords made on the server and handed to the apps as variables.</li>
+<li><strong>Secrets in the repository</strong>, each sealed with <a href="https://age-encryption.org">age</a> to the server and to you: anyone, an agent too, can add one; only the server and you can read them.</li>
+<li><strong>Backups</strong> of every database and volume each day, sealed, to any S3 bucket and a copy elsewhere, each restored into scratch right after upload to prove it restores.</li>
+<li><strong>Alerts</strong> by email when an app is down, a deploy or backup fails, the disk fills, or the audit finds a port open to the internet or a container hakobu didn't start; a pulse to a dead man's switch says hakobu itself is alive.</li>
+<li><strong>Agents welcome.</strong> <code>hakobu init</code> gives a repository a skill for Claude Code that says how to change the file and migrations safely, and the <code>hakobu mcp</code> server lets an agent see status and logs, deploy and roll back. Deleting or restoring data is a person's to do, and the agent can't.</li>
 </ul>
-<h2 id="two-ways-to-run-it">Two ways to run it</h2>
-<p>The same program runs both.</p>
+<h2 id="what-it-needs">What it needs</h2>
 <ul>
-<li><strong>The hosted panel</strong> at <a href="https://dash.hakobu.dev">dash.hakobu.dev</a>: sign in with GitHub and add your servers. The panel runs no apps of its own and can't open your backups. See <a href="/docs/hosted/">Hosted panel</a>.</li>
-<li><strong>Self-hosted</strong>: install the panel on your own server with one command. See <a href="/docs/install/">Self-hosting</a>.</li>
+<li>A Linux server (Debian or Ubuntu, amd64 or arm64) with systemd. The installer sets up rootless Docker and Tailscale.</li>
+<li>A <a href="https://tailscale.com">Tailscale</a> tailnet: hakobu's API listens there and nowhere else.</li>
+<li>A registry for the images (GitHub's ghcr.io works with no setup) and a CI to build them (the workflow hakobu provides is for GitHub Actions).</li>
+<li>For backups, an S3 bucket (Cloudflare R2, Hetzner Object Storage, AWS, any other); for alerts, an SMTP account.</li>
+<li>For the web, either ports 80 and 443 (hakobu gets Let's Encrypt certificates) or a Cloudflare Tunnel.</li>
 </ul>
-<p>Either way your apps run on your servers, and their domains, files and backups are in your Cloudflare account.</p>
-<h2 id="what-you-need">What you need</h2>
-<ul>
-<li>A Linux server (amd64 or arm64). Any VPS works; it needs no public IP.</li>
-<li>A domain on Cloudflare. The free plan is enough.</li>
-<li>A GitHub account, and the repositories you want to deploy.</li>
-</ul>
+<p>hakobu calls no provider's API: no DNS, no cloud, no Git host beyond the commit status. What's different in each project (its file, Dockerfile, migrations, DNS records) is for you or your agent to write.</p>
+<p>Start with <a href="/docs/install/">a server</a>, then <a href="/docs/project/">a project</a>.</p>
 
     </article>
-    <nav class="docs-pager" aria-label="Pages"><span></span><a class="docs-next" href="/docs/hosted/"><span>Next</span>Hosted panel</a>
+    <nav class="docs-pager" aria-label="Pages"><span></span><a class="docs-next" href="/docs/install/"><span>Next</span>A server</a>
     </nav>
   </main>
   <aside class="docs-toc">
     <div class="docs-toc-title">On this page</div>
     <a href="#what-it-does" class="toc-2">What it does</a>
-    <a href="#two-ways-to-run-it" class="toc-2">Two ways to run it</a>
-    <a href="#what-you-need" class="toc-2">What you need</a>
+    <a href="#what-it-needs" class="toc-2">What it needs</a>
   </aside>
 </div>
 <footer class="footer">

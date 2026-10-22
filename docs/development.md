@@ -2,35 +2,17 @@
 
 hakobu is open source under the MIT license: [github.com/hakobudev/hakobu](https://github.com/hakobudev/hakobu).
 
-## Running it locally
+## Building
 
 ```bash
-go build -o hakobu . && ./hakobu agent --public-host <host that reaches 127.0.0.1:9000 over https>
-# e.g. cloudflared tunnel --url http://127.0.0.1:9000 for a throwaway host
+go build -o hakobu ./v1
 ```
 
-Requires Go 1.27+ and Docker (plus Railpack and a `buildkit` container for non-Dockerfile builds). State lives in `data/` (SQLite, clones) and its master key in `key/`; `run/` holds the panel's socket for cloudflared.
-
-To look at the pages with made-up data, without GitHub or Cloudflare:
-
-```bash
-HAKOBU_UI_DEV=127.0.0.1:8090 go test ./cmd -run TestDevServer -timeout 0
-```
-
-`HAKOBU_UI_SHOWCASE=127.0.0.1:8091 go test ./cmd -run TestShowcase -timeout 0` is the same with everything healthy; `just screenshot` takes the README's picture from it.
+Requires Go 1.27+. The server side needs Linux, systemd and Docker; `install-v1.sh` with `HAKOBU_BINARY=./hakobu` installs a local build on a test machine.
 
 ## Tests
 
-`just check` runs what CI runs: build, tests, govulncheck, golangci-lint and `sqlc diff`. Tests that need Docker (they start their own containers) run with `HAKOBU_DOCKER_TEST=1 go test ./...`; with `HAKOBU_TEST_LINK=1` too, the panel reaches the local machine as it would another server.
-
-## The panel's pages
-
-Its scripts, styles, fonts and icons are embedded in the binary (`cmd/static/`, `cmd/icons.svg`), so it loads nothing from other sites. Its pages are [templ](https://templ.guide) components (`cmd/ui_*.templ`) built from the design system in `cmd/ui_kit.templ` and `cmd/styles.css`; a test fails on colors or sizes written into a page instead. After changing a `.templ` file or classes, run `go generate ./cmd`: it generates the components and rebuilds the stylesheet (needs [bun](https://bun.sh)).
-
-## The database
-
-- Schema: `internal/store/migrations/`, applied at startup.
-- Queries: `internal/store/queries.sql`, compiled by [sqlc](https://sqlc.dev) into `internal/store/*.gen.go`: run `just gen` after changing either.
+`just check` runs what CI runs: build, tests, govulncheck and golangci-lint. Tests that need Docker (they start their own containers: PostgreSQL, Valkey, an S3 server) run with `HAKOBU_DOCKER_TEST=1 go test ./internal/apply ./internal/backups`.
 
 ## These docs
 
@@ -42,15 +24,14 @@ Pushing a `vX.Y.Z` tag builds and publishes a release (`.github/workflows/releas
 
 ## Layout
 
-- `cmd/`: CLI, web panel, GitHub webhook, Sentry ingest, MCP
-- `internal/ops/`: projects, apps, deploys, databases, caches, storages, backups
-- `internal/node/`: what runs on a server, locally or over the link to another one
-- `internal/deploy/`: Docker Engine API client
-- `internal/proxy/`: per-app reverse proxy
-- `internal/cloudflare/`: Cloudflare API
-- `internal/build/`, `internal/detect/`: cloning and building repositories
-- `internal/github/`: GitHub App, OAuth
-- `internal/store/`: SQLite: schema, sqlc queries
-- `internal/secret/`: encryption of secrets
-- `internal/update/`: signed releases
-- `internal/backup/`: pg_dump/restore and volume archives
+- `v1/`, `internal/cli/`: the command line and the MCP server
+- `internal/spec/`: hakobu.toml
+- `internal/seal/`: hakobu.secrets.toml
+- `internal/server/`: the daemon: config, API, polling, monitoring
+- `internal/apply/`: plans and deploys a release; watches the release images
+- `internal/ci/`, `internal/scaffold/`: `hakobu build`/`wait`, `hakobu init` and the skill
+- `internal/backups/`: sealed backups to S3, their proof and rotation
+- `internal/alert/`, `internal/audit/`: email, pulse, the audit
+- `internal/ingress/`: 80/443 with Let's Encrypt, or the tunnel's loopback
+- `internal/node/`, `internal/deploy/`, `internal/proxy/`: Docker on the server, each app's proxy
+- `internal/registry/`, `internal/status/`: the registry client, the commit status

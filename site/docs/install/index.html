@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Self-hosting · hakobu docs</title>
-<meta name="description" content="You need a Linux server and a domain on Cloudflare (the free plan is enough). The server needs no public IP or open ports: everything goes through a Cloudflare Tunnel.">
+<title>A server · hakobu docs</title>
+<meta name="description" content="One command sets a server up, and asks nothing: everything comes from the environment, so cloud-init or an agent can run it.">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/style.css?v=ee910246">
@@ -27,24 +27,19 @@
     <nav class="docs-nav" aria-label="Documentation">
       <div class="docs-nav-section">Getting started</div>
       <a href="/docs/">Introduction</a>
-      <a href="/docs/hosted/">Hosted panel</a>
-      <a href="/docs/install/" aria-current="page">Self-hosting</a>
-      <div class="docs-nav-section">Guides</div>
-      <a href="/docs/apps/">Apps</a>
-      <a href="/docs/apps-calling-apps/">Apps calling apps</a>
-      <a href="/docs/variables/">Variables and secrets</a>
+      <a href="/docs/install/" aria-current="page">A server</a>
+      <a href="/docs/project/">A project</a>
+      <div class="docs-nav-section">Reference</div>
+      <a href="/docs/hakobu-toml/">hakobu.toml</a>
+      <a href="/docs/secrets/">Secrets</a>
+      <a href="/docs/deploys/">Deploys and CI</a>
       <a href="/docs/databases/">Databases</a>
-      <a href="/docs/caches/">Caches</a>
-      <a href="/docs/storages/">Storages</a>
-      <a href="/docs/volumes/">Volumes</a>
-      <a href="/docs/observability/">Errors, logs and alerts</a>
-      <a href="/docs/claude/">Claude (MCP)</a>
+      <a href="/docs/agents/">Agents (Claude Code, MCP)</a>
       <div class="docs-nav-section">Operating</div>
-      <a href="/docs/servers/">Servers</a>
-      <a href="/docs/cloudflare/">Cloudflare accounts</a>
+      <a href="/docs/servers/">Server config</a>
       <a href="/docs/backups/">Backups and recovery</a>
+      <a href="/docs/alerts/">Alerts and audit</a>
       <a href="/docs/updates/">Updates</a>
-      <a href="/docs/sharing/">Sharing a panel</a>
       <a href="/docs/security/">Security</a>
       <div class="docs-nav-section">Contributing</div>
       <a href="/docs/development/">Development</a>
@@ -53,47 +48,104 @@
   <main class="docs-main">
     <article class="prose">
       <div class="docs-head">
-        <h1>Self-hosting</h1>
+        <h1>A server</h1>
         <div class="docs-md">
           <button type="button" class="btn btn-sm" id="copy-md">Copy as Markdown</button>
           <a class="btn btn-sm" href="index.md">View as Markdown</a>
         </div>
       </div>
-      <p>You need a Linux server and a domain on Cloudflare (the free plan is enough). The server needs no public IP or open ports: everything goes through a Cloudflare Tunnel.</p>
-<pre><code class="language-bash">curl -fsSL https://hakobu.dev/install.sh | sudo bash
+      <p>One command sets a server up, and asks nothing: everything comes from the environment, so cloud-init or an agent can run it.</p>
+<pre><code class="language-bash">curl -fsSL https://hakobu.dev/install-v1.sh | sudo \
+  HAKOBU_NAME=kasl-1 \
+  HAKOBU_OWNER_KEY=age1… \
+  TS_AUTHKEY=tskey-auth-… TS_TAGS=tag:hakobu \
+  HAKOBU_INGRESS=public HAKOBU_ACME_EMAIL=you@example.com \
+  bash
 </code></pre>
-<ol>
-<li>The installer shows a Cloudflare link to a new API token of yours with hakobu's permissions filled in: read your domains, manage their DNS records, create a tunnel, keep database backups in R2, email you when something needs you and run a Worker that watches the panel from outside. It's for every account you're a member of: the panel's, and your clients' (see <a href="/docs/cloudflare/">Cloudflare accounts</a>), so it's the only token you give hakobu. Select <strong>Continue to summary</strong> → <strong>Create Token</strong>, copy the token and paste it into the terminal (it isn't echoed). Or set <code>CLOUDFLARE_API_TOKEN</code> before running the installer.</li>
-<li>Pick one of your domains from the list and the panel's subdomain (default <code>hakobu</code>). hakobu creates the tunnel and a DNS record for the panel, in that domain's account: the panel's account.</li>
-<li>Open the printed link, <code>https://hakobu.example.com/setup?token=…</code>, click <strong>Connect GitHub</strong> (this registers a GitHub App for your panel; under it you can put the app on an organization and name it, as people see that name when they sign in), sign in with GitHub and you are the admin. Only that link can claim a fresh panel.</li>
-</ol>
-<p>Every app then gets its own address in any domain of the account (<code>app.example.com</code>, <code>myapp.dev</code>, …); hakobu creates and removes the DNS records itself.</p>
-<h2 id="narrowing-the-token">Narrowing the token</h2>
-<p>Under <strong>Account Resources</strong> and <strong>Zone Resources</strong> you can narrow the token to the accounts and domains hakobu should use: whoever takes over the server gets the token, and with it the DNS of every domain it covers. <strong>Client IP Address Filtering</strong> makes a copy of the token that leaks elsewhere useless: list both of the server's addresses, the IPv6 one as its <code>/64</code>, since the server reaches Cloudflare over IPv6 when it has it.</p>
-<h2 id="if-something-goes-wrong">If something goes wrong</h2>
-<p>Lost the setup link: <code>journalctl -u hakobu | grep setup</code>.</p>
-<p>Give hakobu a new Cloudflare token (after rolling it, say):</p>
-<pre><code class="language-bash">cd /opt/hakobu &amp;&amp; sudo -u hakobu ./hakobu setup --reconnect
-</code></pre>
-<h2 id="email-notifications">Email notifications</h2>
-<p><strong>Settings → Notifications</strong>: enter your address and confirm it from the email Cloudflare sends. See <a href="/docs/observability/#email-alerts">Errors, logs and alerts</a>.</p>
-<h2 id="next">Next</h2>
+<p>It installs rootless Docker (as the user <code>hakobu-docker</code>), Tailscale, unattended upgrades, hakobu (its signature checked) as a sandboxed systemd service running as <code>hakobu</code>, writes <code>/etc/hakobu/server.toml</code> and makes the server's key. Run it again to update: the config, the key and the data stay.</p>
+<h2 id="before-you-start">Before you start</h2>
 <ul>
-<li>Add <a href="/docs/servers/">other servers</a>, a client's say.</li>
-<li>Let friends deploy on your panel: <a href="/docs/sharing/">Sharing a panel</a>.</li>
-<li>Keep the master key safe: <a href="/docs/backups/">Backups and recovery</a>.</li>
+<li><strong>Your key.</strong> <code>age-keygen</code> makes one; keep the secret half in your password manager and give the public half (<code>age1…</code>) as <code>HAKOBU_OWNER_KEY</code>. Every secret and backup is sealed to it as well as to the server, so you can open them if the server is gone.</li>
+<li><strong>A Tailscale auth key</strong> (<a href="https://login.tailscale.com/admin/settings/keys">admin console</a>), with the tag you'll give the server. The API listens only on the server's tailnet address. Your tailnet's policy should let your devices reach the tag on port 7070, and nothing else need reach it.</li>
 </ul>
+<h2 id="settings">Settings</h2>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>HAKOBU_NAME</code></td>
+<td>the server's name: lowercase letters, digits and <code>-</code></td>
+</tr>
+<tr>
+<td><code>HAKOBU_OWNER_KEY</code></td>
+<td>your age public key</td>
+</tr>
+<tr>
+<td><code>TS_AUTHKEY</code></td>
+<td>a Tailscale auth key, unless the server is in the tailnet already</td>
+</tr>
+<tr>
+<td><code>TS_TAGS</code></td>
+<td>the server's Tailscale tags, <code>tag:hakobu</code> say</td>
+</tr>
+<tr>
+<td><code>HAKOBU_INGRESS</code></td>
+<td><code>public</code>, <code>tunnel</code> or <code>none</code> (the default): see below</td>
+</tr>
+<tr>
+<td><code>HAKOBU_ACME_EMAIL</code></td>
+<td>Let's Encrypt's contact, for <code>public</code></td>
+</tr>
+<tr>
+<td><code>CLOUDFLARE_TUNNEL_TOKEN</code></td>
+<td>the tunnel's token, for <code>tunnel</code></td>
+</tr>
+<tr>
+<td><code>HAKOBU_CONFIG_EXTRA</code></td>
+<td>a file whose TOML goes at the end of the config: releases, registries, backups, alerts (see <a href="/docs/servers/">Server config</a>)</td>
+</tr>
+<tr>
+<td><code>HAKOBU_VERSION</code></td>
+<td>a release; default the newest</td>
+</tr>
+</tbody>
+</table>
+<h2 id="how-the-web-gets-in">How the web gets in</h2>
+<ul>
+<li><strong><code>public</code></strong>: hakobu answers ports 80 and 443 itself, with a Let's Encrypt certificate for each app's domain (and only those). Point each domain's DNS at the server.</li>
+<li><strong><code>tunnel</code></strong>: cloudflared runs on the server with your tunnel's token and sends requests to hakobu on loopback; the server needs no open port. In Cloudflare, route each domain of the tunnel to <code>http://localhost:8080</code>.</li>
+<li><strong><code>none</code></strong>: apps aren't served to the web; for a server of workers only, or while you set it up.</li>
+</ul>
+<h2 id="the-tokens">The tokens</h2>
+<p>On a first install it prints two tokens, once:</p>
+<ul>
+<li>the <strong>operator</strong> token, for your laptop and your agent: status, logs, deploy, rollback, backup;</li>
+<li>the <strong>admin</strong> token, for your password manager only: it alone can restore and delete data.</li>
+</ul>
+<p>On your laptop, with the hakobu binary from the <a href="https://github.com/hakobudev/hakobu/releases">releases</a>:</p>
+<pre><code class="language-bash">hakobu server add kasl-1 http://100.x.y.z:7070   # then paste the operator token
+hakobu status
+</code></pre>
+<p>The installer's output names the API's address. Servers are remembered in <code>~/.config/hakobu/servers.toml</code>.</p>
+<h2 id="back-up-the-servers-key">Back up the server's key</h2>
+<p><code>/var/lib/hakobu/key.age</code> opens the server's secrets and backups. Your own key does too, so losing the server's isn't fatal, but a copy off the server spares you re-sealing secrets on a new one.</p>
 
     </article>
-    <nav class="docs-pager" aria-label="Pages"><a class="docs-prev" href="/docs/hosted/"><span>Previous</span>Hosted panel</a><a class="docs-next" href="/docs/apps/"><span>Next</span>Apps</a>
+    <nav class="docs-pager" aria-label="Pages"><a class="docs-prev" href="/docs/"><span>Previous</span>Introduction</a><a class="docs-next" href="/docs/project/"><span>Next</span>A project</a>
     </nav>
   </main>
   <aside class="docs-toc">
     <div class="docs-toc-title">On this page</div>
-    <a href="#narrowing-the-token" class="toc-2">Narrowing the token</a>
-    <a href="#if-something-goes-wrong" class="toc-2">If something goes wrong</a>
-    <a href="#email-notifications" class="toc-2">Email notifications</a>
-    <a href="#next" class="toc-2">Next</a>
+    <a href="#before-you-start" class="toc-2">Before you start</a>
+    <a href="#settings" class="toc-2">Settings</a>
+    <a href="#how-the-web-gets-in" class="toc-2">How the web gets in</a>
+    <a href="#the-tokens" class="toc-2">The tokens</a>
+    <a href="#back-up-the-servers-key" class="toc-2">Back up the server&#39;s key</a>
   </aside>
 </div>
 <footer class="footer">

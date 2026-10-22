@@ -2,31 +2,29 @@
 
 What hakobu does to keep your apps and data yours, and what it doesn't promise.
 
-## Nothing open
+## Nothing comes in
 
-Servers need no public IP and no open port. Apps are served through a Cloudflare Tunnel; servers connect to the panel through the panel's tunnel, end to end encrypted. cloudflared runs in its own container and sends app traffic straight to the app's container.
+The server pulls its releases; no CI, panel or agent connects to it. hakobu's API listens on the tailnet only (an address on every interface is refused), and the web reaches apps only through 80/443 for their own domains, or a Cloudflare Tunnel with no port open at all. The [audit](https://hakobu.dev/docs/alerts/index.md) emails you about any other port that listens.
+
+## Two tokens
+
+The **operator** token (laptop, agent) can look, deploy, roll back and back up. The **admin** token alone can restore or delete data; keep it in your password manager. The server keeps only their SHA-256. Restore and destroy also need a person at a terminal typing a confirmation, and delete only what the file no longer has, after a last backup.
 
 ## Isolation
 
-Each project has its own Docker networks: an app reaches its project's apps, databases and caches, never another project's. Each database has its own PostgreSQL role, and each cache its own server and password. On a shared panel, every page, API call and MCP tool finds only what the signed-in user owns; anything else answers as if it didn't exist.
+hakobu runs as the unprivileged `hakobu` user, in a sandboxed systemd unit, and [rootless Docker](https://docs.docker.com/engine/security/rootless/) as another, `hakobu-docker`: neither a break-in into hakobu nor a container escape gets root, and an escape can't read hakobu's data. Containers run with `no-new-privileges` and without raw sockets. Each project has its own Docker network; each database its own PostgreSQL user, and each cache its own server and password.
 
-hakobu runs as the unprivileged `hakobu` user, and [rootless Docker](https://docs.docker.com/engine/security/rootless/) as another one, `hakobu-docker`: neither a break-in into hakobu nor a container escape gets root on the server, and an escape can't read hakobu's data. Containers run with `no-new-privileges` and without raw sockets.
+## Secrets and backups
 
-## Secrets
+Sealed with age to the server's key and yours: see [Secrets](https://hakobu.dev/docs/secrets/index.md) and [Backups](https://hakobu.dev/docs/backups/index.md). The repository, the registry and the backup buckets hold nothing readable without one of the two keys. Backup copies go with a key that may only write.
 
-Variables, database and cache passwords, storage keys and tokens, but also build logs, worker commands and your apps' errors and logs, are encrypted in the panel's database with a master key kept apart from the data. Without the key nothing secret can be read, and hakobu refuses to start rather than make a new key over data it can't read.
+## What's beyond it
 
-[Sealed variables](https://hakobu.dev/docs/variables/index.md) are never shown again, not even to you.
-
-**Settings → Security → Replace all secrets** gives every database and cache a new password, every app a new Sentry key, every tunnel a new token, signs everyone out, disconnects AI apps and rotates the master key; it lists what only you can replace (the GitHub App's key, the Cloudflare token).
-
-## Backups
-
-Sealed by each server's own key, which the panel never has: see [Backups and recovery](https://hakobu.dev/docs/backups/index.md). A leak of the panel's database, the backup bucket or the panel's disk exposes nothing of them. A malicious operator of a panel still commands its servers; a self-hosted panel is the way not to trust one.
+The release image is trusted as it comes: whoever can push to its tag deploys to the server. Guard the registry, and CI's ability to push, as you would SSH. A malicious app can read its own secrets and its own databases, as any app can.
 
 ## Releases
 
-Signed, and installed only by a root service that checks the signature: see [Updates](https://hakobu.dev/docs/updates/index.md).
+Signed, and installed only after checking the signature: see [Updates](https://hakobu.dev/docs/updates/index.md).
 
 ## Reporting a problem
 

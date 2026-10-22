@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Servers · hakobu docs</title>
-<meta name="description" content="One panel runs projects on several servers: yours, or a client&#39;s. A self-hosted panel&#39;s own server runs projects too; the hosted panel&#39;s runs none.">
+<title>Server config · hakobu docs</title>
+<meta name="description" content="A server is configured in /etc/hakobu/server.toml, readable by hakobu alone. The installer writes the first part; the rest you add (or pass to the installer as HAKOBU_CONFIG_EXTRA), then sudo…">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/style.css?v=ee910246">
@@ -27,24 +27,19 @@
     <nav class="docs-nav" aria-label="Documentation">
       <div class="docs-nav-section">Getting started</div>
       <a href="/docs/">Introduction</a>
-      <a href="/docs/hosted/">Hosted panel</a>
-      <a href="/docs/install/">Self-hosting</a>
-      <div class="docs-nav-section">Guides</div>
-      <a href="/docs/apps/">Apps</a>
-      <a href="/docs/apps-calling-apps/">Apps calling apps</a>
-      <a href="/docs/variables/">Variables and secrets</a>
+      <a href="/docs/install/">A server</a>
+      <a href="/docs/project/">A project</a>
+      <div class="docs-nav-section">Reference</div>
+      <a href="/docs/hakobu-toml/">hakobu.toml</a>
+      <a href="/docs/secrets/">Secrets</a>
+      <a href="/docs/deploys/">Deploys and CI</a>
       <a href="/docs/databases/">Databases</a>
-      <a href="/docs/caches/">Caches</a>
-      <a href="/docs/storages/">Storages</a>
-      <a href="/docs/volumes/">Volumes</a>
-      <a href="/docs/observability/">Errors, logs and alerts</a>
-      <a href="/docs/claude/">Claude (MCP)</a>
+      <a href="/docs/agents/">Agents (Claude Code, MCP)</a>
       <div class="docs-nav-section">Operating</div>
-      <a href="/docs/servers/" aria-current="page">Servers</a>
-      <a href="/docs/cloudflare/">Cloudflare accounts</a>
+      <a href="/docs/servers/" aria-current="page">Server config</a>
       <a href="/docs/backups/">Backups and recovery</a>
+      <a href="/docs/alerts/">Alerts and audit</a>
       <a href="/docs/updates/">Updates</a>
-      <a href="/docs/sharing/">Sharing a panel</a>
       <a href="/docs/security/">Security</a>
       <div class="docs-nav-section">Contributing</div>
       <a href="/docs/development/">Development</a>
@@ -53,85 +48,131 @@
   <main class="docs-main">
     <article class="prose">
       <div class="docs-head">
-        <h1>Servers</h1>
+        <h1>Server config</h1>
         <div class="docs-md">
           <button type="button" class="btn btn-sm" id="copy-md">Copy as Markdown</button>
           <a class="btn btn-sm" href="index.md">View as Markdown</a>
         </div>
       </div>
-      <p>One panel runs projects on several servers: yours, or a client's. A self-hosted panel's own server runs projects too; the hosted panel's runs none.</p>
-<h2 id="add-a-server">Add a server</h2>
-<p>Under <strong>Settings → Servers</strong>, add one and run the command it shows on the new server, as root:</p>
-<pre><code class="language-bash">curl -fsSL https://hakobu.dev/install.sh | sudo HAKOBU_PANEL=https://hakobu.example.com HAKOBU_JOIN_TOKEN=… bash
+      <p>A server is configured in <code>/etc/hakobu/server.toml</code>, readable by hakobu alone. The installer writes the first part; the rest you add (or pass to the installer as <code>HAKOBU_CONFIG_EXTRA</code>), then <code>sudo systemctl restart hakobu</code>. Like <code>hakobu.toml</code>, it's strict: an unknown key stops hakobu from starting, and <code>journalctl -u hakobu</code> says why.</p>
+<pre><code class="language-toml">name = &quot;kasl-1&quot;
+listen = &quot;100.101.102.103:7070&quot;
+owner_key = &quot;age1…&quot;
+operator_token_sha256 = &quot;…&quot;
+admin_token_sha256 = &quot;…&quot;
+
+releases = [&quot;ghcr.io/kasl/crm:main&quot;, &quot;ghcr.io/kasl/site:main&quot;]
+
+[registries.&quot;ghcr.io&quot;]
+username = &quot;kasl&quot;
+password = &quot;github_pat_…&quot;
+
+[ingress]
+mode = &quot;public&quot;
+email = &quot;you@example.com&quot;
+
+[backups]
+at = &quot;03:00&quot;
+[backups.primary]
+endpoint = &quot;https://ACCOUNT.r2.cloudflarestorage.com&quot;
+region = &quot;auto&quot;
+bucket = &quot;kasl-backups&quot;
+access_key = &quot;…&quot;
+secret_key = &quot;…&quot;
+[[backups.copies]]
+name = &quot;hetzner&quot;
+endpoint = &quot;https://fsn1.your-objectstorage.com&quot;
+region = &quot;fsn1&quot;
+bucket = &quot;kasl-backups-copy&quot;
+access_key = &quot;…&quot;   # a key that can only write
+secret_key = &quot;…&quot;
+
+[alerts]
+pulse_url = &quot;https://hc-ping.com/…&quot;
+pulse_fail_url = &quot;https://hc-ping.com/…/fail&quot;
+allow_ports = [22]
+[alerts.smtp]
+host = &quot;smtp.example.com&quot;
+port = 465
+username = &quot;…&quot;
+password = &quot;…&quot;
+from = &quot;hakobu@example.com&quot;
+to = &quot;you@example.com&quot;
 </code></pre>
-<p>It installs Docker and hakobu there and joins the panel; the token works once, within an hour.</p>
-<p>The pencil next to a server renames it. The name is only a label: its projects, keys and tunnels stay with it, and its tunnels in Cloudflare take the new name.</p>
-<p>The server needs no open port: it connects to the panel through the panel's tunnel, and what goes between them is encrypted end to end, so Cloudflare doesn't see the variables and passwords it carries.</p>
-<h2 id="usage-and-disk">Usage and disk</h2>
-<p>Each server's row shows how full its disk is (Docker's, where the databases, volumes, images and logs are), and <strong>Usage</strong> under it charts its CPU, memory, load and disk. The owner is emailed when the disk passes 80% and 90%, and when it fills fast enough to be full within 2 hours: a table or a log growing out of hand fills a disk in under an hour. Claude sees the same through <code>get_metrics</code> with <code>target: server</code>.</p>
-<h2 id="when-a-disk-fills">When a disk fills</h2>
-<p>Each server keeps a reserve of 1 GB (2% of a small disk) in <code>/opt/hakobu/data/disk-reserve</code>, on the same disk as Docker's data. When under 256 MB are left or the disk is 98% full, hakobu deletes it, so the databases, the logs and hakobu itself can write again while you find the cause, and makes it again once the disk has room. Then:</p>
-<ol>
-<li>Find what grew: a database's page (or Claude's <code>get_database</code>) shows its size, its growth over the last hour and day and its largest tables, with their dead rows; <strong>Usage</strong> under the server charts its disk.</li>
-<li>Stop what makes it grow: the app's job, or the app itself (<strong>Settings → Danger zone → Stop app</strong>).</li>
-<li>Give the space back. A table bloated by updates shrinks with <code>VACUUM FULL &lt;table&gt;</code> (it locks the table while it rewrites it, and needs room for the table's live rows: the reserve is for that). hakobu already drops unused build cache and old images daily; <code>docker system df</code> (below) shows what else takes room. Don't run <code>docker system prune</code>: it deletes stopped containers, a stopped app's among them.</li>
-</ol>
-<p>hakobu runs its own rootless Docker, which a plain <code>docker</code> on the server doesn't see. As root, <code>/opt/hakobu/hakobu docker …</code> runs docker against it:</p>
-<pre><code class="language-bash">/opt/hakobu/hakobu docker ps
-/opt/hakobu/hakobu docker exec -it hakobu-postgres psql -U postgres -d db_2
-/opt/hakobu/hakobu docker system df
-</code></pre>
-<h2 id="projects-on-a-server">Projects on a server</h2>
-<p>A project is put on a server when it's made; it can move only while it has no apps or databases. Its apps, databases, caches and volumes run there, reached through a tunnel of their Cloudflare account on that server, and its backups go from that server straight to R2 through URLs the panel signs for each part.</p>
-<p>A server gets nothing of the panel's: not its master key or tokens, and for builds a GitHub token for the one repository.</p>
-<h2 id="server-keys">Server keys</h2>
-<p>Each server has keys of its own, which the panel never sees: they seal its backups and its apps' telemetry. Keep a copy away from the server; the panel asks for it (Settings → Servers, and by email) until you run, on the server,</p>
-<pre><code class="language-bash">cd /opt/hakobu &amp;&amp; sudo ./hakobu key export &gt; ~/hakobu-$(hostname).key
-</code></pre>
-<p>A new server takes a lost one's keys with <code>HAKOBU_NODE_KEYS=&lt;that file&gt;</code> next to the join command, or later with <code>sudo ./hakobu key import &lt;file&gt;</code> and a restart. A key that's replaced stays in the server's keyring, so what it sealed still opens.</p>
-<blockquote>
-<p>Without its key, a lost server's backups can't be opened by anyone: not you, not the panel.</p>
-</blockquote>
+<h2 id="keys">Keys</h2>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td>the server's name; a project's <code>server</code> must match it</td>
+</tr>
+<tr>
+<td><code>listen</code></td>
+<td>the API's address, on the tailnet; an address on every interface is refused</td>
+</tr>
+<tr>
+<td><code>data_dir</code></td>
+<td>default <code>/var/lib/hakobu</code>: the key, state, deploy history, dumps</td>
+</tr>
+<tr>
+<td><code>owner_key</code></td>
+<td>your age public key</td>
+</tr>
+<tr>
+<td><code>operator_token_sha256</code>, <code>admin_token_sha256</code></td>
+<td>the tokens' SHA-256 (<code>hakobu server token</code> makes a new pair)</td>
+</tr>
+<tr>
+<td><code>releases</code></td>
+<td>the release images to deploy, one a project, by tag</td>
+</tr>
+<tr>
+<td><code>poll_every</code></td>
+<td>how often to check them; default <code>30s</code></td>
+</tr>
+<tr>
+<td><code>registries.&quot;HOST&quot;</code></td>
+<td><code>username</code> and <code>password</code> to pull from a registry</td>
+</tr>
+<tr>
+<td><code>ingress</code></td>
+<td><code>mode</code> (<code>public</code> or <code>tunnel</code>), <code>email</code> (Let's Encrypt's contact), <code>listen</code> (for <code>tunnel</code>, on loopback; default <code>127.0.0.1:8080</code>)</td>
+</tr>
+<tr>
+<td><code>backups</code></td>
+<td><code>at</code> (UTC, default <code>03:00</code>), <code>keep_daily</code> (7), <code>keep_weekly</code> (4), <code>primary</code> and <code>copies</code>: see <a href="/docs/backups/">Backups</a></td>
+</tr>
+<tr>
+<td><code>alerts</code></td>
+<td><code>smtp</code>, <code>pulse_url</code>, <code>pulse_fail_url</code>, <code>allow_ports</code>: see <a href="/docs/alerts/">Alerts</a></td>
+</tr>
+</tbody>
+</table>
+<p>A bucket has <code>endpoint</code>, <code>region</code>, <code>bucket</code>, <code>access_key</code>, <code>secret_key</code>, and <code>prefix</code> (default <code>hakobu/NAME/</code>); copies have a <code>name</code>.</p>
 <h2 id="tailscale">Tailscale</h2>
-<p>A server in your tailnet gives its apps the tailnet: they reach its devices by their 100.x addresses, a database at home or an agent on someone's PC, with no sidecar and nothing in the app. Tailscale runs on the server itself, and the containers go through it like the server does.</p>
-<ol>
-<li>
-<p>In Tailscale, on the <a href="https://console.tailscale.com/admin/settings/trust-credentials">Trust credentials</a> page, add an OAuth credential with Write on <code>auth_keys</code> and <code>devices:core</code>, and a tag for servers, say <code>tag:hakobu</code>. Your tailnet's policy needs the tag in <code>tagOwners</code>:</p>
-<pre><code class="language-json">&quot;tagOwners&quot;: { &quot;tag:hakobu&quot;: [&quot;autogroup:admin&quot;] }
+<p>The API listens on the server's tailnet address only. In your tailnet's policy, let your own devices reach the server's tag on port 7070; nothing else needs to. The installer leaves Tailscale's SSH, routes and DNS off.</p>
+<h2 id="from-your-laptop">From your laptop</h2>
+<pre><code class="language-bash">hakobu server add kasl-1 http://100.101.102.103:7070   # the operator token on stdin
+hakobu server list
+hakobu status              # every server
+hakobu --server kasl-1 deploys
 </code></pre>
-</li>
-<li>
-<p>Paste its client ID and secret in <strong>Settings → Tailscale</strong>, with the tag and a name of yours for the tailnet. Connect each tailnet you have servers for this way, yours and a client's say.</p>
-</li>
-<li>
-<p><strong>Connect to tailnet</strong> on a server's row: pick the tailnet and, if it's to be told apart from your other servers there, a tag. hakobu installs Tailscale there if it isn't, and the server joins as <code>hakobu-&lt;server&gt;</code> with that tag, for good: it stays while it's off. The row then shows its 100.x address.</p>
-</li>
-</ol>
-<p>What a server may reach is up to your tailnet's policy, by its tag. Servers whose apps need different things get tags of their own, which the OAuth client's tag owns:</p>
-<pre><code class="language-json">&quot;tagOwners&quot;: {
-  &quot;tag:hakobu&quot;: [&quot;autogroup:admin&quot;],
-  &quot;tag:crm-server&quot;: [&quot;tag:hakobu&quot;]
-},
-&quot;grants&quot;: [
-  { &quot;src&quot;: [&quot;tag:crm-server&quot;], &quot;dst&quot;: [&quot;tag:agents&quot;], &quot;ip&quot;: [&quot;tcp:8700&quot;, &quot;tcp:41001-41100&quot;] }
-]
-</code></pre>
-<p>A server already in the tailnet keeps its tag: to change it, <strong>Disconnect</strong> and connect again with the new one.</p>
-<p>Apps reach devices by address, not by name: there's no MagicDNS in their containers. A server already in a tailnet you connected, put there by hand, is found by its address; <strong>Disconnect</strong> logs it out and removes it from the tailnet.</p>
-<p>The server's Tailscale accepts no routes or DNS from the tailnet, offers no SSH and is nobody's exit node: hakobu runs it that way whatever it's asked. A server that's an Incus container needs <code>/dev/net/tun</code> first, which its row says how to give it.</p>
 
     </article>
-    <nav class="docs-pager" aria-label="Pages"><a class="docs-prev" href="/docs/claude/"><span>Previous</span>Claude (MCP)</a><a class="docs-next" href="/docs/cloudflare/"><span>Next</span>Cloudflare accounts</a>
+    <nav class="docs-pager" aria-label="Pages"><a class="docs-prev" href="/docs/agents/"><span>Previous</span>Agents (Claude Code, MCP)</a><a class="docs-next" href="/docs/backups/"><span>Next</span>Backups and recovery</a>
     </nav>
   </main>
   <aside class="docs-toc">
     <div class="docs-toc-title">On this page</div>
-    <a href="#add-a-server" class="toc-2">Add a server</a>
-    <a href="#usage-and-disk" class="toc-2">Usage and disk</a>
-    <a href="#when-a-disk-fills" class="toc-2">When a disk fills</a>
-    <a href="#projects-on-a-server" class="toc-2">Projects on a server</a>
-    <a href="#server-keys" class="toc-2">Server keys</a>
+    <a href="#keys" class="toc-2">Keys</a>
     <a href="#tailscale" class="toc-2">Tailscale</a>
+    <a href="#from-your-laptop" class="toc-2">From your laptop</a>
   </aside>
 </div>
 <footer class="footer">

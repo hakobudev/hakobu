@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Backups and recovery · hakobu docs</title>
-<meta name="description" content="One click in Settings: hakobu creates a private R2 bucket in the Cloudflare account, and from then on backs up every database and volume daily. No S3 keys exist for it: hakobu writes with its…">
+<meta name="description" content="With a bucket in the server&#39;s config, every database and volume on the server is backed up each day at backups.at (UTC). Caches aren&#39;t: they&#39;re caches.">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/style.css?v=ee910246">
@@ -27,24 +27,19 @@
     <nav class="docs-nav" aria-label="Documentation">
       <div class="docs-nav-section">Getting started</div>
       <a href="/docs/">Introduction</a>
-      <a href="/docs/hosted/">Hosted panel</a>
-      <a href="/docs/install/">Self-hosting</a>
-      <div class="docs-nav-section">Guides</div>
-      <a href="/docs/apps/">Apps</a>
-      <a href="/docs/apps-calling-apps/">Apps calling apps</a>
-      <a href="/docs/variables/">Variables and secrets</a>
+      <a href="/docs/install/">A server</a>
+      <a href="/docs/project/">A project</a>
+      <div class="docs-nav-section">Reference</div>
+      <a href="/docs/hakobu-toml/">hakobu.toml</a>
+      <a href="/docs/secrets/">Secrets</a>
+      <a href="/docs/deploys/">Deploys and CI</a>
       <a href="/docs/databases/">Databases</a>
-      <a href="/docs/caches/">Caches</a>
-      <a href="/docs/storages/">Storages</a>
-      <a href="/docs/volumes/">Volumes</a>
-      <a href="/docs/observability/">Errors, logs and alerts</a>
-      <a href="/docs/claude/">Claude (MCP)</a>
+      <a href="/docs/agents/">Agents (Claude Code, MCP)</a>
       <div class="docs-nav-section">Operating</div>
-      <a href="/docs/servers/">Servers</a>
-      <a href="/docs/cloudflare/">Cloudflare accounts</a>
+      <a href="/docs/servers/">Server config</a>
       <a href="/docs/backups/" aria-current="page">Backups and recovery</a>
+      <a href="/docs/alerts/">Alerts and audit</a>
       <a href="/docs/updates/">Updates</a>
-      <a href="/docs/sharing/">Sharing a panel</a>
       <a href="/docs/security/">Security</a>
       <div class="docs-nav-section">Contributing</div>
       <a href="/docs/development/">Development</a>
@@ -59,35 +54,39 @@
           <a class="btn btn-sm" href="index.md">View as Markdown</a>
         </div>
       </div>
-      <h2 id="turning-backups-on">Turning backups on</h2>
-<p>One click in <strong>Settings</strong>: hakobu creates a private R2 bucket in the Cloudflare account, and from then on backs up every <a href="/docs/databases/">database</a> and <a href="/docs/volumes/">volume</a> daily. No S3 keys exist for it: hakobu writes with its Cloudflare token.</p>
-<h2 id="what-a-backup-is">What a backup is</h2>
+      <p>With a bucket in the <a href="/docs/servers/">server's config</a>, every database and volume on the server is backed up each day at <code>backups.at</code> (UTC). Caches aren't: they're caches.</p>
+<h2 id="each-backup-is">Each backup is</h2>
 <ul>
-<li><strong>Sealed</strong> by the server the data lives on, with that server's own key, which the panel never has. A leak of the panel's database, of the bucket or of the panel's disk exposes nothing.</li>
-<li><strong>Checked</strong>: its SHA-256 is kept and verified before a restore, and it's restored into a scratch database (or read back, for a volume) right after upload.</li>
-<li><strong>Locked</strong> for 7 days by the bucket's lock, even against a bug in hakobu. It doesn't stop someone who has taken over the server: the token can change the lock.</li>
-<li><strong>Rotated</strong>: the last 7, and one a week for a month.</li>
+<li><strong>sealed</strong> with <a href="https://age-encryption.org">age</a> to the server's key and to yours, so the bucket alone reads nothing, and you can open a backup without the server;</li>
+<li><strong>copied</strong>: written to the primary bucket and to each of <code>backups.copies</code>, another provider ideally, with a key that may only write, so a leaked key of the server can't delete the copies;</li>
+<li><strong>proved</strong>: read back from the primary bucket and restored into scratch (a database counts its tables, a volume's archive is read through) before it counts as done;</li>
+<li><strong>rotated</strong>: the last 7 days and one a week for 4 weeks are kept (<code>keep_daily</code>, <code>keep_weekly</code>). A bucket with object lock may refuse a deletion; it's tried again on the next rotation.</li>
 </ul>
-<p>A key that's replaced stays in the server's keyring, so older backups still restore. Keep each server's key away from it: see <a href="/docs/servers/#server-keys">Server keys</a>.</p>
-<h2 id="the-panels-own-backup">The panel's own backup</h2>
-<p>A self-hosted panel backs up its own database to the bucket daily too, sealed with its master key. The key stays off the bucket: download it from <strong>Settings → Security → Download master key</strong> (it asks you to sign in with GitHub again) and keep the file away from the server; download it again after <strong>Replace all secrets</strong>.</p>
-<h2 id="bringing-a-panel-back-on-a-new-server">Bringing a panel back on a new server</h2>
-<pre><code class="language-sh">curl -fsSL https://hakobu.dev/install.sh -o install.sh
-sudo HAKOBU_RESTORE=hakobu-master-key-hakobu.example.com.txt bash install.sh
+<p>There's no catalog to lose: the backups are listed from the primary bucket itself.</p>
+<p>A volume's app and worker are paused for the seconds the archive takes, so files that belong together (SQLite and its journal) are copied as of one moment.</p>
+<p>A failed or unproved backup emails you (see <a href="/docs/alerts/">Alerts</a>).</p>
+<h2 id="commands">Commands</h2>
+<pre><code class="language-bash">hakobu backup              # back up everything now
+hakobu backups crm         # list, newest first, with what reading each back found
 </code></pre>
-<p>It asks for a Cloudflare API token that can read R2 (or takes <code>CLOUDFLARE_API_TOKEN</code>), restores the newest panel backup and starts the panel on its old address, with its tunnel, GitHub App, projects and owner. Then restore each database from its backup page and each volume from its app's page, and redeploy the apps. If the old Cloudflare token was rolled since, run <code>setup --reconnect</code> (see <a href="/docs/install/#if-something-goes-wrong">Self-hosting</a>).</p>
-<p>Caches aren't backed up: a cache's data comes back empty.</p>
+<h2 id="restoring">Restoring</h2>
+<pre><code class="language-bash">hakobu restore crm/main               # a database, from its newest backup
+hakobu restore crm/web/uploads --at 2026-10-20T03:00:12Z
+</code></pre>
+<p>A restore replaces the data, so it needs the admin token (from <code>HAKOBU_ADMIN_TOKEN</code> or typed, hidden) and a person at a terminal: an agent can't run it. The database or volume must exist on the server (deploy the project first).</p>
+<h2 id="before-each-deploy">Before each deploy</h2>
+<p>A deploy with a <code>release</code> command first dumps the databases its app uses, on the server, in <code>/var/lib/hakobu/snapshots</code>: the state just before a migration, if it goes wrong.</p>
 
     </article>
-    <nav class="docs-pager" aria-label="Pages"><a class="docs-prev" href="/docs/cloudflare/"><span>Previous</span>Cloudflare accounts</a><a class="docs-next" href="/docs/updates/"><span>Next</span>Updates</a>
+    <nav class="docs-pager" aria-label="Pages"><a class="docs-prev" href="/docs/servers/"><span>Previous</span>Server config</a><a class="docs-next" href="/docs/alerts/"><span>Next</span>Alerts and audit</a>
     </nav>
   </main>
   <aside class="docs-toc">
     <div class="docs-toc-title">On this page</div>
-    <a href="#turning-backups-on" class="toc-2">Turning backups on</a>
-    <a href="#what-a-backup-is" class="toc-2">What a backup is</a>
-    <a href="#the-panels-own-backup" class="toc-2">The panel&#39;s own backup</a>
-    <a href="#bringing-a-panel-back-on-a-new-server" class="toc-2">Bringing a panel back on a new server</a>
+    <a href="#each-backup-is" class="toc-2">Each backup is</a>
+    <a href="#commands" class="toc-2">Commands</a>
+    <a href="#restoring" class="toc-2">Restoring</a>
+    <a href="#before-each-deploy" class="toc-2">Before each deploy</a>
   </aside>
 </div>
 <footer class="footer">

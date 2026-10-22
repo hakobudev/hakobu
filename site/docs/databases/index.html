@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Databases · hakobu docs</title>
-<meta name="description" content="A database is a PostgreSQL database with a role of its own, in one shared PostgreSQL server on the project&#39;s server. Only its project&#39;s apps reach it.">
+<meta name="description" content="[databases.NAME] in hakobu.toml is a PostgreSQL database with its own user, in the server&#39;s one PostgreSQL, which every project on the server shares. Only the apps that use it get its address and…">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/style.css?v=ee910246">
@@ -27,24 +27,19 @@
     <nav class="docs-nav" aria-label="Documentation">
       <div class="docs-nav-section">Getting started</div>
       <a href="/docs/">Introduction</a>
-      <a href="/docs/hosted/">Hosted panel</a>
-      <a href="/docs/install/">Self-hosting</a>
-      <div class="docs-nav-section">Guides</div>
-      <a href="/docs/apps/">Apps</a>
-      <a href="/docs/apps-calling-apps/">Apps calling apps</a>
-      <a href="/docs/variables/">Variables and secrets</a>
+      <a href="/docs/install/">A server</a>
+      <a href="/docs/project/">A project</a>
+      <div class="docs-nav-section">Reference</div>
+      <a href="/docs/hakobu-toml/">hakobu.toml</a>
+      <a href="/docs/secrets/">Secrets</a>
+      <a href="/docs/deploys/">Deploys and CI</a>
       <a href="/docs/databases/" aria-current="page">Databases</a>
-      <a href="/docs/caches/">Caches</a>
-      <a href="/docs/storages/">Storages</a>
-      <a href="/docs/volumes/">Volumes</a>
-      <a href="/docs/observability/">Errors, logs and alerts</a>
-      <a href="/docs/claude/">Claude (MCP)</a>
+      <a href="/docs/agents/">Agents (Claude Code, MCP)</a>
       <div class="docs-nav-section">Operating</div>
-      <a href="/docs/servers/">Servers</a>
-      <a href="/docs/cloudflare/">Cloudflare accounts</a>
+      <a href="/docs/servers/">Server config</a>
       <a href="/docs/backups/">Backups and recovery</a>
+      <a href="/docs/alerts/">Alerts and audit</a>
       <a href="/docs/updates/">Updates</a>
-      <a href="/docs/sharing/">Sharing a panel</a>
       <a href="/docs/security/">Security</a>
       <div class="docs-nav-section">Contributing</div>
       <a href="/docs/development/">Development</a>
@@ -59,44 +54,35 @@
           <a class="btn btn-sm" href="index.md">View as Markdown</a>
         </div>
       </div>
-      <p>A database is a PostgreSQL database with a role of its own, in one shared PostgreSQL server on the project's server. Only its project's apps reach it.</p>
-<h2 id="create-and-link">Create and link</h2>
-<p><strong>New → Database</strong> on the project's page. Link it to an app in the app's <strong>Settings → Resources</strong>: the app gets <code>DATABASE_URL</code>, <code>POSTGRES_HOST</code>, <code>POSTGRES_PORT</code>, <code>POSTGRES_DB</code>, <code>POSTGRES_USER</code> and <code>POSTGRES_PASSWORD</code> on its next deploy. The password is generated.</p>
-<h2 id="shared-memory">Shared memory</h2>
-<p>PostgreSQL keeps the memory of parallel queries, hashes and sorts in <code>/dev/shm</code>. Docker gives a container 64 MB of it, too little for a large query, which then fails with <code>could not resize shared memory segment … No space left on device</code>. hakobu gives the PostgreSQL server a quarter of the server's RAM, up to 1 GB; it's memory only while a query uses it. The database's page shows the server's PostgreSQL version and its shared memory.</p>
-<p>A PostgreSQL server made by an older hakobu has Docker's 64 MB, and Docker can't change it in place: when such a server comes up after updating (the panel's own server as the panel starts, any other as it connects), hakobu stops PostgreSQL cleanly and makes its container anew with the same data. Apps lose their database connections for those few seconds, once. It waits while a backup or restore runs. <code>dynamic_shared_memory_type</code> is left as PostgreSQL's default, <code>posix</code>; don't change it with <code>ALTER SYSTEM</code>, or the larger <code>/dev/shm</code> goes unused.</p>
-<h2 id="size-and-tables">Size and tables</h2>
-<p>The database's page shows its size, how much it grew over the last hour and day (from the checks every 30 seconds), and its ten largest tables: their size with indexes and TOAST (where PostgreSQL keeps long values), live rows, dead rows and when they were last vacuumed. Many more dead rows than live ones means rows are updated faster than autovacuum clears their old versions: a table rewritten in place over and over grows until it fills the disk. Claude sees the same through <code>get_database</code>.</p>
-<h2 id="backups">Backups</h2>
-<p>With backups on (one click in <strong>Settings</strong>), every database is backed up daily to a private R2 bucket hakobu creates in your Cloudflare account. Each backup is:</p>
-<ul>
-<li><strong>sealed</strong> by the server the database runs on, with that server's own key, which the panel never has;</li>
-<li><strong>checked</strong>: its SHA-256 is kept and verified before a restore, and it's restored into a scratch database right after upload, counting its tables;</li>
-<li><strong>locked</strong> for 7 days by the bucket, even against a bug in hakobu;</li>
-<li><strong>rotated</strong>: the last 7 are kept, and one a week for a month.</li>
-</ul>
-<p>The database's page lists its backups, makes one now, checks one again and restores one. See <a href="/docs/backups/">Backups and recovery</a> for the whole picture.</p>
-<h2 id="rollback-with-data">Rollback with data</h2>
-<p>Before each deploy of an app, its database is snapshotted on the server. <strong>Rollback with data</strong> puts the snapshot back with the build before, so a migration that went wrong is undone. Rows written since are lost.</p>
-<h2 id="moving-a-database-in">Moving a database in</h2>
-<p>A database from another host comes in as a backup of a hakobu database. With backups on, on the panel's server:</p>
-<pre><code class="language-bash">ssh old-host 'pg_dump -Fc -U postgres mydb' | (cd /opt/hakobu &amp;&amp; sudo -u hakobu ./hakobu database import shop/mydb -)
+      <p><code>[databases.NAME]</code> in <a href="/docs/hakobu-toml/">hakobu.toml</a> is a PostgreSQL database with its own user, in the server's one PostgreSQL, which every project on the server shares. Only the apps that <code>use</code> it get its address and password; the password is made on the server.</p>
+<pre><code class="language-toml">[apps.web]
+uses = [&quot;main&quot;]
+
+[databases.main]
 </code></pre>
-<p>naming the database by its project, <code>shop</code>; when several users have a project of that name, <code>--user &lt;GitHub login&gt;</code> says whose. The running panel takes the dump and seals it on the database's server, so hakobu must be running and that server connected.</p>
-<p>Only pg_dump's custom format (<code>-Fc</code>) is taken. On the database's page, <strong>Check</strong> restores the dump into a scratch database and counts its tables; <strong>Restore</strong> replaces the database's data with it (objects become the database role's, grants are dropped). A restore that fails changes nothing, so a trial move and the real one later are the same two steps.</p>
+<p>The app gets <code>DATABASE_URL</code> (<code>postgres://…</code>), <code>POSTGRES_HOST</code>, <code>POSTGRES_PORT</code>, <code>POSTGRES_DB</code>, <code>POSTGRES_USER</code> and <code>POSTGRES_PASSWORD</code>; with a prefix (<code>uses = { main = &quot;APP&quot; }</code>), <code>APP_DATABASE_URL</code> and so on.</p>
+<h2 id="its-version">Its version</h2>
+<p>The PostgreSQL image is the one this hakobu release pins, for every project on the server: a database has no version of its own.</p>
+<h2 id="shared-memory">Shared memory</h2>
+<p>PostgreSQL keeps the memory of parallel queries, hashes and sorts in <code>/dev/shm</code>, of which Docker gives a container 64 MB, too little for a large query (<code>could not resize shared memory segment … No space left on device</code>). hakobu gives PostgreSQL a quarter of the server's memory, up to 1 GB; it's memory only while a query uses it.</p>
+<h2 id="migrations">Migrations</h2>
+<p>Run them as the app's <code>release</code> command, and keep them backward compatible: see <a href="/docs/deploys/#migrations">Deploys</a>. Before each deploy with a <code>release</code>, the databases the app uses are dumped on the server.</p>
+<h2 id="backups">Backups</h2>
+<p>Every database is backed up daily, sealed, checked by a restore into scratch, and kept 7 days plus 4 weeks: see <a href="/docs/backups/">Backups and recovery</a>.</p>
+<h2 id="deleting-one">Deleting one</h2>
+<p>Removing it from the file keeps it, orphaned. <code>hakobu destroy PROJECT/NAME</code> deletes it after a last backup, with the admin token, at a terminal, typing its name to confirm.</p>
 
     </article>
-    <nav class="docs-pager" aria-label="Pages"><a class="docs-prev" href="/docs/variables/"><span>Previous</span>Variables and secrets</a><a class="docs-next" href="/docs/caches/"><span>Next</span>Caches</a>
+    <nav class="docs-pager" aria-label="Pages"><a class="docs-prev" href="/docs/deploys/"><span>Previous</span>Deploys and CI</a><a class="docs-next" href="/docs/agents/"><span>Next</span>Agents (Claude Code, MCP)</a>
     </nav>
   </main>
   <aside class="docs-toc">
     <div class="docs-toc-title">On this page</div>
-    <a href="#create-and-link" class="toc-2">Create and link</a>
+    <a href="#its-version" class="toc-2">Its version</a>
     <a href="#shared-memory" class="toc-2">Shared memory</a>
-    <a href="#size-and-tables" class="toc-2">Size and tables</a>
+    <a href="#migrations" class="toc-2">Migrations</a>
     <a href="#backups" class="toc-2">Backups</a>
-    <a href="#rollback-with-data" class="toc-2">Rollback with data</a>
-    <a href="#moving-a-database-in" class="toc-2">Moving a database in</a>
+    <a href="#deleting-one" class="toc-2">Deleting one</a>
   </aside>
 </div>
 <footer class="footer">

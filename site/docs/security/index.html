@@ -27,24 +27,19 @@
     <nav class="docs-nav" aria-label="Documentation">
       <div class="docs-nav-section">Getting started</div>
       <a href="/docs/">Introduction</a>
-      <a href="/docs/hosted/">Hosted panel</a>
-      <a href="/docs/install/">Self-hosting</a>
-      <div class="docs-nav-section">Guides</div>
-      <a href="/docs/apps/">Apps</a>
-      <a href="/docs/apps-calling-apps/">Apps calling apps</a>
-      <a href="/docs/variables/">Variables and secrets</a>
+      <a href="/docs/install/">A server</a>
+      <a href="/docs/project/">A project</a>
+      <div class="docs-nav-section">Reference</div>
+      <a href="/docs/hakobu-toml/">hakobu.toml</a>
+      <a href="/docs/secrets/">Secrets</a>
+      <a href="/docs/deploys/">Deploys and CI</a>
       <a href="/docs/databases/">Databases</a>
-      <a href="/docs/caches/">Caches</a>
-      <a href="/docs/storages/">Storages</a>
-      <a href="/docs/volumes/">Volumes</a>
-      <a href="/docs/observability/">Errors, logs and alerts</a>
-      <a href="/docs/claude/">Claude (MCP)</a>
+      <a href="/docs/agents/">Agents (Claude Code, MCP)</a>
       <div class="docs-nav-section">Operating</div>
-      <a href="/docs/servers/">Servers</a>
-      <a href="/docs/cloudflare/">Cloudflare accounts</a>
+      <a href="/docs/servers/">Server config</a>
       <a href="/docs/backups/">Backups and recovery</a>
+      <a href="/docs/alerts/">Alerts and audit</a>
       <a href="/docs/updates/">Updates</a>
-      <a href="/docs/sharing/">Sharing a panel</a>
       <a href="/docs/security/" aria-current="page">Security</a>
       <div class="docs-nav-section">Contributing</div>
       <a href="/docs/development/">Development</a>
@@ -60,32 +55,32 @@
         </div>
       </div>
       <p>What hakobu does to keep your apps and data yours, and what it doesn't promise.</p>
-<h2 id="nothing-open">Nothing open</h2>
-<p>Servers need no public IP and no open port. Apps are served through a Cloudflare Tunnel; servers connect to the panel through the panel's tunnel, end to end encrypted. cloudflared runs in its own container and sends app traffic straight to the app's container.</p>
+<h2 id="nothing-comes-in">Nothing comes in</h2>
+<p>The server pulls its releases; no CI, panel or agent connects to it. hakobu's API listens on the tailnet only (an address on every interface is refused), and the web reaches apps only through 80/443 for their own domains, or a Cloudflare Tunnel with no port open at all. The <a href="/docs/alerts/">audit</a> emails you about any other port that listens.</p>
+<h2 id="two-tokens">Two tokens</h2>
+<p>The <strong>operator</strong> token (laptop, agent) can look, deploy, roll back and back up. The <strong>admin</strong> token alone can restore or delete data; keep it in your password manager. The server keeps only their SHA-256. Restore and destroy also need a person at a terminal typing a confirmation, and delete only what the file no longer has, after a last backup.</p>
 <h2 id="isolation">Isolation</h2>
-<p>Each project has its own Docker networks: an app reaches its project's apps, databases and caches, never another project's. Each database has its own PostgreSQL role, and each cache its own server and password. On a shared panel, every page, API call and MCP tool finds only what the signed-in user owns; anything else answers as if it didn't exist.</p>
-<p>hakobu runs as the unprivileged <code>hakobu</code> user, and <a href="https://docs.docker.com/engine/security/rootless/">rootless Docker</a> as another one, <code>hakobu-docker</code>: neither a break-in into hakobu nor a container escape gets root on the server, and an escape can't read hakobu's data. Containers run with <code>no-new-privileges</code> and without raw sockets.</p>
-<h2 id="secrets">Secrets</h2>
-<p>Variables, database and cache passwords, storage keys and tokens, but also build logs, worker commands and your apps' errors and logs, are encrypted in the panel's database with a master key kept apart from the data. Without the key nothing secret can be read, and hakobu refuses to start rather than make a new key over data it can't read.</p>
-<p><a href="/docs/variables/#sealed-variables">Sealed variables</a> are never shown again, not even to you.</p>
-<p><strong>Settings → Security → Replace all secrets</strong> gives every database and cache a new password, every app a new Sentry key, every tunnel a new token, signs everyone out, disconnects AI apps and rotates the master key; it lists what only you can replace (the GitHub App's key, the Cloudflare token).</p>
-<h2 id="backups">Backups</h2>
-<p>Sealed by each server's own key, which the panel never has: see <a href="/docs/backups/">Backups and recovery</a>. A leak of the panel's database, the backup bucket or the panel's disk exposes nothing of them. A malicious operator of a panel still commands its servers; a self-hosted panel is the way not to trust one.</p>
+<p>hakobu runs as the unprivileged <code>hakobu</code> user, in a sandboxed systemd unit, and <a href="https://docs.docker.com/engine/security/rootless/">rootless Docker</a> as another, <code>hakobu-docker</code>: neither a break-in into hakobu nor a container escape gets root, and an escape can't read hakobu's data. Containers run with <code>no-new-privileges</code> and without raw sockets. Each project has its own Docker network; each database its own PostgreSQL user, and each cache its own server and password.</p>
+<h2 id="secrets-and-backups">Secrets and backups</h2>
+<p>Sealed with age to the server's key and yours: see <a href="/docs/secrets/">Secrets</a> and <a href="/docs/backups/">Backups</a>. The repository, the registry and the backup buckets hold nothing readable without one of the two keys. Backup copies go with a key that may only write.</p>
+<h2 id="whats-beyond-it">What's beyond it</h2>
+<p>The release image is trusted as it comes: whoever can push to its tag deploys to the server. Guard the registry, and CI's ability to push, as you would SSH. A malicious app can read its own secrets and its own databases, as any app can.</p>
 <h2 id="releases">Releases</h2>
-<p>Signed, and installed only by a root service that checks the signature: see <a href="/docs/updates/#signed-releases">Updates</a>.</p>
+<p>Signed, and installed only after checking the signature: see <a href="/docs/updates/#signed-releases">Updates</a>.</p>
 <h2 id="reporting-a-problem">Reporting a problem</h2>
 <p>Found a vulnerability? Please report it privately through <a href="https://github.com/hakobudev/hakobu/security/advisories/new">GitHub's security advisories</a> rather than in an issue.</p>
 
     </article>
-    <nav class="docs-pager" aria-label="Pages"><a class="docs-prev" href="/docs/sharing/"><span>Previous</span>Sharing a panel</a><a class="docs-next" href="/docs/development/"><span>Next</span>Development</a>
+    <nav class="docs-pager" aria-label="Pages"><a class="docs-prev" href="/docs/updates/"><span>Previous</span>Updates</a><a class="docs-next" href="/docs/development/"><span>Next</span>Development</a>
     </nav>
   </main>
   <aside class="docs-toc">
     <div class="docs-toc-title">On this page</div>
-    <a href="#nothing-open" class="toc-2">Nothing open</a>
+    <a href="#nothing-comes-in" class="toc-2">Nothing comes in</a>
+    <a href="#two-tokens" class="toc-2">Two tokens</a>
     <a href="#isolation" class="toc-2">Isolation</a>
-    <a href="#secrets" class="toc-2">Secrets</a>
-    <a href="#backups" class="toc-2">Backups</a>
+    <a href="#secrets-and-backups" class="toc-2">Secrets and backups</a>
+    <a href="#whats-beyond-it" class="toc-2">What&#39;s beyond it</a>
     <a href="#releases" class="toc-2">Releases</a>
     <a href="#reporting-a-problem" class="toc-2">Reporting a problem</a>
   </aside>

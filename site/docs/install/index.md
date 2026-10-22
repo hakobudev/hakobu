@@ -1,37 +1,59 @@
-# Self-hosting
+# A server
 
-You need a Linux server and a domain on Cloudflare (the free plan is enough). The server needs no public IP or open ports: everything goes through a Cloudflare Tunnel.
-
-```bash
-curl -fsSL https://hakobu.dev/install.sh | sudo bash
-```
-
-1. The installer shows a Cloudflare link to a new API token of yours with hakobu's permissions filled in: read your domains, manage their DNS records, create a tunnel, keep database backups in R2, email you when something needs you and run a Worker that watches the panel from outside. It's for every account you're a member of: the panel's, and your clients' (see [Cloudflare accounts](https://hakobu.dev/docs/cloudflare/index.md)), so it's the only token you give hakobu. Select **Continue to summary** → **Create Token**, copy the token and paste it into the terminal (it isn't echoed). Or set `CLOUDFLARE_API_TOKEN` before running the installer.
-2. Pick one of your domains from the list and the panel's subdomain (default `hakobu`). hakobu creates the tunnel and a DNS record for the panel, in that domain's account: the panel's account.
-3. Open the printed link, `https://hakobu.example.com/setup?token=…`, click **Connect GitHub** (this registers a GitHub App for your panel; under it you can put the app on an organization and name it, as people see that name when they sign in), sign in with GitHub and you are the admin. Only that link can claim a fresh panel.
-
-Every app then gets its own address in any domain of the account (`app.example.com`, `myapp.dev`, …); hakobu creates and removes the DNS records itself.
-
-## Narrowing the token
-
-Under **Account Resources** and **Zone Resources** you can narrow the token to the accounts and domains hakobu should use: whoever takes over the server gets the token, and with it the DNS of every domain it covers. **Client IP Address Filtering** makes a copy of the token that leaks elsewhere useless: list both of the server's addresses, the IPv6 one as its `/64`, since the server reaches Cloudflare over IPv6 when it has it.
-
-## If something goes wrong
-
-Lost the setup link: `journalctl -u hakobu | grep setup`.
-
-Give hakobu a new Cloudflare token (after rolling it, say):
+One command sets a server up, and asks nothing: everything comes from the environment, so cloud-init or an agent can run it.
 
 ```bash
-cd /opt/hakobu && sudo -u hakobu ./hakobu setup --reconnect
+curl -fsSL https://hakobu.dev/install-v1.sh | sudo \
+  HAKOBU_NAME=kasl-1 \
+  HAKOBU_OWNER_KEY=age1… \
+  TS_AUTHKEY=tskey-auth-… TS_TAGS=tag:hakobu \
+  HAKOBU_INGRESS=public HAKOBU_ACME_EMAIL=you@example.com \
+  bash
 ```
 
-## Email notifications
+It installs rootless Docker (as the user `hakobu-docker`), Tailscale, unattended upgrades, hakobu (its signature checked) as a sandboxed systemd service running as `hakobu`, writes `/etc/hakobu/server.toml` and makes the server's key. Run it again to update: the config, the key and the data stay.
 
-**Settings → Notifications**: enter your address and confirm it from the email Cloudflare sends. See [Errors, logs and alerts](https://hakobu.dev/docs/observability/index.md).
+## Before you start
 
-## Next
+- **Your key.** `age-keygen` makes one; keep the secret half in your password manager and give the public half (`age1…`) as `HAKOBU_OWNER_KEY`. Every secret and backup is sealed to it as well as to the server, so you can open them if the server is gone.
+- **A Tailscale auth key** ([admin console](https://login.tailscale.com/admin/settings/keys)), with the tag you'll give the server. The API listens only on the server's tailnet address. Your tailnet's policy should let your devices reach the tag on port 7070, and nothing else need reach it.
 
-- Add [other servers](https://hakobu.dev/docs/servers/index.md), a client's say.
-- Let friends deploy on your panel: [Sharing a panel](https://hakobu.dev/docs/sharing/index.md).
-- Keep the master key safe: [Backups and recovery](https://hakobu.dev/docs/backups/index.md).
+## Settings
+
+| Variable | |
+|---|---|
+| `HAKOBU_NAME` | the server's name: lowercase letters, digits and `-` |
+| `HAKOBU_OWNER_KEY` | your age public key |
+| `TS_AUTHKEY` | a Tailscale auth key, unless the server is in the tailnet already |
+| `TS_TAGS` | the server's Tailscale tags, `tag:hakobu` say |
+| `HAKOBU_INGRESS` | `public`, `tunnel` or `none` (the default): see below |
+| `HAKOBU_ACME_EMAIL` | Let's Encrypt's contact, for `public` |
+| `CLOUDFLARE_TUNNEL_TOKEN` | the tunnel's token, for `tunnel` |
+| `HAKOBU_CONFIG_EXTRA` | a file whose TOML goes at the end of the config: releases, registries, backups, alerts (see [Server config](https://hakobu.dev/docs/servers/index.md)) |
+| `HAKOBU_VERSION` | a release; default the newest |
+
+## How the web gets in
+
+- **`public`**: hakobu answers ports 80 and 443 itself, with a Let's Encrypt certificate for each app's domain (and only those). Point each domain's DNS at the server.
+- **`tunnel`**: cloudflared runs on the server with your tunnel's token and sends requests to hakobu on loopback; the server needs no open port. In Cloudflare, route each domain of the tunnel to `http://localhost:8080`.
+- **`none`**: apps aren't served to the web; for a server of workers only, or while you set it up.
+
+## The tokens
+
+On a first install it prints two tokens, once:
+
+- the **operator** token, for your laptop and your agent: status, logs, deploy, rollback, backup;
+- the **admin** token, for your password manager only: it alone can restore and delete data.
+
+On your laptop, with the hakobu binary from the [releases](https://github.com/hakobudev/hakobu/releases):
+
+```bash
+hakobu server add kasl-1 http://100.x.y.z:7070   # then paste the operator token
+hakobu status
+```
+
+The installer's output names the API's address. Servers are remembered in `~/.config/hakobu/servers.toml`.
+
+## Back up the server's key
+
+`/var/lib/hakobu/key.age` opens the server's secrets and backups. Your own key does too, so losing the server's isn't fatal, but a copy off the server spares you re-sealing secrets on a new one.

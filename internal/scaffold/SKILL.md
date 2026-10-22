@@ -19,7 +19,7 @@ server = "kasl-1"          # the server it deploys to (a guard: another server r
 
 [apps.web]                 # an app: one image, serving HTTP
 path = "."                 # its directory (with a Dockerfile, or one Railpack builds)
-domain = "crm.example.com" # public address; none = reached only by the project's apps
+domain = "crm.example.com" # its address on the web; none = not served
 health = "/up"             # the default; must answer 2xx once it takes requests
 port = 8080                # default: the image's EXPOSE, else $PORT (always set)
 release = "bin/migrate"    # once per deploy, in the new image, before traffic
@@ -39,7 +39,7 @@ memory = "256mb"
 - `uses` a database sets `DATABASE_URL`, `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`; a cache sets `REDIS_URL`, `VALKEY_URL`, `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`. With a prefix, `<PREFIX>_` goes in front. Passwords are made on the server; never put one in the file.
 - The app must listen on `$PORT` (or `port`) on all interfaces, not 127.0.0.1, and answer `health`. A missing health endpoint is the most common failed deploy: add one, or point `health` at a path that answers 2xx without a login.
 - An app with volumes is stopped before its new version starts (a few seconds down), so two versions never write the same files.
-- The PostgreSQL version is the server's, not the project's. Renaming a database or volume in the file doesn't rename it: the old one is kept, orphaned, and a new empty one is made. Don't rename them.
+- The PostgreSQL version is the server's, not the project's. Renaming a volume or cache in the file doesn't rename it: the old one is kept, orphaned, and a new empty one is made; renaming a database stops the deploy. Don't rename them.
 - Removing a database, cache or volume from the file doesn't delete it either. Deleting is `hakobu destroy`, a person's to run.
 
 ## Migrations
