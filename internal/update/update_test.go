@@ -41,6 +41,25 @@ func TestNewer(t *testing.T) {
 	}
 }
 
+func TestUpgrade(t *testing.T) {
+	for _, c := range []struct {
+		tag, current string
+		want         bool
+	}{
+		{"v0.34.2", "v0.34.1", true},
+		{"v0.35.0", "0.34.1", true},
+		{"v1.0.0", "v0.34.1", false},
+		{"v1.0.0", "0.99.99", false},
+		{"v1.2.0", "v1.1.9", true},
+		{"v0.34.1", "v0.34.1", false},
+		{"v1.0.0", "dev", true},
+	} {
+		if got := Upgrade(c.tag, c.current); got != c.want {
+			t.Errorf("Upgrade(%q, %q) = %v", c.tag, c.current, got)
+		}
+	}
+}
+
 // fakeRelease serves releases signed with a key of the test's own.
 type fakeRelease struct {
 	priv  ed25519.PrivateKey

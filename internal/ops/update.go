@@ -97,7 +97,7 @@ func Updates(current string) UpdateInfo {
 	// A build from source may have a newer database schema than any
 	// release, which then wouldn't start on it: the panel offers it none.
 	info.FromSource = current != "" && !update.IsRelease(current)
-	info.Available = !info.FromSource && info.Latest != "" && update.Newer(info.Latest, current)
+	info.Available = !info.FromSource && info.Latest != "" && update.Upgrade(info.Latest, current)
 	info.Updater = update.UnitsInstalled("hakobu-update.path")
 	for _, f := range []string{update.RequestFile, update.RollbackRequestFile} {
 		if _, err := os.Stat(f); err == nil {

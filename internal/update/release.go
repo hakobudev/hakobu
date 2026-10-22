@@ -90,6 +90,18 @@ func Newer(tag, current string) bool {
 	return false
 }
 
+// Upgrade reports whether tag is a later release than current in the same
+// major version: v1 shares nothing with v0 (no panel, no database), so a
+// v0 server goes to it only by hand, with update --to.
+func Upgrade(tag, current string) bool {
+	if !Newer(tag, current) {
+		return false
+	}
+	t, _ := parseTag(tag)
+	c, ok := parseTag(current)
+	return !ok || t[0] == c[0]
+}
+
 func parseTag(tag string) ([3]int, bool) {
 	var v [3]int
 	m := tagPattern.FindStringSubmatch("v" + strings.TrimPrefix(tag, "v"))

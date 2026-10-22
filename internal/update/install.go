@@ -131,7 +131,7 @@ func (in *Install) Update(tag string) error {
 			in.setStatus("failed", "", err.Error())
 			return err
 		}
-		if !Newer(latest, in.Version) {
+		if !Upgrade(latest, in.Version) {
 			in.logf("hakobu %s is the latest release", in.Version)
 			in.setStatus("up to date", latest, "")
 			return nil
