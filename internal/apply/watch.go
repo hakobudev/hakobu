@@ -12,7 +12,9 @@ import (
 	"sync"
 	"time"
 
+	"filippo.io/age"
 	"github.com/hakobudev/hakobu/internal/registry"
+	"github.com/hakobudev/hakobu/internal/seal"
 	"github.com/hakobudev/hakobu/internal/spec"
 	"github.com/hakobudev/hakobu/internal/status"
 )
@@ -34,10 +36,14 @@ type Meta struct {
 	Ref      string // the release image, pinned
 	Source   string // the repository's URL
 	Revision string // the commit
+	// StatusToken may set the commit's status (from the project's sealed
+	// [hakobu] secrets); it's never logged.
+	StatusToken string
 }
 
-// ReadRelease reads a release image's labels.
-func ReadRelease(labels map[string]string) (Release, Meta, error) {
+// ReadRelease reads a release image's labels, opening its secrets with
+// the server's key.
+func ReadRelease(labels map[string]string, id age.Identity) (Release, Meta, error) {
 	meta := Meta{Source: labels[LabelSource], Revision: labels[LabelRevision]}
 	text, ok := labels[LabelSpec]
 	if !ok {
@@ -46,11 +52,6 @@ func ReadRelease(labels map[string]string) (Release, Meta, error) {
 	p, err := spec.Parse([]byte(text))
 	if err != nil {
 		return Release{}, meta, fmt.Errorf("hakobu.toml: %w", err)
-	}
-	if strings.TrimSpace(labels[LabelSecrets]) != "" {
-		// Sealed secrets come with stage 3 of v1; deploying without them
-		// would start the apps without their keys.
-		return Release{}, meta, errors.New("the release has secrets, which this hakobu can't open yet")
 	}
 	var images map[string]string
 	if err := json.Unmarshal([]byte(labels[LabelImages]), &images); err != nil {
@@ -72,7 +73,62 @@ func ReadRelease(labels map[string]string) (Release, Meta, error) {
 			errs = append(errs, fmt.Errorf("the release has an image for %s, which hakobu.toml doesn't have", app))
 		}
 	}
-	return Release{Spec: p, Images: images}, meta, errors.Join(errs...)
+	r := Release{Spec: p, Images: images}
+	if sealed := strings.TrimSpace(labels[LabelSecrets]); sealed != "" {
+		secrets, err := openSecrets(sealed, id, p)
+		if err != nil {
+			errs = append(errs, err)
+		}
+		r.Secrets, meta.StatusToken = secrets.Apps, secrets.Hakobu[seal.StatusToken]
+	}
+	if _, err := status.Repo(meta.Source); err == nil && meta.StatusToken == "" {
+		errs = append(errs, fmt.Errorf("%s: no token for the commit status; add one that may set commit statuses on the repository with hakobu secret set hakobu %s", seal.FileName, seal.StatusToken))
+	}
+	return r, meta, errors.Join(errs...)
+}
+
+// openSecrets opens hakobu.secrets.toml and checks it against the spec: a
+// secret of no app, or one that a variable from the file already sets,
+// is a mistake to stop on.
+func openSecrets(text string, id age.Identity, p *spec.Project) (seal.Opened, error) {
+	s, err := seal.Parse([]byte(text))
+	if err != nil {
+		return seal.Opened{}, fmt.Errorf("%s: %w", seal.FileName, err)
+	}
+	if id == nil {
+		return seal.Opened{}, fmt.Errorf("%s: this server has no key to open it", seal.FileName)
+	}
+	o, err := s.Open(id)
+	if err != nil {
+		return o, fmt.Errorf("%s: %w", seal.FileName, err)
+	}
+	var errs []error
+	for _, app := range sortedKeys(o.Apps) {
+		a, ok := p.Apps[app]
+		if !ok {
+			errs = append(errs, fmt.Errorf("%s: apps.%s: hakobu.toml has no such app", seal.FileName, app))
+			continue
+		}
+		taken := map[string]bool{"PORT": true}
+		for k := range a.Env {
+			taken[k] = true
+		}
+		for res, prefix := range a.Uses {
+			kind := "cache"
+			if _, ok := p.Databases[res]; ok {
+				kind = "database"
+			}
+			for _, v := range spec.Vars(kind, prefix) {
+				taken[v] = true
+			}
+		}
+		for _, k := range sortedKeys(o.Apps[app]) {
+			if taken[k] {
+				errs = append(errs, fmt.Errorf("%s: apps.%s.%s: hakobu.toml sets it already", seal.FileName, app, k))
+			}
+		}
+	}
+	return o, errors.Join(errs...)
 }
 
 // Result is one deploy, as deploys.jsonl keeps it.
@@ -96,6 +152,8 @@ type Watch struct {
 	Releases []registry.Ref
 	// Every is the time between polls (default 30 s).
 	Every time.Duration
+	// Identity is the server's key, which opens the releases' secrets.
+	Identity age.Identity
 	// WatchFile keeps the last release applied and failed of each ref;
 	// DeploysFile gets a line for every deploy.
 	WatchFile, DeploysFile string
@@ -205,6 +263,15 @@ func (w *Watch) Rollback(ctx context.Context, ref registry.Ref) (*Result, error)
 	res := Result{At: time.Now().UTC(), Release: pinned}
 	var log strings.Builder
 	release, meta, err := w.fetch(ctx, ref.Pinned(s.Previous))
+	if err == nil && s.Applied != "" {
+		// The code goes back; the secrets stay current, so a key replaced
+		// since doesn't come back with it.
+		current, cmeta, cerr := w.fetch(ctx, ref.Pinned(s.Applied))
+		if cerr != nil {
+			err = fmt.Errorf("reading the current release for its secrets: %w", cerr)
+		}
+		release.Secrets, meta.StatusToken = current.Secrets, cmeta.StatusToken
+	}
 	meta.Ref = pinned
 	res.Source, res.Revision = meta.Source, meta.Revision
 	if err == nil {
@@ -242,7 +309,7 @@ func (w *Watch) fetch(ctx context.Context, ref registry.Ref) (Release, Meta, err
 	if err != nil {
 		return Release{}, Meta{}, err
 	}
-	return ReadRelease(labels)
+	return ReadRelease(labels, w.Identity)
 }
 
 func (w *Watch) load() (map[string]watched, error) {
@@ -325,7 +392,7 @@ func (w *Watch) ReportTo(r status.Reporter) {
 		if m.Source == "" || m.Revision == "" {
 			return
 		}
-		err := r.Report(context.Background(), m.Source, m.Revision, s, desc)
+		err := r.Report(context.Background(), status.Commit{Source: m.Source, Revision: m.Revision, Token: m.StatusToken}, s, desc)
 		if err != nil && !errors.Is(err, status.ErrNotGitHub) {
 			fmt.Fprintln(w.log(), "warning: commit status:", err)
 		}

@@ -14,6 +14,7 @@ import (
 
 	"github.com/hakobudev/hakobu/internal/deploy"
 	"github.com/hakobudev/hakobu/internal/registry"
+	"github.com/hakobudev/hakobu/internal/seal"
 	"github.com/hakobudev/hakobu/internal/status"
 )
 
@@ -67,11 +68,30 @@ func (r *releases) ref(t *testing.T) (*registry.Client, registry.Ref) {
 	return &registry.Client{Insecure: map[string]bool{host: true}}, ref
 }
 
+// serverKey is the test server's age key; releases' secrets are sealed
+// to it.
+var serverKey, _ = seal.NewIdentity()
+
+// sealed is a hakobu.secrets.toml with a status token and these secrets of
+// crm.
+func sealed(crmSecrets map[string]string) string {
+	s, err := seal.New(serverKey.Recipient().String())
+	if err != nil {
+		panic(err)
+	}
+	_ = s.Set("hakobu", seal.StatusToken, "status-token")
+	for k, v := range crmSecrets {
+		_ = s.Set("crm", k, v)
+	}
+	b, _ := s.Marshal()
+	return string(b)
+}
+
 func releaseLabels(toml string, images map[string]string) map[string]string {
 	b, _ := json.Marshal(images)
 	return map[string]string{
 		LabelSpec: "project = \"kasl\"\nserver = \"kasl-1\"\n" + toml, LabelImages: string(b),
-		LabelSource: "https://github.com/kasl/crm", LabelRevision: "abc123",
+		LabelSource: "https://github.com/kasl/crm", LabelRevision: "abc123", LabelSecrets: sealed(nil),
 	}
 }
 
@@ -84,7 +104,7 @@ func newWatch(t *testing.T, h *harness, regs *releases) (*Watch, registry.Ref) {
 	dir := t.TempDir()
 	h.a.Server = "kasl-1"
 	return &Watch{
-		Applier: h.a, Registry: c, Releases: []registry.Ref{ref},
+		Applier: h.a, Registry: c, Releases: []registry.Ref{ref}, Identity: serverKey,
 		WatchFile: filepath.Join(dir, "watch.json"), DeploysFile: filepath.Join(dir, "deploys.jsonl"),
 	}, ref
 }
@@ -176,6 +196,33 @@ func TestWatchRollback(t *testing.T) {
 	}
 }
 
+func TestWatchSecrets(t *testing.T) {
+	h, regs := newHarness(t), newReleases(t)
+	w, ref := newWatch(t, h, regs)
+	ctx := context.Background()
+	toml := strings.Replace(crm, "[apps.crm]", "[apps.crm]\nrelease = \"m\"", 1)
+	env := func() string { return strings.Join(h.releases[len(h.releases)-1].Env, "\n") }
+	for _, c := range []string{"a", "b"} {
+		l := releaseLabels(toml, crmImage(c))
+		l[LabelSecrets] = sealed(map[string]string{"STRIPE_KEY": "key-" + c})
+		regs.publish(l)
+		if res, err := w.Check(ctx, ref, false); err != nil || res.Error != "" {
+			t.Fatalf("release %s: %+v, %v", c, res, err)
+		}
+		if !strings.Contains(env(), "STRIPE_KEY=key-"+c) {
+			t.Errorf("release %s: env\n%s", c, env())
+		}
+	}
+	// Rolling back to a's code keeps b's secrets: a key replaced since a
+	// mustn't come back.
+	if res, err := w.Rollback(ctx, ref); err != nil || res.Error != "" {
+		t.Fatalf("rollback: %+v, %v", res, err)
+	}
+	if !strings.Contains(env(), "STRIPE_KEY=key-b") {
+		t.Errorf("after the rollback: env\n%s", env())
+	}
+}
+
 func TestWatchRefuses(t *testing.T) {
 	ctx := context.Background()
 	for _, c := range []struct {
@@ -192,11 +239,33 @@ func TestWatchRefuses(t *testing.T) {
 		{"extra image", releaseLabels(crm, map[string]string{"crm": crmImage("a")["crm"], "admin": crmImage("b")["crm"]}), "image for admin"},
 		{"tag not digest", releaseLabels(crm, map[string]string{"crm": "ghcr.io/kasl/crm:main"}), "pinned by digest"},
 		{"bad toml", releaseLabels("[apps.crm]\nhelth = \"/\"", crmImage("a")), "unknown keys"},
-		{"secrets", func() map[string]string {
+		{"stranger's secrets", func() map[string]string {
 			l := releaseLabels(crm, crmImage("a"))
-			l[LabelSecrets] = "[crm]\nKEY = \"age…\""
+			other, _ := seal.NewIdentity()
+			s, _ := seal.New(other.Recipient().String())
+			_ = s.Set("crm", "KEY", "v")
+			b, _ := s.Marshal()
+			l[LabelSecrets] = string(b)
 			return l
-		}(), "can't open yet"},
+		}(), "not sealed to this key"},
+		{"secret clashes", func() map[string]string {
+			l := releaseLabels(crm, crmImage("a"))
+			l[LabelSecrets] = sealed(map[string]string{"NODE_ENV": "x"})
+			return l
+		}(), "apps.crm.NODE_ENV: hakobu.toml sets it already"},
+		{"secret of no app", func() map[string]string {
+			l := releaseLabels(crm, crmImage("a"))
+			s, _ := seal.Parse([]byte(sealed(nil)))
+			_ = s.Set("admin", "KEY", "v")
+			b, _ := s.Marshal()
+			l[LabelSecrets] = string(b)
+			return l
+		}(), "apps.admin: hakobu.toml has no such app"},
+		{"no status token", func() map[string]string {
+			l := releaseLabels(crm, crmImage("a"))
+			delete(l, LabelSecrets)
+			return l
+		}(), "no token for the commit status"},
 		{"not a release", map[string]string{"maintainer": "x"}, "not a release image"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -216,7 +285,10 @@ func TestWatchRefuses(t *testing.T) {
 
 type statuses []string
 
-func (s *statuses) Report(_ context.Context, source, revision string, st status.State, desc string) error {
+func (s *statuses) Report(_ context.Context, c status.Commit, st status.State, desc string) error {
+	if c.Token != "status-token" {
+		desc += " (token " + c.Token + ")"
+	}
 	*s = append(*s, string(st)+" "+desc)
 	return nil
 }

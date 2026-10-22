@@ -27,36 +27,39 @@ const (
 	Failure State = "failure"
 )
 
-// Reporter sets the status of a commit of the repository at source.
+// Commit is the commit a release was built from, and the token that may
+// set its status.
+type Commit struct {
+	Source   string // the repository's URL
+	Revision string // the full SHA
+	Token    string
+}
+
+// Reporter sets a commit's status.
 type Reporter interface {
-	Report(ctx context.Context, source, revision string, state State, description string) error
+	Report(ctx context.Context, c Commit, state State, description string) error
 }
 
 // ErrNotGitHub: the source isn't a GitHub repository, so there's nowhere
 // to report to.
 var ErrNotGitHub = errors.New("not a GitHub repository")
 
-// GitHub reports through GitHub's commit statuses, with a token that may
-// set them on the repository (a fine-grained token with "Commit
-// statuses: write" on that repository alone is enough).
+// GitHub reports through GitHub's commit statuses, with the commit's token
+// (a fine-grained token with "Commit statuses: write" on that repository
+// alone is enough).
 type GitHub struct {
-	// Token is the token for the repository "owner/name", "" if none.
-	Token func(repo string) string
-	API   string // default https://api.github.com
-	HTTP  *http.Client
+	API  string // default https://api.github.com
+	HTTP *http.Client
 }
 
-func (g GitHub) Report(ctx context.Context, source, revision string, state State, description string) error {
-	repo, err := Repo(source)
+func (g GitHub) Report(ctx context.Context, c Commit, state State, description string) error {
+	repo, err := Repo(c.Source)
 	if err != nil {
 		return err
 	}
+	revision, token := c.Revision, c.Token
 	if len(revision) != 40 || strings.Trim(revision, "0123456789abcdef") != "" {
 		return fmt.Errorf("%q isn't a commit's full SHA", revision)
-	}
-	token := ""
-	if g.Token != nil {
-		token = g.Token(repo)
 	}
 	if token == "" {
 		return fmt.Errorf("no token to set commit statuses on %s", repo)

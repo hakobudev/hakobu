@@ -3,6 +3,7 @@ module github.com/hakobudev/hakobu
 go 1.27.3
 
 require (
+	filippo.io/age v1.2.1
 	github.com/BurntSushi/toml v1.5.0
 	github.com/a-h/templ v0.3.1020
 	github.com/coder/websocket v1.8.15
@@ -36,6 +37,7 @@ require (
 	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
+	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/mod v0.41.0 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect

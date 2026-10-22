@@ -21,13 +21,8 @@ func TestGitHub(t *testing.T) {
 		w.WriteHeader(http.StatusCreated)
 	}))
 	defer srv.Close()
-	g := GitHub{API: srv.URL, Token: func(repo string) string {
-		if repo == "kasl/crm" {
-			return "ghp_x"
-		}
-		return ""
-	}}
-	err := g.Report(context.Background(), "https://github.com/kasl/crm", sha, Failure, strings.Repeat("x", 200))
+	g := GitHub{API: srv.URL}
+	err := g.Report(context.Background(), Commit{"https://github.com/kasl/crm", sha, "ghp_x"}, Failure, strings.Repeat("x", 200))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,10 +32,10 @@ func TestGitHub(t *testing.T) {
 	if got["state"] != "failure" || got["context"] != Context || len([]rune(got["description"])) != 140 {
 		t.Errorf("sent %v", got)
 	}
-	if err := g.Report(context.Background(), "https://github.com/other/repo", sha, Success, ""); err == nil || !strings.Contains(err.Error(), "no token") {
+	if err := g.Report(context.Background(), Commit{"https://github.com/other/repo", sha, ""}, Success, ""); err == nil || !strings.Contains(err.Error(), "no token") {
 		t.Errorf("no token: %v", err)
 	}
-	if err := g.Report(context.Background(), "https://github.com/kasl/crm", "abc", Success, ""); err == nil {
+	if err := g.Report(context.Background(), Commit{"https://github.com/kasl/crm", "abc", "t"}, Success, ""); err == nil {
 		t.Error("a short SHA was taken")
 	}
 }
@@ -51,8 +46,8 @@ func TestGitHubRefused(t *testing.T) {
 		_, _ = w.Write([]byte(`{"message":"Resource not accessible by personal access token"}`))
 	}))
 	defer srv.Close()
-	g := GitHub{API: srv.URL, Token: func(string) string { return "t" }}
-	err := g.Report(context.Background(), "https://github.com/kasl/crm", sha, Pending, "")
+	g := GitHub{API: srv.URL}
+	err := g.Report(context.Background(), Commit{"https://github.com/kasl/crm", sha, "t"}, Pending, "")
 	if err == nil || !strings.Contains(err.Error(), "403") || !strings.Contains(err.Error(), "not accessible") {
 		t.Errorf("err = %v", err)
 	}
