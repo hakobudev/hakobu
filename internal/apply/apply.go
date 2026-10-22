@@ -29,6 +29,8 @@ type Release struct {
 	Secrets map[string]map[string]string
 	// Force redeploys every app, even with nothing changed: a restart.
 	Force bool
+	// Revision is the commit it was built from; an app it deploys gets it as HAKOBU_REVISION.
+	Revision string
 }
 
 // Node is what apply needs of the machine; node.Local is the real one.
@@ -403,6 +405,9 @@ func (a *Applier) appSpec(ctx context.Context, r Release, ps *ProjectState, name
 		env = append(env, k+"="+r.Secrets[name][k])
 	}
 	env = append(env, fmt.Sprintf("PORT=%d", hint))
+	if r.Revision != "" {
+		env = append(env, spec.RevisionVar+"="+r.Revision)
+	}
 	var binds []string
 	for _, v := range sortedKeys(w.Volumes) {
 		binds = append(binds, node.Volume(key, v)+":"+w.Volumes[v])

@@ -37,6 +37,7 @@ memory = "256mb"
 ```
 
 - `uses` a database sets `DATABASE_URL`, `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`; a cache sets `REDIS_URL`, `VALKEY_URL`, `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`. With a prefix, `<PREFIX>_` goes in front. Passwords are made on the server; never put one in the file.
+- Every app gets `HAKOBU_REVISION`, the commit it was deployed from (an error tracker's release, for one).
 - The app must listen on `$PORT` (or `port`) on all interfaces, not 127.0.0.1, and answer `health`. A missing health endpoint is the most common failed deploy: add one, or point `health` at a path that answers 2xx without a login.
 - `release` and `worker` run with `/bin/sh -c` in the app's image, so the image needs a shell (not distroless or scratch).
 - An app with volumes is stopped before its new version starts (a few seconds down), so two versions never write the same files.
@@ -58,7 +59,7 @@ The live version keeps serving while `release` migrates the database, and if any
 
 - Ask the person to run `hakobu secret set APP NAME` (it reads the value from stdin, never an argument). Don't run it with a value you made up, and never print, log or commit a secret.
 - `hakobu secret list` shows the names; `hakobu secret unset APP NAME` removes one.
-- A secret mustn't have the name of a variable hakobu.toml already sets (`env`, `uses`, `PORT`).
+- A secret mustn't have the name of a variable hakobu.toml already sets (`env`, `uses`, `PORT`, `HAKOBU_REVISION`).
 - `hakobu secret set hakobu status_token`: a fine-grained GitHub token with "Commit statuses: write" on this repository alone. Without it, the server refuses the release.
 
 ## Builds

@@ -74,7 +74,7 @@ func ReadRelease(labels map[string]string, id age.Identity) (Release, Meta, erro
 			errs = append(errs, fmt.Errorf("the release has an image for %s, which hakobu.toml doesn't have", app))
 		}
 	}
-	r := Release{Spec: p, Images: images}
+	r := Release{Spec: p, Images: images, Revision: meta.Revision}
 	if sealed := strings.TrimSpace(labels[LabelSecrets]); sealed != "" {
 		secrets, err := openSecrets(sealed, id, p)
 		if err != nil {
@@ -110,7 +110,7 @@ func openSecrets(text string, id age.Identity, p *spec.Project) (seal.Opened, er
 			errs = append(errs, fmt.Errorf("%s: apps.%s: hakobu.toml has no such app", seal.FileName, app))
 			continue
 		}
-		taken := map[string]bool{"PORT": true}
+		taken := map[string]bool{"PORT": true, spec.RevisionVar: true}
 		for k := range a.Env {
 			taken[k] = true
 		}

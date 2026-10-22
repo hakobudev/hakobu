@@ -20,6 +20,10 @@ import (
 // File is the name of a project's spec, at the root of its repository.
 const File = "hakobu.toml"
 
+// RevisionVar is the variable each app gets the commit it was deployed from in, so it can tell
+// which version it is (an error tracker's release, a footer).
+const RevisionVar = "HAKOBU_REVISION"
+
 // Project is a repository's hakobu.toml.
 type Project struct {
 	Name      string              `toml:"project"`
@@ -290,6 +294,9 @@ func (p *Project) check() error {
 			}
 			if k == "PORT" {
 				bad("%s.env.PORT: set port instead", at)
+			}
+			if k == RevisionVar {
+				bad("%s.env.%s: hakobu sets it, to the commit deployed", at, k)
 			}
 			if r, dup := given[k]; dup {
 				bad("%s.env.%s: uses %s sets it already", at, k, r)

@@ -17,7 +17,7 @@ hakobu secret unset web STRIPE_KEY
 op read op://crm/stripe/key | hakobu secret set web STRIPE_KEY
 ```
 
-An app gets its secrets as variables. A secret can't have the name of one the file already sets (in `env`, from `uses`, or `PORT`): the server refuses that release rather than guess which wins.
+An app gets its secrets as variables. A secret can't have the name of one the file already sets (in `env`, from `uses`, `PORT` or `HAKOBU_REVISION`): the server refuses that release rather than guess which wins.
 
 ## hakobu's own
 

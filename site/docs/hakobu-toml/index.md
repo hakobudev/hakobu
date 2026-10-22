@@ -56,6 +56,8 @@ An app is one image serving HTTP, and optionally a worker from the same image.
 
 The app must listen on all interfaces (not only 127.0.0.1). `release` and `worker` run with `/bin/sh -c` in its image, which therefore needs a shell.
 
+Each app also gets `HAKOBU_REVISION`, the commit it was deployed from: what to give an error tracker as the release, for one. An app whose image a commit didn't change keeps running, with the commit it was deployed from.
+
 ### `uses`
 
 A database gives the app `DATABASE_URL`, `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER` and `POSTGRES_PASSWORD`; a cache `REDIS_URL`, `VALKEY_URL`, `REDIS_HOST`, `REDIS_PORT` and `REDIS_PASSWORD`. Two of a kind would set the same variables, so give one a prefix:

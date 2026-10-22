@@ -82,6 +82,7 @@ func TestParseRefuses(t *testing.T) {
 		{"bad prefix", head + "[apps.web]\nuses = { a = \"low\" }\n[databases.a]", "prefix \"low\""},
 		{"env clash", head + "[apps.web]\nuses = [\"a\"]\nenv = { DATABASE_URL = \"x\" }\n[databases.a]", "uses a sets it already"},
 		{"env PORT", head + "[apps.web]\nenv = { PORT = \"80\" }", "set port instead"},
+		{"env HAKOBU_REVISION", head + "[apps.web]\nenv = { HAKOBU_REVISION = \"x\" }", "hakobu sets it"},
 		{"env name", head + "[apps.web]\nenv = { \"node-env\" = \"x\" }", "not a variable name"},
 		{"same name", head + "[apps.web]\n[databases.x]\n[caches.x]", "a database has that name"},
 		{"domain", head + "[apps.web]\ndomain = \"https://x.com\"", "isn't a domain name"},

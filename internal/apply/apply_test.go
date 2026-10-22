@@ -118,6 +118,18 @@ func TestApplyFirstDeploy(t *testing.T) {
 	}
 }
 
+func TestAppGetsItsRevision(t *testing.T) {
+	h := newHarness(t)
+	toml := strings.Replace(crm, `worker = "bun run worker"`, `worker = "bun run worker"`+"\nrelease = \"bun run migrate\"", 1)
+	r := Release{Spec: parse(t, toml), Images: map[string]string{"crm": "reg/crm@sha256:aaa"}, Revision: "0123abc"}
+	if _, err := h.a.Apply(context.Background(), r, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if env := h.releases[0].Env; !slices.Contains(env, "HAKOBU_REVISION=0123abc") {
+		t.Errorf("no HAKOBU_REVISION in the env: %v", env)
+	}
+}
+
 func TestApplyAgainChangesNothing(t *testing.T) {
 	h := newHarness(t)
 	images := map[string]string{"crm": "reg/crm@sha256:aaa"}
