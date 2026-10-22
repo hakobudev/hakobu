@@ -14,14 +14,6 @@ test *args:
 test-docker *args:
     HAKOBU_DOCKER_TEST=1 go test ./... {{args}}
 
-# Tests of the watchdog Worker (needs bun)
-test-js:
-    bun test internal/ops
-
-# Regenerate the store code from migrations and queries
-gen:
-    sqlc generate
-
 # Rebuild hakobu.dev/docs (site/docs) from docs/*.md
 docs:
     go run ./tools/docsgen
@@ -30,18 +22,14 @@ docs:
 lint *args:
     golangci-lint run ./... {{args}}
 
-# Retake the README's screenshot (needs Chrome and ImageMagick)
-screenshot:
-    scripts/screenshot.sh
-
 # Known vulnerabilities in reachable code
 vuln:
     govulncheck ./...
 
 # Everything CI runs
 check: build test vuln
+    go vet ./...
     golangci-lint run ./... --new-from-rev=main
-    sqlc diff
 
 # Validate the GoReleaser config and build a local snapshot into dist/
 release-check:

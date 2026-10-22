@@ -203,7 +203,6 @@ func (n Local) Cleanup(ctx context.Context, c CleanupSpec) (freed int64, images 
 			}
 		}
 	}
-	n.PruneSnapshots(c.Apps)
 	if err := n.RemoveVolumesExcept(ctx, c.Volumes); err != nil {
 		return 0, images, err
 	}

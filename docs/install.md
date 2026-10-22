@@ -3,7 +3,7 @@
 One command sets a server up, and asks nothing: everything comes from the environment, so cloud-init or an agent can run it.
 
 ```bash
-curl -fsSL https://hakobu.dev/install-v1.sh | sudo \
+curl -fsSL https://hakobu.dev/install.sh | sudo \
   HAKOBU_NAME=kasl-1 \
   HAKOBU_OWNER_KEY=age1… \
   TS_AUTHKEY=tskey-auth-… TS_TAGS=tag:hakobu \

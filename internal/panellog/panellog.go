@@ -37,16 +37,6 @@ var (
 	journal = os.Getenv("JOURNAL_STREAM") != ""
 )
 
-// SetSink has every line from now on also go to f, which mustn't log
-// through this package itself.
-func SetSink(f func(Level, string)) {
-	if f == nil {
-		sink.Store(nil)
-		return
-	}
-	sink.Store(&f)
-}
-
 func emit(l Level, msg string) {
 	msg = strings.TrimRight(msg, "\n")
 	if journal {
@@ -65,6 +55,5 @@ func Warn(a ...any)  { emit(LevelWarn, fmt.Sprintln(a...)) }
 func Error(a ...any) { emit(LevelError, fmt.Sprintln(a...)) }
 
 // Infof, Warnf and Errorf format as fmt.Printf would.
-func Infof(format string, a ...any)  { emit(LevelInfo, fmt.Sprintf(format, a...)) }
-func Warnf(format string, a ...any)  { emit(LevelWarn, fmt.Sprintf(format, a...)) }
-func Errorf(format string, a ...any) { emit(LevelError, fmt.Sprintf(format, a...)) }
+func Infof(format string, a ...any) { emit(LevelInfo, fmt.Sprintf(format, a...)) }
+func Warnf(format string, a ...any) { emit(LevelWarn, fmt.Sprintf(format, a...)) }

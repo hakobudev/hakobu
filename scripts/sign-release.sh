@@ -1,10 +1,10 @@
 #!/bin/sh
-# Signs a release for `hakobu update` and install.sh, run by GoReleaser on
+# Signs a release for install.sh and the build workflow, run by GoReleaser on
 # checksums.txt: the signature covers "hakobu <tag>\n" followed by the
 # checksums, so an older release can't be passed off as a newer one. The
 # Ed25519 key comes in HAKOBU_SIGNING_KEY: its PEM file, or just the
 # base64 line of it. Its public half is in scripts/release-key.pub,
-# internal/update and install.sh.
+# install.sh and .github/workflows/build.yml.
 #
 #   sign-release.sh <tag> <checksums.txt> <signature>
 set -eu

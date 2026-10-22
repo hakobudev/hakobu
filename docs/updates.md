@@ -3,7 +3,7 @@
 To update a server, run the installer again, with the version if you want a particular one:
 
 ```bash
-curl -fsSL https://hakobu.dev/install-v1.sh | sudo HAKOBU_VERSION=v1.0.0 bash
+curl -fsSL https://hakobu.dev/install.sh | sudo HAKOBU_VERSION=v1.0.0 bash
 ```
 
 The config, the key and the data stay. Apps keep running; their proxies live in hakobu, so they don't answer for about half a second while it restarts. Docker is restarted only if its settings changed.

@@ -6,14 +6,10 @@ import (
 	"fmt"
 	"io"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/hakobudev/hakobu/internal/build"
 	"github.com/hakobudev/hakobu/internal/deploy"
-	"github.com/hakobudev/hakobu/internal/detect"
 	"github.com/hakobudev/hakobu/internal/panellog"
 	"github.com/hakobudev/hakobu/internal/proxy"
 )
@@ -87,19 +83,6 @@ func (a AppSpec) options() deploy.AppOptions {
 	return deploy.AppOptions{App: a.Name, Network: ProjectNetwork(a.Project), Env: a.Env, Binds: a.Binds, MemoryMB: a.MemoryMB, CPUs: a.CPUs, Command: a.Command}
 }
 
-// BuildSpec is what to clone and how to build it.
-type BuildSpec struct {
-	App      string
-	Repo     string // for the log
-	CloneURL string
-	Token    string // read access to the repo
-	Path     string // the directory to build, inside the repo
-	Strategy string // "railpack" or "dockerfile"
-	// Env are the variables the build gets: Railpack's settings and the
-	// public ones frontend tools build in.
-	Env []string
-}
-
 // Candidate is a new version started next to the live one and healthy,
 // not serving yet.
 type Candidate struct {
@@ -108,46 +91,6 @@ type Candidate struct {
 	Old       string // the live version's container
 	Port      int64  // the container port it answers on
 	IP        string // on the project's network
-}
-
-// Build clones the repo and builds it as the app's Next image, returning
-// the stack it detected ("" if none).
-func (Local) Build(ctx context.Context, b BuildSpec, out io.Writer) (stack string, err error) {
-	dir := WorkDir(b.App)
-	defer os.RemoveAll(dir) // the next deploy clones again anyway
-	fmt.Fprintln(out, "cloning", b.Repo)
-	if err := build.CloneRepo(b.CloneURL, b.Token, dir, out); err != nil {
-		return "", fmt.Errorf("clone failed: %w", err)
-	}
-	src, err := buildDir(dir, b.Path)
-	if err != nil {
-		return "", err
-	}
-	stack = detect.StackOf(src)
-	next := Tag(b.App, Next)
-	fmt.Fprintf(out, "building %s from %s (%s)\n", next, src, b.Strategy)
-	if err := build.BuildWithStrategy(src, next, b.Strategy, b.Env, out); err != nil {
-		return "", fmt.Errorf("build failed: %w", err)
-	}
-	return stack, nil
-}
-
-// buildDir resolves the app's build path inside the clone. Symlinks are
-// resolved first: a repo could otherwise make its build path point at a
-// host directory and have it copied into the image.
-func buildDir(clone, buildPath string) (string, error) {
-	root, err := filepath.EvalSymlinks(clone)
-	if err != nil {
-		return "", err
-	}
-	dir, err := filepath.EvalSymlinks(filepath.Join(root, strings.Trim(buildPath, "/")))
-	if err != nil {
-		return "", fmt.Errorf("build path %q not found in the repo", buildPath)
-	}
-	if dir != root && !strings.HasPrefix(dir, root+string(filepath.Separator)) {
-		return "", fmt.Errorf("invalid build path %q: it leads outside the repo", buildPath)
-	}
-	return dir, nil
 }
 
 // ExposedPort is the port the image's EXPOSE names, 0 if none.

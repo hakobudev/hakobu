@@ -1,139 +1,19 @@
-// Package node is the machine a project's containers run on, as the panel
-// sees it. The panel decides and keeps the records (store, Cloudflare,
-// GitHub, email); a node does the work on its machine (Docker, builds,
-// files, /proc) and holds no records of its own, so each call carries all
-// it needs.
-//
-// Local is the machine hakobu runs on, the only node so far. Operations
-// move here from internal/ops one at a time; the panel's code then reaches
-// Docker only through a Node, which lets a node later be another server.
+// Package node is the machine hakobu runs on: Docker, its containers,
+// networks and volumes, PostgreSQL and the caches. It holds no records of
+// its own, so each call carries all it needs.
 package node
 
 import (
 	"context"
-	"io"
 
 	"github.com/hakobudev/hakobu/internal/deploy"
 )
 
-// State is what the panel shows about a container.
+// State is a container's state.
 type State = deploy.State
-
-type Node interface {
-	// Apps' errors, logs and traces (telemetry.go).
-	TelemetryKeeper
-
-	// State is the container's state; Status is "not found" for one that
-	// doesn't exist and "unknown" when Docker doesn't answer.
-	State(ctx context.Context, container string) State
-	// Statuses is every container's status by name, in one call.
-	Statuses(ctx context.Context) (map[string]string, error)
-	// Logs is the last lines of the container's output.
-	Logs(ctx context.Context, container string, lines int) (string, error)
-
-	// Builds (apps.go).
-	Build(ctx context.Context, b BuildSpec, out io.Writer) (stack string, err error)
-	ExposedPort(ctx context.Context, app string, img Image) int64
-	HasImage(ctx context.Context, app string, img Image) (bool, error)
-	DropImage(ctx context.Context, app string, img Image)
-	Promote(ctx context.Context, app string) error
-	SwapForRollback(ctx context.Context, app string) error
-
-	// Rolling out a version: StartCandidate, then the panel records the
-	// candidate's slot as live, then Switch and Retire; Discard if the
-	// panel can't record it or Switch fails.
-	StartCandidate(ctx context.Context, app AppSpec, img Image, out io.Writer) (Candidate, error)
-	Switch(ctx context.Context, app AppSpec, c Candidate) error
-	Retire(ctx context.Context, app AppSpec, c Candidate, out io.Writer)
-	Discard(ctx context.Context, app AppSpec, c Candidate, out io.Writer, err error) error
-
-	// The live version.
-	StopApp(ctx context.Context, app AppSpec) error
-	StartApp(ctx context.Context, app AppSpec, out io.Writer)
-	EnsureProxy(ctx context.Context, app AppSpec)
-	RemoveProxy(app string)
-	Reconcile(ctx context.Context, apps []AppSpec)
-
-	// Workers.
-	RunWorker(ctx context.Context, w WorkerSpec, out io.Writer) error
-	RemoveWorker(ctx context.Context, app string) error
-	// RemoveApp deletes everything of the app's on the node, with the
-	// given volumes' data.
-	RemoveApp(ctx context.Context, app string, volumes []string) error
-
-	// Databases (data.go).
-	EnsurePostgres(ctx context.Context) error
-	FitPostgres(ctx context.Context) error
-	DatabaseTables(ctx context.Context, name string) ([]TableSize, error)
-	PostgresReady(ctx context.Context) bool
-	CreateDatabase(ctx context.Context, d DBSpec) error
-	EnsureDatabase(ctx context.Context, d DBSpec) error
-	DropDatabase(ctx context.Context, d DBSpec) error
-	SetPassword(ctx context.Context, d DBSpec) error
-
-	// Caches, a Valkey server each (caches.go).
-	EnsureCache(ctx context.Context, c CacheSpec) error
-	DropCache(ctx context.Context, name string) error
-
-	// How the databases and caches answer, and their sizes (status.go).
-	DataStatus(ctx context.Context, databases []string, caches []CacheProbe) (DataStatus, error)
-	VolumeSizes(ctx context.Context) (map[string]int64, error)
-
-	// Backups, straight between the node and R2 (backups.go).
-	BackupDatabase(ctx context.Context, d DBSpec, up Upload) (Uploaded, error)
-	RestoreDatabase(ctx context.Context, d DBSpec, dl Download) error
-	VerifyDatabaseBackup(ctx context.Context, d DBSpec, dl Download) (tables int, err error)
-	BackupVolume(ctx context.Context, app, name string, up Upload) (Uploaded, error)
-	RestoreVolume(ctx context.Context, app AppSpec, name string, dl Download, out io.Writer) error
-	VerifyVolumeBackup(ctx context.Context, dl Download) (files int, err error)
-	// Reseal makes a file the panel sent (a dump moved in) a backup of the
-	// node's: opened with its FileKey, sealed with the node's own key.
-	Reseal(ctx context.Context, dl Download, up Upload) (Uploaded, error)
-	// PutVolumeFile writes a file uploaded to the panel (a sealed object
-	// like a backup) into the volume at name, with the app stopped.
-	PutVolumeFile(ctx context.Context, app AppSpec, volume, name string, dl Download, out io.Writer) error
-
-	// Snapshots for Rollback with data, kept on the node.
-	SaveDump(ctx context.Context, d DBSpec) (Dump, error)
-	DropDump(dump Dump)
-	KeepSnapshot(app string, dump Dump) error
-	HasSnapshot(app string) bool
-	SetAside(app string, dump Dump) string
-	PruneSnapshots(apps map[string]bool)
-	ReplaceDatabase(ctx context.Context, d DBSpec, dump Dump) error
-
-	// Volumes.
-	HasVolume(ctx context.Context, app, name string) (bool, error)
-	RemoveVolume(ctx context.Context, app, name string) error
-	RemoveVolumesExcept(ctx context.Context, keep map[string]bool) error
-
-	// The machine (host.go).
-	Readings(ctx context.Context, containers map[string]bool) (Readings, error)
-	Disk(ctx context.Context) (used, total uint64, err error)
-	Cleanup(ctx context.Context, c CleanupSpec) (freed int64, images int, err error)
-	WatchDeaths(ctx context.Context, fn func(container, app string, d Death)) error
-	CheckHealth(ctx context.Context, app AppSpec, port int64) (ok bool, why string, checked bool)
-	// KeyState is what the panel may know of the node's keys (keys.go).
-	KeyState(ctx context.Context) (KeyState, error)
-	// Its place in its owner's tailnet (tailnet.go): joining and leaving
-	// are asked of root, and done shortly after.
-	Tailnet(ctx context.Context) (TailnetState, error)
-	JoinTailnet(ctx context.Context, r TailnetRequest) error
-	LeaveTailnet(ctx context.Context) error
-
-	// Networks and shared containers (networks.go). tunnels is every
-	// tunnel the node runs, as it should be.
-	EnsureProjectNetworks(ctx context.Context, project string, tunnels []TunnelSpec) error
-	RemoveProjectNetworks(ctx context.Context, project string, tunnels []TunnelSpec) error
-	RunTunnel(ctx context.Context, t TunnelSpec) error
-	RemoveTunnel(ctx context.Context, client string) error
-	StartIngestRelay(ctx context.Context, socket string) error
-}
 
 // Local is the machine hakobu runs on.
 type Local struct{}
-
-var _ Node = Local{}
 
 func (Local) State(ctx context.Context, container string) State {
 	return deploy.ContainerState(ctx, container)

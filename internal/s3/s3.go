@@ -17,8 +17,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/hakobudev/hakobu/internal/store"
 )
 
 // defaultHTTP gives up on an endpoint that doesn't answer; the requests
@@ -34,33 +32,6 @@ type Client struct {
 	secretAccessKey string
 	// HTTP sends the requests; nil is defaultHTTP.
 	HTTP *http.Client
-}
-
-// R2Endpoint is R2's S3 endpoint for an account ID (%s); tests point it
-// at a fake.
-var R2Endpoint = "https://%s.r2.cloudflarestorage.com"
-
-// Endpoint derives R2's endpoint from the account ID; other providers use
-// the configured one.
-func Endpoint(st store.Storage) string {
-	if st.Provider == "r2" {
-		return fmt.Sprintf(R2Endpoint, st.AccountID)
-	}
-	return st.Endpoint
-}
-
-func NewClient(st store.Storage) *Client {
-	region := st.Region
-	if region == "" {
-		region = "auto"
-	}
-	return &Client{
-		endpoint:        Endpoint(st),
-		region:          region,
-		bucket:          st.Bucket,
-		accessKeyID:     st.AccessKeyID,
-		secretAccessKey: string(st.SecretAccessKey),
-	}
 }
 
 // CanList reports whether the client's keys may list bucket: false when
@@ -137,36 +108,6 @@ func (c *Client) signedRequest(method, path string, query url.Values, body []byt
 	req.Header.Set("Authorization", fmt.Sprintf("AWS4-HMAC-SHA256 Credential=%s/%s, SignedHeaders=%s, Signature=%s",
 		c.accessKeyID, credentialScope, signedHeaders, signature))
 	return req, nil
-}
-
-// Presign is a URL that lets whoever has it do method on the object at
-// path (path-style: /bucket/key) of endpoint until expires has passed,
-// with no other credentials (AWS Signature Version 4, query string).
-func Presign(endpoint, region, accessKeyID, secretAccessKey, method, path string, expires time.Duration, now time.Time) string {
-	base, err := url.Parse(endpoint)
-	if err != nil {
-		return ""
-	}
-	host := base.Host
-	path = strings.TrimSuffix(base.Path, "/") + path
-	now = now.UTC()
-	amzDate := now.Format("20060102T150405Z")
-	dateStamp := now.Format("20060102")
-	credentialScope := dateStamp + "/" + region + "/s3/aws4_request"
-	query := url.Values{
-		"X-Amz-Algorithm":     {"AWS4-HMAC-SHA256"},
-		"X-Amz-Credential":    {accessKeyID + "/" + credentialScope},
-		"X-Amz-Date":          {amzDate},
-		"X-Amz-Expires":       {fmt.Sprint(int(expires.Seconds()))},
-		"X-Amz-SignedHeaders": {"host"},
-	}
-	path = escapePath(path)
-	q := canonicalQuery(query)
-	canonicalRequest := strings.Join([]string{method, path, q, "host:" + host + "\n", "host", "UNSIGNED-PAYLOAD"}, "\n")
-	stringToSign := strings.Join([]string{"AWS4-HMAC-SHA256", amzDate, credentialScope, sha256Hex([]byte(canonicalRequest))}, "\n")
-	signingKey := hmacSHA256(hmacSHA256(hmacSHA256(hmacSHA256([]byte("AWS4"+secretAccessKey), dateStamp), region), "s3"), "aws4_request")
-	signature := hex.EncodeToString(hmacSHA256(signingKey, stringToSign))
-	return base.Scheme + "://" + host + path + "?" + q + "&X-Amz-Signature=" + signature
 }
 
 // escapePath encodes every byte of a path but the unreserved ones and

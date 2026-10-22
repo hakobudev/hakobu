@@ -7,15 +7,12 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/hakobudev/hakobu/internal/backup"
 	"github.com/hakobudev/hakobu/internal/config"
 	"github.com/hakobudev/hakobu/internal/deploy"
 	"github.com/hakobudev/hakobu/internal/panellog"
-	"github.com/hakobudev/hakobu/internal/secret"
 )
 
 // PostgresContainer is the node's one shared Postgres service; every
@@ -165,120 +162,6 @@ func scratchDatabase(ctx context.Context, d DBSpec, scratch string) (drop func()
 	}, nil
 }
 
-// Snapshots: before each deploy the app's database is dumped on its node,
-// next to the Previous image, so Rollback can return the data a bad
-// migration broke together with the code. It's an undo, not a backup: it
-// lives on the node and only the last one is kept. Dumps are sealed with
-// the master key (secret.NewFileWriter): a copy of data/ without the key
-// doesn't give away the apps' data.
-
-const (
-	snapshotDir = "data/snapshots"
-	snapshotExt = ".dump.enc"
-)
-
-// Dump is a sealed dump on the node: one just taken, or an app's snapshot.
-// The panel only passes it back.
-type Dump string
-
-// SnapshotOf is the app's snapshot.
-func SnapshotOf(app string) Dump { return Dump(app + snapshotExt) }
-
-func (d Dump) path() string { return filepath.Join(snapshotDir, filepath.Base(string(d))) }
-
-// SaveDump writes a sealed dump of the database.
-func (Local) SaveDump(ctx context.Context, d DBSpec) (dump Dump, err error) {
-	if err := os.MkdirAll(snapshotDir, 0o700); err != nil {
-		return "", err
-	}
-	f, err := os.CreateTemp(snapshotDir, "dump-*.tmp")
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	defer func() {
-		if err != nil {
-			os.Remove(f.Name())
-		}
-	}()
-	w, err := secret.NewFileWriter(f)
-	if err != nil {
-		return "", err
-	}
-	if err := backup.DumpDatabase(ctx, PostgresContainer, d.User, d.Name, w); err != nil {
-		return "", err
-	}
-	if err := w.Close(); err != nil {
-		return "", err
-	}
-	return Dump(filepath.Base(f.Name())), f.Sync()
-}
-
-// DropDump deletes a dump; one that isn't there (kept as a snapshot
-// meanwhile, say) is no error.
-func (Local) DropDump(dump Dump) {
-	if dump != "" {
-		os.Remove(dump.path())
-	}
-}
-
-// KeepSnapshot makes the dump the app's snapshot, or with dump "" drops it.
-func (Local) KeepSnapshot(app string, dump Dump) error {
-	if dump == "" {
-		os.Remove(SnapshotOf(app).path())
-		return nil
-	}
-	return os.Rename(dump.path(), SnapshotOf(app).path())
-}
-
-// HasSnapshot reports whether the app's snapshot file is there.
-func (Local) HasSnapshot(app string) bool {
-	_, err := os.Stat(SnapshotOf(app).path())
-	return err == nil
-}
-
-// PruneSnapshots deletes the snapshots of apps not in apps, and dumps
-// left by interrupted jobs; a data copy saved by a failed rollback stays
-// until someone deals with it.
-func (Local) PruneSnapshots(apps map[string]bool) {
-	snaps, err := os.ReadDir(snapshotDir)
-	if err != nil {
-		return
-	}
-	for _, f := range snaps {
-		name, isSnapshot := strings.CutSuffix(f.Name(), snapshotExt)
-		info, err := f.Info()
-		stale := err == nil && time.Since(info.ModTime()) > 24*time.Hour
-		if (isSnapshot && !apps[name] && !strings.HasSuffix(name, "-before-rollback")) || (strings.HasSuffix(f.Name(), ".tmp") && stale) {
-			os.Remove(filepath.Join(snapshotDir, f.Name()))
-		}
-	}
-}
-
-// SetAside keeps a dump that couldn't be put back under a name of the
-// app's and says where it is.
-func (Local) SetAside(app string, dump Dump) string {
-	keep := filepath.Join(snapshotDir, app+"-before-rollback"+snapshotExt)
-	if err := os.Rename(dump.path(), keep); err != nil {
-		return dump.path()
-	}
-	return keep
-}
-
-// ReplaceDatabase swaps the database's content for a dump (replaceWith).
-func (Local) ReplaceDatabase(ctx context.Context, d DBSpec, dump Dump) error {
-	f, err := os.Open(dump.path())
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	r, err := secret.NewFileReader(f)
-	if err != nil {
-		return fmt.Errorf("snapshot %s: %w", dump, err)
-	}
-	return replaceWith(ctx, d, r)
-}
-
 // replaceWith swaps the database's content for a dump: the dump is
 // restored into a scratch database first, so a broken one changes
 // nothing, then renamed over it. Whatever is connected to the database is
@@ -351,7 +234,6 @@ func (n Local) RemoveApp(ctx context.Context, app string, volumes []string) erro
 		n.DropImage(ctx, app, img)
 	}
 	os.RemoveAll(WorkDir(app))
-	os.Remove(SnapshotOf(app).path())
 	for _, v := range volumes {
 		if err := n.RemoveVolume(ctx, app, v); err != nil {
 			return err

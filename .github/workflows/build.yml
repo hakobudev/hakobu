@@ -69,7 +69,8 @@ jobs:
           cache: false
       - if: steps.hakobu.outputs.release == 'false'
         run: |
-          (cd .hakobu-src && go build -o "$RUNNER_TEMP/hakobu" ./v1)
+          # Before v1.0.0 the command was in ./v1.
+          (cd .hakobu-src && if [ -d v1 ]; then go build -o "$RUNNER_TEMP/hakobu" ./v1; else go build -o "$RUNNER_TEMP/hakobu" .; fi)
           rm -rf .hakobu-src
           sudo install -m 0755 "$RUNNER_TEMP/hakobu" /usr/local/bin/hakobu
 

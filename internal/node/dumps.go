@@ -8,6 +8,8 @@ import (
 
 	"github.com/hakobudev/hakobu/internal/backup"
 	"github.com/hakobudev/hakobu/internal/config"
+	"github.com/hakobudev/hakobu/internal/deploy"
+	"github.com/hakobudev/hakobu/internal/panellog"
 )
 
 // The same backups as BackupDatabase and BackupVolume, as plain streams:
@@ -39,10 +41,27 @@ func (Local) LoadDump(ctx context.Context, d DBSpec, dump io.Reader) error {
 	return replaceWith(ctx, d, dump)
 }
 
-// ArchiveVolume writes a tar of the volume to w, the containers that
-// mount it paused meanwhile.
-func (n Local) ArchiveVolume(ctx context.Context, app, name string, w io.Writer) error {
-	return n.archiveVolume(ctx, app, name, w)
+// ArchiveVolume writes a tar of the volume to w, with the running
+// containers that mount it paused meanwhile. One that can't be paused is
+// copied running: a backup that may need the app's own recovery beats none.
+func (Local) ArchiveVolume(ctx context.Context, app, name string, w io.Writer) error {
+	volume := Volume(app, name)
+	users, err := deploy.RunningWithVolume(ctx, volume)
+	if err != nil {
+		panellog.Warn("backup of", volume+": copying without pausing its containers:", err)
+	}
+	for _, c := range users {
+		if err := deploy.PauseContainer(ctx, c); err != nil {
+			panellog.Warn("backup of", volume+": copying while", c, "runs:", err)
+			continue
+		}
+		defer func() {
+			if err := deploy.UnpauseContainer(ctx, c); err != nil {
+				panellog.Error("failed to unpause", c+":", err)
+			}
+		}()
+	}
+	return backup.ArchiveVolume(ctx, config.PostgresImage, volume, w)
 }
 
 // CheckArchive reads a whole volume tar, counting its files.

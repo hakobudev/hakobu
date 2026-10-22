@@ -56,18 +56,18 @@
       </div>
       <p>hakobu is open source under the MIT license: <a href="https://github.com/hakobudev/hakobu">github.com/hakobudev/hakobu</a>.</p>
 <h2 id="building">Building</h2>
-<pre><code class="language-bash">go build -o hakobu ./v1
+<pre><code class="language-bash">go build -o hakobu .
 </code></pre>
-<p>Requires Go 1.27+. The server side needs Linux, systemd and Docker; <code>install-v1.sh</code> with <code>HAKOBU_BINARY=./hakobu</code> installs a local build on a test machine.</p>
+<p>Requires Go 1.27+. The server side needs Linux, systemd and Docker; <code>install.sh</code> with <code>HAKOBU_BINARY=./hakobu</code> installs a local build on a test machine.</p>
 <h2 id="tests">Tests</h2>
-<p><code>just check</code> runs what CI runs: build, tests, govulncheck and golangci-lint. Tests that need Docker (they start their own containers: PostgreSQL, Valkey, an S3 server) run with <code>HAKOBU_DOCKER_TEST=1 go test ./internal/apply ./internal/backups</code>.</p>
+<p><code>just check</code> runs what CI runs: build, vet, tests, govulncheck and golangci-lint. Tests that need Docker (they start their own containers: PostgreSQL, Valkey, an S3 server) run with <code>HAKOBU_DOCKER_TEST=1 go test ./internal/apply ./internal/backups</code>.</p>
 <h2 id="these-docs">These docs</h2>
 <p>The pages of hakobu.dev/docs are made from <code>docs/*.md</code> (the menu is <code>docs/nav.md</code>) by <code>go run ./tools/docsgen</code> into <code>site/docs/</code>; a test fails when they're behind the Markdown.</p>
 <h2 id="releases">Releases</h2>
 <p>Pushing a <code>vX.Y.Z</code> tag builds and publishes a release (<code>.github/workflows/release.yml</code>), signed with the key in the <code>HAKOBU_SIGNING_KEY</code> secret of the <code>release</code> environment; without it the release fails rather than going out unsigned. <code>just release-check</code> builds a snapshot without signing.</p>
 <h2 id="layout">Layout</h2>
 <ul>
-<li><code>v1/</code>, <code>internal/cli/</code>: the command line and the MCP server</li>
+<li><code>main.go</code>, <code>internal/cli/</code>: the command line and the MCP server</li>
 <li><code>internal/spec/</code>: hakobu.toml</li>
 <li><code>internal/seal/</code>: hakobu.secrets.toml</li>
 <li><code>internal/server/</code>: the daemon: config, API, polling, monitoring</li>

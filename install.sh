@@ -1,141 +1,107 @@
 #!/usr/bin/env bash
-# Installs hakobu on a Linux server: connects your Cloudflare account (you
-# create an API token from a prefilled link and paste it), lets you pick the
-# panel's domain and prints the link to connect GitHub. Needs a domain on Cloudflare; the server needs no
-# public IP or open ports.
+# Installs hakobu v1 on a Linux server (Debian or Ubuntu), or updates it:
+# rootless Docker for the apps, Tailscale for the API, the server's key
+# and config, and the hakobu service. Nothing asks: everything comes from
+# the environment, so cloud-init or an agent can run it.
 #
-# hakobu runs as the unprivileged user "hakobu" with its own rootless Docker,
-# so neither a break-in into hakobu nor a container escape is root on the
-# server. Installs made before that keep running as root under the system
-# Docker (their containers and databases live there); this script only
-# updates their binary.
+#   curl -fsSL https://hakobu.dev/install.sh | sudo \
+#     HAKOBU_NAME=kasl-1 HAKOBU_OWNER_KEY=age1… TS_AUTHKEY=tskey-auth-… bash
 #
-#   curl -fsSL https://hakobu.dev/install.sh | sudo bash
+# Needs, on a first install:
+#   HAKOBU_NAME        the server's name (lowercase letters, digits, -)
+#   HAKOBU_OWNER_KEY   your age public key: secrets and backups are sealed to
+#                      it too, so you can open them without the server
+#   TS_AUTHKEY         a Tailscale auth key, unless the server is in the
+#                      tailnet already: the API listens there and nowhere else
+# Optional:
+#   TS_TAGS            the server's Tailscale tags, e.g. tag:hakobu
+#   HAKOBU_INGRESS     public (80/443 with Let's Encrypt), tunnel (a Cloudflare
+#                      Tunnel to loopback) or none (default)
+#   HAKOBU_ACME_EMAIL  Let's Encrypt's contact, for public
+#   CLOUDFLARE_TUNNEL_TOKEN  the tunnel's token, for tunnel: cloudflared runs
+#                      on the server as a system service
+#   HAKOBU_CONFIG_EXTRA  a file whose TOML goes into the config, after its
+#                      top-level keys:
+#                      releases, registries, backups, alerts
+#   HAKOBU_VERSION     a release (default: the latest, pre-releases included)
+#   HAKOBU_BINARY      install this local binary instead of downloading one
+#   HAKOBU_REPO        default hakobudev/hakobu
 #
-# Optional: CLOUDFLARE_API_TOKEN (skips the token prompt),
-#           HAKOBU_VERSION (default: latest release), HAKOBU_REPO (default: hakobudev/hakobu),
-#           HAKOBU_BINARY (install this local binary instead of downloading one),
-#           HAKOBU_FROM_SOURCE=1 (build the main branch instead of a release),
-#           HAKOBU_RESTORE=<key file> (bring back a panel from its backup, with the
-#             key file from its Settings, instead of setting up a new one),
-#           HAKOBU_ALLOW_UNSIGNED=1 (install a release from before releases were
-#             signed, checked against its checksum only),
-#           HAKOBU_PANEL=https://<panel> HAKOBU_JOIN_TOKEN=<token> (make this server
-#             one of that panel's servers instead of a panel: the command comes from
-#             the panel's Settings → Servers; no Cloudflare or GitHub here),
-#           HAKOBU_NODE_KEYS=<file> (with HAKOBU_PANEL: the keys of a lost server, from
-#             its `hakobu key export`, so this one restores its backups)
-#
-# Later updates: Settings → Updates in the panel, or sudo /opt/hakobu/hakobu update.
+# Run again to update: the config, the key and the data stay.
 set -euo pipefail
 
 HAKOBU_REPO="${HAKOBU_REPO:-hakobudev/hakobu}"
 # Releases are signed (scripts/sign-release.sh); a download is installed
 # only with a signature by this key over "hakobu <version>" and its
-# checksums. The same key is in internal/update for `hakobu update`.
+# checksums.
 RELEASE_KEY="-----BEGIN PUBLIC KEY-----
 MCowBQYDK2VwAyEAWBkGQ8EE1VzJYgZkPLxDY1JCviWclccA/tDM/FnQ0fI=
 -----END PUBLIC KEY-----"
-DATA=/opt/hakobu/data
-KEY_DIR=/opt/hakobu/key # the master key, apart from data/
-
-if [ "$(id -u)" -ne 0 ]; then
-  if [ "$HAKOBU_REPO" = "hakobudev/hakobu" ]; then
-    echo "run as root: curl -fsSL https://hakobu.dev/install.sh | sudo bash"
-  else
-    echo "run as root: curl -fsSL https://raw.githubusercontent.com/${HAKOBU_REPO}/main/install.sh | sudo bash"
-  fi
-  exit 1
-fi
-
-case "$(uname -m)" in
-  x86_64|amd64) ARCH="amd64" ;;
-  aarch64|arm64) ARCH="arm64" ;;
-  *) echo "unsupported CPU architecture $(uname -m)"; exit 1 ;;
-esac
-
+BIN=/opt/hakobu/hakobu
+DATA=/var/lib/hakobu
+CONFIG=/etc/hakobu/server.toml
 UNIT=/etc/systemd/system/hakobu.service
-ROOTFUL=""
-if [ -f "$UNIT" ] && ! grep -q '^User=hakobu$' "$UNIT"; then
-  ROOTFUL=1
-fi
+API_PORT=7070
 
-# A panel runs `hakobu agent`; a server that joins one runs `hakobu node`.
-ROLE=agent
-if [ -n "${HAKOBU_PANEL:-}" ] || [ -n "${HAKOBU_JOIN_TOKEN:-}" ]; then
-  [ -n "${HAKOBU_PANEL:-}" ] && [ -n "${HAKOBU_JOIN_TOKEN:-}" ] || { echo "joining a panel needs both HAKOBU_PANEL and HAKOBU_JOIN_TOKEN: copy the command from the panel's Settings → Servers"; exit 1; }
-  [ -z "$ROOTFUL" ] || { echo "this server runs an older hakobu as root: join a panel from a clean server"; exit 1; }
-  [ -z "${HAKOBU_RESTORE:-}" ] || { echo "HAKOBU_RESTORE brings back a panel; a server joining one has nothing to restore"; exit 1; }
-  ROLE=node
-fi
+die() { echo "error: $*" >&2; exit 1; }
 
-echo "==> installing dependencies (docker, git, openssl, railpack)"
-command -v curl >/dev/null || { apt-get update && apt-get install -y curl; } || yum install -y curl
-command -v openssl >/dev/null || { apt-get update && apt-get install -y openssl; } || yum install -y openssl
-HAD_DOCKER=""
-if command -v docker >/dev/null; then
-  HAD_DOCKER=1
-else
-  curl -fsSL https://get.docker.com | sh
-fi
-command -v git >/dev/null || { apt-get update && apt-get install -y git; } || yum install -y git
-# Railpack is pinned and checked like hakobu itself; hakobu starts the
-# BuildKit container it builds with (config/images.go) on the first build.
-RAILPACK_VERSION="v0.40.1"
-case "$ARCH" in
-  amd64) RAILPACK_TARGET="x86_64-unknown-linux-musl"; RAILPACK_SHA256="2842de93e68713af9037e0bc0a398d7da78f3b96aa4804303a638db2bc69bd30" ;;
-  arm64) RAILPACK_TARGET="arm64-unknown-linux-musl"; RAILPACK_SHA256="c24a064b586b8f4f8c2fab44dd5ef19253e4c6cc4e1df793b3ae19cd87f7a5d4" ;;
+[ "$(id -u)" -eq 0 ] || die "run as root (sudo)"
+case "$(uname -m)" in
+  x86_64|amd64) ARCH=amd64 ;;
+  aarch64|arm64) ARCH=arm64 ;;
+  *) die "unsupported CPU architecture $(uname -m)" ;;
 esac
-if [ "$(railpack --version 2>/dev/null | grep -o 'v\?[0-9][0-9.]*' | head -1 | sed 's/^v*/v/')" != "$RAILPACK_VERSION" ]; then
-  TMP="$(mktemp -d)"
-  if curl -fsSL "https://github.com/railwayapp/railpack/releases/download/${RAILPACK_VERSION}/railpack-${RAILPACK_VERSION}-${RAILPACK_TARGET}.tar.gz" -o "$TMP/railpack.tar.gz" \
-    && echo "${RAILPACK_SHA256}  $TMP/railpack.tar.gz" | sha256sum -c --quiet - \
-    && tar -xzf "$TMP/railpack.tar.gz" -C "$TMP" railpack; then
-    install -m 0755 "$TMP/railpack" /usr/local/bin/railpack
-  else
-    echo "WARNING: railpack install failed, only Dockerfile builds will work"
-  fi
-  rm -rf "$TMP"
+command -v apt-get >/dev/null || die "this installs on Debian or Ubuntu"
+if [ -f "$UNIT" ] && grep -q 'hakobu agent\|hakobu node' "$UNIT"; then
+  die "this server runs hakobu v0 (the panel): v1 goes on a new server, and its projects move there (see the docs)"
 fi
 
-if [ -z "$ROOTFUL" ]; then
-  echo "==> setting up rootless Docker for the hakobu-docker user"
-  if command -v apt-get >/dev/null; then
-    apt-get install -y uidmap dbus-user-session docker-ce-rootless-extras >/dev/null
-  else
-    yum install -y shadow-utils docker-ce-rootless-extras >/dev/null
+FIRST=""
+if [ ! -f "$CONFIG" ]; then
+  FIRST=1
+  [[ "${HAKOBU_NAME:-}" =~ ^[a-z][a-z0-9-]{0,30}$ ]] || die "HAKOBU_NAME: a name of lowercase letters, digits and -"
+  [[ "${HAKOBU_OWNER_KEY:-}" =~ ^age1[a-z0-9]{58}$ ]] || die "HAKOBU_OWNER_KEY: your age public key (age1…); age-keygen makes a key pair, keep its secret half in your password manager"
+  case "${HAKOBU_INGRESS:-none}" in public|tunnel|none) ;; *) die "HAKOBU_INGRESS: public, tunnel or none" ;; esac
+  if [ "${HAKOBU_INGRESS:-none}" = tunnel ] && [ -z "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then
+    die "HAKOBU_INGRESS=tunnel needs CLOUDFLARE_TUNNEL_TOKEN"
   fi
-  if ! command -v dockerd-rootless-setuptool.sh >/dev/null; then
-    echo "rootless Docker isn't available: hakobu needs Docker's own packages (https://docs.docker.com/engine/install/), not the distribution's"
-    exit 1
+  if [ -n "${HAKOBU_CONFIG_EXTRA:-}" ] && [ ! -r "$HAKOBU_CONFIG_EXTRA" ]; then
+    die "can't read HAKOBU_CONFIG_EXTRA $HAKOBU_CONFIG_EXTRA"
   fi
-  id hakobu >/dev/null 2>&1 || useradd --system --create-home --home-dir /home/hakobu --shell /usr/sbin/nologin hakobu
-  id hakobu-docker >/dev/null 2>&1 || useradd --system --create-home --home-dir /home/hakobu-docker --shell /usr/sbin/nologin hakobu-docker
-  # hakobu reaches Docker's socket and the container dialer's through the
-  # Docker user's group; the Docker user gets nothing of hakobu's.
-  usermod -aG hakobu-docker hakobu
-  DK_UID="$(id -u hakobu-docker)"
-  DK_RUN="/run/user/$DK_UID"
-  # Both sockets live here rather than in the Docker user's runtime
-  # directory, which is private to it and recreated at every boot.
-  SOCK_DIR=/run/hakobu-docker
-  echo "d $SOCK_DIR 0750 hakobu-docker hakobu-docker -" > /etc/tmpfiles.d/hakobu-docker.conf
-  systemd-tmpfiles --create /etc/tmpfiles.d/hakobu-docker.conf
-  # Subordinate IDs for the containers' users, after every range in use.
-  for f in /etc/subuid /etc/subgid; do
-    touch "$f"
-    if ! grep -q '^hakobu-docker:' "$f"; then
-      echo "hakobu-docker:$(awk -F: 'BEGIN { m = 100000 } $2 + $3 > m { m = $2 + $3 } END { print m }' "$f"):65536" >> "$f"
-    fi
-  done
-  # Ubuntu 24.04+ lets unprivileged users create user namespaces only
-  # through an AppArmor profile. Ubuntu ships one for /usr/bin/rootlesskit;
-  # elsewhere this adds one for rootlesskit alone, as Docker's docs
-  # describe, instead of lifting the limit for everything.
-  ROOTLESSKIT="$(command -v rootlesskit)"
-  if [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null)" = 1 ] && command -v apparmor_parser >/dev/null \
-    && ! grep -qsF "$ROOTLESSKIT" /etc/apparmor.d/*; then
-    cat > /etc/apparmor.d/usr.bin.rootlesskit <<EOF
+fi
+
+echo "==> packages"
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get install -y -qq curl openssl ca-certificates uidmap dbus-user-session unattended-upgrades >/dev/null
+# Security updates install themselves; hakobu's audit checks they do.
+dpkg-reconfigure -f noninteractive unattended-upgrades >/dev/null 2>&1 || true
+
+echo "==> Docker, rootless, for the hakobu-docker user"
+HAD_DOCKER=""
+if command -v docker >/dev/null; then HAD_DOCKER=1; else curl -fsSL https://get.docker.com | sh >/dev/null; fi
+apt-get install -y -qq docker-ce-rootless-extras >/dev/null
+command -v dockerd-rootless-setuptool.sh >/dev/null || die "rootless Docker isn't available: hakobu needs Docker's own packages, not the distribution's"
+id hakobu >/dev/null 2>&1 || useradd --system --create-home --home-dir /home/hakobu --shell /usr/sbin/nologin hakobu
+id hakobu-docker >/dev/null 2>&1 || useradd --system --create-home --home-dir /home/hakobu-docker --shell /usr/sbin/nologin hakobu-docker
+# hakobu reaches Docker's socket and the container dialer's through the
+# Docker user's group; the Docker user gets nothing of hakobu's.
+usermod -aG hakobu-docker hakobu
+DK_UID="$(id -u hakobu-docker)"
+DK_RUN="/run/user/$DK_UID"
+SOCK_DIR=/run/hakobu-docker
+echo "d $SOCK_DIR 0750 hakobu-docker hakobu-docker -" > /etc/tmpfiles.d/hakobu-docker.conf
+systemd-tmpfiles --create /etc/tmpfiles.d/hakobu-docker.conf
+for f in /etc/subuid /etc/subgid; do
+  touch "$f"
+  grep -q '^hakobu-docker:' "$f" || echo "hakobu-docker:$(awk -F: 'BEGIN { m = 100000 } $2 + $3 > m { m = $2 + $3 } END { print m }' "$f"):65536" >> "$f"
+done
+# Ubuntu 24.04+ lets unprivileged users make user namespaces only through
+# an AppArmor profile: one for rootlesskit alone, as Docker's docs say.
+ROOTLESSKIT="$(command -v rootlesskit)"
+if [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null)" = 1 ] && command -v apparmor_parser >/dev/null \
+  && ! grep -qsF "$ROOTLESSKIT" /etc/apparmor.d/*; then
+  cat > /etc/apparmor.d/usr.bin.rootlesskit <<EOF
 abi <abi/4.0>,
 include <tunables/global>
 
@@ -145,261 +111,191 @@ include <tunables/global>
   include if exists <local/usr.bin.rootlesskit>
 }
 EOF
-    apparmor_parser -r /etc/apparmor.d/usr.bin.rootlesskit
-  fi
-  # Memory and CPU limits need the cgroup controllers delegated to the
-  # Docker user's user manager.
-  mkdir -p "/etc/systemd/system/user@$DK_UID.service.d"
-  cat > "/etc/systemd/system/user@$DK_UID.service.d/delegate.conf" <<'EOF'
-[Service]
-Delegate=cpu cpuset io memory pids
-EOF
-  systemctl daemon-reload
-  # Lingering starts the Docker user's manager (and its Docker) at boot.
-  loginctl enable-linger hakobu-docker
-  for _ in $(seq 1 30); do
-    [ -S "$DK_RUN/bus" ] && break
-    sleep 1
-  done
-  as_docker() {
-    (cd / && runuser -u hakobu-docker -- env HOME=/home/hakobu-docker XDG_RUNTIME_DIR="$DK_RUN" DBUS_SESSION_BUS_ADDRESS="unix:path=$DK_RUN/bus" "$@")
-  }
-  if ! as_docker systemctl --user -q is-enabled docker 2>/dev/null; then
-    as_docker dockerd-rootless-setuptool.sh install
-  fi
-  # Docker listens in the shared directory, its socket in group 0 of its
-  # user namespace: the Docker user's own group on the host. The dialer runs
-  # in RootlessKit's namespaces, which only the Docker user can enter, and
-  # restarts with Docker, whose restart makes new ones.
-  UNITS=/home/hakobu-docker/.config/systemd/user
-  install -d -o hakobu-docker -g hakobu-docker "$UNITS/docker.service.d"
-  cat > "$UNITS/docker.service.d/hakobu.conf" <<EOF
-[Service]
+  apparmor_parser -r /etc/apparmor.d/usr.bin.rootlesskit
+fi
+# Memory and CPU limits need the cgroup controllers delegated.
+mkdir -p "/etc/systemd/system/user@$DK_UID.service.d"
+printf '[Service]\nDelegate=cpu cpuset io memory pids\n' > "/etc/systemd/system/user@$DK_UID.service.d/delegate.conf"
+systemctl daemon-reload
+loginctl enable-linger hakobu-docker
+for _ in $(seq 1 30); do [ -S "$DK_RUN/bus" ] && break; sleep 1; done
+as_docker() {
+  (cd / && runuser -u hakobu-docker -- env HOME=/home/hakobu-docker XDG_RUNTIME_DIR="$DK_RUN" DBUS_SESSION_BUS_ADDRESS="unix:path=$DK_RUN/bus" "$@")
+}
+as_docker systemctl --user -q is-enabled docker 2>/dev/null || as_docker dockerd-rootless-setuptool.sh install >/dev/null
+UNITS=/home/hakobu-docker/.config/systemd/user
+install -d -o hakobu-docker -g hakobu-docker "$UNITS/docker.service.d"
+DOCKER_CONF="[Service]
 ExecStart=
-ExecStart=$(command -v dockerd-rootless.sh) -H unix://$SOCK_DIR/docker.sock --group 0
-EOF
-  cat > "$UNITS/hakobu-dialer.service" <<EOF
+ExecStart=$(command -v dockerd-rootless.sh) -H unix://$SOCK_DIR/docker.sock --group 0"
+# Restarting Docker restarts every app: only when its settings change.
+RESTART_DOCKER=""
+if [ "$(cat "$UNITS/docker.service.d/hakobu.conf" 2>/dev/null)" != "$DOCKER_CONF" ]; then
+  printf '%s\n' "$DOCKER_CONF" > "$UNITS/docker.service.d/hakobu.conf"
+  RESTART_DOCKER=1
+fi
+# The dialer runs in RootlessKit's namespaces, which only the Docker user
+# can enter, and restarts with Docker.
+# It waits for Docker to answer, so the namespaces it enters are those of
+# the Docker running now, and keeps trying: without it hakobu can't reach
+# a container.
+cat > "$UNITS/hakobu-dialer.service" <<EOF
 [Unit]
 Description=hakobu's connections to containers
 BindsTo=docker.service
 After=docker.service
+StartLimitIntervalSec=0
 
 [Service]
-ExecStart=/bin/sh -c 'exec nsenter -U --preserve-credentials -n -t "\$\$(cat "\$\$XDG_RUNTIME_DIR/dockerd-rootless/child_pid")" -- /opt/hakobu/hakobu dialer $SOCK_DIR/dialer.sock'
+Environment=DOCKER_HOST=unix://$SOCK_DIR/docker.sock
+ExecStartPre=/bin/sh -c 'for i in \$\$(seq 1 60); do docker info >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
+# Docker 29's RootlessKit keeps the containers' network in a namespace of
+# its own (--detach-netns), bound at netns in its mount namespace, which
+# /proc/<pid>/root reaches without leaving the host's (where the sockets
+# are). Older ones have it as the child process's.
+ExecStart=/bin/sh -c 'R="\$\$XDG_RUNTIME_DIR/dockerd-rootless"; P="\$\$(cat "\$\$R/child_pid")"; N="/proc/\$\$P/root\$\$R/netns"; if nsenter -U --preserve-credentials -t "\$\$P" --net="\$\$N" -- true 2>/dev/null; then exec nsenter -U --preserve-credentials -t "\$\$P" --net="\$\$N" -- $BIN dialer $SOCK_DIR/dialer.sock; fi; exec nsenter -U --preserve-credentials -n -t "\$\$P" -- $BIN dialer $SOCK_DIR/dialer.sock'
 Restart=always
 RestartSec=2
 
 [Install]
 WantedBy=docker.service
 EOF
-  chown -R hakobu-docker:hakobu-docker /home/hakobu-docker/.config
-  as_docker systemctl --user daemon-reload
-  as_docker systemctl --user -q enable docker hakobu-dialer
+chown -R hakobu-docker:hakobu-docker /home/hakobu-docker/.config
+as_docker systemctl --user daemon-reload
+as_docker systemctl --user -q enable docker hakobu-dialer
+if [ -n "$RESTART_DOCKER" ]; then
   as_docker systemctl --user restart docker
-  for _ in $(seq 1 60); do
-    as_docker env DOCKER_HOST="unix://$SOCK_DIR/docker.sock" docker info >/dev/null 2>&1 && break
-    sleep 1
-  done
-  # A system Docker installed just now would sit unused as a root-equivalent
-  # socket; one that was there before may serve something else, so it stays.
-  if [ -z "$HAD_DOCKER" ]; then
-    systemctl disable --now docker.service docker.socket >/dev/null 2>&1 || true
-    rm -f /var/run/docker.sock # left behind, nothing listens on it
-  fi
-  # The docker CLI keeps build state here, the one place in the home the
-  # service may write.
-  install -d -o hakobu -g hakobu -m 0700 /home/hakobu/.docker
+else
+  as_docker systemctl --user start docker
 fi
+for _ in $(seq 1 60); do
+  as_docker env DOCKER_HOST="unix://$SOCK_DIR/docker.sock" docker info >/dev/null 2>&1 && break
+  sleep 1
+done
+# A system Docker installed just now would sit unused as a root-equivalent
+# socket; one that was there before may serve something else.
+if [ -z "$HAD_DOCKER" ]; then
+  systemctl disable --now docker.service docker.socket >/dev/null 2>&1 || true
+  rm -f /var/run/docker.sock
+fi
+install -d -o hakobu -g hakobu -m 0700 /home/hakobu/.docker
 
-echo "==> installing hakobu to /opt/hakobu"
-mkdir -p "$DATA" "$KEY_DIR" /opt/hakobu/run
-chmod 700 "$DATA" "$KEY_DIR"
-if [ -z "$ROOTFUL" ]; then
-  # hakobu writes only its data, its key and the panel socket's directory,
-  # which cloudflared mounts; the binary stays root's.
-  chown hakobu:hakobu "$DATA" "$KEY_DIR" /opt/hakobu/run
+echo "==> Tailscale"
+command -v tailscale >/dev/null || curl -fsSL https://tailscale.com/install.sh | sh >/dev/null
+TS_IP="$(tailscale ip -4 2>/dev/null | head -1 || true)"
+if [ -z "$TS_IP" ]; then
+  [ -n "${TS_AUTHKEY:-}" ] || die "the server isn't in a tailnet: set TS_AUTHKEY"
+  # Nothing from the tailnet changes the server: no routes, no DNS, no SSH.
+  tailscale up --authkey="$TS_AUTHKEY" --hostname="hakobu-${HAKOBU_NAME:-server}" \
+    ${TS_TAGS:+--advertise-tags="$TS_TAGS"} --accept-routes=false --accept-dns=false --ssh=false
+  TS_IP="$(tailscale ip -4 | head -1)"
 fi
-# The running binary can't be overwritten ("text file busy").
-systemctl stop hakobu 2>/dev/null || true
-# A failed update leaves the installed hakobu running as it was.
-abort_install() {
-  rm -f /opt/hakobu/hakobu.new
-  echo "$1"
-  [ -x /opt/hakobu/hakobu ] && systemctl start hakobu 2>/dev/null
-  exit 1
-}
-# A release is installed unless asked otherwise: falling back to building
-# whatever the main branch holds when a lookup fails would quietly install
-# unreleased code.
-VERSION="${HAKOBU_VERSION:-}"
-if [ -z "${HAKOBU_BINARY:-}" ] && [ -z "${HAKOBU_FROM_SOURCE:-}" ] && [ -z "$VERSION" ]; then
-  VERSION="$( (curl -fsSL "https://api.github.com/repos/${HAKOBU_REPO}/releases/latest" | grep -o '"tag_name": *"[^"]*"' | head -1 | cut -d'"' -f4) || true)"
-  if [ -z "$VERSION" ]; then
-    abort_install "couldn't find the latest hakobu release (GitHub API unreachable or rate-limited); set HAKOBU_VERSION, e.g. HAKOBU_VERSION=v0.4.0"
-  fi
-fi
-# A new binary is renamed over the old one: the Docker user's dialer may
-# be running it, and a running binary can't be written ("text file busy").
+echo "    $TS_IP"
+
+echo "==> hakobu"
+install -d -m 0755 /opt/hakobu
 if [ -n "${HAKOBU_BINARY:-}" ]; then
-  cp "$HAKOBU_BINARY" /opt/hakobu/hakobu.new
-  chmod +x /opt/hakobu/hakobu.new
-  mv /opt/hakobu/hakobu.new /opt/hakobu/hakobu
+  install -m 0755 "$HAKOBU_BINARY" "$BIN.new"
   echo "    local binary $HAKOBU_BINARY"
-elif [ -z "${HAKOBU_FROM_SOURCE:-}" ]; then
-  RELEASE_URL="https://github.com/${HAKOBU_REPO}/releases/download/${VERSION}"
-  if ! curl -fsSL "$RELEASE_URL/hakobu-linux-${ARCH}" -o /opt/hakobu/hakobu.new; then
-    abort_install "couldn't download hakobu-linux-${ARCH} ${VERSION}"
-  fi
-  SIG_DIR="$(mktemp -d)"
-  if ! curl -fsSL "$RELEASE_URL/checksums.txt" -o "$SIG_DIR/checksums.txt"; then
-    rm -rf "$SIG_DIR"
-    abort_install "couldn't download the checksums of ${VERSION}"
-  fi
-  # The signature covers "hakobu <version>" and the checksums, so neither
-  # the files nor the version they're of can be swapped.
-  CHECKED="checksum verified"
-  if curl -fsSL "$RELEASE_URL/checksums.txt.sig" -o "$SIG_DIR/checksums.txt.sig" 2>/dev/null; then
-    printf '%s\n' "$RELEASE_KEY" > "$SIG_DIR/release-key.pub"
-    { printf 'hakobu %s\n' "$VERSION"; cat "$SIG_DIR/checksums.txt"; } > "$SIG_DIR/signed"
-    if ! openssl pkeyutl -verify -rawin -pubin -inkey "$SIG_DIR/release-key.pub" -in "$SIG_DIR/signed" -sigfile "$SIG_DIR/checksums.txt.sig" >/dev/null 2>&1; then
-      rm -rf "$SIG_DIR"
-      abort_install "the signature of hakobu ${VERSION} isn't hakobu's, not installing it"
-    fi
-    CHECKED="signature and checksum verified"
-  elif [ -z "${HAKOBU_ALLOW_UNSIGNED:-}" ]; then
-    rm -rf "$SIG_DIR"
-    abort_install "hakobu ${VERSION} isn't signed (released before signing, or the signature is missing); set HAKOBU_ALLOW_UNSIGNED=1 to install it checked against its checksum only"
-  fi
-  # A download that doesn't match the release's checksum is never installed.
-  WANT="$(awk -v f="hakobu-linux-${ARCH}" '$2 == f {print $1}' "$SIG_DIR/checksums.txt")"
-  rm -rf "$SIG_DIR"
-  GOT="$(sha256sum /opt/hakobu/hakobu.new | cut -d' ' -f1)"
-  if [ -z "$WANT" ] || [ "$WANT" != "$GOT" ]; then
-    abort_install "checksum mismatch for hakobu-linux-${ARCH} ${VERSION}, not installing it"
-  fi
-  mv /opt/hakobu/hakobu.new /opt/hakobu/hakobu
-  echo "    hakobu $VERSION ($CHECKED)"
 else
-  echo "==> building hakobu from the main branch"
-  GO_NEED="1.27.1"
-  case "$ARCH" in
-    amd64) GO_SHA256="63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445" ;;
-    arm64) GO_SHA256="3450b45a3f9ee8568792736a5c5e70a1f2e9b36c35a8f74958c03e51d7d92bec" ;;
-  esac
-  if ! command -v go >/dev/null || [ "$(printf '%s\n%s' "$GO_NEED" "$(go env GOVERSION | cut -c3-)" | sort -V | head -1)" != "$GO_NEED" ]; then
-    TMP="$(mktemp -d)"
-    curl -fsSL "https://go.dev/dl/go${GO_NEED}.linux-${ARCH}.tar.gz" -o "$TMP/go.tar.gz"
-    if ! echo "${GO_SHA256}  $TMP/go.tar.gz" | sha256sum -c --quiet -; then
-      rm -rf "$TMP"
-      abort_install "checksum mismatch for go${GO_NEED}, not installing it"
-    fi
-    tar -C /usr/local -xzf "$TMP/go.tar.gz"
-    rm -rf "$TMP"
-    export PATH="/usr/local/go/bin:$PATH"
+  VERSION="${HAKOBU_VERSION:-}"
+  if [ -z "$VERSION" ]; then
+    # v1 is released as pre-releases until v1.0.0: the newest release of
+    # any kind, not GitHub's latest (v0's).
+    VERSION="$(curl -fsSL "https://api.github.com/repos/$HAKOBU_REPO/releases?per_page=20" | grep -o '"tag_name": *"v1[^"]*"' | head -1 | cut -d'"' -f4)" \
+      || die "couldn't find the newest hakobu v1 release; set HAKOBU_VERSION"
+    [ -n "$VERSION" ] || die "no hakobu v1 release yet; set HAKOBU_BINARY"
   fi
-  SRC="$(mktemp -d)"
-  git clone --depth 1 "https://github.com/${HAKOBU_REPO}.git" "$SRC"
-  (cd "$SRC" && go build -o /opt/hakobu/hakobu.new .)
-  rm -rf "$SRC"
-  mv /opt/hakobu/hakobu.new /opt/hakobu/hakobu
+  URL="https://github.com/$HAKOBU_REPO/releases/download/$VERSION"
+  TMP="$(mktemp -d)"
+  trap 'rm -rf "$TMP"' EXIT
+  curl -fsSL "$URL/hakobu-linux-$ARCH" -o "$TMP/hakobu" || die "couldn't download hakobu $VERSION"
+  curl -fsSL "$URL/checksums.txt" -o "$TMP/checksums.txt" || die "couldn't download the checksums of $VERSION"
+  curl -fsSL "$URL/checksums.txt.sig" -o "$TMP/checksums.txt.sig" || die "hakobu $VERSION isn't signed"
+  printf '%s\n' "$RELEASE_KEY" > "$TMP/key.pub"
+  { printf 'hakobu %s\n' "$VERSION"; cat "$TMP/checksums.txt"; } > "$TMP/signed"
+  openssl pkeyutl -verify -rawin -pubin -inkey "$TMP/key.pub" -in "$TMP/signed" -sigfile "$TMP/checksums.txt.sig" >/dev/null 2>&1 \
+    || die "the signature of hakobu $VERSION isn't hakobu's, not installing it"
+  WANT="$(awk -v f="hakobu-linux-$ARCH" '$2 == f {print $1}' "$TMP/checksums.txt")"
+  [ -n "$WANT" ] && [ "$WANT" = "$(sha256sum "$TMP/hakobu" | cut -d' ' -f1)" ] || die "checksum mismatch for hakobu $VERSION, not installing it"
+  install -m 0755 "$TMP/hakobu" "$BIN.new"
+  echo "    hakobu $VERSION (signature and checksum verified)"
 fi
-chmod +x /opt/hakobu/hakobu
-# What a rollback would put back belongs to an update this install
-# replaced.
-rm -f /opt/hakobu/hakobu.prev /opt/hakobu/update-state.json
+# Renamed over the old one: a running binary can't be written.
+mv "$BIN.new" "$BIN"
 
-if [ -n "${HAKOBU_RESTORE:-}" ]; then
-  echo "==> restoring the panel from its backup"
-  [ -r "$HAKOBU_RESTORE" ] || { echo "can't read the key file $HAKOBU_RESTORE"; exit 1; }
-  if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
-    read -rsp "Cloudflare API token that can read R2 (it isn't echoed): " CLOUDFLARE_API_TOKEN < /dev/tty
-    echo
-  fi
-  # The key file goes in on stdin: hakobu needn't be able to read where it is.
-  if [ -n "$ROOTFUL" ]; then
-    (cd /opt/hakobu && CLOUDFLARE_API_TOKEN="$CLOUDFLARE_API_TOKEN" ./hakobu restore --key -) < "$HAKOBU_RESTORE"
-  else
-    (cd /opt/hakobu && runuser -u hakobu -- env HOME=/home/hakobu CLOUDFLARE_API_TOKEN="$CLOUDFLARE_API_TOKEN" ./hakobu restore --key -) < "$HAKOBU_RESTORE"
-  fi
+OP_TOKEN="" ADMIN_TOKEN=""
+if [ -n "$FIRST" ]; then
+  echo "==> config"
+  install -d -m 0750 -o root -g hakobu /etc/hakobu
+  install -d -m 0700 -o hakobu -g hakobu "$DATA"
+  OP_TOKEN="hk_$(openssl rand -hex 32)"
+  ADMIN_TOKEN="hk_$(openssl rand -hex 32)"
+  sha() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
+  {
+    echo "name = \"$HAKOBU_NAME\""
+    echo "listen = \"$TS_IP:$API_PORT\""
+    echo "data_dir = \"$DATA\""
+    echo "owner_key = \"$HAKOBU_OWNER_KEY\""
+    echo "operator_token_sha256 = \"$(sha "$OP_TOKEN")\""
+    echo "admin_token_sha256 = \"$(sha "$ADMIN_TOKEN")\""
+    # The extra's top-level keys (releases) must come before any table, so
+    # it goes before [ingress]; its own tables end where [ingress] starts.
+    [ -z "${HAKOBU_CONFIG_EXTRA:-}" ] || { echo; cat "$HAKOBU_CONFIG_EXTRA"; }
+    case "${HAKOBU_INGRESS:-none}" in
+      public) printf '\n[ingress]\nmode = "public"\nemail = "%s"\n' "${HAKOBU_ACME_EMAIL:-}" ;;
+      tunnel) printf '\n[ingress]\nmode = "tunnel"\n' ;;
+    esac
+  } > "$CONFIG.new"
+  chown root:hakobu "$CONFIG.new"
+  chmod 0640 "$CONFIG.new"
+  mv "$CONFIG.new" "$CONFIG"
+fi
+# Checks the config, and makes the server's key on the first run.
+SERVER_KEY="$(runuser -u hakobu -- "$BIN" server init --config "$CONFIG" 2>/dev/null)" || {
+  runuser -u hakobu -- "$BIN" server init --config "$CONFIG" || true
+  die "$CONFIG isn't right (above); fix it and run this again"
+}
+
+if [ "${HAKOBU_INGRESS:-}" = tunnel ] && ! systemctl -q is-active cloudflared 2>/dev/null; then
+  echo "==> cloudflared"
+  install -d -m 0755 /usr/share/keyrings
+  curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg -o /usr/share/keyrings/cloudflare-main.gpg
+  echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main" > /etc/apt/sources.list.d/cloudflared.list
+  apt-get update -qq && apt-get install -y -qq cloudflared >/dev/null
+  cloudflared service install "$CLOUDFLARE_TUNNEL_TOKEN" >/dev/null
 fi
 
-if [ "$ROLE" = node ]; then
-  echo "==> joining the panel at $HAKOBU_PANEL"
-  # The dialer runs the binary installed just now.
-  as_docker systemctl --user restart hakobu-dialer
-  (cd /opt/hakobu && runuser -u hakobu -- env HOME=/home/hakobu DOCKER_HOST="unix://$SOCK_DIR/docker.sock" HAKOBU_DIALER_SOCKET="$SOCK_DIR/dialer.sock" ./hakobu node join "$HAKOBU_PANEL" "$HAKOBU_JOIN_TOKEN")
-  if [ -n "${HAKOBU_NODE_KEYS:-}" ]; then
-    echo "==> adding the keys of $HAKOBU_NODE_KEYS"
-    (cd /opt/hakobu && runuser -u hakobu -- ./hakobu key import -) < "$HAKOBU_NODE_KEYS"
-  fi
-elif [ -n "$ROOTFUL" ]; then
-  echo "==> connecting Cloudflare"
-  # stdin is the script itself under curl | bash, so setup talks to the terminal.
-  (cd /opt/hakobu && ./hakobu setup) < /dev/tty
-else
-  echo "==> connecting Cloudflare"
-  # The dialer runs the binary installed just now; stdin is the script
-  # itself under curl | bash, so setup talks to the terminal.
-  as_docker systemctl --user restart hakobu-dialer
-  (cd /opt/hakobu && runuser -u hakobu -- env HOME=/home/hakobu DOCKER_HOST="unix://$SOCK_DIR/docker.sock" HAKOBU_DIALER_SOCKET="$SOCK_DIR/dialer.sock" CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-}" ./hakobu setup) < /dev/tty
-fi
-
-if [ -n "$ROOTFUL" ]; then
-  echo "    this install runs as root under the system Docker; to move to rootless Docker, install hakobu on a clean server"
-  cat > "$UNIT" <<'EOF'
+echo "==> service"
+cat > "$UNIT" <<EOF
 [Unit]
 Description=hakobu
-After=docker.service network-online.target
-Requires=docker.service
-
-[Service]
-WorkingDirectory=/opt/hakobu
-ExecStart=/opt/hakobu/hakobu agent
-Restart=always
-RestartSec=5
-# SIGTERM reaches only hakobu, which lets running builds finish; whatever
-# still runs is killed when the stop times out.
-KillMode=mixed
-
-[Install]
-WantedBy=multi-user.target
-EOF
-else
-  cat > "$UNIT" <<EOF
-[Unit]
-Description=hakobu
-Wants=network-online.target
-After=network-online.target user@$DK_UID.service
+Wants=network-online.target tailscaled.service
+After=network-online.target tailscaled.service user@$DK_UID.service
 Requires=user@$DK_UID.service
 
 [Service]
 User=hakobu
 Group=hakobu
-WorkingDirectory=/opt/hakobu
 Environment=DOCKER_HOST=unix://$SOCK_DIR/docker.sock
 Environment=HAKOBU_DIALER_SOCKET=$SOCK_DIR/dialer.sock
-# Docker is a user service of hakobu-docker's that starts alongside; the
-# agent starts the tunnel once, so it waits for Docker to answer.
+# Docker is the Docker user's service, starting alongside.
 ExecStartPre=/bin/sh -c 'for i in \$\$(seq 1 120); do docker info >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
-ExecStart=/opt/hakobu/hakobu $ROLE
+ExecStart=$BIN serve --config $CONFIG
 Restart=always
 RestartSec=5
-# SIGTERM reaches only hakobu, which lets running builds finish; whatever
-# still runs is killed when the stop times out.
-KillMode=mixed
 TimeoutStartSec=150
+# Port 80 and 443, for a public server, without being root.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 
-# Sandboxing. The container dialer is the Docker user's, so hakobu enters no
-# namespaces. ProtectProc stays default so container ports can be read from
-# /proc; PrivateUsers would hide the Docker user's group.
 NoNewPrivileges=yes
 RestrictNamespaces=yes
 SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
-CapabilityBoundingSet=
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/opt/hakobu/data /opt/hakobu/key /opt/hakobu/run /home/hakobu/.docker
+ReadWritePaths=$DATA /home/hakobu/.docker
 PrivateTmp=yes
 PrivateDevices=yes
 ProtectKernelTunables=yes
@@ -418,43 +314,21 @@ SystemCallArchitectures=native
 [Install]
 WantedBy=multi-user.target
 EOF
-fi
-# The panel's Update and Roll back buttons: hakobu, which can't write its
-# own binary, asks through a file in data/ and systemd does the work as
-# root. Each version writes its own units (internal/update/units.go).
-if ! /opt/hakobu/hakobu install-units >/dev/null; then
-  echo "    WARNING: no Update button: this hakobu can't install its updater (update with sudo /opt/hakobu/hakobu update)"
-fi
 systemctl daemon-reload
+as_docker systemctl --user restart hakobu-dialer
 systemctl enable hakobu >/dev/null 2>&1
 systemctl restart hakobu
 
-if [ "$ROLE" = node ]; then
-  echo
-  echo "Done. This server joined the panel at $HAKOBU_PANEL and keeps connected to it:"
-  echo "it shows as connected in the panel's Settings → Servers, and new projects can run on it."
-  echo
-  echo "It seals its backups with its own key, which the panel never sees. Keep a copy away from"
-  echo "this server, or its backups can't be restored if it's lost:"
-  echo
-  echo "  cd /opt/hakobu && sudo ./hakobu key export > ~/hakobu-$(hostname).key"
-  echo
-  exit 0
-fi
-
-for _ in $(seq 1 30); do
-  curl -fs -o /dev/null http://127.0.0.1:9000/login && break
-  sleep 1
-done
-
-HOST="$(cat "$DATA/public_host")"
 echo
-if [ -s "$DATA/setup_token" ]; then
-  echo "Done. The panel may take a minute to answer while DNS and the tunnel come up."
-  echo "Open this link to connect GitHub and sign in (only this link can claim the panel):"
+echo "Done: $("$BIN" --version) runs on $TS_IP:$API_PORT (journalctl -u hakobu)."
+echo "The server's key: $SERVER_KEY"
+echo "Back up $DATA/key.age somewhere off this server."
+if [ -n "$OP_TOKEN" ]; then
   echo
-  echo "  https://$HOST/setup?token=$(cat "$DATA/setup_token")"
-else
-  echo "Done. Panel: https://$HOST"
+  echo "These tokens show only now:"
+  echo "  admin:    $ADMIN_TOKEN    (your password manager; never on a disk an agent reads)"
+  echo "  operator: $OP_TOKEN"
+  echo
+  echo "On your laptop, in the tailnet:"
+  echo "  hakobu server add $HAKOBU_NAME http://$TS_IP:$API_PORT    (paste the operator token)"
 fi
-echo

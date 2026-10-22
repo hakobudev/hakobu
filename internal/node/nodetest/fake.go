@@ -1,23 +1,17 @@
-// Package nodetest is a node.Node in memory, for testing the panel's side
-// without Docker: a deploy, rollback or backup runs in milliseconds, and
-// any operation can be made to fail, as a node that is another server
-// would when it drops off mid-job.
+// Package nodetest is the machine in memory, for testing deploys without
+// Docker: a deploy, rollback or backup runs in milliseconds, and any
+// operation can be made to fail.
 package nodetest
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"slices"
-	"strings"
 	"sync"
 
 	"github.com/hakobudev/hakobu/internal/node"
-	"github.com/hakobudev/hakobu/internal/store/teldb"
 )
 
 // Fake is a node whose containers, builds, databases, dumps and volumes are
@@ -30,7 +24,6 @@ type Fake struct {
 	calls []string
 	n     int // for build, dump and container IDs
 
-	Stack      string                           // what Build detects
 	Port       int64                            // a candidate answers on it (default 8080)
 	Containers map[string]string                // name → status
 	Runs       map[string]string                // container → build
@@ -38,31 +31,23 @@ type Fake struct {
 	Proxies    map[string]string                // app → container
 	DBs        map[string]string                // database → content
 	Passwords  map[string]string                // role → password
-	Dumps      map[node.Dump]string             // dump → content
 	Volumes    map[string]string                // node.Volume name → content
-	Bucket     map[string]string                // backups uploaded: the first part's URL path → content
 	Tunnels    map[string]node.TunnelSpec       // container → spec
 	Edges      map[string][]string              // container → projects whose edge network it's on
 	Networks   map[string]bool                  // projects with networks
 	Caches     map[string]node.CacheSpec        // container → spec
-	Keys       node.KeyState                    // what KeyState tells
-	InTailnet  node.TailnetState                // what Tailnet tells
-	TailnetAsk []node.TailnetRequest            // what root was asked, in order
 	Postgres   string                           // why Postgres doesn't answer, "" if it does
 	// What DataStatus reports of Postgres when it answers.
 	PostgresVersion        string
 	PostgresShm, ShmWanted int64
-	Tel                    *teldb.Queries // where its apps' telemetry goes
 }
-
-var _ node.Node = (*Fake)(nil)
 
 func New() *Fake {
 	return &Fake{
 		fail: map[string]error{}, hooks: map[string]func(){}, Port: 8080,
 		Containers: map[string]string{}, Runs: map[string]string{}, Images: map[string]map[node.Image]string{},
 		Proxies: map[string]string{}, DBs: map[string]string{}, Passwords: map[string]string{},
-		Dumps: map[node.Dump]string{}, Volumes: map[string]string{}, Bucket: map[string]string{}, Tunnels: map[string]node.TunnelSpec{},
+		Volumes: map[string]string{}, Tunnels: map[string]node.TunnelSpec{},
 		Edges: map[string][]string{}, Networks: map[string]bool{}, Caches: map[string]node.CacheSpec{},
 	}
 }
@@ -155,16 +140,6 @@ func (f *Fake) Logs(ctx context.Context, container string, lines int) (string, e
 
 // Builds.
 
-func (f *Fake) Build(ctx context.Context, b node.BuildSpec, out io.Writer) (string, error) {
-	unlock, err := f.call("Build")
-	defer unlock()
-	if err != nil {
-		return "", err
-	}
-	f.image(b.App)[node.Next] = f.next("build-")
-	return f.Stack, nil
-}
-
 func (f *Fake) ExposedPort(ctx context.Context, app string, img node.Image) int64 { return 0 }
 
 func (f *Fake) HasImage(ctx context.Context, app string, img node.Image) (bool, error) {
@@ -197,17 +172,6 @@ func (f *Fake) Promote(ctx context.Context, app string) error {
 	img[node.Latest] = img[node.Next]
 	delete(img, node.Next)
 	return err
-}
-
-func (f *Fake) SwapForRollback(ctx context.Context, app string) error {
-	unlock, err := f.call("SwapForRollback")
-	defer unlock()
-	if err != nil {
-		return err
-	}
-	img := f.image(app)
-	img[node.Latest], img[node.Previous] = img[node.Previous], img[node.Latest]
-	return nil
 }
 
 // Rolling out.
@@ -349,7 +313,6 @@ func (f *Fake) RemoveApp(ctx context.Context, app string, volumes []string) erro
 	}
 	delete(f.Images, app)
 	delete(f.Proxies, app)
-	delete(f.Dumps, node.SnapshotOf(app))
 	for _, v := range volumes {
 		delete(f.Volumes, node.Volume(app, v))
 	}
@@ -492,180 +455,7 @@ func (f *Fake) SetPassword(ctx context.Context, d node.DBSpec) error {
 	return err
 }
 
-// Backups: the content goes to Bucket, unsealed, under the path of its
-// first part's URL; a download checks it against its SHA-256.
-
-// fakeKey is the fingerprint of a fake node's own key when Keys says none.
-const fakeKey = "fake-node-key"
-
-func (f *Fake) ownKey() string {
-	if k := f.Keys.Current(); k != "" {
-		return k
-	}
-	return fakeKey
-}
-
-func (f *Fake) upload(up node.Upload, content string) (node.Uploaded, error) {
-	u, err := up.URL(0)
-	if err != nil {
-		return node.Uploaded{}, err
-	}
-	f.Bucket[objectPath(u)] = content
-	sum := sha256.Sum256([]byte(content))
-	done := node.Uploaded{Parts: 1, Size: int64(len(content)), SHA256: hex.EncodeToString(sum[:])}
-	if up.FileKey == "" {
-		done.KeyFingerprint = f.ownKey()
-	}
-	return done, nil
-}
-
-func (f *Fake) download(dl node.Download) (string, error) {
-	u, err := dl.URL(0)
-	if err != nil {
-		return "", err
-	}
-	content, ok := f.Bucket[objectPath(u)]
-	if !ok {
-		return "", fmt.Errorf("no backup at %s", objectPath(u))
-	}
-	if sum := sha256.Sum256([]byte(content)); hex.EncodeToString(sum[:]) != dl.SHA256 {
-		return "", errors.New("the backup in the bucket doesn't match the one hakobu made (SHA-256 differs), not restoring it")
-	}
-	if dl.FileKey == "" && dl.KeyFingerprint != f.ownKey() && !slices.Contains(f.Keys.Fingerprints, dl.KeyFingerprint) {
-		return "", fmt.Errorf("it's sealed with key %s, which this server doesn't have", dl.KeyFingerprint)
-	}
-	return content, nil
-}
-
-func (f *Fake) Reseal(ctx context.Context, dl node.Download, up node.Upload) (node.Uploaded, error) {
-	unlock, err := f.call("Reseal")
-	defer unlock()
-	if err != nil {
-		return node.Uploaded{}, err
-	}
-	content, err := f.download(dl)
-	if err != nil {
-		return node.Uploaded{}, err
-	}
-	return f.upload(up, content)
-}
-
-func objectPath(rawURL string) string {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return rawURL
-	}
-	return u.Path
-}
-
-func (f *Fake) BackupDatabase(ctx context.Context, d node.DBSpec, up node.Upload) (node.Uploaded, error) {
-	unlock, err := f.call("BackupDatabase")
-	defer unlock()
-	if err != nil {
-		return node.Uploaded{}, err
-	}
-	return f.upload(up, f.DBs[d.Name])
-}
-
-func (f *Fake) RestoreDatabase(ctx context.Context, d node.DBSpec, dl node.Download) error {
-	unlock, err := f.call("RestoreDatabase")
-	defer unlock()
-	if err != nil {
-		return err
-	}
-	content, err := f.download(dl)
-	if err == nil {
-		f.DBs[d.Name] = content
-	}
-	return err
-}
-
-// VerifyDatabaseBackup counts a non-empty dump as one table.
-func (f *Fake) VerifyDatabaseBackup(ctx context.Context, d node.DBSpec, dl node.Download) (int, error) {
-	unlock, err := f.call("VerifyDatabaseBackup")
-	defer unlock()
-	if err != nil {
-		return 0, err
-	}
-	content, err := f.download(dl)
-	if err != nil || content == "" {
-		return 0, err
-	}
-	return 1, nil
-}
-
-func (f *Fake) BackupVolume(ctx context.Context, app, name string, up node.Upload) (node.Uploaded, error) {
-	unlock, err := f.call("BackupVolume")
-	defer unlock()
-	if err != nil {
-		return node.Uploaded{}, err
-	}
-	return f.upload(up, f.Volumes[node.Volume(app, name)])
-}
-
-// RestoreVolume checks the backup before it stops anything, as Local.
-func (f *Fake) RestoreVolume(ctx context.Context, app node.AppSpec, name string, dl node.Download, out io.Writer) error {
-	unlock, err := f.call("RestoreVolume")
-	defer unlock()
-	if err != nil {
-		return err
-	}
-	content, err := f.download(dl)
-	if err != nil {
-		return err
-	}
-	f.Volumes[node.Volume(app.Name, name)] = content
-	return nil
-}
-
-// PutVolumeFile keeps the file's content at "<volume>/<name>" in Volumes.
-// The panel uploads the file to the bucket itself, sealed, so it's
-// fetched as Local fetches it.
-func (f *Fake) PutVolumeFile(ctx context.Context, app node.AppSpec, volume, name string, dl node.Download, out io.Writer) error {
-	unlock, err := f.call("PutVolumeFile")
-	defer unlock()
-	if err != nil {
-		return err
-	}
-	body, err := node.Fetch(ctx, dl)
-	if err != nil {
-		return err
-	}
-	defer body.Close()
-	content, err := io.ReadAll(body)
-	if err != nil {
-		return err
-	}
-	f.Volumes[node.Volume(app.Name, volume)+"/"+name] = string(content)
-	return nil
-}
-
-// VerifyVolumeBackup counts a non-empty archive as one file.
-func (f *Fake) VerifyVolumeBackup(ctx context.Context, dl node.Download) (int, error) {
-	unlock, err := f.call("VerifyVolumeBackup")
-	defer unlock()
-	if err != nil {
-		return 0, err
-	}
-	content, err := f.download(dl)
-	if err != nil || content == "" {
-		return 0, err
-	}
-	return 1, nil
-}
-
 // Snapshots.
-
-func (f *Fake) SaveDump(ctx context.Context, d node.DBSpec) (node.Dump, error) {
-	unlock, err := f.call("SaveDump")
-	defer unlock()
-	if err != nil {
-		return "", err
-	}
-	dump := node.Dump(f.next("dump-") + ".tmp")
-	f.Dumps[dump] = f.DBs[d.Name]
-	return dump, nil
-}
 
 // DumpDatabase writes the database's content.
 func (f *Fake) DumpDatabase(ctx context.Context, d node.DBSpec, w io.Writer) error {
@@ -676,71 +466,6 @@ func (f *Fake) DumpDatabase(ctx context.Context, d node.DBSpec, w io.Writer) err
 	}
 	_, err = io.WriteString(w, f.DBs[d.Name])
 	return err
-}
-
-func (f *Fake) DropDump(dump node.Dump) {
-	unlock, _ := f.call("DropDump")
-	defer unlock()
-	delete(f.Dumps, dump)
-}
-
-func (f *Fake) KeepSnapshot(app string, dump node.Dump) error {
-	unlock, err := f.call("KeepSnapshot")
-	defer unlock()
-	if err != nil {
-		return err
-	}
-	if dump == "" {
-		delete(f.Dumps, node.SnapshotOf(app))
-		return nil
-	}
-	content, ok := f.Dumps[dump]
-	if !ok {
-		return fmt.Errorf("no dump %s", dump)
-	}
-	delete(f.Dumps, dump)
-	f.Dumps[node.SnapshotOf(app)] = content
-	return nil
-}
-
-func (f *Fake) HasSnapshot(app string) bool {
-	unlock, _ := f.call("HasSnapshot")
-	defer unlock()
-	_, ok := f.Dumps[node.SnapshotOf(app)]
-	return ok
-}
-
-func (f *Fake) SetAside(app string, dump node.Dump) string {
-	unlock, _ := f.call("SetAside")
-	defer unlock()
-	aside := node.Dump(app + "-before-rollback")
-	f.Dumps[aside] = f.Dumps[dump]
-	delete(f.Dumps, dump)
-	return string(aside)
-}
-
-func (f *Fake) PruneSnapshots(apps map[string]bool) {
-	unlock, _ := f.call("PruneSnapshots")
-	defer unlock()
-	for dump := range f.Dumps {
-		if app, ok := strings.CutSuffix(string(dump), string(node.SnapshotOf(""))); ok && !apps[app] && !strings.HasSuffix(app, "-before-rollback") {
-			delete(f.Dumps, dump)
-		}
-	}
-}
-
-func (f *Fake) ReplaceDatabase(ctx context.Context, d node.DBSpec, dump node.Dump) error {
-	unlock, err := f.call("ReplaceDatabase")
-	defer unlock()
-	if err != nil {
-		return err
-	}
-	content, ok := f.Dumps[dump]
-	if !ok {
-		return fmt.Errorf("no dump %s", dump)
-	}
-	f.DBs[d.Name] = content
-	return nil
 }
 
 // Volumes.
@@ -785,94 +510,6 @@ func (f *Fake) Disk(ctx context.Context) (uint64, uint64, error) {
 }
 
 // Telemetry goes to Tel, a real telemetry.db (the panel's in most tests).
-
-func (f *Fake) AppEvents(ctx context.Context, app int64, logs bool, limit int64) ([]teldb.TelemetryEvent, error) {
-	return node.Telemetry{Q: f.Tel}.AppEvents(ctx, app, logs, limit)
-}
-
-func (f *Fake) AppEvent(ctx context.Context, app int64, id int64) (teldb.TelemetryEvent, error) {
-	return node.Telemetry{Q: f.Tel}.AppEvent(ctx, app, id)
-}
-
-func (f *Fake) AppIssues(ctx context.Context, app int64, withResolved bool, limit int64) ([]teldb.ListIssuesRow, error) {
-	return node.Telemetry{Q: f.Tel}.AppIssues(ctx, app, withResolved, limit)
-}
-
-func (f *Fake) ResolveIssue(ctx context.Context, app int64, id int64) (bool, error) {
-	return node.Telemetry{Q: f.Tel}.ResolveIssue(ctx, app, id)
-}
-
-func (f *Fake) ReopenIssue(ctx context.Context, app int64, id int64) (bool, error) {
-	return node.Telemetry{Q: f.Tel}.ReopenIssue(ctx, app, id)
-}
-
-func (f *Fake) AddAppEvent(ctx context.Context, e teldb.CreateTelemetryEventParams) error {
-	return node.Telemetry{Q: f.Tel}.AddAppEvent(ctx, e)
-}
-
-func (f *Fake) LastAppEvent(ctx context.Context, app int64, kind string) (string, error) {
-	return node.Telemetry{Q: f.Tel}.LastAppEvent(ctx, app, kind)
-}
-
-func (f *Fake) AppTraces(ctx context.Context, app int64, limit int64) ([]teldb.ListTracesRow, error) {
-	return node.Telemetry{Q: f.Tel}.AppTraces(ctx, app, limit)
-}
-
-func (f *Fake) AppTrace(ctx context.Context, app int64, id int64) (teldb.Trace, error) {
-	return node.Telemetry{Q: f.Tel}.AppTrace(ctx, app, id)
-}
-
-func (f *Fake) TraceByID(ctx context.Context, app int64, traceID string) (int64, error) {
-	return node.Telemetry{Q: f.Tel}.TraceByID(ctx, app, traceID)
-}
-
-func (f *Fake) TraceRoutes(ctx context.Context, app int64, since int64) ([]teldb.TraceRoute, error) {
-	return node.Telemetry{Q: f.Tel}.TraceRoutes(ctx, app, since)
-}
-
-func (f *Fake) DropTelemetry(ctx context.Context, app int64) error {
-	return node.Telemetry{Q: f.Tel}.DropTelemetry(ctx, app)
-}
-
-func (f *Fake) StoreEnvelope(ctx context.Context, app int64, body []byte) error {
-	unlock, err := f.call("StoreEnvelope")
-	defer unlock()
-	if err != nil {
-		return err
-	}
-	return node.Telemetry{Q: f.Tel}.StoreEnvelope(ctx, app, body)
-}
-
-func (f *Fake) KeyState(ctx context.Context) (node.KeyState, error) {
-	unlock, err := f.call("KeyState")
-	defer unlock()
-	return f.Keys, err
-}
-
-func (f *Fake) Tailnet(ctx context.Context) (node.TailnetState, error) {
-	unlock, err := f.call("Tailnet")
-	defer unlock()
-	return f.InTailnet, err
-}
-
-func (f *Fake) JoinTailnet(ctx context.Context, r node.TailnetRequest) error {
-	unlock, err := f.call("JoinTailnet")
-	defer unlock()
-	if err == nil {
-		r.Up = true
-		f.TailnetAsk = append(f.TailnetAsk, r)
-	}
-	return err
-}
-
-func (f *Fake) LeaveTailnet(ctx context.Context) error {
-	unlock, err := f.call("LeaveTailnet")
-	defer unlock()
-	if err == nil {
-		f.TailnetAsk = append(f.TailnetAsk, node.TailnetRequest{})
-	}
-	return err
-}
 
 func (f *Fake) Cleanup(ctx context.Context, c node.CleanupSpec) (int64, int, error) {
 	unlock, err := f.call("Cleanup")
@@ -955,11 +592,5 @@ func (f *Fake) RemoveTunnel(ctx context.Context, client string) error {
 	delete(f.Tunnels, name)
 	delete(f.Containers, name)
 	delete(f.Edges, name)
-	return err
-}
-
-func (f *Fake) StartIngestRelay(ctx context.Context, socket string) error {
-	unlock, err := f.call("StartIngestRelay")
-	defer unlock()
 	return err
 }

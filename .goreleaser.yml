@@ -8,7 +8,7 @@ before:
 
 builds:
   - id: hakobu
-    main: ./v1
+    main: .
     binary: hakobu
     env:
       - CGO_ENABLED=0
@@ -30,7 +30,7 @@ archives:
 checksum:
   name_template: "checksums.txt"
 
-# checksums.txt.sig: what `hakobu update` and install.sh check before
+# checksums.txt.sig: what install.sh and the workflow check before
 # installing anything (scripts/sign-release.sh). Without the key the
 # release fails rather than going out unsigned.
 signs:

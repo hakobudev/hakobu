@@ -5,14 +5,14 @@ hakobu is open source under the MIT license: [github.com/hakobudev/hakobu](https
 ## Building
 
 ```bash
-go build -o hakobu ./v1
+go build -o hakobu .
 ```
 
-Requires Go 1.27+. The server side needs Linux, systemd and Docker; `install-v1.sh` with `HAKOBU_BINARY=./hakobu` installs a local build on a test machine.
+Requires Go 1.27+. The server side needs Linux, systemd and Docker; `install.sh` with `HAKOBU_BINARY=./hakobu` installs a local build on a test machine.
 
 ## Tests
 
-`just check` runs what CI runs: build, tests, govulncheck and golangci-lint. Tests that need Docker (they start their own containers: PostgreSQL, Valkey, an S3 server) run with `HAKOBU_DOCKER_TEST=1 go test ./internal/apply ./internal/backups`.
+`just check` runs what CI runs: build, vet, tests, govulncheck and golangci-lint. Tests that need Docker (they start their own containers: PostgreSQL, Valkey, an S3 server) run with `HAKOBU_DOCKER_TEST=1 go test ./internal/apply ./internal/backups`.
 
 ## These docs
 
@@ -24,7 +24,7 @@ Pushing a `vX.Y.Z` tag builds and publishes a release (`.github/workflows/releas
 
 ## Layout
 
-- `v1/`, `internal/cli/`: the command line and the MCP server
+- `main.go`, `internal/cli/`: the command line and the MCP server
 - `internal/spec/`: hakobu.toml
 - `internal/seal/`: hakobu.secrets.toml
 - `internal/server/`: the daemon: config, API, polling, monitoring

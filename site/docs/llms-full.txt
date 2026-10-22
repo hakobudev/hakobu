@@ -29,7 +29,7 @@ Start with [a server](https://hakobu.dev/docs/install/index.md), then [a project
 One command sets a server up, and asks nothing: everything comes from the environment, so cloud-init or an agent can run it.
 
 ```bash
-curl -fsSL https://hakobu.dev/install-v1.sh | sudo \
+curl -fsSL https://hakobu.dev/install.sh | sudo \
   HAKOBU_NAME=kasl-1 \
   HAKOBU_OWNER_KEY=age1… \
   TS_AUTHKEY=tskey-auth-… TS_TAGS=tag:hakobu \
@@ -514,7 +514,7 @@ hakobu doesn't collect errors or traces. Give an app a `SENTRY_DSN` [secret](htt
 To update a server, run the installer again, with the version if you want a particular one:
 
 ```bash
-curl -fsSL https://hakobu.dev/install-v1.sh | sudo HAKOBU_VERSION=v1.0.0 bash
+curl -fsSL https://hakobu.dev/install.sh | sudo HAKOBU_VERSION=v1.0.0 bash
 ```
 
 The config, the key and the data stay. Apps keep running; their proxies live in hakobu, so they don't answer for about half a second while it restarts. Docker is restarted only if its settings changed.
@@ -564,14 +564,14 @@ hakobu is open source under the MIT license: [github.com/hakobudev/hakobu](https
 ## Building
 
 ```bash
-go build -o hakobu ./v1
+go build -o hakobu .
 ```
 
-Requires Go 1.27+. The server side needs Linux, systemd and Docker; `install-v1.sh` with `HAKOBU_BINARY=./hakobu` installs a local build on a test machine.
+Requires Go 1.27+. The server side needs Linux, systemd and Docker; `install.sh` with `HAKOBU_BINARY=./hakobu` installs a local build on a test machine.
 
 ## Tests
 
-`just check` runs what CI runs: build, tests, govulncheck and golangci-lint. Tests that need Docker (they start their own containers: PostgreSQL, Valkey, an S3 server) run with `HAKOBU_DOCKER_TEST=1 go test ./internal/apply ./internal/backups`.
+`just check` runs what CI runs: build, vet, tests, govulncheck and golangci-lint. Tests that need Docker (they start their own containers: PostgreSQL, Valkey, an S3 server) run with `HAKOBU_DOCKER_TEST=1 go test ./internal/apply ./internal/backups`.
 
 ## These docs
 
@@ -583,7 +583,7 @@ Pushing a `vX.Y.Z` tag builds and publishes a release (`.github/workflows/releas
 
 ## Layout
 
-- `v1/`, `internal/cli/`: the command line and the MCP server
+- `main.go`, `internal/cli/`: the command line and the MCP server
 - `internal/spec/`: hakobu.toml
 - `internal/seal/`: hakobu.secrets.toml
 - `internal/server/`: the daemon: config, API, polling, monitoring
