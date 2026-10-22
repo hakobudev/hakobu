@@ -4,6 +4,7 @@
 package ci
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,7 +13,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/hakobudev/hakobu/internal/apply"
@@ -124,9 +127,26 @@ func (b Build) app(ctx context.Context, tmp, name string, a spec.App) (string, e
 	if err := b.Run(ctx, dir, b.log(), "railpack", "prepare", ".", "--plan-out", plan); err != nil {
 		return "", fmt.Errorf("railpack prepare (has the CI railpack? the workflow's railpack: true installs it): %w", err)
 	}
-	digest, err := b.push(ctx, dir, tmp, name, tag, "-f", plan, "--build-arg", "BUILDKIT_SYNTAX=ghcr.io/railwayapp/railpack-frontend")
+	digest, err := b.push(ctx, dir, tmp, name, tag, "-f", plan, "--build-arg", "BUILDKIT_SYNTAX="+b.railpackFrontend(ctx))
 	return repo + "@" + digest, err
 }
+
+// railpackFrontend is the BuildKit frontend of the Railpack that made the
+// plan, so the two always agree on its format.
+func (b Build) railpackFrontend(ctx context.Context) string {
+	const image = "ghcr.io/railwayapp/railpack-frontend"
+	var out bytes.Buffer
+	if err := b.Run(ctx, b.Dir, &out, "railpack", "--version"); err != nil {
+		return image
+	}
+	fields := strings.Fields(out.String()) // "railpack version 0.39.0"
+	if len(fields) == 0 || !semver.MatchString(fields[len(fields)-1]) {
+		return image
+	}
+	return image + ":v" + fields[len(fields)-1]
+}
+
+var semver = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
 
 // push builds dir with buildx and pushes it as tag, returning its digest.
 func (b Build) push(ctx context.Context, dir, tmp, name, tag string, extra ...string) (string, error) {

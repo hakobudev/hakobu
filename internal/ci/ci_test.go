@@ -34,14 +34,24 @@ func write(t *testing.T, dir string, files map[string]string) {
 // fakeDocker records the commands and answers buildx with a digest made
 // from the tag.
 type fakeDocker struct {
-	calls  []string
-	labels map[string]map[string]string // tag → labels
+	calls     []string
+	buildArgs []string
+	labels    map[string]map[string]string // tag → labels
 }
 
 func (f *fakeDocker) run(ctx context.Context, dir string, log io.Writer, name string, args ...string) error {
+	if name == "railpack" && args[0] == "--version" {
+		_, err := io.WriteString(log, "railpack version 0.39.0\n")
+		return err
+	}
 	f.calls = append(f.calls, filepath.Base(dir)+": "+name+" "+args[0])
 	if name != "docker" {
 		return nil
+	}
+	for i, a := range args {
+		if a == "--build-arg" {
+			f.buildArgs = append(f.buildArgs, args[i+1])
+		}
 	}
 	var tag, meta string
 	labels := map[string]string{}
@@ -89,6 +99,9 @@ func TestRelease(t *testing.T) {
 	}
 	if len(f.calls) != 4 || !slices.Equal(f.calls[:3], want) || !strings.HasSuffix(f.calls[3], ": docker buildx") {
 		t.Fatalf("calls %q", f.calls)
+	}
+	if !slices.Equal(f.buildArgs, []string{"BUILDKIT_SYNTAX=ghcr.io/railwayapp/railpack-frontend:v0.39.0"}) {
+		t.Errorf("build args %q", f.buildArgs)
 	}
 	rel := f.labels["ghcr.io/kasl/crm:main"]
 	if rel[apply.LabelSpec] != spec || rel[apply.LabelRevision] != sha || rel[apply.LabelSource] != "https://github.com/kasl/crm" {

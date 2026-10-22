@@ -305,6 +305,7 @@ deploys the release before the current one, with today's secrets, and holds the 
 | `image` | the release image, without its tag; default `ghcr.io/OWNER/REPO` |
 | `tag` | the tag the server polls; default `main` |
 | `railpack` | install Railpack, for apps without a Dockerfile |
+| `railpack-version` | which Railpack; its BuildKit frontend is the same version |
 | `runner` | the runner, whose architecture the images get; `ubuntu-24.04-arm` for an arm64 server |
 | `wait` | how long to wait for the deploy; default `15m` |
 
