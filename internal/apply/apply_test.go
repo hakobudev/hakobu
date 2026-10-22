@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -26,7 +27,8 @@ func newHarness(t *testing.T) *harness {
 	h := &harness{f: nodetest.New()}
 	h.a = &Applier{
 		Node:      h.f,
-		StateFile: filepath.Join(t.TempDir(), "state.json"),
+		StateFile:   filepath.Join(t.TempDir(), "state.json"),
+		SnapshotDir: filepath.Join(t.TempDir(), "snapshots"),
 		// A pull makes the image the app's Next build, as Docker would.
 		Pull: func(_ context.Context, ref, tag string) error {
 			app := strings.TrimPrefix(strings.TrimSuffix(tag, ":"+string(node.Next)), "hakobu/")
@@ -110,8 +112,8 @@ func TestApplyFirstDeploy(t *testing.T) {
 	if !slices.Contains(h.releases[0].Binds, "hakobu_vol_kasl-crm_uploads:/app/data") && !strings.Contains(strings.Join(h.releases[0].Binds, " "), "kasl-crm") {
 		t.Errorf("binds %v", h.releases[0].Binds)
 	}
-	if !f.Called("SaveDump") {
-		t.Error("no dump before the release command")
+	if _, err := os.Stat(filepath.Join(h.a.SnapshotDir, "kasl_main.dump")); err != nil {
+		t.Errorf("no dump before the release command: %v", err)
 	}
 }
 

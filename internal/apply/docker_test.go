@@ -17,7 +17,6 @@ import (
 
 	"github.com/hakobudev/hakobu/internal/deploy"
 	"github.com/hakobudev/hakobu/internal/node"
-	"github.com/hakobudev/hakobu/internal/secret"
 	"github.com/hakobudev/hakobu/internal/spec"
 )
 
@@ -43,12 +42,7 @@ func TestDockerApply(t *testing.T) {
 
 	oldPG, oldWait, oldPort := node.PostgresContainer, node.CandidateWait, FirstProxyPort
 	node.PostgresContainer, node.CandidateWait, FirstProxyPort = id+"-postgres", 10*time.Second, 18081
-	t.Chdir(t.TempDir()) // the dumps go to data/snapshots
-	// The dump before a release command is sealed with the server's key.
-	if err := secret.LoadKey(filepath.Join(t.TempDir(), "master.key")); err != nil {
-		t.Fatal(err)
-	}
-	a := &Applier{Node: node.Local{}, StateFile: filepath.Join(t.TempDir(), "state.json")}
+	a := &Applier{Node: node.Local{}, StateFile: filepath.Join(t.TempDir(), "state.json"), SnapshotDir: t.TempDir()}
 	t.Cleanup(func() {
 		for _, c := range []string{id + "-web-blue", id + "-web-green", id + "-web-worker", id + "-cache", node.PostgresContainer} {
 			_ = deploy.RemoveContainer(ctx, c)

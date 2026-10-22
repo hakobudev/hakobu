@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -38,8 +40,7 @@ type Node interface {
 	EnsurePostgres(ctx context.Context) error
 	EnsureDatabase(ctx context.Context, d node.DBSpec) error
 	EnsureCache(ctx context.Context, c node.CacheSpec) error
-	SaveDump(ctx context.Context, d node.DBSpec) (node.Dump, error)
-	KeepSnapshot(app string, dump node.Dump) error
+	DumpDatabase(ctx context.Context, d node.DBSpec, w io.Writer) error
 	EnsureProjectNetworks(ctx context.Context, project string, tunnels []node.TunnelSpec) error
 }
 
@@ -57,6 +58,10 @@ type Applier struct {
 	RunOnce func(ctx context.Context, tag, name, command string, opts deploy.AppOptions) (string, error)
 	// ReleaseTimeout bounds a release command (default 30 minutes).
 	ReleaseTimeout time.Duration
+	// SnapshotDir keeps the dump of each database taken before a release
+	// command, the last one of each: the way back if a migration goes
+	// wrong. It's on the server's disk next to the database itself.
+	SnapshotDir string
 
 	mu sync.Mutex
 }
@@ -261,8 +266,8 @@ func (a *Applier) deployApp(ctx context.Context, r Release, st *State, ps *Proje
 	return nil
 }
 
-// release saves a dump of each database the app uses, as the app's
-// snapshot, then runs its release command in the new image.
+// release saves a dump of each database the app uses, then runs its
+// release command in the new image.
 func (a *Applier) release(ctx context.Context, r Release, ps *ProjectState, name string, app node.AppSpec, out io.Writer) error {
 	project := r.Spec.Name
 	for _, db := range sortedKeys(r.Spec.Apps[name].Uses) {
@@ -274,12 +279,8 @@ func (a *Applier) release(ctx context.Context, r Release, ps *ProjectState, name
 			return err
 		}
 		fmt.Fprintln(out, "saving a dump of", db, "before the release command")
-		dump, err := a.Node.SaveDump(ctx, d)
-		if err != nil {
+		if err := a.snapshot(ctx, d); err != nil {
 			return fmt.Errorf("dump of %s: %w", db, err)
-		}
-		if err := a.Node.KeepSnapshot(app.Name+"-"+db, dump); err != nil {
-			return err
 		}
 	}
 	fmt.Fprintln(out, "running", r.Spec.Apps[name].Release)
@@ -352,6 +353,34 @@ func (a *Applier) appSpec(ctx context.Context, r Release, ps *ProjectState, name
 		HealthPath: w.Health, MemoryMB: int64(w.Memory >> 20), CPUs: w.CPUs,
 		Env: env, Binds: binds, Recreate: len(binds) > 0,
 	}
+}
+
+// snapshot writes the database's dump to SnapshotDir, replacing the last
+// one only once the new one is whole.
+func (a *Applier) snapshot(ctx context.Context, d node.DBSpec) error {
+	dir := a.SnapshotDir
+	if dir == "" {
+		dir = "snapshots"
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(dir, ".dump-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	err = a.Node.DumpDatabase(ctx, d, f)
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), filepath.Join(dir, d.Name+".dump"))
 }
 
 func values(names, vals []string) []string {

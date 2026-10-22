@@ -667,6 +667,17 @@ func (f *Fake) SaveDump(ctx context.Context, d node.DBSpec) (node.Dump, error) {
 	return dump, nil
 }
 
+// DumpDatabase writes the database's content.
+func (f *Fake) DumpDatabase(ctx context.Context, d node.DBSpec, w io.Writer) error {
+	unlock, err := f.call("DumpDatabase")
+	defer unlock()
+	if err != nil {
+		return err
+	}
+	_, err = io.WriteString(w, f.DBs[d.Name])
+	return err
+}
+
 func (f *Fake) DropDump(dump node.Dump) {
 	unlock, _ := f.call("DropDump")
 	defer unlock()

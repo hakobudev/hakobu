@@ -1,7 +1,6 @@
 package node
 
 import (
-	"archive/tar"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -170,28 +169,13 @@ func UploadSealed(ctx context.Context, up Upload, write func(io.Writer) error) (
 
 // VerifyVolumeBackup downloads a backup and reads the whole tar in it,
 // counting its files.
-func (Local) VerifyVolumeBackup(ctx context.Context, dl Download) (files int, err error) {
+func (n Local) VerifyVolumeBackup(ctx context.Context, dl Download) (files int, err error) {
 	body, err := download(ctx, dl)
 	if err != nil {
 		return 0, err
 	}
 	defer body.Close()
-	tr := tar.NewReader(body)
-	for {
-		h, err := tr.Next()
-		if err == io.EOF {
-			return files, nil
-		}
-		if err != nil {
-			return files, fmt.Errorf("the tar is broken: %w", err)
-		}
-		if _, err := io.Copy(io.Discard, tr); err != nil { // reads (and authenticates) every byte
-			return files, err
-		}
-		if h.Typeflag != tar.TypeDir {
-			files++
-		}
-	}
+	return n.CheckArchive(body)
 }
 
 func (Local) Reseal(ctx context.Context, dl Download, up Upload) (Uploaded, error) {
