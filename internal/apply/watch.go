@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -304,12 +305,35 @@ func (w *Watch) finish(seen map[string]watched, meta Meta, res Result) (*Result,
 	return &res, nil
 }
 
+// fetch reads a release's labels: from the server's copy if it has one,
+// as of every release it applied, else from the registry, keeping a
+// copy. A rollback then needs no registry, nor its old releases, which a
+// cleanup policy may have deleted.
 func (w *Watch) fetch(ctx context.Context, ref registry.Ref) (Release, Meta, error) {
+	file := w.releaseFile(ref.Digest)
+	var labels map[string]string
+	if b, err := os.ReadFile(file); err == nil && json.Unmarshal(b, &labels) == nil {
+		return ReadRelease(labels, w.Identity)
+	}
 	labels, err := w.Registry.Labels(ctx, ref)
 	if err != nil {
 		return Release{}, Meta{}, err
 	}
+	if file != "" {
+		if err := os.MkdirAll(filepath.Dir(file), 0o700); err == nil {
+			b, _ := json.Marshal(labels)
+			_ = os.WriteFile(file, b, 0o600) // sealed secrets only, as in the registry
+		}
+	}
 	return ReadRelease(labels, w.Identity)
+}
+
+// releaseFile keeps a release's labels by its digest, next to watch.json.
+func (w *Watch) releaseFile(digest string) string {
+	if digest == "" || w.WatchFile == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(w.WatchFile), "releases", strings.TrimPrefix(digest, "sha256:")+".json")
 }
 
 func (w *Watch) load() (map[string]watched, error) {

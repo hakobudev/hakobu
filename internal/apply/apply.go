@@ -396,6 +396,11 @@ func (a *Applier) pull(ctx context.Context, ref, tag string) error {
 	if a.Pull != nil {
 		return a.Pull(ctx, ref, tag)
 	}
+	// An image pinned by digest that's here already is the same image:
+	// a rollback to it needs no registry.
+	if here, _ := deploy.ImageExists(ctx, ref); here {
+		return deploy.TagImage(ctx, ref, tag)
+	}
 	var auth deploy.RegistryAuth
 	if r, err := registry.ParseRef(ref); err == nil {
 		auth = a.Auth[r.Host]

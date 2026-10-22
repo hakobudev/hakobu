@@ -313,3 +313,36 @@ func TestWatchReportsStatuses(t *testing.T) {
 		t.Errorf("statuses %q", got)
 	}
 }
+
+// The registry may have dropped old releases (a cleanup policy, ttl.sh) or
+// be down: a rollback goes from the server's own copies.
+func TestRollbackWithoutRegistry(t *testing.T) {
+	h, regs := newHarness(t), newReleases(t)
+	w, ref := newWatch(t, h, regs)
+	ctx := context.Background()
+	for _, c := range []string{"a", "b"} {
+		regs.publish(releaseLabels(crm, crmImage(c)))
+		if res, err := w.Check(ctx, ref, false); err != nil || res.Error != "" {
+			t.Fatalf("release %s: %+v, %v", c, res, err)
+		}
+	}
+	regs.mu.Lock()
+	regs.docs = map[string][]byte{}
+	regs.mu.Unlock()
+	res, err := w.Rollback(ctx, ref)
+	if err != nil || res.Error != "" {
+		t.Fatalf("rollback: %+v, %v", res, err)
+	}
+	if got := h.state(t).Apps["crm"].Image; !strings.HasSuffix(got, "aaaa") {
+		t.Errorf("live %s", got)
+	}
+}
+
+func TestShort(t *testing.T) {
+	d := "sha256:" + strings.Repeat("ab", 32)
+	for in, want := range map[string]string{d: "abababababab", "ttl.sh/x-web@" + d: "abababababab", "": "none"} {
+		if got := short(in); got != want {
+			t.Errorf("short(%q) = %q", in, got)
+		}
+	}
+}

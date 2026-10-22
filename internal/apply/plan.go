@@ -296,10 +296,14 @@ func show(v any) any {
 	return v
 }
 
-// short is a digest as people compare them: its first 12 hex digits.
+// short is a digest as people compare them: its first 12 hex digits, of
+// an image reference's too.
 func short(digest string) string {
 	if digest == "" {
 		return "none"
+	}
+	if _, after, ok := strings.Cut(digest, "@"); ok {
+		digest = after
 	}
 	d := strings.TrimPrefix(digest, "sha256:")
 	if len(d) > 12 {
