@@ -246,3 +246,47 @@ func TestApplySecretsReachTheApp(t *testing.T) {
 		t.Errorf("env %v", h.releases[0].Env)
 	}
 }
+
+func TestDestroyOnlyOrphans(t *testing.T) {
+	h := newHarness(t)
+	h.deploy(t, crm, map[string]string{"crm": "r/c@sha256:1"})
+	ctx := context.Background()
+	backedUp := 0
+	backup := func(Resource) error { backedUp++; return nil }
+	if err := h.a.Destroy(ctx, h.f, "kasl", "main", backup, io.Discard); err == nil || !strings.Contains(err.Error(), "still in hakobu.toml") {
+		t.Errorf("destroying a database in the file: %v", err)
+	}
+	h.deploy(t, "[apps.crm]\n", map[string]string{"crm": "r/c@sha256:1"})
+	if err := h.a.Destroy(ctx, h.f, "kasl", "main", func(Resource) error { return errors.New("bucket down") }, io.Discard); err == nil || !strings.Contains(err.Error(), "nothing was destroyed") {
+		t.Errorf("without a backup: %v", err)
+	}
+	if _, ok := h.f.DBs["kasl_main"]; !ok {
+		t.Fatal("dropped without a backup")
+	}
+	for _, name := range []string{"main", "cache", "crm/uploads"} {
+		if err := h.a.Destroy(ctx, h.f, "kasl", name, backup, io.Discard); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if _, ok := h.f.DBs["kasl_main"]; ok || backedUp != 3 {
+		t.Errorf("dbs %v, %d backups", h.f.DBs, backedUp)
+	}
+	if rs, _ := h.a.Resources(); len(rs) != 0 {
+		t.Errorf("left %v", rs)
+	}
+	if err := h.a.Destroy(ctx, h.f, "kasl", "main", backup, io.Discard); err == nil {
+		t.Error("destroyed twice")
+	}
+}
+
+func TestEnsureProxies(t *testing.T) {
+	h := newHarness(t)
+	h.deploy(t, crm, map[string]string{"crm": "r/c@sha256:1"})
+	h.f.Proxies = map[string]string{}
+	if err := h.a.EnsureProxies(context.Background(), h.f); err != nil {
+		t.Fatal(err)
+	}
+	if h.f.Proxies["kasl-crm"] == "" {
+		t.Errorf("proxies %v", h.f.Proxies)
+	}
+}

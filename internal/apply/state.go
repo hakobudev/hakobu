@@ -37,6 +37,9 @@ type ProjectState struct {
 type AppState struct {
 	Slot      string `json:"slot"` // "blue" or "green", the live one
 	ProxyPort int64  `json:"proxy_port"`
+	// Port is the one the live container answers on, for its proxy when
+	// hakobu starts again.
+	Port int64 `json:"port"`
 	Image     string `json:"image"`    // digest live now
 	Previous  string `json:"previous"` // digest before it, the rollback target
 }

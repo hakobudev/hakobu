@@ -14,6 +14,7 @@ import (
 
 	"github.com/hakobudev/hakobu/internal/deploy"
 	"github.com/hakobudev/hakobu/internal/node"
+	"github.com/hakobudev/hakobu/internal/registry"
 	"github.com/hakobudev/hakobu/internal/spec"
 )
 
@@ -51,9 +52,9 @@ type Applier struct {
 	Server    string
 	StateFile string
 	// Pull fetches an app's image and tags it as tag; nil pulls with
-	// Docker as Auth.
+	// Docker, signed in with Auth's credentials for the image's host.
 	Pull func(ctx context.Context, ref, tag string) error
-	Auth deploy.RegistryAuth
+	Auth map[string]deploy.RegistryAuth
 	// RunOnce runs a release command; nil runs it with Docker.
 	RunOnce func(ctx context.Context, tag, name, command string, opts deploy.AppOptions) (string, error)
 	// ReleaseTimeout bounds a release command (default 30 minutes).
@@ -237,7 +238,7 @@ func (a *Applier) deployApp(ctx context.Context, r Release, st *State, ps *Proje
 	// The state first: after a crash between the two, the slot it names is
 	// the live one, and the other is a leftover to remove.
 	prev := *as
-	as.Slot, as.Previous, as.Image = c.Slot, as.Image, ref
+	as.Slot, as.Port, as.Previous, as.Image = c.Slot, c.Port, as.Image, ref
 	if err := save(); err != nil {
 		*as = prev
 		return a.Node.Discard(ctx, app, c, out, err)
@@ -395,7 +396,11 @@ func (a *Applier) pull(ctx context.Context, ref, tag string) error {
 	if a.Pull != nil {
 		return a.Pull(ctx, ref, tag)
 	}
-	if err := deploy.PullImage(ctx, ref, a.Auth); err != nil {
+	var auth deploy.RegistryAuth
+	if r, err := registry.ParseRef(ref); err == nil {
+		auth = a.Auth[r.Host]
+	}
+	if err := deploy.PullImage(ctx, ref, auth); err != nil {
 		return err
 	}
 	return deploy.TagImage(ctx, ref, tag)
