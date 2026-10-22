@@ -411,9 +411,21 @@ func (Local) restart(ctx context.Context, app AppSpec, name string, out io.Write
 		fmt.Fprintln(out, "failed to start the previous version again:", err)
 		return
 	}
-	if ip, err := deploy.ContainerIP(ctx, name, ProjectNetwork(app.Project)); err == nil {
-		u, _ := url.Parse(fmt.Sprintf("http://%s:%d", ip, app.PortHint))
-		_ = proxy.SetTarget(app.Name, u)
+	ip, err := deploy.ContainerIP(ctx, name, ProjectNetwork(app.Project))
+	if err != nil {
+		fmt.Fprintln(out, "started the previous version again, but couldn't find its address:", err)
+		return
+	}
+	u, _ := url.Parse(fmt.Sprintf("http://%s:%d", ip, app.PortHint))
+	_ = proxy.SetTarget(app.Name, u)
+	// Started isn't serving: wait until it answers again, so "the previous
+	// version was started again" is true by the time it's said.
+	path := "/" + strings.TrimPrefix(app.HealthPath, "/")
+	if !deploy.WaitHealthy(int(CandidateWait/time.Second), time.Second, func() bool {
+		return deploy.HTTPCheck(u.String()+path, path != "/")
+	}) {
+		fmt.Fprintln(out, "started the previous version again, but it doesn't answer", path, "yet:", name)
+		return
 	}
 	fmt.Fprintln(out, "started the previous version again:", name)
 }
