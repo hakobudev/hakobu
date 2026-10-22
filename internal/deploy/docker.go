@@ -62,7 +62,7 @@ func withDeadline(ctx context.Context, d time.Duration) (context.Context, contex
 // requestTimeout is how long an API call may take: pulls and prunes can
 // take a while, everything else answers in seconds.
 func requestTimeout(path string) time.Duration {
-	if strings.HasPrefix(path, "/images/create") || strings.HasPrefix(path, "/build/prune") {
+	if strings.HasPrefix(path, "/images/create") || strings.HasPrefix(path, "/build/prune") || strings.HasSuffix(path, "/wait") {
 		return 30 * time.Minute
 	}
 	return 2 * time.Minute

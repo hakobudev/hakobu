@@ -177,7 +177,7 @@ func MakePlan(want *spec.Project, images map[string]string, have *ProjectState) 
 	}
 	for _, n := range sortedKeys(last.Apps) {
 		if _, ok := want.Apps[n]; !ok {
-			add(Remove, "app", n, "its containers stop; its image stays for a rollback")
+			add(Remove, "app", n, "its containers and images go; its volumes stay")
 			if last.Apps[n].Worker != "" {
 				add(Remove, "worker", n, "")
 			}
