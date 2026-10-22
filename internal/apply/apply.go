@@ -45,7 +45,9 @@ type Node interface {
 
 // Applier deploys releases on this server, one at a time.
 type Applier struct {
-	Node      Node
+	Node Node
+	// Server is this server's name: a release for another is refused.
+	Server    string
 	StateFile string
 	// Pull fetches an app's image and tags it as tag; nil pulls with
 	// Docker as Auth.
@@ -76,6 +78,9 @@ func DBKey(project, db string) string {
 func (a *Applier) Apply(ctx context.Context, r Release, out io.Writer) (Plan, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if a.Server != "" && r.Spec.Server != a.Server {
+		return Plan{Project: r.Spec.Name}, fmt.Errorf("the release is for server %s, and this is %s", r.Spec.Server, a.Server)
+	}
 	st, err := LoadState(a.StateFile)
 	if err != nil {
 		return Plan{}, err
