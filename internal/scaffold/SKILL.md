@@ -38,6 +38,7 @@ memory = "256mb"
 
 - `uses` a database sets `DATABASE_URL`, `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`; a cache sets `REDIS_URL`, `VALKEY_URL`, `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`. With a prefix, `<PREFIX>_` goes in front. Passwords are made on the server; never put one in the file.
 - The app must listen on `$PORT` (or `port`) on all interfaces, not 127.0.0.1, and answer `health`. A missing health endpoint is the most common failed deploy: add one, or point `health` at a path that answers 2xx without a login.
+- `release` and `worker` run with `/bin/sh -c` in the app's image, so the image needs a shell (not distroless or scratch).
 - An app with volumes is stopped before its new version starts (a few seconds down), so two versions never write the same files.
 - The PostgreSQL version is the server's, not the project's. Renaming a volume or cache in the file doesn't rename it: the old one is kept, orphaned, and a new empty one is made; renaming a database stops the deploy. Don't rename them.
 - Removing a database, cache or volume from the file doesn't delete it either. Deleting is `hakobu destroy`, a person's to run.

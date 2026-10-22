@@ -26,7 +26,7 @@ func TestInit(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	o := Options{Dir: dir, Server: "kasl-1", Image: "ghcr.io/kasl/crm", Version: "v1.0.0-alpha.1"}
+	o := Options{Dir: dir, Server: "kasl-1", Image: "ghcr.io/kasl/crm", Version: "1.0.0-alpha.1"}
 	files, err := Init(o)
 	if err != nil {
 		t.Fatal(err)

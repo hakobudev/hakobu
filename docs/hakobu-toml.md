@@ -54,7 +54,7 @@ An app is one image serving HTTP, and optionally a worker from the same image.
 | `env` | variables, plain values only: secrets go in [hakobu.secrets.toml](secrets.md) |
 | `uses` | the databases and caches it uses: a list, or a map of name → prefix |
 
-The app must listen on all interfaces (not only 127.0.0.1).
+The app must listen on all interfaces (not only 127.0.0.1). `release` and `worker` run with `/bin/sh -c` in its image, which therefore needs a shell.
 
 ### `uses`
 

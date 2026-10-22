@@ -71,9 +71,11 @@ func Init(o Options) ([]File, error) {
 		files = append(files, File{Path: name})
 		return os.WriteFile(p, []byte(text), 0o644)
 	}
+	// A release's version is its tag without the v; a build of a branch
+	// ("dev") uses the workflow of main.
 	ref := "main"
-	if strings.HasPrefix(o.Version, "v") {
-		ref = o.Version
+	if v := "v" + strings.TrimPrefix(o.Version, "v"); releasePattern.MatchString(v) {
+		ref = v
 	}
 	var wf bytes.Buffer
 	if err := workflow.Execute(&wf, map[string]any{"Branch": o.Branch, "Uses": Workflow + "@" + ref, "Version": ref, "Image": o.Image, "Railpack": railpack}); err != nil {
@@ -95,7 +97,10 @@ func Init(o Options) ([]File, error) {
 	return files, nil
 }
 
-var namePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)
+var (
+	namePattern    = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)
+	releasePattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+`)
+)
 
 // projectFile is a hakobu.toml with an app for each directory that has a
 // Dockerfile or a stack Railpack builds, checked like any other.

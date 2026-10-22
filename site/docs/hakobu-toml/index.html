@@ -153,7 +153,7 @@ memory = &quot;128mb&quot;
 </tr>
 </tbody>
 </table>
-<p>The app must listen on all interfaces (not only 127.0.0.1).</p>
+<p>The app must listen on all interfaces (not only 127.0.0.1). <code>release</code> and <code>worker</code> run with <code>/bin/sh -c</code> in its image, which therefore needs a shell.</p>
 <h3 id="uses"><code>uses</code></h3>
 <p>A database gives the app <code>DATABASE_URL</code>, <code>POSTGRES_HOST</code>, <code>POSTGRES_PORT</code>, <code>POSTGRES_DB</code>, <code>POSTGRES_USER</code> and <code>POSTGRES_PASSWORD</code>; a cache <code>REDIS_URL</code>, <code>VALKEY_URL</code>, <code>REDIS_HOST</code>, <code>REDIS_PORT</code> and <code>REDIS_PASSWORD</code>. Two of a kind would set the same variables, so give one a prefix:</p>
 <pre><code class="language-toml">uses = { main = &quot;&quot;, jobs = &quot;JOBS&quot; }   # JOBS_REDIS_URL, JOBS_REDIS_HOST, …

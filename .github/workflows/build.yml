@@ -53,26 +53,32 @@ jobs:
 
       # A branch instead of a release (to try one before it's released):
       # built from source.
-      - if: ${{ !startsWith(inputs.version, 'v') }}
+      - name: Release or branch
+        id: hakobu
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then echo "release=true" >> "$GITHUB_OUTPUT"; else echo "release=false" >> "$GITHUB_OUTPUT"; fi
+      - if: steps.hakobu.outputs.release == 'false'
         uses: actions/checkout@v7
         with:
           repository: hakobudev/hakobu
           ref: ${{ inputs.version }}
           path: .hakobu-src
           persist-credentials: false
-      - if: ${{ !startsWith(inputs.version, 'v') }}
+      - if: steps.hakobu.outputs.release == 'false'
         uses: actions/setup-go@v7
         with:
           go-version-file: .hakobu-src/go.mod
           cache: false
-      - if: ${{ !startsWith(inputs.version, 'v') }}
+      - if: steps.hakobu.outputs.release == 'false'
         run: |
           (cd .hakobu-src && go build -o "$RUNNER_TEMP/hakobu" ./v1)
           rm -rf .hakobu-src
           sudo install -m 0755 "$RUNNER_TEMP/hakobu" /usr/local/bin/hakobu
 
       - name: Install hakobu ${{ inputs.version }}
-        if: ${{ startsWith(inputs.version, 'v') }}
+        if: steps.hakobu.outputs.release == 'true'
         env:
           VERSION: ${{ inputs.version }}
         run: |
