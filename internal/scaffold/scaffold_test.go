@@ -89,6 +89,16 @@ func TestInit(t *testing.T) {
 	if b, _ := os.ReadFile(filepath.Join(dir, "hakobu.toml")); string(b) != "edited" {
 		t.Error("hakobu.toml was replaced")
 	}
+
+	// An older version's section is brought up to this one, and what
+	// follows it is left.
+	_ = os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte("# CRM\n\n"+claudeMarker+"\n## Deploys (hakobu)\n\n- old\n\n## Plans\n\nmine\n"), 0o644)
+	if _, err := Init(o); err != nil {
+		t.Fatal(err)
+	}
+	if md, _ := os.ReadFile(filepath.Join(dir, "CLAUDE.md")); string(md) != "# CRM\n\n"+claudeSection+"\n## Plans\n\nmine\n" {
+		t.Errorf("CLAUDE.md after an update:\n%s", md)
+	}
 }
 
 func TestInitEmptyRepo(t *testing.T) {

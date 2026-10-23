@@ -368,7 +368,7 @@ hakobu is built so an agent can do the work that's different in each project (th
 
 ## The skill
 
-`.claude/skills/hakobu/SKILL.md` tells Claude Code how deploys work, how to write `hakobu.toml`, that migrations must work with the version before, how to add secrets without reading them, and what not to do. `hakobu init` writes it anew each time, so it matches the hakobu you run; a short section in `CLAUDE.md` points to it.
+`.claude/skills/hakobu/SKILL.md` tells Claude Code how deploys work, how to write `hakobu.toml`, that migrations must work with the version before, how to add secrets without reading them, and what not to do. `hakobu init` writes it anew each time, so it matches the hakobu you run; a short section in `CLAUDE.md` points to it and says to read the servers through the MCP tools or the CLI, never ssh and docker. `hakobu init` brings that section up to date too, and leaves the rest of `CLAUDE.md` alone.
 
 ## MCP
 

@@ -43,7 +43,8 @@ const Workflow = "hakobudev/hakobu/.github/workflows/build.yml"
 
 // Init writes hakobu.toml (with the apps it finds), the CI workflow, the
 // skill and the Claude Code settings, leaving any file that's there; the
-// skill is hakobu's, so it's always this version's.
+// skill and its section of CLAUDE.md are hakobu's, so they're always this
+// version's.
 func Init(o Options) ([]File, error) {
 	if !namePattern.MatchString(o.Server) {
 		return nil, fmt.Errorf("server %q isn't a server's name; hakobu server list shows them", o.Server)
@@ -236,20 +237,33 @@ This repository deploys with hakobu: hakobu.toml says what its server runs, and 
 - Never run ` + "`hakobu destroy`" + ` or ` + "`hakobu restore`" + `, and never ask to: they're a person's to run.
 - Secrets: never read, print or commit one. Ask the person to run ` + "`hakobu secret set APP NAME`" + `; hakobu secret list shows the names.
 - Migrations stay backward compatible: the version running uses the database while the next one migrates it.
+- The servers' state, deploys and logs: the ` + "`hakobu`" + ` MCP tools (status, deploys, logs), or ` + "`hakobu status`, `hakobu deploys`, `hakobu logs PROJECT/APP`" + `. Never ssh and docker on the server. Whether a push is live: its CI job (` + "`gh run watch`" + `), which waits for the deploy, or ` + "`hakobu deploys`" + `.
 `
 
-// appendClaudeMD adds hakobu's section to CLAUDE.md, once.
+// appendClaudeMD adds hakobu's section to CLAUDE.md, or brings the one there
+// up to this version: it runs from the marker to the next heading after its
+// own.
 func appendClaudeMD(dir string, files *[]File) error {
 	p := filepath.Join(dir, "CLAUDE.md")
 	old, err := os.ReadFile(p)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	if bytes.Contains(old, []byte(claudeMarker)) {
-		*files = append(*files, File{Path: "CLAUDE.md", Kept: true})
-		return nil
-	}
 	text := string(old)
+	if i := strings.Index(text, claudeMarker); i >= 0 {
+		body, after := text[i:], ""
+		if h := strings.Index(body, "\n## "); h >= 0 {
+			if j := strings.Index(body[h+1:], "\n#"); j >= 0 {
+				body, after = body[:h+j+2], "\n"+body[h+j+2:]
+			}
+		}
+		if body == claudeSection || strings.TrimRight(body, "\n")+"\n" == claudeSection {
+			*files = append(*files, File{Path: "CLAUDE.md", Kept: true})
+			return nil
+		}
+		*files = append(*files, File{Path: "CLAUDE.md"})
+		return os.WriteFile(p, []byte(text[:i]+claudeSection+after), 0o644)
+	}
 	if text != "" {
 		text = strings.TrimRight(text, "\n") + "\n\n"
 	}

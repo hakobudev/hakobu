@@ -1,6 +1,6 @@
 ---
 name: hakobu
-description: How this repository deploys with hakobu, and what an agent may and may not do with it. Read before changing hakobu.toml, hakobu.secrets.toml, the Dockerfile, database migrations or the deploy workflow, and before deploying, rolling back or reading a server's logs.
+description: How this repository deploys with hakobu, and what an agent may and may not do with it. Read before changing hakobu.toml, hakobu.secrets.toml, the Dockerfile, database migrations or the deploy workflow, and before deploying, rolling back, checking whether a push is live or reading a server's state or logs.
 ---
 
 # Deploying with hakobu
@@ -70,7 +70,7 @@ Each app is built from the `Dockerfile` in its directory (`path`), and nothing e
 
 ## Commands and MCP
 
-The `hakobu` MCP server (`hakobu mcp`, in `.mcp.json`) and the CLI talk to the servers listed in `~/.config/hakobu/servers.toml`:
+The `hakobu` MCP server (`hakobu mcp`, in `.mcp.json`; its tools are the commands below, use them first) and the CLI talk to the servers listed in `~/.config/hakobu/servers.toml`:
 
 - `hakobu status`: apps, their health, last deploy, open alerts, on every server.
 - `hakobu deploys`, `hakobu logs PROJECT/APP [--worker]`: what happened and why.
@@ -78,7 +78,9 @@ The `hakobu` MCP server (`hakobu mcp`, in `.mcp.json`) and the CLI talk to the s
 - `hakobu rollback PROJECT`: the release before, with today's secrets. It doesn't undo a migration.
 - `hakobu backup`, `hakobu backups PROJECT`: back up now, list them.
 
-After pushing, wait for the CI job (or `hakobu deploys`) before saying a change is live; if it failed, read the reason there and in `hakobu logs`.
+`hakobu wait` is CI's: it needs the commit and a GitHub token. From here, the servers are read with these, and only these: not ssh, not docker on the server, not `printenv HAKOBU_REVISION` in a container.
+
+After pushing, wait for the CI job (`gh run watch`; it waits for the deploy) or watch `hakobu deploys` before saying a change is live; if it failed, read the reason there and in `hakobu logs`.
 
 ## Never
 

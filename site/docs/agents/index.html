@@ -56,7 +56,7 @@
       </div>
       <p>hakobu is built so an agent can do the work that's different in each project (the file, the Dockerfile, migrations, DNS) while the parts that guard your data stay in tested code it can't change. <code>hakobu init</code> sets a repository up for that.</p>
 <h2 id="the-skill">The skill</h2>
-<p><code>.claude/skills/hakobu/SKILL.md</code> tells Claude Code how deploys work, how to write <code>hakobu.toml</code>, that migrations must work with the version before, how to add secrets without reading them, and what not to do. <code>hakobu init</code> writes it anew each time, so it matches the hakobu you run; a short section in <code>CLAUDE.md</code> points to it.</p>
+<p><code>.claude/skills/hakobu/SKILL.md</code> tells Claude Code how deploys work, how to write <code>hakobu.toml</code>, that migrations must work with the version before, how to add secrets without reading them, and what not to do. <code>hakobu init</code> writes it anew each time, so it matches the hakobu you run; a short section in <code>CLAUDE.md</code> points to it and says to read the servers through the MCP tools or the CLI, never ssh and docker. <code>hakobu init</code> brings that section up to date too, and leaves the rest of <code>CLAUDE.md</code> alone.</p>
 <h2 id="mcp">MCP</h2>
 <p><code>.mcp.json</code> adds hakobu's MCP server, <code>hakobu mcp</code>, which runs on your laptop and talks to every server you've added, with the operator token. Its tools: <code>status</code>, <code>deploys</code>, <code>logs</code>, <code>backups</code>, <code>deploy</code>, <code>rollback</code> and <code>backup</code>. For another client, add it as a local (stdio) server running <code>hakobu mcp</code>.</p>
 <h2 id="what-an-agent-cant-do">What an agent can't do</h2>
