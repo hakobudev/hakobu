@@ -23,6 +23,7 @@ import (
 
 	"filippo.io/age"
 	"github.com/hakobudev/hakobu/internal/node"
+	"github.com/hakobudev/hakobu/internal/s3"
 )
 
 // Store is a bucket, under a prefix of the server's.
@@ -311,10 +312,16 @@ func (v *Vault) RestoreVolume(ctx context.Context, m Manifest, app node.AppSpec,
 	return v.Source.LoadArchive(ctx, app, volume, body, out)
 }
 
+// lockedTooLong is how old a backup the bucket's lock still keeps may be
+// before that's an error: a rule longer than the rotation's makes the
+// bucket keep what hakobu no longer counts.
+const lockedTooLong = 31 * 24 * time.Hour
+
 // Rotate deletes a project's backups past what's kept of each database and
 // volume: the newest daily ones, and the newest of each of the weeks
-// before. The bucket's lock may refuse to delete one yet; it's tried again
-// next time.
+// before. The bucket's lock may refuse to delete one yet (one made by hand
+// the day of another, under a 7-day lock); it's tried again next time, and
+// is an error only once it's older than lockedTooLong.
 func (v *Vault) Rotate(ctx context.Context, project string, daily, weekly int) (deleted []Manifest, err error) {
 	all, err := v.List(ctx, project)
 	if err != nil {
@@ -323,7 +330,9 @@ func (v *Vault) Rotate(ctx context.Context, project string, daily, weekly int) (
 	var errs []error
 	for _, m := range Expired(all, daily, weekly) {
 		if err := v.delete(ctx, m); err != nil {
-			errs = append(errs, err)
+			if !errors.Is(err, s3.ErrLocked) || v.now().Sub(m.At) > lockedTooLong {
+				errs = append(errs, err)
+			}
 			continue
 		}
 		deleted = append(deleted, m)
@@ -358,7 +367,7 @@ func (v *Vault) dropUnfinished(ctx context.Context, project string) error {
 			continue
 		}
 		for _, k := range ks {
-			if err := v.Primary.Store.Delete(ctx, k); err != nil {
+			if err := v.Primary.Store.Delete(ctx, k); err != nil && (!errors.Is(err, s3.ErrLocked) || v.now().Sub(at) > lockedTooLong) {
 				errs = append(errs, err)
 			}
 		}

@@ -1,13 +1,19 @@
 package s3
 
 import (
+	"bytes"
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 )
+
+// ErrLocked is a deletion the bucket's object lock refused: the object is
+// younger than its rule keeps (R2's ObjectLockedByBucketPolicy).
+var ErrLocked = errors.New("locked by the bucket's object lock")
 
 // New is a client of bucket at endpoint (https://…, path-style), signed
 // with the key; region "" is "auto", as R2 wants.
@@ -43,7 +49,11 @@ func (c *Client) check(resp *http.Response, method, path string, ok ...int) erro
 		}
 	}
 	msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	return &statusError{resp.StatusCode, fmt.Sprintf("s3 %s %s failed (%d): %s", method, path, resp.StatusCode, msg)}
+	err := &statusError{resp.StatusCode, fmt.Sprintf("s3 %s %s failed (%d): %s", method, path, resp.StatusCode, msg)}
+	if bytes.Contains(msg, []byte("<Code>ObjectLocked")) {
+		return fmt.Errorf("%w: %w", ErrLocked, err)
+	}
+	return err
 }
 
 // Put writes an object.

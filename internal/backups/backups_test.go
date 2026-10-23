@@ -14,6 +14,7 @@ import (
 
 	"filippo.io/age"
 	"github.com/hakobudev/hakobu/internal/node"
+	"github.com/hakobudev/hakobu/internal/s3"
 )
 
 // memStore is a bucket in memory; locked keys refuse deletion, failPut
@@ -64,7 +65,7 @@ func (s *memStore) Delete(_ context.Context, key string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.locked != nil && s.locked(key) {
-		return errors.New("403 locked")
+		return fmt.Errorf("%w: 409", s3.ErrLocked)
 	}
 	delete(s.objects, key)
 	return nil
@@ -295,11 +296,16 @@ func TestRotate(t *testing.T) {
 	// The bucket's lock refuses to delete what's under a week old.
 	k.primary.locked = func(key string) bool { return strings.Contains(key, start.AddDate(0, 0, 2).Format(stamp)) }
 	deleted, err := k.v.Rotate(ctx, "kasl", 7, 0)
-	if err == nil || len(deleted) != 2 {
+	if err != nil || len(deleted) != 2 {
 		t.Errorf("deleted %v, %v", deleted, err)
 	}
 	if list, _ := k.v.List(ctx, "kasl"); len(list) != 8 {
 		t.Errorf("%d left, want 7 and the locked one", len(list))
+	}
+	// Still locked a month on, the lock outlasts the rotation: an error.
+	k.now = start.AddDate(0, 0, 40)
+	if _, err := k.v.Rotate(ctx, "kasl", 7, 0); !errors.Is(err, s3.ErrLocked) {
+		t.Errorf("a month on: %v", err)
 	}
 }
 

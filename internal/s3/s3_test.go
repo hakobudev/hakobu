@@ -1,6 +1,8 @@
 package s3
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -30,5 +32,24 @@ func TestCanList(t *testing.T) {
 	}
 	if _, err := c.CanList("broken"); err == nil {
 		t.Error("a server error read as an answer")
+	}
+}
+
+func TestDeleteLocked(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/young") {
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?><Error><Code>ObjectLockedByBucketPolicy</Code><Message>The object is locked by the bucket policy.</Message></Error>`))
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "", "backups", "key", "secret")
+	if err := c.Delete(context.Background(), "young"); !errors.Is(err, ErrLocked) {
+		t.Errorf("locked: %v", err)
+	}
+	if err := c.Delete(context.Background(), "other"); err == nil || errors.Is(err, ErrLocked) {
+		t.Errorf("a failure: %v", err)
 	}
 }

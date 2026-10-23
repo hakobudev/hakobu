@@ -60,7 +60,7 @@
 <li><strong>sealed</strong> with <a href="https://age-encryption.org">age</a> to the server's key and to yours, so the bucket alone reads nothing, and you can open a backup without the server;</li>
 <li><strong>copied</strong>: written to the primary bucket and to each of <code>backups.copies</code>, another provider ideally, with a key that may only write, so a leaked key of the server can't delete the copies;</li>
 <li><strong>proved</strong>: read back from the primary bucket and restored into scratch (a database counts its tables, a volume's archive is read through) before it counts as done;</li>
-<li><strong>rotated</strong>: the newest of each of the last 7 days and one a week for 4 weeks are kept (<code>keep_daily</code>, <code>keep_weekly</code>); one made by hand counts as its day's. A bucket with object lock may refuse a deletion; it's tried again on the next rotation. The parts of a backup that never finished go a day later.</li>
+<li><strong>rotated</strong>: the newest of each of the last 7 days and one a week for 4 weeks are kept (<code>keep_daily</code>, <code>keep_weekly</code>); one made by hand counts as its day's. A bucket with object lock may refuse a deletion (a backup made by hand the day of another, under a 7-day lock); it's tried again on each rotation, and reported only if it's still refused a month on, a lock longer than the rotation keeps. The parts of a backup that never finished go a day later.</li>
 </ul>
 <p>There's no catalog to lose: the backups are listed from the primary bucket itself.</p>
 <p>A volume's app and worker are paused for the seconds the archive takes, so files that belong together (SQLite and its journal) are copied as of one moment.</p>
