@@ -237,7 +237,7 @@ This repository deploys with hakobu: hakobu.toml says what its server runs, and 
 - Never run ` + "`hakobu destroy`" + ` or ` + "`hakobu restore`" + `, and never ask to: they're a person's to run.
 - Secrets: never read, print or commit one. Ask the person to run ` + "`hakobu secret set APP NAME`" + `; hakobu secret list shows the names.
 - Migrations stay backward compatible: the version running uses the database while the next one migrates it.
-- The servers' state, deploys and logs: the ` + "`hakobu`" + ` MCP tools (status, deploys, logs), or ` + "`hakobu status`, `hakobu deploys`, `hakobu logs PROJECT/APP`" + `. Never ssh and docker on the server. Whether a push is live: its CI job (` + "`gh run watch`" + `), which waits for the deploy, or ` + "`hakobu deploys`" + `.
+- The servers' state, deploys and logs: the ` + "`hakobu`" + ` MCP tools (status, deploys, logs), or ` + "`hakobu status`, `hakobu deploys`, `hakobu logs PROJECT/APP`" + `. Never ssh and docker on the server. Whether a push is live: its run of the deploy workflow (` + "`gh run list -w hakobu.yml -L 1`, then `gh run watch ID`" + `; not the tests' workflow), which waits for the deploy, or ` + "`hakobu deploys`" + `.
 `
 
 // appendClaudeMD adds hakobu's section to CLAUDE.md, or brings the one there

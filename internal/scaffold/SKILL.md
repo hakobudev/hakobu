@@ -80,7 +80,7 @@ The `hakobu` MCP server (`hakobu mcp`, in `.mcp.json`; its tools are the command
 
 `hakobu wait` is CI's: it needs the commit and a GitHub token. From here, the servers are read with these, and only these: not ssh, not docker on the server, not `printenv HAKOBU_REVISION` in a container.
 
-After pushing, wait for the CI job (`gh run watch`; it waits for the deploy) or watch `hakobu deploys` before saying a change is live; if it failed, read the reason there and in `hakobu logs`.
+After pushing, wait for its run of `.github/workflows/hakobu.yml` (`gh run list -w hakobu.yml -L 1`, then `gh run watch ID`; it waits for the deploy; another workflow going green says nothing) or watch `hakobu deploys` before saying a change is live; if it failed, read the reason there and in `hakobu logs`.
 
 ## Never
 
