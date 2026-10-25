@@ -3,309 +3,356 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>hakobu: deploy from GitHub to your own servers</title>
-<meta name="description" content="Push to GitHub and hakobu builds and rolls out your app on servers you own, behind Cloudflare: no open ports, backups only your servers can open, and Claude can deploy for you.">
+<title>hakobu: run your projects on servers you own</title>
+<meta name="description" content="A hakobu.toml in your repository says what runs. CI builds each commit; your server pulls the release and swaps it in with no downtime. Databases, sealed secrets, backups proved by a restore, alerts, and room for agents. No panel, no database: one Go binary.">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="style.css?v=ee910246">
+<link rel="stylesheet" href="style.css?v=e5468c65">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
-<marker id="arr" class="t-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path d="M2 1.5 8 5 2 8.5"/></marker><marker id="dot" class="t-dot" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="7" markerHeight="7" markerUnits="userSpaceOnUse"><circle cx="5" cy="5" r="3.5"/></marker>
+<marker id="arr" class="t-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path d="M2 1.5 8 5 2 8.5"/></marker>
 <symbol id="i-github" viewBox="0 0 24 24"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></symbol>
 <symbol id="i-server" viewBox="0 0 24 24"><rect width="20" height="8" x="2" y="2" rx="2" ry="2"/><rect width="20" height="8" x="2" y="14" rx="2" ry="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/></symbol>
 <symbol id="i-lock" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
 <symbol id="i-key-round" viewBox="0 0 24 24"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></symbol>
-<symbol id="i-cloud" viewBox="0 0 24 24"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></symbol>
 <symbol id="i-copy" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
 <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
 <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></symbol>
 <symbol id="i-archive" viewBox="0 0 24 24"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></symbol>
-<symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></symbol>
 <symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></symbol>
-<symbol id="i-triangle-alert" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
-<symbol id="l-cloudflare" viewBox="0 0 24 24"><title>Cloudflare</title><path fill="#F38020" d="M16.5088 16.8447c.1475-.5068.0908-.9707-.1553-1.3154-.2246-.3164-.6045-.499-1.0615-.5205l-8.6592-.1123a.1559.1559 0 0 1-.1333-.0713c-.0283-.042-.0351-.0986-.021-.1553.0278-.084.1123-.1484.2036-.1562l8.7359-.1123c1.0351-.0489 2.1601-.8868 2.5537-1.9136l.499-1.3013c.0215-.0561.0293-.1128.0147-.168-.5625-2.5463-2.835-4.4453-5.5499-4.4453-2.5039 0-4.6284 1.6177-5.3876 3.8614-.4927-.3658-1.1187-.5625-1.794-.499-1.2026.119-2.1665 1.083-2.2861 2.2856-.0283.31-.0069.6128.0635.894C1.5683 13.171 0 14.7754 0 16.752c0 .1748.0142.3515.0352.5273.0141.083.0844.1475.1689.1475h15.9814c.0909 0 .1758-.0645.2032-.1553l.12-.4268zm2.7568-5.5634c-.0771 0-.1611 0-.2383.0112-.0566 0-.1054.0415-.127.0976l-.3378 1.1744c-.1475.5068-.0918.9707.1543 1.3164.2256.3164.6055.498 1.0625.5195l1.8437.1133c.0557 0 .1055.0263.1329.0703.0283.043.0351.1074.0214.1562-.0283.084-.1132.1485-.204.1553l-1.921.1123c-1.041.0488-2.1582.8867-2.5527 1.914l-.1406.3585c-.0283.0713.0215.1416.0986.1416h6.5977c.0771 0 .1474-.0489.169-.126.1122-.4082.1757-.837.1757-1.2803 0-2.6025-2.125-4.727-4.7344-4.727"/></symbol>
-<symbol id="l-postgresql" viewBox="0 0 24 24"><title>PostgreSQL</title><path fill="#4169E1" d="M23.5594 14.7228a.5269.5269 0 0 0-.0563-.1191c-.139-.2632-.4768-.3418-1.0074-.2321-1.6533.3411-2.2935.1312-2.5256-.0191 1.342-2.0482 2.445-4.522 3.0411-6.8297.2714-1.0507.7982-3.5237.1222-4.7316a1.5641 1.5641 0 0 0-.1509-.235C21.6931.9086 19.8007.0248 17.5099.0005c-1.4947-.0158-2.7705.3461-3.1161.4794a9.449 9.449 0 0 0-.5159-.0816 8.044 8.044 0 0 0-1.3114-.1278c-1.1822-.0184-2.2038.2642-3.0498.8406-.8573-.3211-4.7888-1.645-7.2219.0788C.9359 2.1526.3086 3.8733.4302 6.3043c.0409.818.5069 3.334 1.2423 5.7436.4598 1.5065.9387 2.7019 1.4334 3.582.553.9942 1.1259 1.5933 1.7143 1.7895.4474.1491 1.1327.1441 1.8581-.7279.8012-.9635 1.5903-1.8258 1.9446-2.2069.4351.2355.9064.3625 1.39.3772a.0569.0569 0 0 0 .0004.0041 11.0312 11.0312 0 0 0-.2472.3054c-.3389.4302-.4094.5197-1.5002.7443-.3102.064-1.1344.2339-1.1464.8115-.0025.1224.0329.2309.0919.3268.2269.4231.9216.6097 1.015.6331 1.3345.3335 2.5044.092 3.3714-.6787-.017 2.231.0775 4.4174.3454 5.0874.2212.5529.7618 1.9045 2.4692 1.9043.2505 0 .5263-.0291.8296-.0941 1.7819-.3821 2.5557-1.1696 2.855-2.9059.1503-.8707.4016-2.8753.5388-4.1012.0169-.0703.0357-.1207.057-.1362.0007-.0005.0697-.0471.4272.0307a.3673.3673 0 0 0 .0443.0068l.2539.0223.0149.001c.8468.0384 1.9114-.1426 2.5312-.4308.6438-.2988 1.8057-1.0323 1.5951-1.6698zM2.371 11.8765c-.7435-2.4358-1.1779-4.8851-1.2123-5.5719-.1086-2.1714.4171-3.6829 1.5623-4.4927 1.8367-1.2986 4.8398-.5408 6.108-.13-.0032.0032-.0066.0061-.0098.0094-2.0238 2.044-1.9758 5.536-1.9708 5.7495-.0002.0823.0066.1989.0162.3593.0348.5873.0996 1.6804-.0735 2.9184-.1609 1.1504.1937 2.2764.9728 3.0892.0806.0841.1648.1631.2518.2374-.3468.3714-1.1004 1.1926-1.9025 2.1576-.5677.6825-.9597.5517-1.0886.5087-.3919-.1307-.813-.5871-1.2381-1.3223-.4796-.839-.9635-2.0317-1.4155-3.5126zm6.0072 5.0871c-.1711-.0428-.3271-.1132-.4322-.1772.0889-.0394.2374-.0902.4833-.1409 1.2833-.2641 1.4815-.4506 1.9143-1.0002.0992-.126.2116-.2687.3673-.4426a.3549.3549 0 0 0 .0737-.1298c.1708-.1513.2724-.1099.4369-.0417.156.0646.3078.26.3695.4752.0291.1016.0619.2945-.0452.4444-.9043 1.2658-2.2216 1.2494-3.1676 1.0128zm2.094-3.988-.0525.141c-.133.3566-.2567.6881-.3334 1.003-.6674-.0021-1.3168-.2872-1.8105-.8024-.6279-.6551-.9131-1.5664-.7825-2.5004.1828-1.3079.1153-2.4468.079-3.0586-.005-.0857-.0095-.1607-.0122-.2199.2957-.2621 1.6659-.9962 2.6429-.7724.4459.1022.7176.4057.8305.928.5846 2.7038.0774 3.8307-.3302 4.7363-.084.1866-.1633.3629-.2311.5454zm7.3637 4.5725c-.0169.1768-.0358.376-.0618.5959l-.146.4383a.3547.3547 0 0 0-.0182.1077c-.0059.4747-.054.6489-.115.8693-.0634.2292-.1353.4891-.1794 1.0575-.11 1.4143-.8782 2.2267-2.4172 2.5565-1.5155.3251-1.7843-.4968-2.0212-1.2217a6.5824 6.5824 0 0 0-.0769-.2266c-.2154-.5858-.1911-1.4119-.1574-2.5551.0165-.5612-.0249-1.9013-.3302-2.6462.0044-.2932.0106-.5909.019-.8918a.3529.3529 0 0 0-.0153-.1126 1.4927 1.4927 0 0 0-.0439-.208c-.1226-.4283-.4213-.7866-.7797-.9351-.1424-.059-.4038-.1672-.7178-.0869.067-.276.1831-.5875.309-.9249l.0529-.142c.0595-.16.134-.3257.213-.5012.4265-.9476 1.0106-2.2453.3766-5.1772-.2374-1.0981-1.0304-1.6343-2.2324-1.5098-.7207.0746-1.3799.3654-1.7088.5321a5.6716 5.6716 0 0 0-.1958.1041c.0918-1.1064.4386-3.1741 1.7357-4.4823a4.0306 4.0306 0 0 1 .3033-.276.3532.3532 0 0 0 .1447-.0644c.7524-.5706 1.6945-.8506 2.802-.8325.4091.0067.8017.0339 1.1742.081 1.939.3544 3.2439 1.4468 4.0359 2.3827.8143.9623 1.2552 1.9315 1.4312 2.4543-1.3232-.1346-2.2234.1268-2.6797.779-.9926 1.4189.543 4.1729 1.2811 5.4964.1353.2426.2522.4522.2889.5413.2403.5825.5515.9713.7787 1.2552.0696.087.1372.1714.1885.245-.4008.1155-1.1208.3825-1.0552 1.717-.0123.1563-.0423.4469-.0834.8148-.0461.2077-.0702.4603-.0994.7662zm.8905-1.6211c-.0405-.8316.2691-.9185.5967-1.0105a2.8566 2.8566 0 0 0 .135-.0406 1.202 1.202 0 0 0 .1342.103c.5703.3765 1.5823.4213 3.0068.1344-.2016.1769-.5189.3994-.9533.6011-.4098.1903-1.0957.333-1.7473.3636-.7197.0336-1.0859-.0807-1.1721-.151zm.5695-9.2712c-.0059.3508-.0542.6692-.1054 1.0017-.055.3576-.112.7274-.1264 1.1762-.0142.4368.0404.8909.0932 1.3301.1066.887.216 1.8003-.2075 2.7014a3.5272 3.5272 0 0 1-.1876-.3856c-.0527-.1276-.1669-.3326-.3251-.6162-.6156-1.1041-2.0574-3.6896-1.3193-4.7446.3795-.5427 1.3408-.5661 2.1781-.463zm.2284 7.0137a12.3762 12.3762 0 0 0-.0853-.1074l-.0355-.0444c.7262-1.1995.5842-2.3862.4578-3.4385-.0519-.4318-.1009-.8396-.0885-1.2226.0129-.4061.0666-.7543.1185-1.0911.0639-.415.1288-.8443.1109-1.3505.0134-.0531.0188-.1158.0118-.1902-.0457-.4855-.5999-1.938-1.7294-3.253-.6076-.7073-1.4896-1.4972-2.6889-2.0395.5251-.1066 1.2328-.2035 2.0244-.1859 2.0515.0456 3.6746.8135 4.8242 2.2824a.908.908 0 0 1 .0667.1002c.7231 1.3556-.2762 6.2751-2.9867 10.5405zm-8.8166-6.1162c-.025.1794-.3089.4225-.6211.4225a.5821.5821 0 0 1-.0809-.0056c-.1873-.026-.3765-.144-.5059-.3156-.0458-.0605-.1203-.178-.1055-.2844.0055-.0401.0261-.0985.0925-.1488.1182-.0894.3518-.1226.6096-.0867.3163.0441.6426.1938.6113.4186zm7.9305-.4114c.0111.0792-.049.201-.1531.3102-.0683.0717-.212.1961-.4079.2232a.5456.5456 0 0 1-.075.0052c-.2935 0-.5414-.2344-.5607-.3717-.024-.1765.2641-.3106.5611-.352.297-.0414.6111.0088.6356.1851z"/></symbol>
-<symbol id="l-nextdotjs" viewBox="0 0 24 24"><title>Next.js</title><path fill="currentColor" d="M18.665 21.978C16.758 23.255 14.465 24 12 24 5.377 24 0 18.623 0 12S5.377 0 12 0s12 5.377 12 12c0 3.583-1.574 6.801-4.067 9.001L9.219 7.2H7.2v9.596h1.615V9.251l9.85 12.727Zm-3.332-8.533 1.6 2.061V7.2h-1.6v6.245Z"/></symbol>
-<symbol id="l-fastapi" viewBox="0 0 24 24"><title>FastAPI</title><path fill="#009688" d="M12 .0387C5.3729.0384.0003 5.3931 0 11.9988c-.001 6.6066 5.372 11.9628 12 11.9625 6.628.0003 12.001-5.3559 12-11.9625-.0003-6.6057-5.3729-11.9604-12-11.96m-.829 5.4153h7.55l-7.5805 5.3284h5.1828L5.279 18.5436q2.9466-6.5444 5.892-13.0896"/></symbol>
-<symbol id="l-celery" viewBox="0 0 24 24"><title>Celery</title><path fill="#37814A" d="M2.303 0A2.298 2.298 0 0 0 0 2.303v19.394A2.298 2.298 0 0 0 2.303 24h19.394A2.298 2.298 0 0 0 24 21.697V2.303A2.298 2.298 0 0 0 21.697 0zm8.177 3.072c4.098 0 7.028 1.438 7.68 1.764l-1.194 2.55c-2.442-1.057-4.993-1.41-5.672-1.41-1.574 0-2.17.922-2.17 1.763v8.494c0 .869.596 1.791 2.17 1.791.679 0 3.23-.38 5.672-1.41l1.194 2.496c-.435.271-3.637 1.818-7.68 1.818-1.112 0-4.64-.244-4.64-4.64V7.713c0-4.397 3.528-4.64 4.64-4.64z"/></symbol>
-<symbol id="i-layers" viewBox="0 0 24 24"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z" /> <path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12" /> <path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17" /></symbol>
-<symbol id="i-settings" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /> <circle cx="12" cy="12" r="3" /></symbol>
-<symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14" /> <path d="M12 5v14" /></symbol>
-<symbol id="i-box" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" /> <path d="m3.3 7 8.7 5 8.7-5" /> <path d="M12 22V12" /></symbol>
-<symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /> <circle cx="9" cy="7" r="4" /> <path d="M22 21v-2a4 4 0 0 0-3-3.87" /> <path d="M16 3.13a4 4 0 0 1 0 7.75" /></symbol>
-<symbol id="i-circle-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /> <path d="m9 12 2 2 4-4" /></symbol>
-<symbol id="i-loader-circle" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></symbol>
-<symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></symbol>
-<symbol id="i-activity" viewBox="0 0 24 24"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2" /></symbol>
-<symbol id="i-workflow" viewBox="0 0 24 24"><rect width="8" height="8" x="3" y="3" rx="2" /> <path d="M7 11v4a2 2 0 0 0 2 2h4" /> <rect width="8" height="8" x="13" y="13" rx="2" /></symbol>
-<symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /> <polyline points="12 6 12 12 16 14" /></symbol>
-<symbol id="i-zap" viewBox="0 0 24 24"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></symbol>
-<symbol id="l-django" viewBox="0 0 24 24"><title>Django</title><path fill="currentColor" d="M11.146 0h3.924v18.166c-2.013.382-3.491.535-5.096.535-4.791 0-7.288-2.166-7.288-6.32 0-4.002 2.65-6.6 6.753-6.6.637 0 1.121.05 1.707.203zm0 9.143a3.894 3.894 0 00-1.325-.204c-1.988 0-3.134 1.223-3.134 3.365 0 2.09 1.096 3.236 3.109 3.236.433 0 .79-.025 1.35-.102V9.142zM21.314 6.06v9.098c0 3.134-.229 4.638-.917 5.937-.637 1.249-1.478 2.039-3.211 2.905l-3.644-1.733c1.733-.815 2.574-1.53 3.109-2.625.561-1.121.739-2.421.739-5.835V6.059h3.924zM17.39.021h3.924v4.026H17.39z"/></symbol>
-<symbol id="l-python" viewBox="0 0 24 24"><title>Python</title><path fill="#3776AB" d="M14.25.18l.9.2.73.26.59.3.45.32.34.34.25.34.16.33.1.3.04.26.02.2-.01.13V8.5l-.05.63-.13.55-.21.46-.26.38-.3.31-.33.25-.35.19-.35.14-.33.1-.3.07-.26.04-.21.02H8.77l-.69.05-.59.14-.5.22-.41.27-.33.32-.27.35-.2.36-.15.37-.1.35-.07.32-.04.27-.02.21v3.06H3.17l-.21-.03-.28-.07-.32-.12-.35-.18-.36-.26-.36-.36-.35-.46-.32-.59-.28-.73-.21-.88-.14-1.05-.05-1.23.06-1.22.16-1.04.24-.87.32-.71.36-.57.4-.44.42-.33.42-.24.4-.16.36-.1.32-.05.24-.01h.16l.06.01h8.16v-.83H6.18l-.01-2.75-.02-.37.05-.34.11-.31.17-.28.25-.26.31-.23.38-.2.44-.18.51-.15.58-.12.64-.1.71-.06.77-.04.84-.02 1.27.05zm-6.3 1.98l-.23.33-.08.41.08.41.23.34.33.22.41.09.41-.09.33-.22.23-.34.08-.41-.08-.41-.23-.33-.33-.22-.41-.09-.41.09zm13.09 3.95l.28.06.32.12.35.18.36.27.36.35.35.47.32.59.28.73.21.88.14 1.04.05 1.23-.06 1.23-.16 1.04-.24.86-.32.71-.36.57-.4.45-.42.33-.42.24-.4.16-.36.09-.32.05-.24.02-.16-.01h-8.22v.82h5.84l.01 2.76.02.36-.05.34-.11.31-.17.29-.25.25-.31.24-.38.2-.44.17-.51.15-.58.13-.64.09-.71.07-.77.04-.84.01-1.27-.04-1.07-.14-.9-.2-.73-.25-.59-.3-.45-.33-.34-.34-.25-.34-.16-.33-.1-.3-.04-.25-.02-.2.01-.13v-5.34l.05-.64.13-.54.21-.46.26-.38.3-.32.33-.24.35-.2.35-.14.33-.1.3-.06.26-.04.21-.02.13-.01h5.84l.69-.05.59-.14.5-.21.41-.28.33-.32.27-.35.2-.36.15-.36.1-.35.07-.32.04-.28.02-.21V6.07h2.09l.14.01zm-6.47 14.25l-.23.33-.08.41.08.41.23.33.33.23.41.08.41-.08.33-.23.23-.33.08-.41-.08-.41-.23-.33-.33-.23-.41-.08-.41.08z"/></symbol>
-<symbol id="i-terminal" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></symbol>
-<symbol id="i-gauge" viewBox="0 0 24 24"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></symbol>
-<symbol id="i-refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
+<symbol id="i-circle-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></symbol>
 <symbol id="i-circle-x" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></symbol>
 <symbol id="i-mail" viewBox="0 0 24 24"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></symbol>
+<symbol id="i-box" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></symbol>
+<symbol id="i-workflow" viewBox="0 0 24 24"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></symbol>
+<symbol id="i-file" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></symbol>
+<symbol id="i-laptop" viewBox="0 0 24 24"><path d="M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16"/></symbol>
+<symbol id="i-shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol>
+<symbol id="i-play" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></symbol>
+<symbol id="i-network" viewBox="0 0 24 24"><rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/></symbol>
+<symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></symbol>
+<symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol>
 </svg>
 
 <header class="topbar">
   <div class="wrap topbar-inner">
     <a href="/" class="wordmark">hakobu</a>
     <nav class="nav">
-      <a class="nav-link nav-hide" href="/docs/install/">Self-host</a>
       <a class="nav-link nav-hide" href="/docs/">Docs</a>
       <a class="nav-link nav-hide" href="https://github.com/hakobudev/hakobu/releases">Changelog</a>
       <a class="nav-link" href="https://github.com/hakobudev/hakobu" aria-label="GitHub"><svg class="icon"><use href="#i-github"/></svg></a>
-      <a class="btn" href="https://dash.hakobu.dev">Sign in</a>
+      <a class="btn" href="#start">Get started</a>
     </nav>
   </div>
 </header>
 
 <main>
   <section class="hero">
-    <!-- Links as the panel's canvas draws them, running in from the sides
-         to the window below. -->
-    <svg class="hero-lines" viewBox="0 0 1440 560" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
-      <path d="M-10 90 C 300 90, 330 560, 560 560"/>
-      <path class="is-call" d="M-10 250 C 240 250, 300 560, 640 560"/>
-      <path d="M-10 410 C 200 410, 330 560, 470 560"/>
-      <path d="M1450 140 C 1140 140, 1110 560, 880 560"/>
-      <path class="is-call" d="M1450 300 C 1220 300, 1150 560, 800 560"/>
-      <path d="M1450 460 C 1250 460, 1110 560, 970 560"/>
-      <circle cx="560" cy="560" r="3"/><circle cx="640" cy="560" r="3"/><circle cx="470" cy="560" r="3"/>
-      <circle cx="880" cy="560" r="3"/><circle cx="800" cy="560" r="3"/><circle cx="970" cy="560" r="3"/>
-    </svg>
     <div class="wrap hero-text">
-      <h1>Deploy from GitHub to servers you own.</h1>
-      <p class="lead">Push to GitHub, and hakobu builds your app and swaps it in without downtime on your own servers, behind Cloudflare. Nothing on them is open to the internet.</p>
+      <h1>Run your projects on servers you own.</h1>
+      <p class="lead">A file in your repository says what runs. CI builds each commit; your server pulls the release, swaps it in with no downtime and turns the commit green, or red with the reason. No panel, no database: the file is the state.</p>
       <div class="ctas">
-        <div class="copyable hero-install">
-          <div class="console"><span class="p">$</span> curl -fsSL https://hakobu.dev/install.sh | sudo bash</div>
-          <button class="copy" type="button" data-copy="curl -fsSL https://hakobu.dev/install.sh | sudo bash" aria-label="Copy the install command"><svg class="icon"><use href="#i-copy"/></svg></button>
-        </div>
-        <a class="btn btn-lg" href="https://dash.hakobu.dev"><svg class="icon"><use href="#i-github"/></svg>Sign in with GitHub</a>
+        <a class="btn btn-lg btn-primary" href="#start">Get started<svg class="icon"><use href="#i-arrow-right"/></svg></a>
+        <a class="btn btn-lg" href="/docs/">Read the docs</a>
       </div>
-      <p class="fine">Install your own panel on any Linux server, amd64 or arm64, or sign in to ours. <a href="/docs/install/">How it works</a></p>
+      <p class="fine">One Go binary · Debian or Ubuntu, amd64 or arm64 · MIT</p>
     </div>
 
-    <!-- The panel's project page, drawn with the panel's own components;
-         site.js draws the lines between the cards. -->
-    <div class="demo" id="demo">
-      <div class="wrap demo-stage">
+    <!-- A repository and the terminal next to it; site.js plays a push. -->
+    <div class="wrap demo-stage">
+      <div class="window" id="demo" aria-label="An example project: its files, and what a push does">
+        <div class="win-bar">
+          <span class="win-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span class="win-title"><svg class="icon"><use href="#i-github"/></svg>kasl/crm</span>
+        </div>
+        <div class="win-panes">
+          <div class="pane pane-files">
+            <div class="file-tabs" role="tablist" aria-label="Files">
+              <button type="button" role="tab" class="file-tab is-current" aria-selected="true" data-file="toml"><svg class="icon"><use href="#i-file"/></svg>hakobu.toml</button>
+              <button type="button" role="tab" class="file-tab" aria-selected="false" data-file="secrets"><svg class="icon"><use href="#i-lock"/></svg>hakobu.secrets.toml</button>
+              <button type="button" role="tab" class="file-tab" aria-selected="false" data-file="ci"><svg class="icon"><use href="#i-workflow"/></svg>hakobu.yml</button>
+            </div>
+<pre class="code" data-file="toml"><span class="k">project</span> = <span class="s">"crm"</span>
+<span class="k">server</span> = <span class="s">"kasl-1"</span>
 
-        <div class="window" id="win" aria-label="A demo of hakobu's panel with made-up data">
-          <div class="win-topbar">
-            <div class="context" id="crumbs"><span class="wordmark">hakobu</span><span class="context-sep">/</span><span class="context-item"><svg class="icon"><use href="#i-layers"/></svg>acme</span><svg class="icon icon-sm icon-muted"><use href="#i-chevron-down"/></svg></div>
-            <div class="win-nav"><svg class="icon icon-muted"><use href="#i-settings"/></svg><span class="avatar">A</span></div>
+<span class="t">[apps.web]</span>
+<span class="k">domain</span> = <span class="s">"crm.example.com"</span>
+<span class="k">release</span> = <span class="s">"bin/rails db:migrate"</span>
+<span class="k">worker</span> = <span class="s">"bin/jobs"</span>
+<span class="k">uses</span> = [<span class="s">"main"</span>, <span class="s">"cache"</span>]
+<span class="k">volumes</span> = { <span class="k">uploads</span> = <span class="s">"/rails/storage"</span> }
+
+<span class="t">[apps.admin]</span>
+<span class="k">path</span> = <span class="s">"admin"</span>
+<span class="k">domain</span> = <span class="s">"admin.crm.example.com"</span>
+<span class="k">uses</span> = [<span class="s">"main"</span>]
+
+<span class="t">[databases.main]</span>
+
+<span class="t">[caches.cache]</span>
+<span class="k">memory</span> = <span class="s">"128mb"</span></pre>
+<pre class="code" data-file="secrets" hidden><span class="c"># each value sealed with age to the server and to you</span>
+<span class="k">recipients</span> = [
+  <span class="s">"age1x7k9…2qpm"</span>,  <span class="c"># kasl-1</span>
+  <span class="s">"age1m3dz…08fh"</span>,  <span class="c"># you</span>
+]
+
+<span class="t">[apps.web]</span>
+<span class="k">STRIPE_KEY</span> = <span class="s">"age:YWdlLWVuY3J5cHRpb24u…"</span>
+<span class="k">SENTRY_DSN</span> = <span class="s">"age:LT4gWDI1NTE5IGpGdk1X…"</span>
+
+<span class="t">[hakobu]</span>
+<span class="k">status_token</span> = <span class="s">"age:Ci0+IFgyNTUxOSBuUEFw…"</span></pre>
+<pre class="code" data-file="ci" hidden><span class="c"># written by hakobu init</span>
+<span class="k">name</span>: deploy
+
+<span class="k">on</span>:
+  <span class="k">push</span>:
+    <span class="k">branches</span>: [main]
+
+<span class="k">jobs</span>:
+  <span class="k">deploy</span>:
+    <span class="k">permissions</span>:
+      <span class="k">contents</span>: read
+      <span class="k">packages</span>: write  <span class="c"># push to ghcr.io</span>
+      <span class="k">statuses</span>: read   <span class="c"># wait for hakobu/deploy</span>
+    <span class="k">uses</span>: <span class="s">hakobudev/hakobu/.github/workflows/build.yml@v1.0.0</span>
+    <span class="k">with</span>:
+      <span class="k">version</span>: v1.0.0
+      <span class="k">image</span>: ghcr.io/kasl/crm</pre>
           </div>
-          <div class="win-body" id="win-body">
-            <div class="page-header">
-              <div>
-                <div class="page-title">acme</div>
-                <div class="meta">
-                  <span class="meta-item"><svg class="icon"><use href="#i-box"/></svg>3 apps · 1 worker</span>
-                  <span class="meta-item"><svg class="icon"><use href="#i-database"/></svg>1 database</span>
-                  <span class="meta-item"><svg class="icon"><use href="#i-zap"/></svg>1 cache</span>
-                  <span class="meta-item"><svg class="icon"><use href="#i-archive"/></svg>1 storage</span>
-                  <span class="meta-item"><svg class="icon"><use href="#i-server"/></svg>on hetzner-1</span>
-                </div>
-              </div>
-              <span class="btn btn-primary"><svg class="icon"><use href="#i-plus"/></svg>New</span>
+          <div class="pane pane-term">
+            <div class="term-bar">
+              <span class="term-title"><svg class="icon"><use href="#i-play"/></svg>Try a push</span>
+              <span class="term-actions">
+                <button type="button" class="btn btn-sm btn-dark" data-push="ok">git push</button>
+                <button type="button" class="btn btn-sm btn-dark" data-push="bad">with a broken migration</button>
+              </span>
             </div>
-            <div class="tabs">
-              <button type="button" class="tab is-current" data-ptab="overview"><svg class="icon"><use href="#i-layers"/></svg>Overview</button>
-              <button type="button" class="tab" data-ptab="variables"><svg class="icon"><use href="#i-key-round"/></svg>Shared variables</button>
-              <button type="button" class="tab" data-ptab="settings"><svg class="icon"><use href="#i-settings"/></svg>Settings</button>
-            </div>
-
-            <div class="canvas" id="canvas">
-              <svg class="canvas-lines" id="canvas-lines" aria-hidden="true"></svg>
-              <div class="canvas-cols">
-                <div class="canvas-col">
-                  <div class="canvas-col-title">Apps</div>
-                  <div class="canvas-tiers">
-                    <div class="canvas-tier">
-                      <div class="node" id="app-chat" data-open="app:chat" role="button" tabindex="0">
-                        <div class="node-head">
-                          <span class="icon-tile"><svg class="logo"><use href="#l-nextdotjs"/></svg></span>
-                          <div class="min-w-0 flex-1"><div class="node-title">chat <svg class="icon icon-sm text-success" aria-label="Running"><use href="#i-circle-check"/></svg></div><div class="node-kind">chat.acme.dev</div></div>
-                          <span class="node-meta">212 MB</span>
-                        </div>
-                      </div>
-                      <div class="node" id="app-admin" data-open="app:admin" role="button" tabindex="0">
-                        <div class="node-head">
-                          <span class="icon-tile"><svg class="logo"><use href="#l-django"/></svg></span>
-                          <div class="min-w-0 flex-1"><div class="node-title">admin <svg class="icon icon-sm text-success" aria-label="Running"><use href="#i-circle-check"/></svg></div><div class="node-kind">admin.acme.dev</div></div>
-                          <span class="node-meta">148 MB</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div class="canvas-tier">
-                      <div class="node" id="app-api" data-open="app:api" role="button" tabindex="0">
-                        <div class="node-head">
-                          <span class="icon-tile"><svg class="logo"><use href="#l-fastapi"/></svg></span>
-                          <div class="min-w-0 flex-1"><div class="node-title">api <svg class="icon icon-sm text-success" aria-label="Running"><use href="#i-circle-check"/></svg></div><div class="node-kind">private</div></div>
-                          <span class="node-meta">306 MB</span>
-                        </div>
-                        <div class="node-item" id="wk-api"><span class="meta-item min-w-0"><svg class="logo"><use href="#l-python"/></svg><span class="strong">worker</span><span class="mono muted truncate">arq jobs.Worker</span></span><svg class="icon icon-sm text-success" aria-label="running"><use href="#i-circle-check"/></svg></div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="canvas-col">
-                  <div class="canvas-col-title">Data</div>
-                  <div class="node" id="db-app" data-open="db:app-db" role="button" tabindex="0">
-                    <div class="node-head">
-                      <span class="icon-tile"><svg class="logo"><use href="#l-postgresql"/></svg></span>
-                      <div class="min-w-0 flex-1"><div class="node-title">app-db <svg class="icon icon-sm text-success" aria-label="Running"><use href="#i-circle-check"/></svg></div><div class="node-kind">PostgreSQL</div></div>
-                      <span class="node-meta">1.2 GB</span>
-                    </div>
-                  </div>
-                  <div class="node" id="cache-queue" data-open="cache:queue" role="button" tabindex="0">
-                    <div class="node-head">
-                      <span class="icon-tile"><svg class="icon"><use href="#i-zap"/></svg></span>
-                      <div class="min-w-0 flex-1"><div class="node-title">queue <svg class="icon icon-sm text-success" aria-label="Running"><use href="#i-circle-check"/></svg></div><div class="node-kind">Valkey</div></div>
-                      <span class="node-meta">38 MB</span>
-                    </div>
-                  </div>
-                  <div class="node" id="st-files" data-open="storage:files" role="button" tabindex="0">
-                    <div class="node-head">
-                      <span class="icon-tile"><svg class="logo"><use href="#l-cloudflare"/></svg></span>
-                      <div class="min-w-0 flex-1"><div class="node-title">files</div><div class="node-kind">Cloudflare R2</div></div>
-                    </div>
-                  </div>
-                </div>
-              </div>
+            <div class="term" id="term" aria-live="polite"></div>
+            <div class="commit" id="commit">
+              <span class="mono muted" id="commit-sha">a1f3c9e</span>
+              <span class="commit-msg" id="commit-msg">Add invoices</span>
+              <span class="commit-status" id="commit-status" data-state="success"><span class="st-dot"></span>hakobu/deploy</span>
             </div>
           </div>
         </div>
-        <p class="demo-hint">This is the panel, with made-up data. Click the cards and tabs.</p>
       </div>
     </div>
   </section>
-<section class="section"><div class="wrap"><div class="grid-12"><div class="section-head"><h2 class="section-title">The parts you'd otherwise build yourself.</h2></div></div><div class="grid-12 cards">
-        <div class="card span-7 tint-blue"><h3>No open ports.<br>No public IP.</h3><p>Each server dials out to the panel and to Cloudflare; visitors come in through a Cloudflare Tunnel.</p>
-          <div class="card-viz"><div class="viz viz-tunnel" aria-hidden="true">
-            <svg viewBox="0 0 560 250" class="tunnel tunnel-wide">
-              <path class="t-out" d="M199 118 C 170 118, 170 58, 140 58" marker-end="url(#arr)"/>
-              <path class="t-out" d="M361 118 C 392 118, 392 58, 424 58" marker-end="url(#arr)"/>
-              <path class="t-out" d="M361 132 C 392 132, 392 192, 424 192" marker-end="url(#arr)"/>
-              <path class="t-in" d="M140 192 C 170 192, 170 132, 199 132"/>
-              <g class="t-block" transform="translate(170 162)"><circle r="9"/><path d="M-3.5 -3.5 3.5 3.5M3.5 -3.5 -3.5 3.5"/></g>
-              <g class="t-node t-main"><rect class="t-halo" x="199" y="99" width="162" height="52" rx="26"/><rect x="205" y="105" width="150" height="40" rx="20"/><use href="#i-server" x="224" y="115" width="20" height="20"/><text x="252" y="130">your server</text></g>
-              <g class="t-node"><rect x="20" y="40" width="120" height="36" rx="18"/><text x="80" y="63" text-anchor="middle" class="t-brand">hakobu</text></g>
-              <g class="t-node"><rect x="424" y="40" width="128" height="36" rx="18"/><use href="#i-cloud" x="440" y="49" width="18" height="18"/><text x="464" y="63">Cloudflare</text></g>
-              <g class="t-node"><rect x="424" y="174" width="112" height="36" rx="18"/><use href="#i-github" x="440" y="183" width="18" height="18"/><text x="464" y="197">GitHub</text></g>
-              <g class="t-node t-off"><rect x="8" y="174" width="132" height="36" rx="18"/><text x="74" y="197" text-anchor="middle">the internet</text></g>
-              <text x="280" y="176" text-anchor="middle" class="t-cap">dials out, never listens</text>
-            </svg>
-            <svg viewBox="0 0 320 296" class="tunnel tunnel-narrow">
-              <path class="t-out" d="M160 128 C 160 92, 76 96, 76 58" marker-end="url(#arr)"/>
-              <path class="t-out" d="M160 128 C 160 92, 242 96, 242 58" marker-end="url(#arr)"/>
-              <path class="t-out" d="M160 168 C 160 204, 247 206, 247 240" marker-end="url(#arr)"/>
-              <path class="t-in" d="M78 246 C 78 222, 96 206, 112 196"/>
-              <g class="t-block" transform="translate(118 192)"><circle r="9"/><path d="M-3.5 -3.5 3.5 3.5M3.5 -3.5 -3.5 3.5"/></g>
-              <g class="t-node t-main"><rect class="t-halo" x="70" y="122" width="180" height="52" rx="26"/><rect x="76" y="128" width="168" height="40" rx="20"/><use href="#i-server" x="96" y="138" width="20" height="20"/><text x="124" y="153">your server</text></g>
-              <g class="t-node"><rect x="16" y="20" width="120" height="36" rx="18"/><text x="76" y="43" text-anchor="middle" class="t-brand">hakobu</text></g>
-              <g class="t-node"><rect x="176" y="20" width="132" height="36" rx="18"/><use href="#i-cloud" x="192" y="29" width="18" height="18"/><text x="216" y="43">Cloudflare</text></g>
-              <g class="t-node"><rect x="190" y="242" width="114" height="36" rx="18"/><use href="#i-github" x="206" y="251" width="18" height="18"/><text x="230" y="265">GitHub</text></g>
-              <g class="t-node t-off"><rect x="16" y="246" width="124" height="36" rx="18"/><text x="78" y="269" text-anchor="middle">the internet</text></g>
-            </svg></div></div></div>
-        <div class="card span-5 tint-grey"><h3>Any server joins with one command.</h3><p>A VPS, a client's machine or a box under your desk.</p>
-          <div class="card-viz"><div class="viz viz-servers" aria-hidden="true">
-            <div class="deploys">
-              <div class="deploy"><span class="srv-dot is-on"></span><span class="deploy-msg">hetzner-1</span><span class="muted">3 projects</span></div>
-              <div class="deploy"><span class="srv-dot is-on"></span><span class="deploy-msg">client-box</span><span class="muted">1 project</span></div>
-              <div class="deploy"><span class="srv-dot"></span><span class="deploy-msg">home-lab</span><span class="muted">joining…</span></div>
-            </div>
-            <pre class="console console-xs"><span class="p">$</span> curl -fsSL https://hakobu.dev/install.sh \
-    | sudo HAKOBU_JOIN_TOKEN=… bash</pre></div></div></div>
-        <div class="card span-6 tint-grey"><h3>Roll back the code and the data.</h3><p>A database snapshot before every deploy. Try it.</p>
-          <div class="card-viz"><div class="viz viz-roll">
-            <div class="deploys" id="deploys">
-              <div class="deploy is-live"><span class="mono">b72e01d</span><span class="deploy-msg">Rename messages.body</span><span class="snap" title="Database snapshot"><svg class="icon"><use href="#i-database"/></svg></span><span class="live">Live</span><span class="when">4 min ago</span></div>
-              <div class="deploy"><span class="mono">a1f3c9e</span><span class="deploy-msg">Stream replies</span><span class="snap" title="Database snapshot"><svg class="icon"><use href="#i-database"/></svg></span><span class="live">Live</span><span class="when">yesterday</span></div>
-              <div class="deploy"><span class="mono">9c04d1b</span><span class="deploy-msg">File uploads</span><span class="snap" title="Database snapshot"><svg class="icon"><use href="#i-database"/></svg></span><span class="live">Live</span><span class="when">2 days ago</span></div>
-            </div>
-            <div class="roll-foot"><button class="btn btn-sm" type="button" id="rollback"><svg class="icon"><use href="#i-history"/></svg><span id="rollback-label">Roll back</span></button><span class="legend"><svg class="icon"><use href="#i-database"/></svg>database snapshot</span></div></div></div></div>
-        <div class="card span-6 tint-grey"><h3>Backups only your server can open.</h3><p>Sealed with its key, in your R2, each one test-restored.</p>
-          <div class="card-viz"><div class="viz viz-seal" aria-hidden="true">
-            <div class="seal-row">
-              <div class="seal-node"><span class="seal-ic"><svg class="icon"><use href="#i-server"/></svg><span class="key"><svg class="icon"><use href="#i-key-round"/></svg></span></span>your server</div>
-              <div class="seal-pipe"><span class="seal-file"><svg class="icon"><use href="#i-lock"/></svg>app-db, sealed</span></div>
-              <div class="seal-node"><span class="seal-ic"><svg class="icon"><use href="#i-archive"/></svg></span>your R2</div>
-            </div>
-            <ul class="facts">
-              <li><svg class="icon"><use href="#i-key-round"/></svg>The key stays on the server. The panel never has it.</li>
-              <li><svg class="icon"><use href="#i-circle-check"/></svg>Restored into a scratch database: 21 tables</li>
-            </ul></div></div></div>
-        <div class="card span-7 tint-blue"><h3>Errors, logs and traces, on your server.</h3><p>The Sentry SDK you know reports to the SENTRY_DSN hakobu sets. No account anywhere, and what your apps send never leaves your server.</p>
-          <div class="card-viz"><div class="issue">
-            <div class="issue-head"><svg class="icon"><use href="#i-triangle-alert"/></svg><div><div class="issue-title">KeyError: 'body'</div><div class="issue-meta">api · 23 events · first 12:04, last 12:06</div></div><span class="issue-fixed">Fixed by c3d9a20</span></div>
-            <div class="issue-chart">
-              <div class="issue-bars"><i class="z"></i><i class="z"></i><i class="z"></i><i class="z"></i><i class="z"></i><i class="z"></i><i style="height:40%"></i><i style="height:85%"></i><i style="height:100%"></i><i style="height:70%"></i><i style="height:55%"></i><i class="z"></i><i class="z"></i><i class="z"></i><i class="z"></i><i class="z"></i></div>
-              <span class="issue-mark" style="left:calc(11 / 16 * 100%)"><span>c3d9a20 live</span></span>
-            </div>
-            <div class="issue-axis"><span>12:00</span><span>12:15</span></div>
-            <div class="issue-stack"><div>chat/stream.py:42 in reply</div><div class="dim">routes/messages.py:17 in post</div></div>
-            <div class="issue-foot"><span><svg class="icon"><use href="#i-server"/></svg>kept on hetzner-1, sealed</span><span><svg class="icon"><use href="#i-box"/></svg>sentry-sdk 2.x</span></div></div></div></div>
-        <div class="card span-5 tint-grey"><h3>Ask Claude to fix it.</h3><p>Through MCP: it reads your errors and pushes the fix.</p>
-          <div class="card-viz"><div class="chat" aria-label="An example conversation with Claude">
-            <div class="turn turn-me"><div class="who">You</div>
-            <div class="msg msg-me">The chat is failing since the last deploy. Can you look?</div></div>
-            <div class="turn"><div class="who">Claude</div>
-            <div class="tool"><svg class="icon"><use href="#i-check"/></svg>get_errors acme/api</div>
-            <div class="msg msg-ai">The migration renamed <code>messages.body</code>, but <code>stream.py</code> still reads the old column. I pushed a fix, and <span class="mono">c3d9a20</span> is live with no new errors.</div></div>
-            <div class="composer">Reply to Claude…</div>
-          </div></div></div>
-        <div class="card span-12 tint-blue card-wide"><div class="card-text"><h3>Watched from outside, every minute.</h3><p>A watchdog in your Cloudflare account asks each app's address every minute and emails you when it stops answering, even while the server itself is down.</p></div>
-          <div class="card-viz"><div class="viz viz-uptime" aria-hidden="true"><div class="up-head"><span class="strong">chat.acme.dev</span><span class="up-stats"><span><b>99.95%</b> 30 days</span><span><b>86 ms</b> answers in</span></span></div>
-            <div class="days"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i class="is-down" title="Oct 3: 99.72%, down 4 min"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
-            <div class="days-legend"><span>30 days ago</span><span>One outage, 4 min on Oct 3</span><span>Today</span></div></div></div></div>
-      </div></div></section><section class="section"><div class="wrap">
-      <div class="grid-12"><div class="section-head"><h2 class="section-title">Where everything lives.</h2><p class="section-sub">The panel gives the orders, whether it's ours at dash.hakobu.dev or your own. Your apps, their data and their traffic stay with you.</p></div></div>
-      <div class="grid-12 split">
-        <div class="card tint-blue span-8 split-yours"><h3>Yours.</h3><p>On your servers and in your Cloudflare account.</p>
-          <div class="split-cols"><ul>
-            <li><svg class="icon"><use href="#i-server"/></svg>Your apps and their databases</li>
-            <li><svg class="icon"><use href="#i-server"/></svg>Logs, errors and traces, sealed</li>
-            <li><svg class="icon"><use href="#i-lock"/></svg>The only key to the backups</li></ul><ul>
-            <li><svg class="icon"><use href="#i-cloud"/></svg>Backups in R2, sealed</li>
-            <li><svg class="icon"><use href="#i-cloud"/></svg>The tunnel your visitors use</li>
-            <li><svg class="icon"><use href="#i-cloud"/></svg>DNS records for your domains</li></ul></div></div>
-        <div class="card span-4 split-panel"><h3>The panel.</h3><p>Ours, or one you run yourself.</p>
-          <ul><li><svg class="icon"><use href="#i-layers"/></svg>Projects and settings</li><li><svg class="icon"><use href="#i-lock"/></svg>Variables, encrypted</li></ul>
-          <p class="split-never"><b>Never:</b> your visitors' traffic, your apps' data, or the key to your backups.</p></div>
+
+  <section class="section"><div class="wrap">
+    <div class="section-head">
+      <h2 class="section-title">Nothing pushes to a server.</h2>
+      <p class="section-sub">CI builds each commit into images and pushes them to a registry. The server checks the release tag every 30 seconds and deploys each new one. CI needs no access to it, and any CI that can push an image works.</p>
+    </div>
+    <ol class="flow">
+      <li class="flow-step"><span class="flow-ic"><svg class="icon"><use href="#i-file"/></svg></span><b>Your repository</b><span>hakobu.toml, a Dockerfile per app, sealed secrets</span></li>
+      <li class="flow-step"><span class="flow-ic"><svg class="icon"><use href="#i-workflow"/></svg></span><b>CI</b><span><code>hakobu build</code>: each app, then the release image last</span></li>
+      <li class="flow-step"><span class="flow-ic"><svg class="icon"><use href="#i-box"/></svg></span><b>A registry</b><span><code>ghcr.io/you/app:main</code>, or any other</span></li>
+      <li class="flow-step is-main"><span class="flow-ic"><svg class="icon"><use href="#i-server"/></svg></span><b>Your server</b><span>pulls the release, deploys it, and sets the commit's <code>hakobu/deploy</code> status</span></li>
+    </ol>
+  </div></section>
+
+  <section class="section"><div class="wrap">
+    <div class="section-head">
+      <h2 class="section-title">The parts that guard your data, written once.</h2>
+      <p class="section-sub">What's different in each project, its file, Dockerfile and migrations, is yours or your agent's to write. Deploys, backups, secrets and alerts are hakobu's, tested once for every project.</p>
+    </div>
+    <div class="grid-12 cards">
+
+      <div class="card span-7 tint-blue">
+        <h3>Deploys that can't lose data.</h3>
+        <p>Migrations run in the new image while the old one serves. If they fail, nothing changed. A deploy never deletes: what the file drops is kept until a person deletes it.</p>
+        <div class="card-viz"><ol class="steps">
+          <li><span class="step-n">1</span><div><b>Plan</b><span>the file against what runs; a typo stops here</span></div></li>
+          <li><span class="step-n">2</span><div><b>Dump</b><span>each database the app uses, on the server</span></div></li>
+          <li><span class="step-n">3</span><div><b>Release</b><span><code>bin/rails db:migrate</code> in the new image</span></div></li>
+          <li><span class="step-n">4</span><div><b>Health</b><span>the new version answers <code>/up</code> next to the old one</span></div></li>
+          <li><span class="step-n is-live">5</span><div><b>Switch</b><span>traffic moves over; no request is dropped</span></div></li>
+        </ol></div>
       </div>
-    </div></section>
-    <section class="section"><div class="wrap grid-12">
-      <div class="about-big">
-        <p class="about-quote">I build hakobu on my own, and it runs my apps and a client's today. <span>Every feature on this page is one I needed on a real server first.</span></p>
-        <div class="about-links">
-          <a class="btn" href="https://github.com/hakobudev/hakobu"><svg class="icon"><use href="#i-github"/></svg>Source code</a>
-          <a class="btn" href="https://github.com/hakobudev/hakobu/releases">Changelog</a>
-          <a class="btn" href="https://github.com/hakobudev/hakobu/issues">Issues</a>
+
+      <div class="card span-5 tint-grey">
+        <h3>Back in one command.</h3>
+        <p><code>hakobu rollback</code> runs the release before, with today's secrets. Try it.</p>
+        <div class="card-viz"><div class="viz viz-roll">
+          <div class="deploys" id="deploys">
+            <div class="deploy is-live"><span class="mono">a1f3c9e</span><span class="deploy-msg">Add invoices</span><span class="live">Live</span><span class="when">4 min ago</span></div>
+            <div class="deploy"><span class="mono">9c04d1b</span><span class="deploy-msg">File uploads</span><span class="live">Live</span><span class="when">yesterday</span></div>
+            <div class="deploy"><span class="mono">5e2b7f0</span><span class="deploy-msg">Search customers</span><span class="live">Live</span><span class="when">3 days ago</span></div>
+          </div>
+          <div class="roll-foot">
+            <button class="btn btn-sm" type="button" id="rollback"><svg class="icon"><use href="#i-history"/></svg><span id="rollback-label">hakobu rollback crm</span></button>
+            <span class="legend">no registry needed: the server keeps them</span>
+          </div>
+        </div></div>
+      </div>
+
+      <div class="card span-6 tint-grey">
+        <h3>Secrets in the repository.</h3>
+        <p>Each one sealed with age to the server and to you. Anyone, an agent too, can add one; only the two of you can read it. A diff shows which changed, never a value.</p>
+        <div class="card-viz"><div class="diff" aria-label="A diff of hakobu.secrets.toml">
+          <div class="diff-head"><svg class="icon"><use href="#i-lock"/></svg>hakobu.secrets.toml</div>
+          <div class="diff-body mono">
+            <div class="d-ctx"><span class="d-sign"> </span>[apps.web]</div>
+            <div class="d-del"><span class="d-sign">-</span>STRIPE_KEY = "age:YWdlLWVuY3J5cHRpb24u…"</div>
+            <div class="d-add"><span class="d-sign">+</span>STRIPE_KEY = "age:Ci0+IFgyNTUxOSB3Wkxh…"</div>
+            <div class="d-ctx"><span class="d-sign"> </span>SENTRY_DSN = "age:LT4gWDI1NTE5IGpGdk1X…"</div>
+          </div>
+          <div class="diff-foot mono"><span class="p">$</span> op read op://crm/stripe | hakobu secret set web STRIPE_KEY</div>
+        </div></div>
+      </div>
+
+      <div class="card span-6 tint-grey">
+        <h3>Backups that prove they restore.</h3>
+        <p>Every database and volume, each day: sealed, copied to a second bucket with a key that may only write, then restored into scratch before it counts.</p>
+        <div class="card-viz"><div class="viz viz-seal">
+          <div class="seal-row" aria-hidden="true">
+            <div class="seal-node"><span class="seal-ic"><svg class="icon"><use href="#i-server"/></svg><span class="key"><svg class="icon"><use href="#i-key-round"/></svg></span></span>kasl-1</div>
+            <div class="seal-pipe"><span class="seal-file"><svg class="icon"><use href="#i-lock"/></svg>crm/main, sealed</span></div>
+            <div class="seal-node"><span class="seal-ic"><svg class="icon"><use href="#i-archive"/></svg></span>any S3</div>
+          </div>
+          <ul class="facts">
+            <li><svg class="icon"><use href="#i-circle-check"/></svg><span><b>crm/main</b>: read back and restored, 21 tables</span></li>
+            <li><svg class="icon"><use href="#i-circle-check"/></svg><span><b>crm/web/uploads</b>: archive read through</span></li>
+            <li><svg class="icon"><use href="#i-key-round"/></svg><span>Your key opens them too, without the server.</span></li>
+          </ul>
+        </div></div>
+      </div>
+
+      <div class="card span-5 tint-grey">
+        <h3>One email when it breaks, one when it's over.</h3>
+        <p>An app down, a failed deploy or backup, a full disk, or the hourly audit finding a port or container that shouldn't be there. A pulse to a dead man's switch says hakobu itself is alive.</p>
+        <div class="card-viz"><div class="mails">
+          <div class="mail"><svg class="icon text-danger"><use href="#i-mail"/></svg><div class="min-w-0"><div class="mail-subj">[hakobu kasl-1] crm/web is down: GET /up: 502</div><div class="mail-meta">09:14 · with its last output</div></div></div>
+          <div class="mail"><svg class="icon text-success"><use href="#i-mail"/></svg><div class="min-w-0"><div class="mail-subj">[hakobu kasl-1] resolved: crm/web is down (after 6m)</div><div class="mail-meta">09:20</div></div></div>
+          <div class="mail"><svg class="icon text-danger"><use href="#i-mail"/></svg><div class="min-w-0"><div class="mail-subj">[hakobu kasl-1] audit: port 5432 listens on 0.0.0.0</div><div class="mail-meta">yesterday · hourly audit</div></div></div>
+        </div></div>
+      </div>
+
+      <div class="card span-7 tint-blue">
+        <h3>Agents welcome. Data stays a person's.</h3>
+        <p><code>hakobu init</code> gives a repository a skill for Claude Code, and <code>hakobu mcp</code> lets an agent see status and logs, deploy and roll back. Restoring or deleting data needs the admin token and a person at a terminal.</p>
+        <div class="card-viz"><div class="chat" aria-label="An example conversation with Claude">
+          <div class="turn turn-me"><div class="msg msg-me">Add a cache for sessions and ship it.</div></div>
+          <div class="turn">
+            <div class="tools"><span class="tool"><svg class="icon"><use href="#i-check"/></svg>edit hakobu.toml</span><span class="tool"><svg class="icon"><use href="#i-check"/></svg>hakobu validate</span><span class="tool"><svg class="icon"><use href="#i-check"/></svg>git push</span><span class="tool"><svg class="icon"><use href="#i-check"/></svg>deploys</span></div>
+            <div class="msg msg-ai">Added <code>[caches.sessions]</code> and gave web <code>SESSIONS_REDIS_URL</code>. <span class="mono">c3d9a20</span> is live on kasl-1.</div>
+          </div>
+          <div class="turn turn-me"><div class="msg msg-me">Now restore last night's backup of main.</div></div>
+          <div class="turn"><div class="msg msg-ai">That one's yours: <code>hakobu restore crm/main</code> asks for the admin token at a terminal, and I don't have it.</div></div>
+        </div></div>
+      </div>
+
+      <div class="card span-12 tint-grey card-wide">
+        <div class="card-text">
+          <h3>Nothing comes in.</h3>
+          <p>The server pulls its releases. hakobu's API listens on your tailnet and nowhere else, and the web reaches your apps on 80 and 443 for their own domains, or through a Cloudflare Tunnel with no port open at all. The audit mails you about anything else that listens.</p>
         </div>
+        <div class="card-viz"><div class="viz viz-doors" aria-hidden="true">
+          <svg viewBox="0 0 640 260" class="doors">
+            <path class="t-in" d="M166 46 C 210 46, 206 118, 248 118" marker-end="url(#arr)"/>
+            <path class="t-no" d="M166 130 L 248 130"/>
+            <g class="t-block" transform="translate(207 130)"><circle r="9"/><path d="M-3.5 -3.5 3.5 3.5M3.5 -3.5 -3.5 3.5"/></g>
+            <path class="t-in" d="M166 214 C 210 214, 206 142, 248 142" marker-end="url(#arr)"/>
+            <path class="t-out" d="M392 118 C 434 118, 430 46, 472 46" marker-end="url(#arr)"/>
+            <path class="t-out" d="M392 130 L 472 130" marker-end="url(#arr)"/>
+            <path class="t-out" d="M392 142 C 434 142, 430 214, 472 214" marker-end="url(#arr)"/>
+            <g class="t-node"><rect x="16" y="24" width="150" height="44" rx="10"/><text x="30" y="43">you, your agent</text><text x="30" y="59" class="t-sub">the API, on the tailnet</text></g>
+            <g class="t-node t-off"><rect x="16" y="108" width="150" height="44" rx="10"/><text x="30" y="127">anything else</text><text x="30" y="143" class="t-sub">nothing listens</text></g>
+            <g class="t-node"><rect x="16" y="192" width="150" height="44" rx="10"/><text x="30" y="211">visitors</text><text x="30" y="227" class="t-sub">80/443, or a tunnel</text></g>
+            <g class="t-node t-main"><rect class="t-halo" x="244" y="102" width="152" height="56" rx="28"/><rect x="250" y="108" width="140" height="44" rx="22"/><use href="#i-server" x="268" y="120" width="20" height="20"/><text x="296" y="135">your server</text></g>
+            <g class="t-node"><rect x="474" y="24" width="150" height="44" rx="10"/><text x="488" y="43">a registry</text><text x="488" y="59" class="t-sub">pulls each release</text></g>
+            <g class="t-node"><rect x="474" y="108" width="150" height="44" rx="10"/><text x="488" y="127">your buckets</text><text x="488" y="143" class="t-sub">sealed backups</text></g>
+            <g class="t-node"><rect x="474" y="192" width="150" height="44" rx="10"/><text x="488" y="211">SMTP, GitHub</text><text x="488" y="227" class="t-sub">alerts, commit status</text></g>
+          </svg>
+          <ul class="doors-list">
+            <li><b>In</b>you and your agent, on the tailnet; visitors on 80/443 or a tunnel</li>
+            <li><b>Out</b>the registry, your buckets, SMTP and GitHub's commit status</li>
+            <li><b>Else</b>nothing listens, and the audit checks hourly</li>
+          </ul>
+        </div></div>
       </div>
-    </div></section>
+
+    </div>
+  </div></section>
+
+  <section class="section"><div class="wrap">
+    <div class="section-head">
+      <h2 class="section-title">Yours, all of it.</h2>
+      <p class="section-sub">hakobu calls no provider's API: no DNS, no cloud, no Git host beyond the commit status. You bring the pieces, and can swap any of them.</p>
+    </div>
+    <ul class="bring">
+      <li><svg class="icon"><use href="#i-server"/></svg><b>A Linux server</b><span>Debian or Ubuntu, amd64 or arm64. The installer sets up rootless Docker.</span></li>
+      <li><svg class="icon"><use href="#i-network"/></svg><b>A Tailscale tailnet</b><span>Where hakobu's API listens, and nowhere else.</span></li>
+      <li><svg class="icon"><use href="#i-box"/></svg><b>A registry and CI</b><span>ghcr.io and GitHub Actions work with no setup.</span></li>
+      <li><svg class="icon"><use href="#i-archive"/></svg><b>An S3 bucket</b><span>R2, Hetzner, AWS or any other, for backups.</span></li>
+      <li><svg class="icon"><use href="#i-mail"/></svg><b>An SMTP account</b><span>For the alerts.</span></li>
+      <li><svg class="icon"><use href="#i-key-round"/></svg><b>Your age key</b><span>Opens every secret and backup, even without the server.</span></li>
+    </ul>
+  </div></section>
+
+  <section class="section" id="start"><div class="wrap">
+    <div class="section-head">
+      <h2 class="section-title">From a bare server to a green commit.</h2>
+    </div>
+    <ol class="start">
+      <li>
+        <div class="start-text"><span class="step-n">1</span><div><h3>A server</h3><p>One command, nothing asked: everything comes from the environment, so cloud-init or an agent can run it. Run it again to update. <a href="/docs/install/">A server</a></p></div></div>
+        <div class="copyable"><pre class="console"><span class="p">$</span> curl -fsSL https://hakobu.dev/install.sh | sudo \
+    HAKOBU_NAME=kasl-1 HAKOBU_OWNER_KEY=age1… \
+    TS_AUTHKEY=tskey-auth-… HAKOBU_INGRESS=public bash</pre><button class="copy" type="button" data-copy="curl -fsSL https://hakobu.dev/install.sh | sudo HAKOBU_NAME=kasl-1 HAKOBU_OWNER_KEY=age1… TS_AUTHKEY=tskey-auth-… HAKOBU_INGRESS=public bash" aria-label="Copy the install command"><svg class="icon"><use href="#i-copy"/></svg></button></div>
+      </li>
+      <li>
+        <div class="start-text"><span class="step-n">2</span><div><h3>A project</h3><p>In the repository, with the CLI from the <a href="https://github.com/hakobudev/hakobu/releases">releases</a>. <code>init</code> writes hakobu.toml, the workflow and the agent's skill. <a href="/docs/project/">A project</a></p></div></div>
+        <div class="copyable"><pre class="console"><span class="p">$</span> hakobu server add kasl-1 http://100.x.y.z:7070
+<span class="p">$</span> hakobu init --server kasl-1
+<span class="p">$</span> hakobu secret set hakobu status_token</pre><button class="copy" type="button" data-copy="hakobu server add kasl-1 http://100.x.y.z:7070
+hakobu init --server kasl-1
+hakobu secret set hakobu status_token" aria-label="Copy the commands"><svg class="icon"><use href="#i-copy"/></svg></button></div>
+      </li>
+      <li>
+        <div class="start-text"><span class="step-n is-live">3</span><div><h3>Push</h3><p>CI builds the apps and the release; within 30 seconds the server deploys it, and the job turns green once it's live.</p></div></div>
+        <div class="copyable"><pre class="console"><span class="p">$</span> git push
+<span class="p">$</span> hakobu status
+kasl-1
+  app       crm/admin  ghcr.io/kasl/crm-admin@4be1…
+  app       crm/web    ghcr.io/kasl/crm-web@90c7…
+  database  crm/main
+  cache     crm/cache
+  last deploy: 1m ago crm a1f3c9e, ok
+  backups: 6h ago, 2 made</pre></div>
+      </li>
+    </ol>
+  </div></section>
+
+  <section class="section"><div class="wrap grid-12">
+    <div class="about-big">
+      <p class="about-quote">I build hakobu on my own, and it runs my apps and a client's today. <span>Every feature on this page is one I needed on a real server first.</span></p>
+      <div class="about-links">
+        <a class="btn" href="https://github.com/hakobudev/hakobu"><svg class="icon"><use href="#i-github"/></svg>Source code</a>
+        <a class="btn" href="https://github.com/hakobudev/hakobu/releases">Changelog</a>
+        <a class="btn" href="https://github.com/hakobudev/hakobu/issues">Issues</a>
+      </div>
+    </div>
+  </div></section>
 </main>
 
 <footer class="footer">
   <div class="wrap footer-grid">
     <div class="footer-brand">
       <span class="wordmark">hakobu</span>
-      <p>Deploy from GitHub to servers you own.</p>
+      <p>Run your projects on servers you own.</p>
       <p>Open source, MIT</p>
     </div>
-    <nav aria-label="Product"><div class="footer-title">Product</div><a href="/docs/">Docs</a><a href="/docs/install/">Self-host</a><a href="https://dash.hakobu.dev">Hosted panel</a></nav>
+    <nav aria-label="Docs"><div class="footer-title">Docs</div><a href="/docs/">Introduction</a><a href="/docs/install/">A server</a><a href="/docs/project/">A project</a><a href="/docs/hakobu-toml/">hakobu.toml</a></nav>
+    <nav aria-label="Operating"><div class="footer-title">Operating</div><a href="/docs/backups/">Backups</a><a href="/docs/alerts/">Alerts</a><a href="/docs/agents/">Agents</a><a href="/docs/security/">Security</a></nav>
     <nav aria-label="Project"><div class="footer-title">Project</div><a href="https://github.com/hakobudev/hakobu">GitHub</a><a href="https://github.com/hakobudev/hakobu/releases">Changelog</a><a href="https://github.com/hakobudev/hakobu/issues">Issues</a></nav>
-    <nav aria-label="Legal"><div class="footer-title">Legal</div><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
   </div>
 </footer>
 
-<script src="site.js?v=ee910246"></script>
+<script src="site.js?v=e5468c65"></script>
 </body>
 </html>
