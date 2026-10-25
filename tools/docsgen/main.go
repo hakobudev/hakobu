@@ -184,7 +184,7 @@ func build(src, out, site string) error {
 		return err
 	}
 	var index, full bytes.Buffer
-	index.WriteString("# hakobu\n\n> hakobu deploys apps from GitHub to servers you own, behind Cloudflare: builds, zero-downtime swaps, databases, backups only your servers can open, errors and traces, and an MCP server for Claude.\n")
+	index.WriteString("# hakobu\n\n> hakobu runs your projects on servers you own: a hakobu.toml in the repository says what runs, CI builds each commit, and the server pulls the release and swaps it in with no downtime. PostgreSQL and Valkey, secrets sealed with age in the repository, backups proved by a restore, email alerts, and a skill and MCP server for agents.\n")
 	section := ""
 	for i, it := range items {
 		raw, err := os.ReadFile(filepath.Join(src, it.Name+".md"))
@@ -302,9 +302,9 @@ const pageTemplate = `<!doctype html>
   <div class="wrap docs-wrap topbar-inner">
     <span class="docs-brand"><a href="/" class="wordmark">hakobu</a><a href="/docs/" class="docs-label">Docs</a></span>
     <nav class="nav">
-      <a class="nav-link nav-hide" href="/#self-host">Self-host</a>
+      <a class="nav-link nav-hide" href="https://github.com/hakobudev/hakobu/releases">Changelog</a>
       <a class="nav-link" href="https://github.com/hakobudev/hakobu" aria-label="GitHub"><svg class="icon" viewBox="0 0 24 24"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg></a>
-      <a class="btn" href="https://dash.hakobu.dev">Sign in</a>
+      <a class="btn" href="/#start">Get started</a>
     </nav>
   </div>
 </header>
@@ -351,8 +351,7 @@ const pageTemplate = `<!doctype html>
     <nav>
       <a href="https://github.com/hakobudev/hakobu">GitHub</a>
       <a href="/docs/">Docs</a>
-      <a href="/privacy">Privacy</a>
-      <a href="/terms">Terms</a>
+      <a href="https://github.com/hakobudev/hakobu/releases">Changelog</a>
     </nav>
   </div>
 </footer>

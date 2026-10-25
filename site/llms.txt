@@ -1,6 +1,6 @@
 # hakobu
 
-> hakobu deploys apps from GitHub to servers you own, behind Cloudflare: builds, zero-downtime swaps, databases, backups only your servers can open, errors and traces, and an MCP server for Claude.
+> hakobu runs your projects on servers you own: a hakobu.toml in the repository says what runs, CI builds each commit, and the server pulls the release and swaps it in with no downtime. PostgreSQL and Valkey, secrets sealed with age in the repository, backups proved by a restore, email alerts, and a skill and MCP server for agents.
 
 ## Getting started
 
