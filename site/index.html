@@ -7,7 +7,7 @@
 <meta name="description" content="A hakobu.toml in your repository says what runs. CI builds each commit; your server pulls the release and swaps it in with no downtime. Databases, sealed secrets, backups proved by a restore, alerts, and room for agents. No panel, no database: one Go binary.">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="style.css?v=e5468c65">
+<link rel="stylesheet" href="style.css?v=8c38cfb7">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -182,6 +182,8 @@
             <div class="deploy is-live"><span class="mono">a1f3c9e</span><span class="deploy-msg">Add invoices</span><span class="live">Live</span><span class="when">4 min ago</span></div>
             <div class="deploy"><span class="mono">9c04d1b</span><span class="deploy-msg">File uploads</span><span class="live">Live</span><span class="when">yesterday</span></div>
             <div class="deploy"><span class="mono">5e2b7f0</span><span class="deploy-msg">Search customers</span><span class="live">Live</span><span class="when">3 days ago</span></div>
+            <div class="deploy"><span class="mono">e81a4c3</span><span class="deploy-msg">Export to CSV</span><span class="live">Live</span><span class="when">last week</span></div>
+            <div class="deploy"><span class="mono">07dd9b2</span><span class="deploy-msg">Sign in with email</span><span class="live">Live</span><span class="when">2 weeks ago</span></div>
           </div>
           <div class="roll-foot">
             <button class="btn btn-sm" type="button" id="rollback"><svg class="icon"><use href="#i-history"/></svg><span id="rollback-label">hakobu rollback crm</span></button>
@@ -200,6 +202,9 @@
             <div class="d-del"><span class="d-sign">-</span>STRIPE_KEY = "age:YWdlLWVuY3J5cHRpb24u…"</div>
             <div class="d-add"><span class="d-sign">+</span>STRIPE_KEY = "age:Ci0+IFgyNTUxOSB3Wkxh…"</div>
             <div class="d-ctx"><span class="d-sign"> </span>SENTRY_DSN = "age:LT4gWDI1NTE5IGpGdk1X…"</div>
+            <div class="d-ctx"><span class="d-sign"> </span></div>
+            <div class="d-ctx"><span class="d-sign"> </span>[hakobu]</div>
+            <div class="d-ctx"><span class="d-sign"> </span>status_token = "age:Ci0+IFgyNTUxOSBuUEFw…"</div>
           </div>
           <div class="diff-foot mono"><span class="p">$</span> op read op://crm/stripe | hakobu secret set web STRIPE_KEY</div>
         </div></div>
@@ -229,6 +234,7 @@
           <div class="mail"><svg class="icon text-danger"><use href="#i-mail"/></svg><div class="min-w-0"><div class="mail-subj">[hakobu kasl-1] crm/web is down: GET /up: 502</div><div class="mail-meta">09:14 · with its last output</div></div></div>
           <div class="mail"><svg class="icon text-success"><use href="#i-mail"/></svg><div class="min-w-0"><div class="mail-subj">[hakobu kasl-1] resolved: crm/web is down (after 6m)</div><div class="mail-meta">09:20</div></div></div>
           <div class="mail"><svg class="icon text-danger"><use href="#i-mail"/></svg><div class="min-w-0"><div class="mail-subj">[hakobu kasl-1] audit: port 5432 listens on 0.0.0.0</div><div class="mail-meta">yesterday · hourly audit</div></div></div>
+          <div class="mail"><svg class="icon text-danger"><use href="#i-mail"/></svg><div class="min-w-0"><div class="mail-subj">[hakobu kasl-1] the disk is 86% full</div><div class="mail-meta">Monday · closes under 80%</div></div></div>
         </div></div>
       </div>
 
@@ -353,6 +359,6 @@ kasl-1
   </div>
 </footer>
 
-<script src="site.js?v=e5468c65"></script>
+<script src="site.js?v=8c38cfb7"></script>
 </body>
 </html>
