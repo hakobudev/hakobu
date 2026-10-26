@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/hakobudev/hakobu/internal/client"
@@ -42,7 +43,9 @@ func serverUpdateCmd(version string, config *string) *cobra.Command {
 				st, err := updateServer(cmd.Context(), c, to, os.Stderr)
 				switch {
 				case err != nil:
-					fmt.Printf("%s: %v\n", c.Name, err)
+					if !strings.HasPrefix(err.Error(), c.Name+": ") {
+						err = fmt.Errorf("%s: %w", c.Name, err)
+					}
 					errs = append(errs, err)
 				case st.State == "up to date":
 					fmt.Printf("%s: hakobu %s is the latest\n", c.Name, st.From)
