@@ -55,6 +55,9 @@ func newContainerTransport() *http.Transport {
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	t.Proxy = nil
 	t.DialContext = DialContainer
+	// An app that takes the connection and never answers would hold the
+	// proxy's request for good; streams start with their headers.
+	t.ResponseHeaderTimeout = 5 * time.Minute
 	return t
 }
 

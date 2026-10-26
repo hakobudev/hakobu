@@ -124,7 +124,7 @@ func Serve(ctx context.Context, c Config, routes Routes, certDir string, log io.
 		if listen == "" {
 			listen = "127.0.0.1:8080"
 		}
-		servers = append(servers, &http.Server{Addr: listen, Handler: router, ReadHeaderTimeout: 10 * time.Second})
+		servers = append(servers, &http.Server{Addr: listen, Handler: router, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute})
 	case Public:
 		m := &autocert.Manager{
 			Prompt: autocert.AcceptTOS,
@@ -142,8 +142,8 @@ func Serve(ctx context.Context, c Config, routes Routes, certDir string, log io.
 		servers = append(servers,
 			// 80 answers Let's Encrypt's challenges and sends the rest to
 			// HTTPS.
-			&http.Server{Addr: ":80", Handler: m.HTTPHandler(nil), ReadHeaderTimeout: 10 * time.Second},
-			&http.Server{Addr: ":443", Handler: router, TLSConfig: &tls.Config{GetCertificate: m.GetCertificate, MinVersion: tls.VersionTLS12, NextProtos: []string{"h2", "http/1.1", "acme-tls/1"}}, ReadHeaderTimeout: 10 * time.Second},
+			&http.Server{Addr: ":80", Handler: m.HTTPHandler(nil), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute},
+			&http.Server{Addr: ":443", Handler: router, TLSConfig: &tls.Config{GetCertificate: m.GetCertificate, MinVersion: tls.VersionTLS12, NextProtos: []string{"h2", "http/1.1", "acme-tls/1"}}, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute},
 		)
 	}
 	errs := make(chan error, len(servers))
