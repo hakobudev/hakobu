@@ -69,7 +69,7 @@
 <p>A deploy never deletes data: databases, caches and volumes gone from the file are kept, orphaned.</p>
 <h2 id="the-commit-status">The commit status</h2>
 <p>The server sets the commit's <code>hakobu/deploy</code> status: pending as it starts, then success, or failure with the reason. The workflow's <code>hakobu wait</code> waits for it (15 minutes by default), so the CI job fails when the deploy does. Without the <a href="/docs/secrets/#hakobus-own">status token</a> the release is refused.</p>
-<p>The failure email, <code>ssh kasl-1 deploys</code> and <code>ssh kasl-1 logs PROJECT/APP</code> (or the MCP tools) say more.</p>
+<p>The failure email, <code>ssh nova-1 deploys</code> and <code>ssh nova-1 logs PROJECT/APP</code> (or the MCP tools) say more.</p>
 <h2 id="migrations">Migrations</h2>
 <p><code>release</code> runs while the old version still serves, and if anything after it fails, the old version goes on against the migrated database. So a migration must work with the code before it:</p>
 <ul>
@@ -79,7 +79,7 @@
 <li>long backfills belong in the worker, not <code>release</code> (it's stopped after 30 minutes).</li>
 </ul>
 <h2 id="rollback">Rollback</h2>
-<pre><code class="language-bash">ssh kasl-1 rollback crm
+<pre><code class="language-bash">ssh nova-1 rollback crm
 </code></pre>
 <p>deploys the release before the current one, with today's secrets, and holds the current one back until a newer one comes. It doesn't undo migrations: the dump taken before the last deploy stays on the server, in <code>/var/lib/hakobu/snapshots</code>, and <code>hakobu restore</code> puts back a <a href="/docs/backups/">backup</a>. <code>hakobu deploy crm</code> checks for a release now instead of in 30 seconds; <code>--force</code> deploys the current one again.</p>
 <h2 id="the-workflow">The workflow</h2>

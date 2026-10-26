@@ -55,13 +55,13 @@ func TestLaptop(t *testing.T) {
 	owner, _ := age.GenerateX25519Identity()
 	dir := t.TempDir()
 	cfg, err := server.ParseConfig([]byte(fmt.Sprintf(`
-name = "kasl-1"
+name = "nova-1"
 listen = "100.64.0.1:7070"
 data_dir = %q
 owner_key = %q
 operator_token_sha256 = %q
 admin_token_sha256 = %q
-releases = ["ghcr.io/kasl/crm-release:main"]
+releases = ["ghcr.io/nova/crm-release:main"]
 `, dir, owner.Recipient().String(), server.HashToken("op"), server.HashToken("admin"))))
 	if err != nil {
 		t.Fatal(err)
@@ -74,13 +74,13 @@ releases = ["ghcr.io/kasl/crm-release:main"]
 	srv := httptest.NewServer(d.API())
 	defer srv.Close()
 
-	if _, err := run(t, "wrong\n", "server", "add", "kasl-1", srv.URL); err == nil {
+	if _, err := run(t, "wrong\n", "server", "add", "nova-1", srv.URL); err == nil {
 		t.Error("added with a wrong token")
 	}
-	if _, err := run(t, "op\n", "server", "add", "kasl-2", srv.URL); err == nil || !strings.Contains(err.Error(), "that's server kasl-1") {
+	if _, err := run(t, "op\n", "server", "add", "nova-2", srv.URL); err == nil || !strings.Contains(err.Error(), "that's server nova-1") {
 		t.Errorf("added under another name: %v", err)
 	}
-	out, err := run(t, "op\n", "server", "add", "kasl-1", srv.URL)
+	out, err := run(t, "op\n", "server", "add", "nova-1", srv.URL)
 	if err != nil || !strings.Contains(out, serverKey) {
 		t.Fatalf("add: %q, %v", out, err)
 	}
@@ -90,7 +90,7 @@ releases = ["ghcr.io/kasl/crm-release:main"]
 	}
 
 	out, err = run(t, "", "status")
-	if err != nil || !strings.Contains(out, "kasl-1") || !strings.Contains(out, "backups: NONE") {
+	if err != nil || !strings.Contains(out, "nova-1") || !strings.Contains(out, "backups: NONE") {
 		t.Errorf("status: %q, %v", out, err)
 	}
 
@@ -122,14 +122,14 @@ releases = ["ghcr.io/kasl/crm-release:main"]
 	if err != nil || res.IsError {
 		t.Fatalf("status: %+v, %v", res, err)
 	}
-	if b, _ := json.Marshal(res.StructuredContent); !strings.Contains(string(b), `"server":"kasl-1"`) {
+	if b, _ := json.Marshal(res.StructuredContent); !strings.Contains(string(b), `"server":"nova-1"`) {
 		t.Errorf("status over MCP: %s", b)
 	}
 
 	// A project's secrets, in its repository.
 	repo := t.TempDir()
 	t.Chdir(repo)
-	if err := os.WriteFile("hakobu.toml", []byte("project = \"kasl\"\nserver = \"kasl-1\"\n[apps.crm]\n"), 0o644); err != nil {
+	if err := os.WriteFile("hakobu.toml", []byte("project = \"nova\"\nserver = \"nova-1\"\n[apps.crm]\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := run(t, "", "secret", "init"); err != nil {
@@ -147,7 +147,7 @@ releases = ["ghcr.io/kasl/crm-release:main"]
 	}
 	s, _ := seal.Parse(b)
 	id, _ := seal.LoadIdentity(cfg.KeyFile())
-	if o, err := s.Open(id, "kasl"); err != nil || o.Apps["crm"]["STRIPE_KEY"] != "sk_live_1" || o.Hakobu[seal.StatusToken] != "github_pat" {
+	if o, err := s.Open(id, "nova"); err != nil || o.Apps["crm"]["STRIPE_KEY"] != "sk_live_1" || o.Hakobu[seal.StatusToken] != "github_pat" {
 		t.Errorf("the server opens %+v, %v", o, err)
 	}
 	if out, _ := run(t, "", "secret", "list"); out != "crm\tSTRIPE_KEY\nhakobu\tstatus_token\n" {
@@ -156,7 +156,7 @@ releases = ["ghcr.io/kasl/crm-release:main"]
 	if out, err := run(t, "", "validate"); err != nil || out != "ok\n" {
 		t.Errorf("validate: %q %v", out, err)
 	}
-	if err := os.WriteFile("hakobu.toml", []byte("project = \"kasl\"\nserver = \"kasl-1\"\n[apps.crm]\nhelth = \"/\"\n"), 0o644); err != nil {
+	if err := os.WriteFile("hakobu.toml", []byte("project = \"nova\"\nserver = \"nova-1\"\n[apps.crm]\nhelth = \"/\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := run(t, "", "validate"); err == nil || !strings.Contains(err.Error(), "unknown keys") {
@@ -164,7 +164,7 @@ releases = ["ghcr.io/kasl/crm-release:main"]
 	}
 
 	// Destroying asks a person, and a pipe isn't one.
-	if _, err := run(t, "kasl/main\n", "destroy", "kasl/main"); err == nil || !strings.Contains(err.Error(), "a person at a terminal") {
+	if _, err := run(t, "nova/main\n", "destroy", "nova/main"); err == nil || !strings.Contains(err.Error(), "a person at a terminal") {
 		t.Errorf("destroy from a pipe: %v", err)
 	}
 }

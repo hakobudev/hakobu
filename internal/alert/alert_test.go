@@ -28,16 +28,16 @@ func TestOncePerProblem(t *testing.T) {
 	var box inbox
 	now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
 	file := filepath.Join(t.TempDir(), "alerts.json")
-	a := &Alerts{Mailer: &box, Server: "kasl-1", File: file, Now: func() time.Time { return now }}
+	a := &Alerts{Mailer: &box, Server: "nova-1", File: file, Now: func() time.Time { return now }}
 	for range 3 {
 		if err := a.Raise("disk", "disk 91% full", "…"); err != nil {
 			t.Fatal(err)
 		}
 	}
 	// A restart reads the open problems back: no repeat either.
-	a = &Alerts{Mailer: &box, Server: "kasl-1", File: file, Now: func() time.Time { return now }}
+	a = &Alerts{Mailer: &box, Server: "nova-1", File: file, Now: func() time.Time { return now }}
 	_ = a.Raise("disk", "disk 91% full", "…")
-	if len(box.sent) != 1 || box.sent[0] != "[hakobu kasl-1] disk 91% full" {
+	if len(box.sent) != 1 || box.sent[0] != "[hakobu nova-1] disk 91% full" {
 		t.Errorf("sent %q", box.sent)
 	}
 	now = now.Add(90 * time.Minute)
@@ -45,7 +45,7 @@ func TestOncePerProblem(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = a.Clear("disk", "")
-	if len(box.sent) != 2 || box.sent[1] != "[hakobu kasl-1] resolved: disk 91% full (after 1h30m0s)" {
+	if len(box.sent) != 2 || box.sent[1] != "[hakobu nova-1] resolved: disk 91% full (after 1h30m0s)" {
 		t.Errorf("sent %q", box.sent)
 	}
 	if open, _ := a.Open(); len(open) != 0 {
@@ -122,7 +122,7 @@ func TestSMTP(t *testing.T) {
 	if _, err := fmt.Sscan(port, &p); err != nil {
 		t.Fatal(err)
 	}
-	s := SMTP{Host: host, Port: p, From: "hakobu@kasl.example", To: "owner@example.com"}
+	s := SMTP{Host: host, Port: p, From: "hakobu@nova.example", To: "owner@example.com"}
 	if err := s.Send("disk 91% full", "free some space"); err != nil {
 		t.Fatal(err)
 	}

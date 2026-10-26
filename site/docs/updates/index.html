@@ -55,12 +55,12 @@
         </div>
       </div>
       <p>Each server looks for a newer hakobu once a day, and <code>status</code> (and the MCP <code>status</code>) shows one that's out. To update:</p>
-<pre><code class="language-bash">ssh kasl-1 server update               # the latest release
-ssh kasl-1 server update --to v1.5.0
+<pre><code class="language-bash">ssh nova-1 server update               # the latest release
+ssh nova-1 server update --to v1.5.0
 </code></pre>
 <p>It waits and says how it went. An agent does the same with the MCP tool <code>update</code>: an update installs only a newer release signed by hakobu's key, so the most it can do is move a server forward. On a laptop, <code>hakobu server update [NAME]</code>, every server without one.</p>
 <p>On the server, the API only asks: hakobu runs as a user that can't write its own binary, so it creates <code>update-request</code> in its data directory, and systemd (<code>hakobu-update.path</code>) runs the update as root. That checks the release's signature and checksum, refuses one that isn't newer, and runs the new release's own installer (the <code>install.sh</code> it carries), so an update does what installing it by hand does. If the new version doesn't come up within three minutes, the binary from before goes back in and is started again. <code>/opt/hakobu/update-status.json</code> says how the last update went, and status shows a failed one.</p>
-<p>As root, <code>ssh root@kasl-1 hakobu server update [--to v1.5.0]</code> does the same without the API.</p>
+<p>As root, <code>ssh root@nova-1 hakobu server update [--to v1.5.0]</code> does the same without the API.</p>
 <h2 id="by-itself">By itself</h2>
 <p>Fixes install themselves: at <code>updates.at</code> (UTC, an hour after the backups by default) a server installs the latest release if it's a patch of the version it runs (1.2.3 → 1.2.4), and not during a deploy or the backups (it waits for the next day then). A release that didn't install isn't tried again by itself. Newer minor and major releases wait for <code>server update</code>; one that's been out for 14 days mails you.</p>
 <pre><code class="language-toml">[updates]
@@ -68,7 +68,7 @@ auto = &quot;patch&quot;   # or &quot;minor&quot; (any 1.x), or &quot;none&quot;
 at = &quot;04:00&quot;
 </code></pre>
 <p>A server on v1.2.0 or older has no updater yet, and one on v1.4 or older no SSH user: run the installer on it once, which sets both up.</p>
-<pre><code class="language-bash">ssh root@kasl-1 'curl -fsSL https://hakobu.dev/install.sh | bash'
+<pre><code class="language-bash">ssh root@nova-1 'curl -fsSL https://hakobu.dev/install.sh | bash'
 </code></pre>
 <p>The config, the key and the data stay. Apps keep running; their proxies live in hakobu, so they don't answer for about half a second while it restarts. Docker is restarted only if its settings changed.</p>
 <p>A server's MCP is always its own version. hakobu on a laptop is the binary from the <a href="https://github.com/hakobudev/hakobu/releases">release</a>. A project's workflow names its version (<code>version:</code> and the ref of <code>uses:</code>): bump both together, after its server is on that version or newer, as a release built by a newer hakobu may need it (from v1.4.0, <code>hakobu.toml</code> is sealed in the release).</p>

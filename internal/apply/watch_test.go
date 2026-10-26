@@ -56,7 +56,7 @@ func (r *releases) publish(labels map[string]string) {
 		b, _ := json.Marshal(v)
 		sum := sha256.Sum256(b)
 		d := "sha256:" + hex.EncodeToString(sum[:])
-		r.docs["/v2/org/kasl/"+kind+"/"+d] = b
+		r.docs["/v2/org/nova/"+kind+"/"+d] = b
 		return d
 	}
 	cfg := put("blobs", map[string]any{"config": map[string]any{"Labels": labels}})
@@ -65,7 +65,7 @@ func (r *releases) publish(labels map[string]string) {
 
 func (r *releases) ref(t *testing.T) (*registry.Client, registry.Ref) {
 	host := strings.TrimPrefix(r.URL, "http://")
-	ref, err := registry.ParseRef(host + "/org/kasl:main")
+	ref, err := registry.ParseRef(host + "/org/nova:main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,9 +83,9 @@ func sealed(crmSecrets map[string]string) string {
 	if err != nil {
 		panic(err)
 	}
-	_ = s.Set("kasl", "hakobu", seal.StatusToken, "status-token")
+	_ = s.Set("nova", "hakobu", seal.StatusToken, "status-token")
 	for k, v := range crmSecrets {
-		_ = s.Set("kasl", "crm", k, v)
+		_ = s.Set("nova", "crm", k, v)
 	}
 	b, _ := s.Marshal()
 	return string(b)
@@ -94,19 +94,19 @@ func sealed(crmSecrets map[string]string) string {
 func releaseLabels(toml string, images map[string]string) map[string]string {
 	b, _ := json.Marshal(images)
 	return map[string]string{
-		LabelSpec: "project = \"kasl\"\nserver = \"kasl-1\"\n" + toml, LabelImages: string(b),
-		LabelSource: "https://github.com/kasl/crm", LabelRevision: "abc123", LabelSecrets: sealed(nil),
+		LabelSpec: "project = \"nova\"\nserver = \"nova-1\"\n" + toml, LabelImages: string(b),
+		LabelSource: "https://github.com/nova/crm", LabelRevision: "abc123", LabelSecrets: sealed(nil),
 	}
 }
 
 var crmImage = func(c string) map[string]string {
-	return map[string]string{"crm": "ghcr.io/kasl/crm@sha256:" + strings.Repeat(c, 64)}
+	return map[string]string{"crm": "ghcr.io/nova/crm@sha256:" + strings.Repeat(c, 64)}
 }
 
 func newWatch(t *testing.T, h *harness, regs *releases) (*Watch, registry.Ref) {
 	c, ref := regs.ref(t)
 	dir := t.TempDir()
-	h.a.Server = "kasl-1"
+	h.a.Server = "nova-1"
 	return &Watch{
 		Applier: h.a, Registry: c, Releases: []registry.Ref{ref}, Identity: serverKey,
 		WatchFile: filepath.Join(dir, "watch.json"), DeploysFile: filepath.Join(dir, "deploys.jsonl"),
@@ -123,10 +123,10 @@ func TestWatchDeploysNewReleases(t *testing.T) {
 
 	regs.publish(releaseLabels(crm, crmImage("a")))
 	res, err := w.Check(ctx, ref, false)
-	if err != nil || res == nil || res.Error != "" || res.Project != "kasl" || res.Revision != "abc123" {
+	if err != nil || res == nil || res.Error != "" || res.Project != "nova" || res.Revision != "abc123" {
 		t.Fatalf("first: %+v, %v", res, err)
 	}
-	if h.f.Proxies["kasl-crm"] == "" {
+	if h.f.Proxies["nova-crm"] == "" {
 		t.Error("nothing went live")
 	}
 	// The same release again is nothing.
@@ -232,7 +232,7 @@ func TestWatchSecrets(t *testing.T) {
 // crm's values bare, for no project.
 func bareSecrets(crmSecrets map[string]string) string {
 	s, _ := seal.New(serverKey.Recipient().String())
-	_ = s.Set("kasl", "hakobu", seal.StatusToken, "status-token")
+	_ = s.Set("nova", "hakobu", seal.StatusToken, "status-token")
 	s.Apps = map[string]map[string]string{"crm": {}}
 	for k, v := range crmSecrets {
 		s.Apps["crm"][k] = v
@@ -268,7 +268,7 @@ func TestWatchBareSecretsStayWhereTheyWere(t *testing.T) {
 
 	// As if hakobu before 1.6 had deployed them: the image's release.
 	first := ref.Pinned(regs.tag).Digest
-	_ = w.save(map[string]watched{ref.String(): {Applied: first, Project: "kasl"}})
+	_ = w.save(map[string]watched{ref.String(): {Applied: first, Project: "nova"}})
 	if res := release(map[string]string{"STRIPE_KEY": stripe, "MAIL_KEY": mail}); !strings.Contains(res.Error, "apps.crm.MAIL_KEY") || strings.Contains(res.Error, "STRIPE_KEY") {
 		t.Errorf("one more: %+v", res)
 	}
@@ -298,18 +298,18 @@ func TestWatchRefuses(t *testing.T) {
 	}{
 		{"other server", func() map[string]string {
 			l := releaseLabels(crm, crmImage("a"))
-			l[LabelSpec] = strings.Replace(l[LabelSpec], "kasl-1", "kasl-2", 1)
+			l[LabelSpec] = strings.Replace(l[LabelSpec], "nova-1", "nova-2", 1)
 			return l
-		}(), "for server kasl-2"},
+		}(), "for server nova-2"},
 		{"missing image", releaseLabels(crm, map[string]string{}), "no image for it"},
 		{"extra image", releaseLabels(crm, map[string]string{"crm": crmImage("a")["crm"], "admin": crmImage("b")["crm"]}), "image for admin"},
-		{"tag not digest", releaseLabels(crm, map[string]string{"crm": "ghcr.io/kasl/crm:main"}), "pinned by digest"},
+		{"tag not digest", releaseLabels(crm, map[string]string{"crm": "ghcr.io/nova/crm:main"}), "pinned by digest"},
 		{"bad toml", releaseLabels("[apps.crm]\nhelth = \"/\"", crmImage("a")), "unknown keys"},
 		{"stranger's secrets", func() map[string]string {
 			l := releaseLabels(crm, crmImage("a"))
 			other, _ := seal.NewIdentity()
 			s, _ := seal.New(other.Recipient().String())
-			_ = s.Set("kasl", "crm", "KEY", "v")
+			_ = s.Set("nova", "crm", "KEY", "v")
 			b, _ := s.Marshal()
 			l[LabelSecrets] = string(b)
 			return l
@@ -322,7 +322,7 @@ func TestWatchRefuses(t *testing.T) {
 		{"secret of no app", func() map[string]string {
 			l := releaseLabels(crm, crmImage("a"))
 			s, _ := seal.Parse([]byte(sealed(nil)))
-			_ = s.Set("kasl", "admin", "KEY", "v")
+			_ = s.Set("nova", "admin", "KEY", "v")
 			b, _ := s.Marshal()
 			l[LabelSecrets] = string(b)
 			return l
@@ -472,7 +472,7 @@ func TestWatchKeepsProjectsToTheirImage(t *testing.T) {
 		t.Helper()
 		other.publish(releaseLabels(crm, crmImage("c")))
 		res, err := w.Check(ctx, ref2, true)
-		if err != nil || res == nil || !strings.Contains(res.Error, "project kasl is deployed by "+ref.String()) {
+		if err != nil || res == nil || !strings.Contains(res.Error, "project nova is deployed by "+ref.String()) {
 			t.Errorf("%s: %+v, %v", why, res, err)
 		}
 		if len(h.f.Calls()) != calls {
@@ -490,19 +490,19 @@ func TestWatchKeepsProjectsToTheirImage(t *testing.T) {
 	}
 	_ = w.save(seen)
 	takeover("no project kept")
-	if p, err := w.Claimed(ctx, ref); p != "kasl" || err != nil {
+	if p, err := w.Claimed(ctx, ref); p != "nova" || err != nil {
 		t.Errorf("claimed %q, %v", p, err)
 	}
 
 	// Nor does an image move to another project.
 	regs.publish(releaseLabels(crm, crmImage("b")))
 	l := releaseLabels(crm, crmImage("b"))
-	l[LabelSpec] = strings.Replace(l[LabelSpec], `project = "kasl"`, `project = "other"`, 1)
-	// kasl's secrets are sealed for kasl, and wouldn't open as other's.
+	l[LabelSpec] = strings.Replace(l[LabelSpec], `project = "nova"`, `project = "other"`, 1)
+	// nova's secrets are sealed for nova, and wouldn't open as other's.
 	delete(l, LabelSecrets)
 	delete(l, LabelSource)
 	regs.publish(l)
-	if res, _ := w.Check(ctx, ref, false); res == nil || !strings.Contains(res.Error, "deploys project kasl") {
+	if res, _ := w.Check(ctx, ref, false); res == nil || !strings.Contains(res.Error, "deploys project nova") {
 		t.Errorf("moved: %+v", res)
 	}
 

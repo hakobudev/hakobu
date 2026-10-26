@@ -10,7 +10,7 @@ import (
 
 func parse(t *testing.T, s string) *spec.Project {
 	t.Helper()
-	p, err := spec.Parse([]byte("project = \"kasl\"\nserver = \"kasl-1\"\n" + s))
+	p, err := spec.Parse([]byte("project = \"nova\"\nserver = \"nova-1\"\n" + s))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19,7 +19,7 @@ func parse(t *testing.T, s string) *spec.Project {
 
 const crm = `
 [apps.crm]
-domain = "crm.kaslauto.com"
+domain = "crm.example.com"
 worker = "bun run worker"
 uses = ["main", "cache"]
 volumes = { uploads = "/app/data" }
@@ -121,7 +121,7 @@ func TestPlanKeepsData(t *testing.T) {
 		t.Fatalf("orphans %v, plan:\n%s", orphans, p)
 	}
 	for _, c := range orphans {
-		if !strings.Contains(c.Detail, "hakobu destroy kasl/") {
+		if !strings.Contains(c.Detail, "hakobu destroy nova/") {
 			t.Errorf("%s doesn't say how to drop it", c)
 		}
 	}
@@ -148,7 +148,7 @@ func TestPlanRefuses(t *testing.T) {
 		t.Errorf("rename: %v", err)
 	}
 	moved := parse(t, crm)
-	moved.Server = "kasl-2"
+	moved.Server = "nova-2"
 	if _, err := MakePlan(moved, map[string]string{"crm": "sha256:a"}, applied(old, "sha256:a")); err == nil || !strings.Contains(err.Error(), "moves from server") {
 		t.Errorf("move: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestStateRoundTrip(t *testing.T) {
 	if err != nil || len(s.Projects) != 0 {
 		t.Fatalf("empty state: %v %v", s, err)
 	}
-	ps := s.Project("kasl")
+	ps := s.Project("nova")
 	ps.Spec = parse(t, crm)
 	ps.Apps["crm"] = &AppState{Slot: "green", ProxyPort: 20001, Image: "sha256:b", Previous: "sha256:a"}
 	ps.Databases["main"] = &DatabaseState{Password: "pw"}
@@ -174,8 +174,8 @@ func TestStateRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := r.Projects["kasl"]
-	if got.Apps["crm"].Slot != "green" || got.Databases["main"].Password != "pw" || got.Spec.Apps["crm"].Domain != "crm.kaslauto.com" {
+	got := r.Projects["nova"]
+	if got.Apps["crm"].Slot != "green" || got.Databases["main"].Password != "pw" || got.Spec.Apps["crm"].Domain != "crm.example.com" {
 		t.Errorf("read back %+v", got)
 	}
 	if got.Spec.Apps["crm"].Uses["main"] != "" || len(got.Spec.Apps["crm"].Uses) != 2 {

@@ -89,7 +89,7 @@ func TestDockerBackupRestore(t *testing.T) {
 		Recipients: []string{server.Recipient().String(), owner.Recipient().String()},
 		Identity:   server, PartSize: 4 << 10, TempDir: t.TempDir(),
 	}
-	m, err := v.BackupDatabase(ctx, "kasl", "main", db)
+	m, err := v.BackupDatabase(ctx, "nova", "main", db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestDockerBackupRestore(t *testing.T) {
 	}
 	sql("DROP TABLE cars")
 
-	list, err := v.List(ctx, "kasl")
+	list, err := v.List(ctx, "nova")
 	if err != nil || len(list) != 1 {
 		t.Fatalf("list %v, %v", list, err)
 	}

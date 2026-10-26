@@ -38,7 +38,7 @@ type Store interface {
 type Target struct {
 	Name   string // for messages: "r2", "hetzner"
 	Store  Store
-	Prefix string // "hakobu/kasl-1/"
+	Prefix string // "hakobu/nova-1/"
 }
 
 // Source makes and loads dumps and volume archives (node.Local).
