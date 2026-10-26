@@ -267,7 +267,7 @@ const claudeSection = claudeMarker + `
 This repository deploys with hakobu: hakobu.toml says what its server runs, and each push to the default branch deploys. Before changing hakobu.toml, migrations, the Dockerfile or secrets, read the hakobu skill (.claude/skills/hakobu/SKILL.md).
 
 - Never run ` + "`hakobu destroy`" + ` or ` + "`hakobu restore`" + `, and never ask to: they're a person's to run.
-- Secrets: never read, print or commit one, nor ask for one in the chat. Ask the person to run ` + "`ssh -t SERVER secret set PROJECT APP NAME`" + ` in their terminal, then write what the MCP tool pending_secrets gives into hakobu.secrets.toml (the skill says how).
+- Secrets: never read, print or commit one, nor ask for one in the chat. Ask the person to run ` + "`secret set`" + ` in their terminal, with the address the server's MCP server gives (its instructions name it), then write what the MCP tool pending_secrets gives into hakobu.secrets.toml (the skill says how).
 - Migrations stay backward compatible: the version running uses the database while the next one migrates it.
 - The servers' state, deploys and logs: the server's MCP tools (status, deploys, logs; the MCP server is named after the server). Never a shell or docker on the server. Whether a push is live: its run of the deploy workflow (` + "`gh run list -w hakobu.yml -L 1`, then `gh run watch ID`" + `; not the tests' workflow), which waits for the deploy, or ` + "`hakobu deploys`" + `.
 `

@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/user"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -146,6 +147,7 @@ func TestMCPOnServer(t *testing.T) {
 			http.NotFound(w, r)
 		}
 	}))
+	t.Setenv("SSH_CONNECTION", "203.0.113.9 50000 2.29.109.71 22")
 	root := Root("v1.5.0")
 	mcpCmd, _, _ := root.Find([]string{"mcp"})
 	ct, st := mcp.NewInMemoryTransports()
@@ -156,6 +158,9 @@ func TestMCPOnServer(t *testing.T) {
 	session, err := mcp.NewClient(&mcp.Implementation{Name: "test"}, nil).Connect(ctx, ct, nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if u, _ := user.Current(); !strings.Contains(session.InitializeResult().Instructions, "ssh -t "+u.Username+"@2.29.109.71 secret set PROJECT APP NAME") {
+		t.Errorf("instructions don't name the address:\n%s", session.InitializeResult().Instructions)
 	}
 	call := func(name string, args map[string]any) (map[string]any, string) {
 		res, err := session.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})

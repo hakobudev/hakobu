@@ -10,7 +10,7 @@ Each server has its own MCP server, run on the server itself over SSH: the insta
 claude mcp add --scope user kasl-1 -- ssh -T deploy@203.0.113.7 mcp
 ```
 
-For another client, add a local (stdio) server whose command is `ssh -T deploy@203.0.113.7 mcp`. Nothing of hakobu runs on your machine: it's your `ssh` and your key, which may run hakobu's commands on that server and nothing else.
+For another client, add a local (stdio) server whose command is `ssh -T deploy@203.0.113.7 mcp`. Nothing of hakobu runs on your machine: it's your `ssh` and your key, which may run hakobu's commands on that server and nothing else. The server tells the agent the address it was reached at, so when it asks you to run something (a secret to type, say), it gives the line whole, `ssh -t deploy@203.0.113.7 secret set …`: nothing about the server goes in `CLAUDE.md`, and your own `~/.ssh/config` may call it what you like.
 
 Its tools: `status`, `deploys`, `logs`, `backups`, `settings` (the server's releases, buckets, mail, updates; no secrets), `deploy`, `rollback`, `backup`, `update` (hakobu itself, to a newer signed release), `init` (set a repository up), `validate` (check `hakobu.toml` and `hakobu.secrets.toml` as the server will) and `pending_secrets` (the secrets you sealed, for it to add).
 

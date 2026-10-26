@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"os"
+	"os/user"
 	"slices"
 	"strings"
 
@@ -25,7 +27,7 @@ const mcpInstructions = `hakobu deploys projects to servers the user owns. A pro
 
 To change what runs, edit hakobu.toml in the repository and push: never change a server by hand. Check it with the validate tool. A new repository: the init tool gives the files to write and registers its release on the server.
 
-Secrets: you can add them but never read them, and you never see their values. Ask the user to run, in their own terminal, ssh -t SERVER secret set PROJECT APP NAME, where SERVER is what this MCP server's own ssh command connects to (the value is typed there, unseen, and sealed on the server); then the pending_secrets tool gives the sealed lines, which you write into hakobu.secrets.toml under [apps.APP] (APP hakobu: [hakobu]) and push, and clear. With hakobu on the user's laptop, hakobu secret set APP NAME seals one straight into the file.
+Secrets: you can add them but never read them, and you never see their values. Ask the user to run, in their own terminal, ssh -t SERVER secret set PROJECT APP NAME, with the names filled in (the value is typed there, unseen, and sealed on the server); then the pending_secrets tool gives the sealed lines, which you write into hakobu.secrets.toml under [apps.APP] (APP hakobu: [hakobu]) and push, and clear. With hakobu on the user's laptop, hakobu secret set APP NAME seals one straight into the file.
 
 These tools see the servers and act on them: status, deploys, logs and backups to look; deploy to check for a release now; rollback to go back one release; backup to back up now; update to update hakobu itself when status shows a newer release (it installs only newer releases signed by hakobu, and puts the old one back if the new one doesn't come up). Restoring a backup, destroying data and the backups' buckets aren't here: they're the user's to do, as root on the server.
 
@@ -42,8 +44,25 @@ func mcpCmd() *cobra.Command {
 	}
 }
 
+// sshTarget is the USER@ADDRESS this MCP server was reached at (ssh
+// deploy@SERVER mcp), for the commands the user runs; "SERVER" when it
+// isn't over SSH.
+func sshTarget() string {
+	f := strings.Fields(os.Getenv("SSH_CONNECTION"))
+	u, err := user.Current()
+	if len(f) != 4 || err != nil {
+		return "SERVER"
+	}
+	return u.Username + "@" + f[2]
+}
+
 func newMCP(cmd *cobra.Command) *mcp.Server {
-	s := mcp.NewServer(&mcp.Implementation{Name: "hakobu", Title: "Hakobu"}, &mcp.ServerOptions{Instructions: mcpInstructions})
+	ssh := sshTarget()
+	instructions := strings.ReplaceAll(mcpInstructions, "ssh -t SERVER", "ssh -t "+ssh)
+	if ssh != "SERVER" {
+		instructions += "\n\nThis MCP server was reached as " + ssh + ": give the user commands for this server with that address, as they are (ssh " + ssh + " status, ssh -t " + ssh + " secret set PROJECT APP NAME), whatever their own ssh config calls it."
+	}
+	s := mcp.NewServer(&mcp.Implementation{Name: "hakobu", Title: "Hakobu"}, &mcp.ServerOptions{Instructions: instructions})
 	readOnly := &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: new(false)}
 	acts := &mcp.ToolAnnotations{DestructiveHint: new(false), OpenWorldHint: new(false)}
 
@@ -171,7 +190,7 @@ func newMCP(cmd *cobra.Command) *mcp.Server {
 	type settingsOut struct {
 		Settings map[string]server.SettingsView `json:"settings"`
 	}
-	mcp.AddTool(s, &mcp.Tool{Name: "settings", Description: "Each server's settings: the release images it deploys, registries, the backups' buckets, mail, the pulse and hakobu's updates; never a password or key. The user changes them with ssh SERVER server set (hakobu server set on a laptop).", Annotations: readOnly},
+	mcp.AddTool(s, &mcp.Tool{Name: "settings", Description: "Each server's settings: the release images it deploys, registries, the backups' buckets, mail, the pulse and hakobu's updates; never a password or key. The user changes them with ssh " + ssh + " server set (hakobu server set on a laptop).", Annotations: readOnly},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in serverIn) (*mcp.CallToolResult, settingsOut, error) {
 			out := settingsOut{Settings: map[string]server.SettingsView{}}
 			cs, err := pick(cmd, in.Server)
@@ -241,7 +260,7 @@ func newMCP(cmd *cobra.Command) *mcp.Server {
 		Secrets []server.PendingSecret `json:"secrets"`
 		Note    string                 `json:"note"`
 	}
-	mcp.AddTool(s, &mcp.Tool{Name: "pending_secrets", Description: "The secrets the user sealed on the server (ssh -t SERVER secret set PROJECT APP NAME) for this project, each a sealed value to write into hakobu.secrets.toml as NAME = \"age:…\" under [apps.APP], or [hakobu] for APP hakobu; then push, and call this again with clear. A value can't be read here or anywhere but the server.", Annotations: acts},
+	mcp.AddTool(s, &mcp.Tool{Name: "pending_secrets", Description: "The secrets the user sealed on the server (ssh -t " + ssh + " secret set PROJECT APP NAME) for this project, each a sealed value to write into hakobu.secrets.toml as NAME = \"age:…\" under [apps.APP], or [hakobu] for APP hakobu; then push, and call this again with clear. A value can't be read here or anywhere but the server.", Annotations: acts},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in pendingIn) (*mcp.CallToolResult, pendingOut, error) {
 			out := pendingOut{Note: "Write each into hakobu.secrets.toml, keeping its recipients; replace a value that's there. Then clear."}
 			c, err := clientFor(cmd, in.Project)
@@ -252,7 +271,13 @@ func newMCP(cmd *cobra.Command) *mcp.Server {
 				out.Note = "Forgotten on the server."
 				return nil, out, c.Post(ctx, "/v1/secrets/clear?project="+in.Project, struct{}{}, &out.Secrets)
 			}
-			return nil, out, c.Get(ctx, "/v1/secrets?project="+in.Project, &out.Secrets)
+			if err := c.Get(ctx, "/v1/secrets?project="+in.Project, &out.Secrets); err != nil {
+				return nil, out, err
+			}
+			if len(out.Secrets) == 0 {
+				out.Note = "None yet: the user runs ssh -t " + ssh + " secret set " + in.Project + " APP NAME, in their own terminal."
+			}
+			return nil, out, nil
 		})
 
 	type initIn struct {
@@ -295,7 +320,7 @@ func newMCP(cmd *cobra.Command) *mcp.Server {
 			if err := cs[0].Post(ctx, "/v1/settings", server.SettingsChange{AddRelease: in.Image + ":main"}, nil); err != nil {
 				return nil, out, err
 			}
-			out.Next = "Write the files (keep any that are there but CLAUDE.md's section and the skill). In hakobu.toml, add each app with its Dockerfile's directory, domain, port and health path, and its databases; check it with validate. The status token: a fine-grained GitHub token with Commit statuses: write on this repository alone, which the user seals with ssh -t SERVER secret set " + in.Project + " hakobu status_token; then pending_secrets. Push; while the first job waits, the user makes the package " + in.Image[strings.LastIndex(in.Image, "/")+1:] + " public on GitHub (Package settings, Change visibility): it's sealed, and the server reads it with no token."
+			out.Next = "Write the files (keep any that are there but CLAUDE.md's section and the skill). In hakobu.toml, add each app with its Dockerfile's directory, domain, port and health path, and its databases; check it with validate. The status token: a fine-grained GitHub token with Commit statuses: write on this repository alone, which the user seals with ssh -t " + ssh + " secret set " + in.Project + " hakobu status_token; then pending_secrets. Push; while the first job waits, the user makes the package " + in.Image[strings.LastIndex(in.Image, "/")+1:] + " public on GitHub (Package settings, Change visibility): it's sealed, and the server reads it with no token."
 			return nil, out, nil
 		})
 
