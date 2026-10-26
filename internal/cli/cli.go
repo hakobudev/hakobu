@@ -319,6 +319,9 @@ func printStatus(w io.Writer, st server.Status) {
 		fmt.Fprintf(tw, "  %s\t%s/%s\t%s\n", r.Kind, r.Project, r.Name, note)
 	}
 	tw.Flush()
+	for _, e := range st.PollErrors {
+		fmt.Fprintf(w, "  release: %s\n", e)
+	}
 	if d := st.LastDeploy; d != nil {
 		outcome := "ok"
 		if d.Error != "" {

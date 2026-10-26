@@ -102,6 +102,7 @@ func (d *Daemon) key(w http.ResponseWriter, r *http.Request) (any, error) {
 type Status struct {
 	Server     string                               `json:"server"`
 	Releases   []string                             `json:"releases"`
+	PollErrors []string                             `json:"poll_errors,omitempty"` // release images it can't read now
 	Apps       map[string]map[string]apply.AppState `json:"apps"`
 	Resources  []ResourceStatus                     `json:"resources"`
 	LastDeploy *apply.Result                        `json:"last_deploy,omitempty"`
@@ -125,6 +126,9 @@ func (d *Daemon) status(w http.ResponseWriter, r *http.Request) (any, error) {
 	s := Status{Server: d.Config.Name, Releases: d.Config.Releases, Backups: d.Vault != nil, Mail: d.Config.Alerts.SMTP != nil}
 	if d.Alerts != nil {
 		s.Problems, _ = d.Alerts.Open()
+	}
+	if d.Watch != nil {
+		s.PollErrors = d.Watch.PollErrors()
 	}
 	var err error
 	if s.Apps, err = d.Applier.Apps(); err != nil {

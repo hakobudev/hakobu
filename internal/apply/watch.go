@@ -200,6 +200,9 @@ type Watch struct {
 	Log     io.Writer
 
 	mu sync.Mutex
+
+	pollMu   sync.Mutex
+	pollErrs map[string]string // a release image's last poll that failed
 }
 
 type watched struct {
@@ -221,9 +224,25 @@ func (w *Watch) Run(ctx context.Context) {
 	defer t.Stop()
 	for {
 		for _, ref := range w.Releases {
-			if _, err := w.Check(ctx, ref, false); err != nil && ctx.Err() == nil {
-				fmt.Fprintln(w.log(), ref, err)
+			_, err := w.Check(ctx, ref, false)
+			if ctx.Err() != nil {
+				return
 			}
+			w.pollMu.Lock()
+			if w.pollErrs == nil {
+				w.pollErrs = map[string]string{}
+			}
+			if err != nil {
+				msg := err.Error()
+				if !strings.HasPrefix(msg, ref.String()) {
+					msg = ref.String() + ": " + msg
+				}
+				w.pollErrs[ref.String()] = msg
+				fmt.Fprintln(w.log(), msg)
+			} else {
+				delete(w.pollErrs, ref.String())
+			}
+			w.pollMu.Unlock()
 		}
 		select {
 		case <-ctx.Done():
@@ -231,6 +250,17 @@ func (w *Watch) Run(ctx context.Context) {
 		case <-t.C:
 		}
 	}
+}
+
+// PollErrors are the release images whose last poll failed, and why.
+func (w *Watch) PollErrors() []string {
+	w.pollMu.Lock()
+	defer w.pollMu.Unlock()
+	out := make([]string, 0, len(w.pollErrs))
+	for _, k := range sortedKeys(w.pollErrs) {
+		out = append(out, w.pollErrs[k])
+	}
+	return out
 }
 
 // Check deploys ref's release if it's new; force deploys it even if it

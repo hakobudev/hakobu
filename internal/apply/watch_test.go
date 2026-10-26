@@ -5,12 +5,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/hakobudev/hakobu/internal/deploy"
 	"github.com/hakobudev/hakobu/internal/registry"
@@ -372,5 +374,19 @@ func TestWatchStoppedMidDeployTriesAgain(t *testing.T) {
 	h.a.RunOnce = func(context.Context, string, string, string, deploy.AppOptions) (string, error) { return "", nil }
 	if res, err := w.Check(context.Background(), ref, false); err != nil || res == nil || res.Error != "" {
 		t.Fatalf("again: %+v, %v", res, err)
+	}
+}
+
+// A release image the poll can't read is kept for status, named once.
+func TestWatchKeepsPollErrors(t *testing.T) {
+	regs := newReleases(t) // nothing published: the tag isn't there
+	w, ref := newWatch(t, newHarness(t), regs)
+	w.Every, w.Log = 10*time.Millisecond, io.Discard
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	w.Run(ctx)
+	errs := w.PollErrors()
+	if len(errs) != 1 || !strings.HasPrefix(errs[0], ref.String()+": ") || strings.Count(errs[0], ref.String()) != 1 {
+		t.Errorf("poll errors %q", errs)
 	}
 }
