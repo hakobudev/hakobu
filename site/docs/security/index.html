@@ -64,7 +64,7 @@
 <h2 id="secrets-and-backups">Secrets and backups</h2>
 <p>Sealed with age to the server's key and yours: see <a href="/docs/secrets/">Secrets</a> and <a href="/docs/backups/">Backups</a>. The repository, the registry and the backup buckets hold nothing readable without one of the two keys. Backup copies go with a key that may only write.</p>
 <h2 id="whats-beyond-it">What's beyond it</h2>
-<p>The release image is trusted as it comes: whoever can push to its tag deploys to the server. Guard the registry, and CI's ability to push, as you would SSH. A malicious app can read its own secrets and its own databases, as any app can.</p>
+<p>The release image is trusted as it comes: whoever can push to its tag deploys to the server. A public release shows its repository, its commits and its apps' image names; the rest is sealed. Guard the registry, and CI's ability to push, as you would SSH. A malicious app can read its own secrets and its own databases, as any app can.</p>
 <h2 id="releases">Releases</h2>
 <p>Signed, and installed only after checking the signature: see <a href="/docs/updates/#signed-releases">Updates</a>.</p>
 <h2 id="reporting-a-problem">Reporting a problem</h2>

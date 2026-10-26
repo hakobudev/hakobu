@@ -6,6 +6,8 @@ Nothing pushes to a server. CI builds each commit into a **release image** and p
 
 `hakobu build`, which the workflow runs, builds each app of `hakobu.toml` from the Dockerfile in its directory, pushes it as `IMAGE-APP`, then pushes the release last: a tiny image whose labels carry `hakobu.toml`, the sealed `hakobu.secrets.toml`, each app's image pinned by digest, and the repository and commit it came from. The release goes last, so a server never sees one whose apps aren't pushed yet. Every app of a commit deploys together.
 
+With a `hakobu.secrets.toml`, `hakobu.toml` goes in sealed to its keys, as does CI's own token for ghcr.io (the job's `GITHUB_TOKEN`): the release reads nothing but its repository, commit and images' names to anyone else, so it can be public. The server pulls the apps with the token while the job waits for the deploy; it dies with the job. A deploy that starts later (the server was down, say) can't pull: run the workflow again, or give the server [credentials](https://hakobu.dev/docs/servers/index.md) for the registry, which it then uses instead. A rollback to images the server still has needs none.
+
 ## A deploy
 
 1. **Plan**: the file against what runs. A wrong file, a secret the server can't open or a renamed database stops here, before anything changes.

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hakobudev/hakobu/internal/apply"
 	"github.com/hakobudev/hakobu/internal/ci"
 	"github.com/hakobudev/hakobu/internal/scaffold"
 	"github.com/hakobudev/hakobu/internal/status"
@@ -90,11 +91,15 @@ func buildCmd() *cobra.Command {
 	b := ci.Build{Dir: ".", Run: ci.Exec, Log: os.Stderr}
 	c := &cobra.Command{
 		Use:   "build",
-		Short: "Build and push each app, then the release image its server polls (CI runs this)",
+		Short: "Build and push each app, then the release image its server polls (CI runs this; HAKOBU_PULL_TOKEN and HAKOBU_PULL_USER, CI's own, pull the apps)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if b.Revision == "" {
 				b.Revision = gitOut("rev-parse", "HEAD")
+			}
+			if tok := os.Getenv("HAKOBU_PULL_TOKEN"); tok != "" {
+				host, _, _ := strings.Cut(b.Image, "/")
+				b.Pull = &apply.PullAuth{Host: host, Username: os.Getenv("HAKOBU_PULL_USER"), Password: tok}
 			}
 			ref, err := b.Release(cmd.Context())
 			if err != nil {

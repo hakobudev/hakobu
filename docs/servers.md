@@ -11,9 +11,9 @@ admin_token_sha256 = "…"
 
 releases = ["ghcr.io/kasl/crm:main", "ghcr.io/kasl/site:main"]
 
-[registries."ghcr.io"]
+[registries."registry.example.com"]   # ghcr.io needs none
 username = "kasl"
-password = "github_pat_…"
+password = "…"
 
 [ingress]
 mode = "public"
@@ -59,7 +59,7 @@ to = "you@example.com"
 | `operator_token_sha256`, `admin_token_sha256` | the tokens' SHA-256 (`hakobu server token` makes a new pair) |
 | `releases` | the release images to deploy, one a project, by tag |
 | `poll_every` | how often to check them; default `30s` |
-| `registries."HOST"` | `username` and `password` to pull from a registry |
+| `registries."HOST"` | `username` and `password` to pull from a registry; for ghcr.io, the token CI seals in each release does without (see [Deploys](deploys.md#the-release-image)) |
 | `ingress` | `mode` (`public` or `tunnel`), `email` (Let's Encrypt's contact), `listen` (for `tunnel`, on loopback; default `127.0.0.1:8080`) |
 | `backups` | `at` (UTC, default `03:00`), `keep_daily` (7), `keep_weekly` (4), `primary` and `copies`: see [Backups](backups.md) |
 | `updates` | `auto`: the newer releases hakobu installs by itself, `patch` (the default: 1.2.x of the 1.2 running), `minor` (any 1.x) or `none`; `at` (UTC, default an hour after `backups.at`): see [Updates](updates.md) |

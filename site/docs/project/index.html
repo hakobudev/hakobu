@@ -76,17 +76,14 @@
 <p>and your app's own secrets with <code>hakobu secret set APP NAME</code>. See <a href="/docs/secrets/">Secrets</a>.</p>
 </li>
 <li>
-<p><strong>The server</strong> needs to know the release image, and to be allowed to pull it. In its <code>/etc/hakobu/server.toml</code>, then <code>sudo systemctl restart hakobu</code>:</p>
+<p><strong>The server</strong> needs to know the release image. In its <code>/etc/hakobu/server.toml</code>, then <code>sudo systemctl restart hakobu</code>:</p>
 <pre><code class="language-toml">releases = [&quot;ghcr.io/kasl/crm:main&quot;]
-
-[registries.&quot;ghcr.io&quot;]
-username = &quot;kasl&quot;
-password = &quot;github_pat_…&quot;   # a token that may read the packages
 </code></pre>
 <p>See <a href="/docs/servers/">Server config</a>.</p>
 </li>
 <li>
 <p><strong>Push.</strong> CI builds the apps, pushes them and the release; within 30 seconds the server deploys it, and the job turns green once it's live. <code>hakobu status</code> and <code>hakobu deploys</code> show it from your laptop.</p>
+<p>The first time, while the job waits, make the release image public: on GitHub, the package <code>REPO</code> (not <code>REPO-APP</code>), <strong>Package settings → Change visibility → Public</strong>. Everything in it is sealed to the server's key and yours, and the server polls it with no token; until then, <code>hakobu status</code> says the registry refused. The apps' images stay private: CI seals the job's own token in each release, and the server pulls them with it while the job waits for the deploy. The token dies with the job, so the server keeps none for ghcr.io.</p>
 </li>
 </ol>
 <h2 id="an-arm64-server">An arm64 server</h2>

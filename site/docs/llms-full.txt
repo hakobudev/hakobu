@@ -130,18 +130,16 @@ The image goes to `ghcr.io/OWNER/REPO` (from `origin`); `--image` gives another.
    ```
 
    and your app's own secrets with `hakobu secret set APP NAME`. See [Secrets](https://hakobu.dev/docs/secrets/index.md).
-3. **The server** needs to know the release image, and to be allowed to pull it. In its `/etc/hakobu/server.toml`, then `sudo systemctl restart hakobu`:
+3. **The server** needs to know the release image. In its `/etc/hakobu/server.toml`, then `sudo systemctl restart hakobu`:
 
    ```toml
    releases = ["ghcr.io/kasl/crm:main"]
-
-   [registries."ghcr.io"]
-   username = "kasl"
-   password = "github_pat_…"   # a token that may read the packages
    ```
 
    See [Server config](https://hakobu.dev/docs/servers/index.md).
 4. **Push.** CI builds the apps, pushes them and the release; within 30 seconds the server deploys it, and the job turns green once it's live. `hakobu status` and `hakobu deploys` show it from your laptop.
+
+   The first time, while the job waits, make the release image public: on GitHub, the package `REPO` (not `REPO-APP`), **Package settings → Change visibility → Public**. Everything in it is sealed to the server's key and yours, and the server polls it with no token; until then, `hakobu status` says the registry refused. The apps' images stay private: CI seals the job's own token in each release, and the server pulls them with it while the job waits for the deploy. The token dies with the job, so the server keeps none for ghcr.io.
 
 ## An arm64 server
 
@@ -300,6 +298,8 @@ Nothing pushes to a server. CI builds each commit into a **release image** and p
 
 `hakobu build`, which the workflow runs, builds each app of `hakobu.toml` from the Dockerfile in its directory, pushes it as `IMAGE-APP`, then pushes the release last: a tiny image whose labels carry `hakobu.toml`, the sealed `hakobu.secrets.toml`, each app's image pinned by digest, and the repository and commit it came from. The release goes last, so a server never sees one whose apps aren't pushed yet. Every app of a commit deploys together.
 
+With a `hakobu.secrets.toml`, `hakobu.toml` goes in sealed to its keys, as does CI's own token for ghcr.io (the job's `GITHUB_TOKEN`): the release reads nothing but its repository, commit and images' names to anyone else, so it can be public. The server pulls the apps with the token while the job waits for the deploy; it dies with the job. A deploy that starts later (the server was down, say) can't pull: run the workflow again, or give the server [credentials](https://hakobu.dev/docs/servers/index.md) for the registry, which it then uses instead. A rollback to images the server still has needs none.
+
 ## A deploy
 
 1. **Plan**: the file against what runs. A wrong file, a secret the server can't open or a renamed database stops here, before anything changes.
@@ -415,9 +415,9 @@ admin_token_sha256 = "…"
 
 releases = ["ghcr.io/kasl/crm:main", "ghcr.io/kasl/site:main"]
 
-[registries."ghcr.io"]
+[registries."registry.example.com"]   # ghcr.io needs none
 username = "kasl"
-password = "github_pat_…"
+password = "…"
 
 [ingress]
 mode = "public"
@@ -463,7 +463,7 @@ to = "you@example.com"
 | `operator_token_sha256`, `admin_token_sha256` | the tokens' SHA-256 (`hakobu server token` makes a new pair) |
 | `releases` | the release images to deploy, one a project, by tag |
 | `poll_every` | how often to check them; default `30s` |
-| `registries."HOST"` | `username` and `password` to pull from a registry |
+| `registries."HOST"` | `username` and `password` to pull from a registry; for ghcr.io, the token CI seals in each release does without (see [Deploys](https://hakobu.dev/docs/deploys/index.md)) |
 | `ingress` | `mode` (`public` or `tunnel`), `email` (Let's Encrypt's contact), `listen` (for `tunnel`, on loopback; default `127.0.0.1:8080`) |
 | `backups` | `at` (UTC, default `03:00`), `keep_daily` (7), `keep_weekly` (4), `primary` and `copies`: see [Backups](https://hakobu.dev/docs/backups/index.md) |
 | `updates` | `auto`: the newer releases hakobu installs by itself, `patch` (the default: 1.2.x of the 1.2 running), `minor` (any 1.x) or `none`; `at` (UTC, default an hour after `backups.at`): see [Updates](https://hakobu.dev/docs/updates/index.md) |
@@ -586,7 +586,7 @@ curl -fsSL https://hakobu.dev/install.sh | sudo HAKOBU_VERSION=v1.3.0 bash
 
 The config, the key and the data stay. Apps keep running; their proxies live in hakobu, so they don't answer for about half a second while it restarts. Docker is restarted only if its settings changed.
 
-The CLI on your laptop is the binary from the [release](https://github.com/hakobudev/hakobu/releases), and a project's workflow names its version (`version:` and the ref of `uses:`): bump both together.
+The CLI on your laptop is the binary from the [release](https://github.com/hakobudev/hakobu/releases), and a project's workflow names its version (`version:` and the ref of `uses:`): bump both together, after its server is on that version or newer, as a release built by a newer hakobu may need it (from v1.4.0, `hakobu.toml` is sealed in the release).
 
 ## Signed releases
 
@@ -614,7 +614,7 @@ Sealed with age to the server's key and yours: see [Secrets](https://hakobu.dev/
 
 ## What's beyond it
 
-The release image is trusted as it comes: whoever can push to its tag deploys to the server. Guard the registry, and CI's ability to push, as you would SSH. A malicious app can read its own secrets and its own databases, as any app can.
+The release image is trusted as it comes: whoever can push to its tag deploys to the server. A public release shows its repository, its commits and its apps' image names; the rest is sealed. Guard the registry, and CI's ability to push, as you would SSH. A malicious app can read its own secrets and its own databases, as any app can.
 
 ## Releases
 

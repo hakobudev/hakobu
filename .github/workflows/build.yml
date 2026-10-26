@@ -113,7 +113,13 @@ jobs:
           username: ${{ steps.image.outputs.registry == 'ghcr.io' && github.actor || secrets.registry-username }}
           password: ${{ steps.image.outputs.registry == 'ghcr.io' && github.token || secrets.registry-password }}
 
+      # The job's token pulls the apps too: sealed to the server in the
+      # release, it works while this job waits for the deploy, and then
+      # not at all, so the server keeps no token for ghcr.io.
       - name: Build and push
+        env:
+          HAKOBU_PULL_USER: ${{ steps.image.outputs.registry == 'ghcr.io' && github.actor || '' }}
+          HAKOBU_PULL_TOKEN: ${{ steps.image.outputs.registry == 'ghcr.io' && github.token || '' }}
         run: hakobu build --image "${{ steps.image.outputs.image }}" --tag "${{ inputs.tag }}"
 
       - name: Wait for the deploy

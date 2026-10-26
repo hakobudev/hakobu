@@ -43,8 +43,13 @@ type Build struct {
 	Tag      string // the tag the server polls, "main"
 	Source   string // the repository's URL
 	Revision string // the commit's full SHA
-	Run      Runner
-	Log      io.Writer
+	// Pull is CI's own token for the apps' registry, which lives as long
+	// as the job does (GitHub Actions' GITHUB_TOKEN): sealed to the
+	// server in the release, it pulls the apps while CI waits for the
+	// deploy, and the server keeps no token for the registry.
+	Pull *apply.PullAuth
+	Run  Runner
+	Log  io.Writer
 }
 
 // Release builds and pushes each app from the Dockerfile in its
@@ -66,6 +71,7 @@ func (b Build) Release(ctx context.Context) (string, error) {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return "", err
 	}
+	var sealer *seal.Secrets
 	if len(secrets) > 0 {
 		s, err := seal.Parse(secrets)
 		if err == nil {
@@ -74,6 +80,7 @@ func (b Build) Release(ctx context.Context) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("%s: %w", seal.FileName, err)
 		}
+		sealer = s
 	}
 	if b.Image == "" || b.Tag == "" || b.Revision == "" {
 		return "", errors.New("a build needs the image, its tag and the commit")
@@ -113,17 +120,39 @@ func (b Build) Release(ctx context.Context) (string, error) {
 	}
 
 	imagesJSON, _ := json.Marshal(images)
-	// One layer, the spec: a registry may refuse an image of none.
-	if err := os.WriteFile(filepath.Join(tmp, spec.File), text, 0o644); err != nil {
+	// With the secrets' recipients, hakobu.toml is sealed too, as is CI's
+	// pull token: the release then reads nothing to whoever pulls it, and
+	// may be public, which the server polls with no token at all.
+	specLabel, specText := apply.LabelSpec, string(text)
+	var extra []string
+	if sealer != nil {
+		if specText, err = sealer.Seal(string(text)); err != nil {
+			return "", fmt.Errorf("sealing %s: %w", spec.File, err)
+		}
+		specLabel = apply.LabelSpecSealed
+		if b.Pull != nil {
+			pj, _ := json.Marshal(b.Pull)
+			sealed, err := sealer.Seal(string(pj))
+			if err != nil {
+				return "", fmt.Errorf("sealing the pull token: %w", err)
+			}
+			extra = append(extra, "--label", apply.LabelPull+"="+sealed)
+		}
+	} else if b.Pull != nil {
+		fmt.Fprintf(b.log(), "warning: no %s to seal CI's pull token to: the server needs its own credentials for %s\n", seal.FileName, b.Pull.Host)
+	}
+	// One layer: a registry may refuse an image of none.
+	if err := os.WriteFile(filepath.Join(tmp, "release"), []byte(specText), 0o644); err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(filepath.Join(tmp, "Dockerfile"), []byte("FROM scratch\nCOPY "+spec.File+" /\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmp, "Dockerfile"), []byte("FROM scratch\nCOPY release /\n"), 0o644); err != nil {
 		return "", err
 	}
-	args := []string{"--label", apply.LabelSpec + "=" + string(text), "--label", apply.LabelImages + "=" + string(imagesJSON)}
+	args := []string{"--label", specLabel + "=" + specText, "--label", apply.LabelImages + "=" + string(imagesJSON)}
 	if len(secrets) > 0 {
 		args = append(args, "--label", apply.LabelSecrets+"="+string(secrets))
 	}
+	args = append(args, extra...)
 	fmt.Fprintf(b.log(), "release → %s:%s\n", b.Image, b.Tag)
 	digest, err := b.push(ctx, tmp, tmp, "release", b.Image+":"+b.Tag, args...)
 	if err != nil {

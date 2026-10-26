@@ -160,6 +160,14 @@ func (s *Secrets) Unset(app, name string) bool {
 	return true
 }
 
+// Seal seals value to the file's recipients, as a secret is: what CI
+// hands the server in a release besides the file (hakobu.toml, its pull
+// token) goes the same way.
+func (s *Secrets) Seal(value string) (string, error) { return s.seal(value) }
+
+// OpenValue opens one value Seal sealed.
+func OpenValue(v string, id age.Identity) (string, error) { return unseal(v, id) }
+
 func (s *Secrets) seal(value string) (string, error) {
 	var rs []age.Recipient
 	for _, r := range s.Recipients {

@@ -25,12 +25,25 @@ import (
 // app (pinned by digest) in labels. The server polls its tag, reads the
 // labels from the registry and deploys every app of the commit together.
 const (
-	LabelSpec     = "dev.hakobu.spec"
-	LabelSecrets  = "dev.hakobu.secrets"
-	LabelImages   = "dev.hakobu.images"
-	LabelSource   = "org.opencontainers.image.source"
-	LabelRevision = "org.opencontainers.image.revision"
+	LabelSpec = "dev.hakobu.spec"
+	// LabelSpecSealed is hakobu.toml sealed to the secrets' recipients,
+	// and LabelPull CI's pull token: a release with them reads nothing to
+	// anyone else, and may be public.
+	LabelSpecSealed = "dev.hakobu.spec.sealed"
+	LabelPull       = "dev.hakobu.pull"
+	LabelSecrets    = "dev.hakobu.secrets"
+	LabelImages     = "dev.hakobu.images"
+	LabelSource     = "org.opencontainers.image.source"
+	LabelRevision   = "org.opencontainers.image.revision"
 )
+
+// PullAuth is a registry's credentials a release carries: CI's own token,
+// good while its job runs.
+type PullAuth struct {
+	Host     string `json:"host"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
 
 // Meta is where a release came from.
 type Meta struct {
@@ -47,6 +60,16 @@ type Meta struct {
 func ReadRelease(labels map[string]string, id age.Identity) (Release, Meta, error) {
 	meta := Meta{Source: labels[LabelSource], Revision: labels[LabelRevision]}
 	text, ok := labels[LabelSpec]
+	if sealed, isSealed := labels[LabelSpecSealed]; isSealed {
+		if id == nil {
+			return Release{}, meta, fmt.Errorf("%s is sealed, and this server has no key to open it", spec.File)
+		}
+		var err error
+		if text, err = seal.OpenValue(sealed, id); err != nil {
+			return Release{}, meta, fmt.Errorf("%s: %w", spec.File, err)
+		}
+		ok = true
+	}
 	if !ok {
 		return Release{}, meta, fmt.Errorf("not a release image: no %s label", LabelSpec)
 	}
@@ -75,6 +98,18 @@ func ReadRelease(labels map[string]string, id age.Identity) (Release, Meta, erro
 		}
 	}
 	r := Release{Spec: p, Images: images, Revision: meta.Revision}
+	if sealed := labels[LabelPull]; sealed != "" && id != nil {
+		var pa PullAuth
+		plain, err := seal.OpenValue(sealed, id)
+		if err == nil {
+			err = json.Unmarshal([]byte(plain), &pa)
+		}
+		if err != nil {
+			errs = append(errs, fmt.Errorf("the release's pull token: %w", err))
+		} else {
+			r.Pull = &pa
+		}
+	}
 	if sealed := strings.TrimSpace(labels[LabelSecrets]); sealed != "" {
 		secrets, err := openSecrets(sealed, id, p)
 		if err != nil {

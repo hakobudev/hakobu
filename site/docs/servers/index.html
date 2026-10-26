@@ -63,9 +63,9 @@ admin_token_sha256 = &quot;…&quot;
 
 releases = [&quot;ghcr.io/kasl/crm:main&quot;, &quot;ghcr.io/kasl/site:main&quot;]
 
-[registries.&quot;ghcr.io&quot;]
+[registries.&quot;registry.example.com&quot;]   # ghcr.io needs none
 username = &quot;kasl&quot;
-password = &quot;github_pat_…&quot;
+password = &quot;…&quot;
 
 [ingress]
 mode = &quot;public&quot;
@@ -138,7 +138,7 @@ to = &quot;you@example.com&quot;
 </tr>
 <tr>
 <td><code>registries.&quot;HOST&quot;</code></td>
-<td><code>username</code> and <code>password</code> to pull from a registry</td>
+<td><code>username</code> and <code>password</code> to pull from a registry; for ghcr.io, the token CI seals in each release does without (see <a href="/docs/deploys/#the-release-image">Deploys</a>)</td>
 </tr>
 <tr>
 <td><code>ingress</code></td>

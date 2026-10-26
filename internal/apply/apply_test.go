@@ -423,3 +423,21 @@ func TestReconcilePassesTheLiveApps(t *testing.T) {
 		t.Errorf("reconciled %+v", r.apps)
 	}
 }
+
+// The server's own credentials for a registry win; else the token CI
+// sealed in the release pulls from its registry, and from no other.
+func TestAuthFor(t *testing.T) {
+	ci := &PullAuth{Host: "ghcr.io", Username: "kasl", Password: "ghs_job"}
+	r := Release{Pull: ci}
+	a := &Applier{}
+	if auth, fromCI := a.authFor(r, "ghcr.io/kasl/crm-web@sha256:"+strings.Repeat("a", 64)); !fromCI || auth.Password != "ghs_job" {
+		t.Errorf("ghcr.io: %+v %v", auth, fromCI)
+	}
+	if auth, fromCI := a.authFor(r, "docker.io/library/redis@sha256:"+strings.Repeat("a", 64)); fromCI || auth.Password != "" {
+		t.Errorf("another registry: %+v %v", auth, fromCI)
+	}
+	a.Auth = map[string]deploy.RegistryAuth{"ghcr.io": {Username: "bot", Password: "ghp_own"}}
+	if auth, fromCI := a.authFor(r, "ghcr.io/kasl/crm-web@sha256:"+strings.Repeat("a", 64)); fromCI || auth.Password != "ghp_own" {
+		t.Errorf("the server's own: %+v %v", auth, fromCI)
+	}
+}

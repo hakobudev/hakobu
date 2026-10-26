@@ -31,6 +31,9 @@ type Release struct {
 	Force bool
 	// Revision is the commit it was built from; an app it deploys gets it as HAKOBU_REVISION.
 	Revision string
+	// Pull is CI's token for its registry, if it sealed one in: it pulls
+	// the apps when the server has no credentials of its own there.
+	Pull *PullAuth
 }
 
 // Node is what apply needs of the machine; node.Local is the real one.
@@ -282,7 +285,7 @@ func (a *Applier) deployApp(ctx context.Context, r Release, st *State, ps *Proje
 		}
 	default:
 		fmt.Fprintln(out, "pulling", ref)
-		if err := a.pull(ctx, ref, next); err != nil {
+		if err := a.pull(ctx, r, ref, next); err != nil {
 			return err
 		}
 	}
@@ -472,18 +475,34 @@ func values(names, vals []string) []string {
 	return out
 }
 
-func (a *Applier) pull(ctx context.Context, ref, tag string) error {
+func (a *Applier) pull(ctx context.Context, r Release, ref, tag string) error {
 	if a.Pull != nil {
 		return a.Pull(ctx, ref, tag)
 	}
-	var auth deploy.RegistryAuth
-	if r, err := registry.ParseRef(ref); err == nil {
-		auth = a.Auth[r.Host]
-	}
+	auth, fromCI := a.authFor(r, ref)
 	if err := deploy.PullImage(ctx, ref, auth); err != nil {
+		if fromCI {
+			return fmt.Errorf("%w (with the token CI sealed in the release, which works only while its job runs: run the workflow again, or give the server credentials for %s)", err, r.Pull.Host)
+		}
 		return err
 	}
 	return deploy.TagImage(ctx, ref, tag)
+}
+
+// authFor is how to sign in to pull ref: the server's own credentials for
+// its registry, else the token CI sealed in the release (fromCI).
+func (a *Applier) authFor(r Release, ref string) (auth deploy.RegistryAuth, fromCI bool) {
+	img, err := registry.ParseRef(ref)
+	if err != nil {
+		return auth, false
+	}
+	if auth, ok := a.Auth[img.Host]; ok {
+		return auth, false
+	}
+	if r.Pull != nil && r.Pull.Host == img.Host {
+		return deploy.RegistryAuth{Username: r.Pull.Username, Password: r.Pull.Password}, true
+	}
+	return auth, false
 }
 
 // localImage is the ID of an image of the app's this server has already

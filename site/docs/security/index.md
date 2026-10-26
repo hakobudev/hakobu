@@ -20,7 +20,7 @@ Sealed with age to the server's key and yours: see [Secrets](https://hakobu.dev/
 
 ## What's beyond it
 
-The release image is trusted as it comes: whoever can push to its tag deploys to the server. Guard the registry, and CI's ability to push, as you would SSH. A malicious app can read its own secrets and its own databases, as any app can.
+The release image is trusted as it comes: whoever can push to its tag deploys to the server. A public release shows its repository, its commits and its apps' image names; the rest is sealed. Guard the registry, and CI's ability to push, as you would SSH. A malicious app can read its own secrets and its own databases, as any app can.
 
 ## Releases
 

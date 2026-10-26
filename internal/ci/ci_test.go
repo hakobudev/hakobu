@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/hakobudev/hakobu/internal/apply"
+	"github.com/hakobudev/hakobu/internal/seal"
 	"github.com/hakobudev/hakobu/internal/status"
 )
 
@@ -191,5 +192,51 @@ func TestWait(t *testing.T) {
 	}
 	if err := Wait(context.Background(), &statuses{}, c, 20*time.Millisecond, time.Millisecond, io.Discard); err == nil || !strings.Contains(err.Error(), "no hakobu/deploy status") {
 		t.Error(err)
+	}
+}
+
+// With the secrets' recipients, the release reads nothing to whoever
+// pulls it: hakobu.toml and CI's pull token are sealed, to the server.
+func TestReleaseSealsSpecAndPullToken(t *testing.T) {
+	server, _ := seal.NewIdentity()
+	owner, _ := seal.NewIdentity()
+	s, err := seal.New(server.Recipient().String(), owner.Recipient().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Set("hakobu", seal.StatusToken, "ghp_status"); err != nil {
+		t.Fatal(err)
+	}
+	secrets, _ := s.Marshal()
+	dir := t.TempDir()
+	spec := "project = \"crm\"\nserver = \"kasl-1\"\n\n[apps.web]\nenv = { PLAN = \"internal\" }\n"
+	write(t, dir, map[string]string{"hakobu.toml": spec, "hakobu.secrets.toml": string(secrets), "Dockerfile": "FROM busybox\n"})
+	f := &fakeDocker{}
+	pull := &apply.PullAuth{Host: "ghcr.io", Username: "kasl", Password: "ghs_jobtoken"}
+	b := Build{Dir: dir, Image: "ghcr.io/kasl/crm", Tag: "main", Source: "https://github.com/kasl/crm", Revision: sha, Pull: pull, Run: f.run}
+	if _, err := b.Release(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	rel := f.labels["ghcr.io/kasl/crm:main"]
+	if _, ok := rel[apply.LabelSpec]; ok {
+		t.Error("hakobu.toml is in the clear")
+	}
+	for k, v := range rel {
+		if strings.Contains(v, "internal") || strings.Contains(v, "ghs_jobtoken") {
+			t.Errorf("label %s reads %q", k, v)
+		}
+	}
+	r, meta, err := apply.ReadRelease(rel, server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Spec.Name != "crm" || r.Spec.Apps["web"].Env["PLAN"] != "internal" || meta.StatusToken != "ghp_status" {
+		t.Errorf("read back: %+v %+v", r.Spec, meta)
+	}
+	if r.Pull == nil || *r.Pull != *pull {
+		t.Errorf("pull token read back as %+v", r.Pull)
+	}
+	if _, _, err := apply.ReadRelease(rel, nil); err == nil || !strings.Contains(err.Error(), "sealed") {
+		t.Errorf("without the key: %v", err)
 	}
 }

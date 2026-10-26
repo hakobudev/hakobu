@@ -233,6 +233,9 @@ func (c *Client) do(ctx context.Context, method string, r Ref, path, accept stri
 			return nil, fmt.Errorf("%s: %w", r, ErrNotFound)
 		}
 		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			if _, ok := c.Auth[r.Host]; !ok {
+				return nil, fmt.Errorf("%s: the registry refused (%d) to read it without credentials: make the release image public (it's sealed), or give the server credentials for %s", r, resp.StatusCode, r.Host)
+			}
 			return nil, fmt.Errorf("%s: the registry refused (%d): check the credentials for %s", r, resp.StatusCode, r.Host)
 		}
 		return nil, fmt.Errorf("%s: %s %s: %d %s", r, method, path, resp.StatusCode, strings.TrimSpace(string(body)))
@@ -276,6 +279,9 @@ func (c *Client) signIn(ctx context.Context, host, scope, challenge string) erro
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		if _, ok := c.Auth[host]; !ok {
+			return fmt.Errorf("the token service answered %d to a read without credentials: make the release image public (it's sealed), or give the server credentials for %s", resp.StatusCode, host)
+		}
 		return fmt.Errorf("the token service answered %d", resp.StatusCode)
 	}
 	var t struct {
