@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -161,15 +162,24 @@ func (d *Daemon) checkPostgres(ctx context.Context) {
 // each thing out of place and closing those that are fixed.
 func (d *Daemon) Audit(ctx context.Context) []audit.Finding {
 	var found []audit.Finding
+	// A check that couldn't run found nothing; the alerts it opened
+	// before stay open, not closed as put right.
+	var unsure []string
 	// SSH is the way to hakobu's commands and MCP, and to the API.
 	allow := append(d.Config.Ingress.Ports(), append(d.Config.Alerts.AllowPorts, 22)...)
 	if ports, err := audit.HostPorts(allow); err == nil {
 		found = append(found, ports...)
+	} else {
+		fmt.Fprintln(d.log(), "audit: the ports:", err)
+		unsure = append(unsure, "audit:port:")
 	}
 	if d.Containers != nil {
 		if names, err := d.Containers(ctx); err == nil {
 			ours := d.ours()
 			found = append(found, audit.Containers(names, ours)...)
+		} else {
+			fmt.Fprintln(d.log(), "audit: the containers:", err)
+			unsure = append(unsure, "audit:container:")
 		}
 	}
 	found = append(found, audit.Upgrades(audit.AptStamp, time.Now(), 72*time.Hour)...)
@@ -184,7 +194,7 @@ func (d *Daemon) Audit(ctx context.Context) []audit.Finding {
 	}
 	open, _ := d.Alerts.Keys("audit:")
 	for _, k := range open {
-		if !now[k] {
+		if !now[k] && !slices.ContainsFunc(unsure, func(p string) bool { return strings.HasPrefix(k, p) }) {
 			d.raise(k, false, "", "")
 		}
 	}

@@ -110,6 +110,13 @@ func TestAuditContainers(t *testing.T) {
 	if !strings.Contains(mailed, "container adminer runs, and hakobu didn't start it") || strings.Contains(mailed, "kasl-crm-green") {
 		t.Fatalf("%s", mailed)
 	}
+	// Docker not answering isn't adminer gone.
+	d.Containers = func(context.Context) ([]string, error) { return nil, errors.New("docker restarting") }
+	d.Audit(ctx)
+	if strings.Contains(strings.Join(box.subjects, "\n"), "resolved") {
+		t.Fatalf("closed on a failed check: %q", box.subjects)
+	}
+	d.Containers = func(context.Context) ([]string, error) { return running, nil }
 	running = running[:2]
 	d.Audit(ctx)
 	if !strings.Contains(strings.Join(box.subjects, "\n"), "resolved: container adminer") {
