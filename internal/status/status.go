@@ -61,7 +61,7 @@ func (g GitHub) Report(ctx context.Context, c Commit, state State, description s
 		return err
 	}
 	revision, token := c.Revision, c.Token
-	if len(revision) != 40 || strings.Trim(revision, "0123456789abcdef") != "" {
+	if !fullSHA(revision) {
 		return fmt.Errorf("%q isn't a commit's full SHA", revision)
 	}
 	if token == "" {
@@ -94,6 +94,10 @@ func (g GitHub) Get(ctx context.Context, c Commit) (state State, description str
 	repo, err := Repo(c.Source)
 	if err != nil {
 		return "", "", false, err
+	}
+	// The release says which commit, and the token goes with the request.
+	if !fullSHA(c.Revision) {
+		return "", "", false, fmt.Errorf("%q isn't a commit's full SHA", c.Revision)
 	}
 	req, err := http.NewRequestWithContext(ctx, "GET", g.api()+"/repos/"+repo+"/commits/"+c.Revision+"/statuses?per_page=100", nil)
 	if err != nil {
@@ -158,4 +162,8 @@ func Repo(source string) (string, error) {
 		return "", ErrNotGitHub
 	}
 	return parts[0] + "/" + parts[1], nil
+}
+
+func fullSHA(s string) bool {
+	return len(s) == 40 && strings.Trim(s, "0123456789abcdef") == ""
 }
