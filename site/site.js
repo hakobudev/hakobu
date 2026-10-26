@@ -123,3 +123,22 @@ document.querySelectorAll("[data-copy]").forEach(b => b.addEventListener("click"
     setTimeout(() => b.classList.remove("is-copied"), 1500);
   });
 }));
+
+// Sections rise in once as they come into view, unless motion is off.
+if (!still && "IntersectionObserver" in window) {
+  const seen = new IntersectionObserver(es => es.forEach(e => {
+    if (!e.isIntersecting) return;
+    e.target.classList.add("is-in");
+    seen.unobserve(e.target);
+  }), { rootMargin: "0px 0px -8% 0px" });
+  document.querySelectorAll(".section-head, .flow, .cards > .card, .bring, .start > li, .about-big").forEach(el => {
+    el.classList.add("reveal");
+    seen.observe(el);
+  });
+}
+
+// The top bar takes its background once the page moves under it.
+const bar = $(".topbar");
+const onScroll = () => bar.classList.toggle("is-scrolled", scrollY > 8);
+addEventListener("scroll", onScroll, { passive: true });
+onScroll();

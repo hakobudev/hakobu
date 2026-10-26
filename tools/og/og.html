@@ -1,0 +1,38 @@
+<!doctype html>
+<!-- hakobu.dev's preview image (og:image). Render it after a change:
+     google-chrome --headless=new --hide-scrollbars --force-device-scale-factor=1 \
+       --window-size=1200,630 --screenshot=site/og.png "file://$PWD/tools/og/og.html" -->
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../site/style.css">
+<style>
+html, body { width: 1200px; height: 630px; overflow: hidden; }
+body { margin: 0; background: #fcfcfa; color: #16161b; position: relative; font-family: var(--sans); }
+.glow { position: absolute; inset: -200px -100px auto; height: 640px; background: radial-gradient(ellipse 55% 60% at 70% 30%, #3b4de026, transparent 70%); }
+.word { position: absolute; left: 72px; top: 96px; font-size: 30px; font-weight: 700; letter-spacing: -0.045em; }
+h1 { position: absolute; left: 72px; top: 196px; margin: 0; width: 600px; font-size: 68px; line-height: .98; font-weight: 680; letter-spacing: -0.04em; }
+p { position: absolute; left: 72px; top: 418px; margin: 0; width: 520px; font-size: 24px; line-height: 1.4; color: #5e5d66; }
+.win { position: absolute; left: 700px; top: 150px; width: 560px; border-radius: 18px; padding: 8px; background: #f0efea; box-shadow: inset 0 0 0 1px #16161b14; }
+.win > div { border-radius: 12px; overflow: hidden; background: #131318; box-shadow: 0 30px 60px -20px #16161b55; }
+.bar { height: 38px; display: flex; align-items: center; gap: 7px; padding: 0 16px; border-bottom: 1px solid #ffffff12; }
+.bar i { width: 10px; height: 10px; border-radius: 9px; background: #ffffff26; }
+pre { margin: 0; padding: 20px 22px; font: 17px/1.75 var(--mono); color: #8b8a96; }
+.s { color: #a3acff; } .w { color: #e4e3ea; }
+.st { position: absolute; left: 720px; top: 456px; display: inline-flex; align-items: center; gap: 10px; padding: 9px 16px; border-radius: 999px; background: #fff; box-shadow: 0 0 0 1px #e3e1db, 0 10px 24px -12px #16161b40; font: 500 18px var(--mono); }
+.st b { width: 11px; height: 11px; border-radius: 9px; background: #3b4de0; }
+</style></head>
+<body>
+<div class="glow"></div>
+<div class="word">hakobu</div>
+<h1>Run your projects on servers you own.</h1>
+<p>A file in your repository says what runs. Your server pulls each release and swaps it in.</p>
+<div class="win"><div>
+<div class="bar"><i></i><i></i><i></i></div>
+<pre><span class="w">$ git push</span>
+<span class="s">kasl-1</span>  found    a new release
+<span class="s">kasl-1</span>  dump     main, before migrating
+<span class="s">kasl-1</span>  release  db:migrate  <span class="s">ok</span>
+<span class="s">kasl-1</span>  switch   <span class="s">live, no downtime</span>
+CI      status   <span class="s">hakobu/deploy success</span></pre>
+</div></div>
+<div class="st"><b></b>hakobu/deploy · a1f3c9e</div>
+</body></html>
