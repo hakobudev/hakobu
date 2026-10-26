@@ -402,7 +402,7 @@ func (w *Watch) fetch(ctx context.Context, ref registry.Ref) (Release, Meta, err
 
 // releaseFile keeps a release's labels by its digest, next to watch.json.
 func (w *Watch) releaseFile(digest string) string {
-	if digest == "" || w.WatchFile == "" {
+	if !registry.ValidDigest(digest) || w.WatchFile == "" {
 		return ""
 	}
 	return filepath.Join(filepath.Dir(w.WatchFile), "releases", strings.TrimPrefix(digest, "sha256:")+".json")

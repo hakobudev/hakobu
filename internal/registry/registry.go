@@ -31,7 +31,7 @@ func ParseRef(s string) (Ref, error) {
 	rest := s
 	if i := strings.Index(rest, "@"); i >= 0 {
 		rest, r.Digest = rest[:i], rest[i+1:]
-		if !strings.HasPrefix(r.Digest, "sha256:") || len(r.Digest) != len("sha256:")+64 {
+		if !ValidDigest(r.Digest) {
 			return r, fmt.Errorf("%q: the digest should be sha256: and 64 hex digits", s)
 		}
 	}
@@ -113,7 +113,18 @@ func (c *Client) Digest(ctx context.Context, r Ref) (string, error) {
 	if d == "" {
 		return "", fmt.Errorf("%s: the registry gave no digest", r)
 	}
+	// It names files on the server, and goes back into URLs: a registry
+	// gets no say in either.
+	if !ValidDigest(d) {
+		return "", fmt.Errorf("%s: the registry gave %q, not a sha256: digest", r, d)
+	}
 	return d, nil
+}
+
+// ValidDigest tells whether d is sha256: and 64 lowercase hex digits.
+func ValidDigest(d string) bool {
+	h, ok := strings.CutPrefix(d, "sha256:")
+	return ok && len(h) == 64 && strings.Trim(h, "0123456789abcdef") == ""
 }
 
 // Labels are the labels of the image r names, for this machine's platform

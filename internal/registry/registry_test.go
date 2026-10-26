@@ -156,13 +156,30 @@ func TestBasicAuth(t *testing.T) {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		w.Header().Set("Docker-Content-Digest", "sha256:abc")
+		w.Header().Set("Docker-Content-Digest", "sha256:"+strings.Repeat("a", 64))
 	}))
 	defer srv.Close()
 	u, _ := url.Parse(srv.URL)
 	c := &Client{Insecure: map[string]bool{u.Host: true}, Auth: map[string]Credentials{u.Host: {"u", "p"}}}
 	r, _ := ParseRef(u.Host + "/app:main")
-	if d, err := c.Digest(context.Background(), r); err != nil || d != "sha256:abc" {
+	if d, err := c.Digest(context.Background(), r); err != nil || d != "sha256:"+strings.Repeat("a", 64) {
 		t.Errorf("%s, %v", d, err)
+	}
+}
+
+// A registry's digest names a file on the server: one that isn't a
+// digest is refused, not followed out of the releases' folder.
+func TestDigestRefusesNonDigests(t *testing.T) {
+	for _, d := range []string{"sha256:../state", "sha256:" + strings.Repeat("A", 64), "sha512:" + strings.Repeat("a", 64)} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Docker-Content-Digest", d)
+		}))
+		host := strings.TrimPrefix(srv.URL, "http://")
+		c := &Client{Insecure: map[string]bool{host: true}}
+		ref, _ := ParseRef(host + "/org/app:main")
+		if got, err := c.Digest(context.Background(), ref); err == nil {
+			t.Errorf("%s: got %s", d, got)
+		}
+		srv.Close()
 	}
 }
