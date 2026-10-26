@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Installs hakobu v1 on a Linux server (Debian or Ubuntu), or updates it:
-# rootless Docker for the apps, Tailscale for the API, the server's key
+# rootless Docker for the apps, Tailscale for the API (or none), the server's key
 # and config, and the hakobu service. Nothing asks: everything comes from
 # the environment, so cloud-init or an agent can run it.
 #
@@ -13,7 +13,10 @@
 #                      it too, so you can open them without the server
 #   TS_AUTHKEY         a Tailscale auth key, unless the server is in the
 #                      tailnet already: the API listens there and nowhere else
+#                      (not with HAKOBU_API=loopback)
 # Optional:
+#   HAKOBU_API         tailnet (default) or loopback: the API on 127.0.0.1
+#                      only, reached through SSH (ssh -L), no Tailscale
 #   TS_TAGS            the server's Tailscale tags, e.g. tag:hakobu
 #   HAKOBU_INGRESS     public (80/443 with Let's Encrypt), tunnel (a Cloudflare
 #                      Tunnel to loopback) or none (default)
@@ -59,6 +62,8 @@ fi
 FIRST=""
 if [ ! -f "$CONFIG" ]; then
   FIRST=1
+  API="${HAKOBU_API:-tailnet}"
+  case "$API" in tailnet|loopback) ;; *) die "HAKOBU_API: tailnet or loopback" ;; esac
   [[ "${HAKOBU_NAME:-}" =~ ^[a-z][a-z0-9-]{0,30}$ ]] || die "HAKOBU_NAME: a name of lowercase letters, digits and -"
   [[ "${HAKOBU_OWNER_KEY:-}" =~ ^age1[a-z0-9]{58}$ ]] || die "HAKOBU_OWNER_KEY: your age public key (age1…); age-keygen makes a key pair, keep its secret half in your password manager"
   case "${HAKOBU_INGRESS:-none}" in public|tunnel|none) ;; *) die "HAKOBU_INGRESS: public, tunnel or none" ;; esac
@@ -180,17 +185,23 @@ if [ -z "$HAD_DOCKER" ]; then
 fi
 install -d -o hakobu -g hakobu -m 0700 /home/hakobu/.docker
 
-echo "==> Tailscale"
-command -v tailscale >/dev/null || curl -fsSL https://tailscale.com/install.sh | sh >/dev/null
-TS_IP="$(tailscale ip -4 2>/dev/null | head -1 || true)"
-if [ -z "$TS_IP" ]; then
-  [ -n "${TS_AUTHKEY:-}" ] || die "the server isn't in a tailnet: set TS_AUTHKEY"
-  # Nothing from the tailnet changes the server: no routes, no DNS, no SSH.
-  tailscale up --authkey="$TS_AUTHKEY" --hostname="hakobu-${HAKOBU_NAME:-server}" \
-    ${TS_TAGS:+--advertise-tags="$TS_TAGS"} --accept-routes=false --accept-dns=false --ssh=false
-  TS_IP="$(tailscale ip -4 | head -1)"
+# An update keeps the API where the config has it.
+[ -n "$FIRST" ] || { grep -q '^listen = "127\.0\.0\.1:' "$CONFIG" && API=loopback || API=tailnet; }
+if [ "$API" = loopback ]; then
+  API_IP=127.0.0.1
+else
+  echo "==> Tailscale"
+  command -v tailscale >/dev/null || curl -fsSL https://tailscale.com/install.sh | sh >/dev/null
+  API_IP="$(tailscale ip -4 2>/dev/null | head -1 || true)"
+  if [ -z "$API_IP" ]; then
+    [ -n "${TS_AUTHKEY:-}" ] || die "the server isn't in a tailnet: set TS_AUTHKEY, or HAKOBU_API=loopback"
+    # Nothing from the tailnet changes the server: no routes, no DNS, no SSH.
+    tailscale up --authkey="$TS_AUTHKEY" --hostname="hakobu-${HAKOBU_NAME:-server}" \
+      ${TS_TAGS:+--advertise-tags="$TS_TAGS"} --accept-routes=false --accept-dns=false --ssh=false
+    API_IP="$(tailscale ip -4 | head -1)"
+  fi
+  echo "    $API_IP"
 fi
-echo "    $TS_IP"
 
 echo "==> hakobu"
 install -d -m 0755 /opt/hakobu
@@ -234,7 +245,7 @@ if [ -n "$FIRST" ]; then
   sha() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
   {
     echo "name = \"$HAKOBU_NAME\""
-    echo "listen = \"$TS_IP:$API_PORT\""
+    echo "listen = \"$API_IP:$API_PORT\""
     echo "data_dir = \"$DATA\""
     echo "owner_key = \"$HAKOBU_OWNER_KEY\""
     echo "operator_token_sha256 = \"$(sha "$OP_TOKEN")\""
@@ -343,7 +354,7 @@ systemctl enable --now hakobu-update.path >/dev/null 2>&1
 systemctl restart hakobu
 
 echo
-echo "Done: $("$BIN" --version) runs on $TS_IP:$API_PORT (journalctl -u hakobu)."
+echo "Done: $("$BIN" --version) runs on $API_IP:$API_PORT (journalctl -u hakobu)."
 echo "The server's key: $SERVER_KEY"
 echo "Back up $DATA/key.age somewhere off this server."
 if [ -n "$OP_TOKEN" ]; then
@@ -352,6 +363,11 @@ if [ -n "$OP_TOKEN" ]; then
   echo "  admin:    $ADMIN_TOKEN    (your password manager; never on a disk an agent reads)"
   echo "  operator: $OP_TOKEN"
   echo
-  echo "On your laptop, in the tailnet:"
-  echo "  hakobu server add $HAKOBU_NAME http://$TS_IP:$API_PORT    (paste the operator token)"
+  if [ "$API" = loopback ]; then
+    echo "On your laptop, with a tunnel to the API (ssh -N -L $API_PORT:127.0.0.1:$API_PORT root@this-server):"
+    echo "  hakobu server add $HAKOBU_NAME http://127.0.0.1:$API_PORT    (paste the operator token)"
+  else
+    echo "On your laptop, in the tailnet:"
+    echo "  hakobu server add $HAKOBU_NAME http://$API_IP:$API_PORT    (paste the operator token)"
+  fi
 fi

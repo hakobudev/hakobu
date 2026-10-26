@@ -94,6 +94,17 @@ func ReadRequest(data string) (string, error) {
 	return Tag(tag), nil
 }
 
+// UpdateRequested installs the release the request in the data directory
+// asks for; a request that names none is refused, and the status says so.
+func (in *Install) UpdateRequested() error {
+	tag, err := ReadRequest(in.Data)
+	if err != nil {
+		in.setStatus(Tag(in.Version), "failed", "", err.Error())
+		return err
+	}
+	return in.Update(tag)
+}
+
 func (in *Install) path(name string) string { return filepath.Join(in.Dir, name) }
 
 func (in *Install) logf(format string, args ...any) {

@@ -29,7 +29,8 @@ const ConfigFile = "/etc/hakobu/server.toml"
 
 type Config struct {
 	Name string `toml:"name"`
-	// Listen is the API's address, on the tailnet: never a public one.
+	// Listen is the API's address, on the tailnet or loopback (reached
+	// through SSH): never a public one.
 	Listen string `toml:"listen"`
 	// DataDir holds the key, the state and the history.
 	DataDir string `toml:"data_dir"`
@@ -173,7 +174,7 @@ func (c *Config) check() error {
 		bad("name: %q isn't a name (lowercase letters, digits and -)", c.Name)
 	}
 	if c.Listen == "" {
-		bad("listen: the API needs an address on the tailnet, like 100.64.0.1:7070")
+		bad("listen: the API needs an address on the tailnet, like 100.64.0.1:7070, or 127.0.0.1:7070")
 	} else if host := strings.Split(c.Listen, ":")[0]; host == "" || host == "0.0.0.0" {
 		bad("listen: %s would listen on every address, the public one too; give the tailnet one", c.Listen)
 	}

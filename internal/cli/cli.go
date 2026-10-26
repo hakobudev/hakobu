@@ -174,18 +174,17 @@ func serverCmd(version string) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("%s: %w", config, err)
 			}
-			if requested {
-				if to, err = update.ReadRequest(cfg.DataDir); err != nil {
-					return err
-				}
-			} else if to != "" {
-				to = update.Tag(to)
-			}
 			bin, err := os.Executable()
 			if err != nil {
 				return err
 			}
 			in := &update.Install{Dir: filepath.Dir(bin), Data: cfg.DataDir, Version: version, Listen: cfg.Listen, Out: os.Stdout}
+			if requested {
+				return in.UpdateRequested()
+			}
+			if to != "" {
+				to = update.Tag(to)
+			}
 			return in.Update(to)
 		},
 	}

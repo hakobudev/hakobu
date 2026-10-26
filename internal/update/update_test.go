@@ -286,3 +286,11 @@ func TestReadRequest(t *testing.T) {
 		t.Errorf("garbage: %v", err)
 	}
 }
+
+func TestUpdateRequestedRefusedSays(t *testing.T) {
+	s := newFakeServer(t, "1.2.0")
+	_ = os.WriteFile(filepath.Join(s.in.Data, RequestFile), []byte("nonsense"), 0o600)
+	if err := s.in.UpdateRequested(); err == nil || len(s.ran) != 0 || s.status(t).State != "failed" {
+		t.Errorf("%v, ran %v, %+v", err, s.ran, s.status(t))
+	}
+}
