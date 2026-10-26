@@ -5,7 +5,7 @@
 # nothing else, for your agent's MCP and for you. Nothing asks: everything
 # comes from the environment. Your agent runs it, once:
 #
-#   ssh root@SERVER 'curl -fsSL https://hakobu.dev/install.sh | HAKOBU_NAME=kasl-1 bash'
+#   ssh root@SERVER 'curl -fsSL https://hakobu.dev/install.sh | HAKOBU_NAME=nova-1 bash'
 #
 # Needs, on a first install:
 #   HAKOBU_NAME        the server's name (lowercase letters, digits, -)

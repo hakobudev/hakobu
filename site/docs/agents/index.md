@@ -7,7 +7,7 @@ hakobu is built so an agent can do the work that's different in each project (th
 Each server has its own MCP server, run on the server itself over SSH: the installer prints the line that adds it to Claude Code, named after the server.
 
 ```bash
-claude mcp add --scope user kasl-1 -- ssh -T deploy@203.0.113.7 mcp
+claude mcp add --scope user nova-1 -- ssh -T deploy@203.0.113.7 mcp
 ```
 
 For another client, add a local (stdio) server whose command is `ssh -T deploy@203.0.113.7 mcp`. Nothing of hakobu runs on your machine: it's your `ssh` and your key, which may run hakobu's commands on that server and nothing else. The server tells the agent the address it was reached at, so when it asks you to run something (a secret to type, say), it gives the line whole, `ssh -t deploy@203.0.113.7 secret set …`: nothing about the server goes in `CLAUDE.md`, and your own `~/.ssh/config` may call it what you like.
@@ -21,7 +21,7 @@ Its tools: `status`, `deploys`, `logs`, `backups`, `settings` (the server's rele
 ## What an agent can't do
 
 - **Delete or replace data.** `hakobu destroy` and `hakobu restore` are root's on the server, and need a person at a terminal typing a confirmation: without a terminal they refuse. The MCP server has neither, and `.claude/settings.json` denies both to Claude Code as well. The backups' buckets are root's too.
-- **Read a secret, or see one.** You type a secret in your own terminal (`ssh -t kasl-1 secret set …`); the agent gets it sealed, and can't open it. The skill tells it never to ask for one in the chat.
+- **Read a secret, or see one.** You type a secret in your own terminal (`ssh -t nova-1 secret set …`); the agent gets it sealed, and can't open it. The skill tells it never to ask for one in the chat.
 - **Get a shell.** Its key runs hakobu's commands on the server and nothing else, as an operator: look, deploy, roll back, back up, update, change the settings but the buckets, or remove a release image that deploys a project (another could take the project then).
 
 The logs an agent reads are written by your apps, and text in them could try to steer it; what it can do through its key is bounded the same either way.

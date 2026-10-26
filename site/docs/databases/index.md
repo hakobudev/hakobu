@@ -29,4 +29,4 @@ Every database is backed up daily, sealed, checked by a restore into scratch, an
 
 ## Deleting one
 
-Removing it from the file keeps it, orphaned. `ssh -t root@kasl-1 hakobu destroy PROJECT/NAME` deletes it after a last backup, at a terminal, typing its name to confirm.
+Removing it from the file keeps it, orphaned. `ssh -t root@nova-1 hakobu destroy PROJECT/NAME` deletes it after a last backup, at a terminal, typing its name to confirm.

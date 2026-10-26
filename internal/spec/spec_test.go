@@ -5,12 +5,12 @@ import (
 	"testing"
 )
 
-const kasl = `
-project = "kasl"
-server  = "kasl-1"
+const nova = `
+project = "nova"
+server  = "nova-1"
 
 [apps.crm]
-domain  = "crm.kaslauto.com"
+domain  = "crm.example.com"
 release = "bun run migrate"
 worker  = "bun run worker"
 memory  = "1gb"
@@ -24,12 +24,12 @@ env     = { NODE_ENV = "production" }
 `
 
 func TestParse(t *testing.T) {
-	p, err := Parse([]byte(kasl))
+	p, err := Parse([]byte(nova))
 	if err != nil {
 		t.Fatal(err)
 	}
 	crm := p.Apps["crm"]
-	if p.Name != "kasl" || p.Server != "kasl-1" || crm.Domain != "crm.kaslauto.com" {
+	if p.Name != "nova" || p.Server != "nova-1" || crm.Domain != "crm.example.com" {
 		t.Errorf("read %+v", p)
 	}
 	if crm.Health != DefaultHealth {

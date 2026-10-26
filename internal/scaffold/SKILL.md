@@ -15,7 +15,7 @@ Strict: an unknown key, a typo or a reference to nothing fails validation, and C
 
 ```toml
 project = "crm"            # lowercase letters, digits, -
-server = "kasl-1"          # the server it deploys to (a guard: another server refuses it)
+server = "nova-1"          # the server it deploys to (a guard: another server refuses it)
 
 [apps.web]                 # an app: one image, serving HTTP
 path = "."                 # its directory, with its Dockerfile

@@ -24,8 +24,8 @@ func TestSplitWords(t *testing.T) {
 	for in, want := range map[string][]string{
 		"":                         {},
 		"  status ":                {"status"},
-		"logs kasl/web --lines 50": {"logs", "kasl/web", "--lines", "50"},
-		`server set mail kasl --from "Kasl <a@b.c>"`: {"server", "set", "mail", "kasl", "--from", "Kasl <a@b.c>"},
+		"logs nova/web --lines 50": {"logs", "nova/web", "--lines", "50"},
+		`server set mail nova --from "Nova <a@b.c>"`: {"server", "set", "mail", "nova", "--from", "Nova <a@b.c>"},
 		`a 'b c' d\ e ""`:  {"a", "b c", "d e", ""},
 		"status; rm -rf /": {"status;", "rm", "-rf", "/"},
 		"status $(id)":     {"status", "$(id)"},
@@ -41,14 +41,14 @@ func TestSplitWords(t *testing.T) {
 }
 
 func TestSSHAllowed(t *testing.T) {
-	for _, ok := range []string{"mcp", "status", "logs kasl/web", "secret set kasl web X", "server set mail kasl", "server update", "--version"} {
+	for _, ok := range []string{"mcp", "status", "logs nova/web", "secret set nova web X", "server set mail nova", "server update", "--version"} {
 		w, _ := splitWords(ok)
 		if !sshAllowed(w) {
 			t.Errorf("refused %q", ok)
 		}
 	}
-	for _, no := range []string{"bash", "serve", "restore kasl/main", "destroy kasl/main", "server init", "server token", "server create x", "secret init",
-		"build --image x", "ssh", "dialer /tmp/x", "--server x status", "statuses", "server", "secret unset kasl web X", "init", "scp -t /"} {
+	for _, no := range []string{"bash", "serve", "restore nova/main", "destroy nova/main", "server init", "server token", "server create x", "secret init",
+		"build --image x", "ssh", "dialer /tmp/x", "--server x status", "statuses", "server", "secret unset nova web X", "init", "scp -t /"} {
 		w, _ := splitWords(no)
 		if sshAllowed(w) {
 			t.Errorf("allowed %q", no)
@@ -87,7 +87,7 @@ func TestSSHSecretSet(t *testing.T) {
 	fakeSocket(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v1/key":
-			_ = json.NewEncoder(w).Encode(map[string]string{"server": "kasl-1", "recipient": server.Recipient().String(), "owner": owner.Recipient().String()})
+			_ = json.NewEncoder(w).Encode(map[string]string{"server": "nova-1", "recipient": server.Recipient().String(), "owner": owner.Recipient().String()})
 		case "/v1/secrets":
 			_ = json.NewDecoder(r.Body).Decode(&got)
 			_, _ = w.Write([]byte("{}"))
@@ -103,28 +103,28 @@ func TestSSHSecretSet(t *testing.T) {
 	t.Cleanup(func() { os.Stdin = old })
 
 	var out bytes.Buffer
-	if err := runSSH(context.Background(), "v1.5.0", "secret set kasl web DATABASE_URL", &out); err != nil {
+	if err := runSSH(context.Background(), "v1.5.0", "secret set nova web DATABASE_URL", &out); err != nil {
 		t.Fatal(err)
 	}
-	if got["project"] != "kasl" || got["app"] != "web" || got["name"] != "DATABASE_URL" || strings.Contains(fmt.Sprint(got), "s3cret") {
+	if got["project"] != "nova" || got["app"] != "web" || got["name"] != "DATABASE_URL" || strings.Contains(fmt.Sprint(got), "s3cret") {
 		t.Errorf("sent %v", got)
 	}
 	for _, id := range []age.Identity{server, owner} {
-		if v, bare, err := seal.OpenAt(got["sealed"], id, "kasl/web/DATABASE_URL"); err != nil || bare || v != "s3cret" {
+		if v, bare, err := seal.OpenAt(got["sealed"], id, "nova/web/DATABASE_URL"); err != nil || bare || v != "s3cret" {
 			t.Errorf("opens to %q, %v", v, err)
 		}
 	}
-	if !strings.Contains(out.String(), "kasl-1") {
+	if !strings.Contains(out.String(), "nova-1") {
 		t.Errorf("output: %s", out.String())
 	}
-	if err := runSSH(context.Background(), "v1.5.0", "server set backups kasl --bucket b", &out); err == nil || !strings.Contains(err.Error(), "root's") {
+	if err := runSSH(context.Background(), "v1.5.0", "server set backups nova --bucket b", &out); err == nil || !strings.Contains(err.Error(), "root's") {
 		t.Errorf("buckets: %v", err)
 	}
-	if err := runSSH(context.Background(), "v1.5.0", "secret set kasl web", &out); err == nil {
+	if err := runSSH(context.Background(), "v1.5.0", "secret set nova web", &out); err == nil {
 		t.Error("took secret set without a name")
 	}
 	out.Reset()
-	if err := runSSH(context.Background(), "v1.5.0", "", &out); err != nil || !strings.Contains(out.String(), "hakobu's commands on kasl-1") {
+	if err := runSSH(context.Background(), "v1.5.0", "", &out); err != nil || !strings.Contains(out.String(), "hakobu's commands on nova-1") {
 		t.Errorf("help: %v %s", err, out.String())
 	}
 }
@@ -137,12 +137,12 @@ func TestMCPOnServer(t *testing.T) {
 	fakeSocket(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v1/key":
-			_ = json.NewEncoder(w).Encode(map[string]string{"server": "kasl-1", "recipient": server.Recipient().String(), "owner": owner.Recipient().String()})
+			_ = json.NewEncoder(w).Encode(map[string]string{"server": "nova-1", "recipient": server.Recipient().String(), "owner": owner.Recipient().String()})
 		case "/v1/settings":
 			_ = json.NewDecoder(r.Body).Decode(&settings)
 			_, _ = w.Write([]byte(`{"rev":1}`))
 		case "/v1/secrets":
-			_, _ = w.Write([]byte(`[{"project":"kasl","app":"web","name":"X","sealed":"age:abc"}]`))
+			_, _ = w.Write([]byte(`[{"project":"nova","app":"web","name":"X","sealed":"age:abc"}]`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -176,7 +176,7 @@ func TestMCPOnServer(t *testing.T) {
 		return m, ""
 	}
 
-	out, msg := call("init", map[string]any{"project": "kasl", "image": "ghcr.io/x0ryz/kasl-crm"})
+	out, msg := call("init", map[string]any{"project": "nova", "image": "ghcr.io/x0ryz/nova-crm"})
 	if msg != "" {
 		t.Fatal(msg)
 	}
@@ -186,13 +186,13 @@ func TestMCPOnServer(t *testing.T) {
 			t.Errorf("init gave no %s", f)
 		}
 	}
-	if s, _ := files["hakobu.toml"].(string); !strings.Contains(s, `project = "kasl"`) || !strings.Contains(s, `server = "kasl-1"`) {
+	if s, _ := files["hakobu.toml"].(string); !strings.Contains(s, `project = "nova"`) || !strings.Contains(s, `server = "nova-1"`) {
 		t.Errorf("hakobu.toml:\n%s", s)
 	}
 	if s, _ := files[".github/workflows/hakobu.yml"].(string); !strings.Contains(s, "build.yml@v1.5.0") {
 		t.Errorf("workflow:\n%s", s)
 	}
-	if settings["add_release"] != "ghcr.io/x0ryz/kasl-crm:main" {
+	if settings["add_release"] != "ghcr.io/x0ryz/nova-crm:main" {
 		t.Errorf("registered %v", settings)
 	}
 
@@ -206,11 +206,11 @@ func TestMCPOnServer(t *testing.T) {
 	}
 	other, _ := seal.New(owner.Recipient().String())
 	b, _ := other.Marshal()
-	if _, msg := call("validate", map[string]any{"hakobu_toml": spec, "hakobu_secrets_toml": string(b)}); !strings.Contains(msg, "isn't sealed to kasl-1") {
+	if _, msg := call("validate", map[string]any{"hakobu_toml": spec, "hakobu_secrets_toml": string(b)}); !strings.Contains(msg, "isn't sealed to nova-1") {
 		t.Errorf("validate secrets the server can't open: %q", msg)
 	}
 
-	out, msg = call("pending_secrets", map[string]any{"project": "kasl"})
+	out, msg = call("pending_secrets", map[string]any{"project": "nova"})
 	if ps, _ := out["secrets"].([]any); msg != "" || len(ps) != 1 {
 		t.Errorf("pending: %v %s", out, msg)
 	}
@@ -219,16 +219,16 @@ func TestMCPOnServer(t *testing.T) {
 // On a server, its name may be left out.
 func TestNameFirst(t *testing.T) {
 	fakeSocket(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"server":"kasl-1"}`))
+		_, _ = w.Write([]byte(`{"server":"nova-1"}`))
 	}))
 	for _, c := range []struct {
 		in   string
 		want string
 	}{
-		{"", "kasl-1"},
-		{"kasl-1", "kasl-1"},
-		{"ghcr.io/kasl/crm:main", "kasl-1 ghcr.io/kasl/crm:main"},
-		{"kasl-1 ghcr.io/kasl/crm:main", "kasl-1 ghcr.io/kasl/crm:main"},
+		{"", "nova-1"},
+		{"nova-1", "nova-1"},
+		{"ghcr.io/nova/crm:main", "nova-1 ghcr.io/nova/crm:main"},
+		{"nova-1 ghcr.io/nova/crm:main", "nova-1 ghcr.io/nova/crm:main"},
 	} {
 		in, _ := splitWords(c.in)
 		got, err := nameFirst(in, 1, 2)
@@ -236,7 +236,7 @@ func TestNameFirst(t *testing.T) {
 			t.Errorf("%q: %q %v", c.in, got, err)
 		}
 	}
-	if _, err := nameFirst([]string{"kasl-1"}, 2, 2); err == nil {
+	if _, err := nameFirst([]string{"nova-1"}, 2, 2); err == nil {
 		t.Error("took release with no image")
 	}
 }

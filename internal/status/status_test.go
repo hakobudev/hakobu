@@ -23,11 +23,11 @@ func TestGitHub(t *testing.T) {
 	}))
 	defer srv.Close()
 	g := GitHub{API: srv.URL}
-	err := g.Report(context.Background(), Commit{"https://github.com/kasl/crm", sha, "ghp_x"}, Failure, strings.Repeat("x", 200))
+	err := g.Report(context.Background(), Commit{"https://github.com/nova/crm", sha, "ghp_x"}, Failure, strings.Repeat("x", 200))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if path != "/repos/kasl/crm/statuses/"+sha || auth != "Bearer ghp_x" {
+	if path != "/repos/nova/crm/statuses/"+sha || auth != "Bearer ghp_x" {
 		t.Errorf("%s with %q", path, auth)
 	}
 	if got["state"] != "failure" || got["context"] != Context || len([]rune(got["description"])) != 140 {
@@ -36,7 +36,7 @@ func TestGitHub(t *testing.T) {
 	if err := g.Report(context.Background(), Commit{"https://github.com/other/repo", sha, ""}, Success, ""); err == nil || !strings.Contains(err.Error(), "no token") {
 		t.Errorf("no token: %v", err)
 	}
-	if err := g.Report(context.Background(), Commit{"https://github.com/kasl/crm", "abc", "t"}, Success, ""); err == nil {
+	if err := g.Report(context.Background(), Commit{"https://github.com/nova/crm", "abc", "t"}, Success, ""); err == nil {
 		t.Error("a short SHA was taken")
 	}
 }
@@ -48,7 +48,7 @@ func TestGitHubRefused(t *testing.T) {
 	}))
 	defer srv.Close()
 	g := GitHub{API: srv.URL}
-	err := g.Report(context.Background(), Commit{"https://github.com/kasl/crm", sha, "t"}, Pending, "")
+	err := g.Report(context.Background(), Commit{"https://github.com/nova/crm", sha, "t"}, Pending, "")
 	if err == nil || !strings.Contains(err.Error(), "403") || !strings.Contains(err.Error(), "not accessible") {
 		t.Errorf("err = %v", err)
 	}
@@ -56,10 +56,10 @@ func TestGitHubRefused(t *testing.T) {
 
 func TestRepo(t *testing.T) {
 	for in, want := range map[string]string{
-		"https://github.com/kasl/crm":     "kasl/crm",
-		"https://github.com/kasl/crm.git": "kasl/crm",
-		"https://github.com/kasl/crm/":    "kasl/crm",
-		" https://github.com/Kasl/CRM ":   "Kasl/CRM",
+		"https://github.com/nova/crm":     "nova/crm",
+		"https://github.com/nova/crm.git": "nova/crm",
+		"https://github.com/nova/crm/":    "nova/crm",
+		" https://github.com/Nova/CRM ":   "Nova/CRM",
 	} {
 		if got, err := Repo(in); err != nil || got != want {
 			t.Errorf("%q = %q, %v", in, got, err)
@@ -75,14 +75,14 @@ func TestRepo(t *testing.T) {
 func TestGet(t *testing.T) {
 	statuses := `[]`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/repos/kasl/crm/commits/"+sha+"/statuses" || r.Header.Get("Authorization") != "Bearer gh_t" {
+		if r.URL.Path != "/repos/nova/crm/commits/"+sha+"/statuses" || r.Header.Get("Authorization") != "Bearer gh_t" {
 			t.Errorf("%s with %q", r.URL.Path, r.Header.Get("Authorization"))
 		}
 		_, _ = w.Write([]byte(statuses))
 	}))
 	defer srv.Close()
 	g := GitHub{API: srv.URL}
-	c := Commit{"https://github.com/kasl/crm", sha, "gh_t"}
+	c := Commit{"https://github.com/nova/crm", sha, "gh_t"}
 	if _, _, ok, err := g.Get(context.Background(), c); ok || err != nil {
 		t.Errorf("none: ok %v, %v", ok, err)
 	}

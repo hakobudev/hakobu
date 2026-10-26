@@ -257,8 +257,8 @@ var reservedNames = []string{"container " + node.PostgresContainer, "container h
 
 // namesFree refuses a project whose names on the server would be another
 // one's, or another of its own: containers, volumes and databases are
-// named project-name, and both may have a -, so project kasl's app crm-web
-// would get project kasl-crm's app web: its containers, its proxy (and
+// named project-name, and both may have a -, so project nova's app crm-web
+// would get project nova-crm's app web: its containers, its proxy (and
 // domain), its volumes. Apps and caches of the state count too, as
 // orphans keep theirs until they're destroyed.
 func namesFree(st *State, want *spec.Project) error {
