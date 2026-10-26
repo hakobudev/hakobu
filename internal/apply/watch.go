@@ -183,6 +183,7 @@ type Result struct {
 	Revision string    `json:"revision,omitempty"`
 	Changes  []string  `json:"changes,omitempty"`
 	Error    string    `json:"error,omitempty"`
+	Rollback bool      `json:"rollback,omitempty"` // back to the release before
 	Log      string    `json:"-"`
 }
 
@@ -357,7 +358,7 @@ func (w *Watch) Rollback(ctx context.Context, ref registry.Ref) (*Result, error)
 		return nil, fmt.Errorf("%s: no earlier release to roll back to", ref)
 	}
 	pinned := ref.Pinned(s.Previous).String()
-	res := Result{At: time.Now().UTC(), Release: pinned}
+	res := Result{At: time.Now().UTC(), Release: pinned, Rollback: true}
 	var log strings.Builder
 	release, meta, err := w.fetch(ctx, ref.Pinned(s.Previous))
 	if err == nil && s.Applied != "" {

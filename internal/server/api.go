@@ -12,6 +12,7 @@ import (
 	"github.com/hakobudev/hakobu/internal/alert"
 	"github.com/hakobudev/hakobu/internal/apply"
 	"github.com/hakobudev/hakobu/internal/backups"
+	"github.com/hakobudev/hakobu/internal/node"
 	"github.com/hakobudev/hakobu/internal/registry"
 	"github.com/hakobudev/hakobu/internal/update"
 )
@@ -118,6 +119,12 @@ type Status struct {
 	Version    string                               `json:"version"`
 	Latest     string                               `json:"latest,omitempty"` // a newer release of hakobu
 	LastUpdate *update.Status                       `json:"last_update,omitempty"`
+	// Down are the apps whose health checks fail ("project/app"), as the
+	// open alerts say.
+	Down []string `json:"down,omitempty"`
+	// Deployed is each project's last deploy.
+	Deployed map[string]apply.Result `json:"deployed,omitempty"`
+	Host     *node.Host              `json:"host,omitempty"`
 }
 
 type ResourceStatus struct {
@@ -131,9 +138,19 @@ func (d *Daemon) status(w http.ResponseWriter, r *http.Request) (any, error) {
 	s := Status{Server: d.Config.Name, Releases: d.Config.Releases, Backups: d.Vault != nil, Mail: d.Config.Alerts.SMTP != nil}
 	if d.Alerts != nil {
 		s.Problems, _ = d.Alerts.Open()
+		keys, _ := d.Alerts.Keys("app:")
+		for _, k := range keys {
+			s.Down = append(s.Down, strings.TrimPrefix(k, "app:"))
+		}
 	}
 	if d.Watch != nil {
 		s.PollErrors = d.Watch.PollErrors()
+	}
+	if h, ok := d.Machine.(interface {
+		Host(context.Context) node.Host
+	}); ok {
+		host := h.Host(r.Context())
+		s.Host = &host
 	}
 	var err error
 	if s.Apps, err = d.Applier.Apps(); err != nil {
@@ -146,8 +163,17 @@ func (d *Daemon) status(w http.ResponseWriter, r *http.Request) (any, error) {
 	for _, x := range res {
 		s.Resources = append(s.Resources, ResourceStatus{x.Project, x.Kind, x.Name, !x.InFile})
 	}
-	if last, _ := apply.Deploys(d.Config.DeploysFile(), 1); len(last) == 1 {
-		s.LastDeploy = &last[0]
+	recent, _ := apply.Deploys(d.Config.DeploysFile(), 100)
+	if len(recent) > 0 {
+		s.LastDeploy = &recent[0]
+	}
+	for _, x := range recent {
+		if _, seen := s.Deployed[x.Project]; x.Project != "" && !seen {
+			if s.Deployed == nil {
+				s.Deployed = map[string]apply.Result{}
+			}
+			s.Deployed[x.Project] = x
+		}
 	}
 	d.mu.Lock()
 	if !d.lastBackup.At.IsZero() {
