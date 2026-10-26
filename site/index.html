@@ -6,10 +6,20 @@
 <title>hakobu: run your projects on servers you own</title>
 <meta name="description" content="A hakobu.toml in your repository says what runs. CI builds each commit; your server pulls the release and swaps it in with no downtime. Databases, sealed secrets, backups proved by a restore, alerts, and room for agents. No panel, no database: one Go binary.">
 <meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#fcfcfa" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d0d11" media="(prefers-color-scheme: dark)">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://hakobu.dev/">
+<meta property="og:title" content="hakobu: run your projects on servers you own">
+<meta property="og:description" content="A file in your repository says what runs. CI builds each commit; your server pulls the release and swaps it in with no downtime.">
+<meta property="og:image" content="https://hakobu.dev/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="style.css?v=8c38cfb7">
+<link rel="stylesheet" href="style.css?v=89432e7d">
 </head>
-<body>
+<body class="home">
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
 <marker id="arr" class="t-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path d="M2 1.5 8 5 2 8.5"/></marker>
 <symbol id="i-github" viewBox="0 0 24 24"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></symbol>
@@ -42,7 +52,7 @@
       <a class="nav-link nav-hide" href="/docs/">Docs</a>
       <a class="nav-link nav-hide" href="https://github.com/hakobudev/hakobu/releases">Changelog</a>
       <a class="nav-link" href="https://github.com/hakobudev/hakobu" aria-label="GitHub"><svg class="icon"><use href="#i-github"/></svg></a>
-      <a class="btn" href="#start">Get started</a>
+      <a class="btn btn-ink" href="#start">Get started</a>
     </nav>
   </div>
 </header>
@@ -50,18 +60,23 @@
 <main>
   <section class="hero">
     <div class="wrap hero-text">
+      <a class="pill" href="https://github.com/hakobudev/hakobu/releases"><span class="pill-tag" data-release>v1.5.2</span>What's new in the changelog<svg class="icon"><use href="#i-arrow-right"/></svg></a>
       <h1>Run your projects on servers you own.</h1>
       <p class="lead">A file in your repository says what runs. CI builds each commit; your server pulls the release, swaps it in with no downtime and turns the commit green, or red with the reason. No panel, no database: the file is the state.</p>
       <div class="ctas">
         <a class="btn btn-lg btn-primary" href="#start">Get started<svg class="icon"><use href="#i-arrow-right"/></svg></a>
         <a class="btn btn-lg" href="/docs/">Read the docs</a>
       </div>
-      <p class="fine">One Go binary · Debian or Ubuntu, amd64 or arm64 · MIT</p>
+      <ul class="specs">
+        <li><svg class="icon"><use href="#i-box"/></svg>One Go binary</li>
+        <li><svg class="icon"><use href="#i-server"/></svg>Debian or Ubuntu, amd64 or arm64</li>
+        <li><svg class="icon"><use href="#i-github"/></svg>Open source, MIT</li>
+      </ul>
     </div>
 
     <!-- A repository and the terminal next to it; site.js plays a push. -->
     <div class="wrap demo-stage">
-      <div class="window" id="demo" aria-label="An example project: its files, and what a push does">
+      <div class="bezel"><div class="window" id="demo" aria-label="An example project: its files, and what a push does">
         <div class="win-bar">
           <span class="win-dots" aria-hidden="true"><i></i><i></i><i></i></span>
           <span class="win-title"><svg class="icon"><use href="#i-github"/></svg>nova/crm</span>
@@ -138,7 +153,7 @@
             </div>
           </div>
         </div>
-      </div>
+      </div></div>
     </div>
   </section>
 
@@ -232,7 +247,7 @@
         <p>An app down, a failed deploy or backup, a full disk, or the hourly audit finding a port or container that shouldn't be there. A pulse to a dead man's switch says hakobu itself is alive.</p>
         <div class="card-viz"><div class="mails">
           <div class="mail"><svg class="icon text-danger"><use href="#i-mail"/></svg><div class="min-w-0"><div class="mail-subj">[hakobu nova-1] crm/web is down: GET /up: 502</div><div class="mail-meta">09:14 · with its last output</div></div></div>
-          <div class="mail"><svg class="icon text-success"><use href="#i-mail"/></svg><div class="min-w-0"><div class="mail-subj">[hakobu nova-1] resolved: crm/web is down (after 6m)</div><div class="mail-meta">09:20</div></div></div>
+          <div class="mail"><svg class="icon text-ok"><use href="#i-mail"/></svg><div class="min-w-0"><div class="mail-subj">[hakobu nova-1] resolved: crm/web is down (after 6m)</div><div class="mail-meta">09:20</div></div></div>
           <div class="mail"><svg class="icon text-danger"><use href="#i-mail"/></svg><div class="min-w-0"><div class="mail-subj">[hakobu nova-1] audit: port 5432 listens on 0.0.0.0</div><div class="mail-meta">yesterday · hourly audit</div></div></div>
           <div class="mail"><svg class="icon text-danger"><use href="#i-mail"/></svg><div class="min-w-0"><div class="mail-subj">[hakobu nova-1] the disk is 86% full</div><div class="mail-meta">Monday · closes under 80%</div></div></div>
         </div></div>
@@ -306,11 +321,10 @@
     </div>
     <ol class="start">
       <li>
-        <div class="start-text"><span class="step-n">1</span><div><h3>A server</h3><p>One command, nothing asked, so your agent can run it. It ends with the line that gives your agent the server's MCP. After that it updates itself. <a href="/docs/install/">A server</a></p></div></div>
-        <div class="copyable"><pre class="console"><span class="p">$</span> ssh root@203.0.113.7 'curl -fsSL https://hakobu.dev/install.sh \
-    | HAKOBU_NAME=nova-1 HAKOBU_INGRESS=public bash'
+        <div class="start-text"><span class="step-n">1</span><div><h3>A server</h3><p>One command; it asks the server's name and how visitors reach your apps (your agent gives them as variables). It ends with the line that gives your agent the server's MCP. After that it updates itself. <a href="/docs/install/">A server</a></p></div></div>
+        <div class="copyable"><pre class="console"><span class="p">$</span> ssh -t root@203.0.113.7 'curl -fsSL https://hakobu.dev/install.sh | bash'
 <span class="p">$</span> claude mcp add --scope user nova-1 -- \
-    ssh -T deploy@203.0.113.7 mcp</pre><button class="copy" type="button" data-copy="ssh root@203.0.113.7 'curl -fsSL https://hakobu.dev/install.sh | HAKOBU_NAME=nova-1 HAKOBU_INGRESS=public bash'" aria-label="Copy the install command"><svg class="icon"><use href="#i-copy"/></svg></button></div>
+    ssh -T deploy@203.0.113.7 mcp</pre><button class="copy" type="button" data-copy="ssh -t root@203.0.113.7 'curl -fsSL https://hakobu.dev/install.sh | bash'" aria-label="Copy the install command"><svg class="icon"><use href="#i-copy"/></svg></button></div>
       </li>
       <li>
         <div class="start-text"><span class="step-n">2</span><div><h3>A project</h3><p>Ask your agent to set the repository up: it writes hakobu.toml, the workflow and its skill. You type the secrets in your own terminal, sealed on the server; the agent adds them, never seeing one. <a href="/docs/project/">A project</a></p></div></div>
@@ -322,13 +336,15 @@
         <div class="start-text"><span class="step-n is-live">3</span><div><h3>Push</h3><p>CI builds the apps and the release; within 30 seconds the server deploys it, and the job turns green once it's live.</p></div></div>
         <div class="copyable"><pre class="console"><span class="p">$</span> git push
 <span class="p">$</span> ssh nova-1 status
-nova-1
-  app       crm/admin  ghcr.io/nova/crm-admin@4be1…
-  app       crm/web    ghcr.io/nova/crm-web@90c7…
-  database  crm/main
-  cache     crm/cache
-  last deploy: 1m ago crm a1f3c9e, ok
-  backups: 6h ago, 2 made</pre></div>
+<span class="b">nova-1</span>  <span class="o">● all good</span>  <span class="d">hakobu v1.5 · Debian 13 · arm64</span>
+
+<span class="b">crm</span>  <span class="d">deployed a1f3c9e · 1 min ago</span>
+  <span class="o">●</span> admin  up        <span class="d">ghcr.io/nova/crm-admin</span>
+  <span class="o">●</span> web    up        <span class="d">ghcr.io/nova/crm-web</span>
+  <span class="o">◆</span> cache  valkey    <span class="d">12 MB of 64 MB</span>
+  <span class="o">◆</span> main   postgres  <span class="d">1.2 GB · backed up 6 h ago</span>
+
+<span class="d">disk</span> <span class="o">━━━━━━━━</span><span class="d">────────────</span>  41%   <span class="d">mem</span> <span class="o">━━━━━━━━━━━━</span><span class="d">────────</span>  61%</pre></div>
       </li>
     </ol>
   </div></section>
@@ -356,8 +372,12 @@ nova-1
     <nav aria-label="Operating"><div class="footer-title">Operating</div><a href="/docs/backups/">Backups</a><a href="/docs/alerts/">Alerts</a><a href="/docs/agents/">Agents</a><a href="/docs/security/">Security</a></nav>
     <nav aria-label="Project"><div class="footer-title">Project</div><a href="https://github.com/hakobudev/hakobu">GitHub</a><a href="https://github.com/hakobudev/hakobu/releases">Changelog</a><a href="https://github.com/hakobudev/hakobu/issues">Issues</a></nav>
   </div>
+  <div class="wrap"><div class="footer-base">
+    <span>© 2026 hakobu</span>
+    <a class="footer-ver" href="https://github.com/hakobudev/hakobu/releases"><span class="mono" data-release>v1.5.2</span></a>
+  </div></div>
 </footer>
 
-<script src="site.js?v=8c38cfb7"></script>
+<script src="site.js?v=89432e7d"></script>
 </body>
 </html>

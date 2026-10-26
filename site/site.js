@@ -123,3 +123,32 @@ document.querySelectorAll("[data-copy]").forEach(b => b.addEventListener("click"
     setTimeout(() => b.classList.remove("is-copied"), 1500);
   });
 }));
+
+// Sections rise in once as they come into view, unless motion is off.
+if (!still && "IntersectionObserver" in window) {
+  const seen = new IntersectionObserver(es => es.forEach(e => {
+    if (!e.isIntersecting) return;
+    e.target.classList.add("is-in");
+    seen.unobserve(e.target);
+  }), { rootMargin: "0px 0px -8% 0px" });
+  document.querySelectorAll(".section-head, .flow, .cards > .card, .bring, .start > li, .about-big").forEach(el => {
+    el.classList.add("reveal");
+    seen.observe(el);
+  });
+}
+
+// The top bar takes its background once the page moves under it.
+const bar = $(".topbar");
+const onScroll = () => bar.classList.toggle("is-scrolled", scrollY > 8);
+addEventListener("scroll", onScroll, { passive: true });
+onScroll();
+
+// The release pill and the footer name the latest release; the version in
+// the page stands if GitHub can't be asked.
+fetch("https://api.github.com/repos/hakobudev/hakobu/releases/latest")
+  .then(r => r.ok ? r.json() : null)
+  .then(r => {
+    if (!r?.tag_name || !/^v\d+\.\d+\.\d+$/.test(r.tag_name)) return;
+    document.querySelectorAll("[data-release]").forEach(el => { el.textContent = r.tag_name; });
+  })
+  .catch(() => {});

@@ -15,10 +15,10 @@ Run your projects on servers you own. A project says what it needs in a file in 
 
 ## Start
 
-On a new Debian or Ubuntu server, once (you or your agent):
+On a new Debian or Ubuntu server, once; it asks the server's name and how visitors reach your apps (your agent gives them as variables instead, see [A server](https://hakobu.dev/docs/install/)):
 
 ```bash
-ssh root@203.0.113.7 'curl -fsSL https://hakobu.dev/install.sh | HAKOBU_NAME=web-1 HAKOBU_INGRESS=public HAKOBU_ACME_EMAIL=you@example.com bash'
+ssh -t root@203.0.113.7 'curl -fsSL https://hakobu.dev/install.sh | bash'
 ```
 
 It ends with the line that gives your agent the server's MCP (`claude mcp add … -- ssh -T deploy@203.0.113.7 mcp`); then ask the agent to set a repository up. See [A server](https://hakobu.dev/docs/install/) and [A project](https://hakobu.dev/docs/project/).
