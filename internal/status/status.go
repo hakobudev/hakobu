@@ -50,6 +50,9 @@ var ErrNotGitHub = errors.New("not a GitHub repository")
 type GitHub struct {
 	API  string // default https://api.github.com
 	HTTP *http.Client
+	// Since: Get skips statuses set before it, so a job run again for
+	// the same commit waits for its own deploy, not the last run's.
+	Since time.Time
 }
 
 func (g GitHub) Report(ctx context.Context, c Commit, state State, description string) error {
@@ -106,16 +109,17 @@ func (g GitHub) Get(ctx context.Context, c Commit) (state State, description str
 		return "", "", false, fmt.Errorf("reading the statuses of %s@%s: %d %s", repo, c.Revision, resp.StatusCode, strings.TrimSpace(string(b)))
 	}
 	var statuses []struct {
-		State       State  `json:"state"`
-		Context     string `json:"context"`
-		Description string `json:"description"`
+		State       State     `json:"state"`
+		Context     string    `json:"context"`
+		Description string    `json:"description"`
+		CreatedAt   time.Time `json:"created_at"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&statuses); err != nil {
 		return "", "", false, err
 	}
 	// Newest first.
 	for _, s := range statuses {
-		if s.Context == Context {
+		if s.Context == Context && !s.CreatedAt.Before(g.Since) {
 			return s.State, s.Description, true, nil
 		}
 	}

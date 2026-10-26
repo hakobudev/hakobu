@@ -136,7 +136,11 @@ func waitCmd() *cobra.Command {
 				return errors.New("which commit? --source and --revision (in GitHub Actions, they're found)")
 			}
 			commit.Token = os.Getenv("GITHUB_TOKEN")
-			return ci.Wait(cmd.Context(), status.GitHub{API: os.Getenv("GITHUB_API_URL")}, commit, timeout, 10*time.Second, os.Stderr)
+			// The release was pushed just before: an older status is from a
+			// run before this one (run again, the same commit has one). The
+			// seconds are for GitHub's clock and the runner's.
+			gh := status.GitHub{API: os.Getenv("GITHUB_API_URL"), Since: time.Now().Add(-10 * time.Second)}
+			return ci.Wait(cmd.Context(), gh, commit, timeout, 10*time.Second, os.Stderr)
 		},
 	}
 	c.Flags().DurationVar(&timeout, "timeout", 15*time.Minute, "how long to wait")

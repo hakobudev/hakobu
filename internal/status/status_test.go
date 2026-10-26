@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 const sha = "0123456789abcdef0123456789abcdef01234567"
@@ -89,5 +90,16 @@ func TestGet(t *testing.T) {
 	state, desc, ok, err := g.Get(context.Background(), c)
 	if !ok || err != nil || state != Failure || desc != "release failed" {
 		t.Errorf("got %s %q %v %v", state, desc, ok, err)
+	}
+
+	// Run again for the same commit: the last run's status isn't this one's.
+	statuses = `[{"state":"success","context":"hakobu/deploy","created_at":"2026-10-26T10:39:46Z"}]`
+	g.Since = time.Date(2026, 10, 26, 10, 58, 38, 0, time.UTC)
+	if _, _, ok, err := g.Get(context.Background(), c); ok || err != nil {
+		t.Errorf("an older status: ok %v, %v", ok, err)
+	}
+	statuses = `[{"state":"pending","context":"hakobu/deploy","created_at":"2026-10-26T10:59:47Z"},{"state":"success","context":"hakobu/deploy","created_at":"2026-10-26T10:39:46Z"}]`
+	if state, _, ok, _ := g.Get(context.Background(), c); !ok || state != Pending {
+		t.Errorf("a newer status: %s %v", state, ok)
 	}
 }
