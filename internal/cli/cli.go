@@ -441,6 +441,13 @@ func printStatus(w io.Writer, st server.Status) {
 			kind = x.Kind
 		}
 		r := row{l.ok(symData), x.Name, kind, "", ""}
+		var about []string
+		switch {
+		case x.Kind == "cache" && x.Size > 0 && x.Limit > 0:
+			about = append(about, sizeOf(x.Size)+" of "+sizeOf(x.Limit))
+		case x.Size > 0:
+			about = append(about, sizeOf(x.Size))
+		}
 		switch {
 		case x.Orphan:
 			r.sym, r.detail = l.warn(symData), l.warn("not in hakobu.toml")
@@ -448,7 +455,17 @@ func printStatus(w io.Writer, st server.Status) {
 		case st.LastBackup != nil && slices.ContainsFunc(st.LastBackup.Made, func(m string) bool {
 			return strings.HasPrefix(m, x.Kind+" "+x.Project+"/"+x.Name+" of ")
 		}):
-			r.detail = l.dim("backed up " + since(st.LastBackup.At) + " ago")
+			about = append(about, "backed up "+since(st.LastBackup.At)+" ago")
+		}
+		if len(about) > 0 {
+			detail := l.dim(strings.Join(about, " · "))
+			if x.Kind == "cache" && x.Limit > 0 && float64(x.Size) >= 0.9*float64(x.Limit) {
+				detail = l.warn(strings.Join(about, " · ")) // full: Valkey evicts, or refuses writes
+			}
+			if r.detail != "" {
+				detail = r.detail + "  " + detail
+			}
+			r.detail = detail
 		}
 		rows[x.Project] = append(rows[x.Project], r)
 	}

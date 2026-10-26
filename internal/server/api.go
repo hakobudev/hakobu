@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -135,6 +136,14 @@ type ResourceStatus struct {
 	Kind    string `json:"kind"`
 	Name    string `json:"name"`
 	Orphan  bool   `json:"orphan"`
+	Size    int64  `json:"size,omitempty"`  // bytes a database takes, or a cache's memory
+	Limit   int64  `json:"limit,omitempty"` // a cache's memory limit
+}
+
+// sizer measures data; a moment each, so status asks with a deadline.
+type sizer interface {
+	DatabaseSizes(ctx context.Context) (map[string]int64, error)
+	CacheMemory(ctx context.Context, c node.CacheSpec) (used, limit int64, err error)
 }
 
 func (d *Daemon) status(w http.ResponseWriter, r *http.Request) (any, error) {
@@ -163,8 +172,22 @@ func (d *Daemon) status(w http.ResponseWriter, r *http.Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	m, measure := d.Machine.(sizer)
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	var dbs map[string]int64
+	if measure && slices.ContainsFunc(res, func(x apply.Resource) bool { return x.Kind == "database" }) {
+		dbs, _ = m.DatabaseSizes(ctx)
+	}
 	for _, x := range res {
-		s.Resources = append(s.Resources, ResourceStatus{x.Project, x.Kind, x.Name, !x.InFile})
+		rs := ResourceStatus{Project: x.Project, Kind: x.Kind, Name: x.Name, Orphan: !x.InFile}
+		switch {
+		case x.Kind == "database":
+			rs.Size = dbs[x.DB.Name]
+		case x.Kind == "cache" && measure && ctx.Err() == nil:
+			rs.Size, rs.Limit, _ = m.CacheMemory(ctx, x.Cache)
+		}
+		s.Resources = append(s.Resources, rs)
 	}
 	recent, _ := apply.Deploys(d.Config.DeploysFile(), 100)
 	if len(recent) > 0 {

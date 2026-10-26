@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/hakobudev/hakobu/internal/apply"
+	"github.com/hakobudev/hakobu/internal/server"
 )
 
 func TestPrintDeploy(t *testing.T) {
@@ -79,5 +80,19 @@ func TestDeployViewLive(t *testing.T) {
 	}
 	if err := v.event([]byte(`{"error":"registry gone"}`), &failed); err == nil || err.Error() != "nova-1: registry gone" {
 		t.Errorf("err = %v", err)
+	}
+}
+
+func TestStatusSizes(t *testing.T) {
+	var b bytes.Buffer
+	printStatus(&b, server.Status{Server: "nova-1", Resources: []server.ResourceStatus{
+		{Project: "crm", Kind: "database", Name: "main", Size: 1288490188},
+		{Project: "crm", Kind: "cache", Name: "cache", Size: 12 << 20, Limit: 64 << 20},
+		{Project: "crm", Kind: "cache", Name: "jobs"},
+	}})
+	for _, w := range []string{"main   postgres  1.2 GB\n", "cache  valkey    12 MB of 64 MB\n", "jobs   valkey\n"} {
+		if !strings.Contains(b.String(), w) {
+			t.Errorf("no %q in\n%s", w, b.String())
+		}
 	}
 }

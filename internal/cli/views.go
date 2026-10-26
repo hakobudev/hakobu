@@ -137,12 +137,19 @@ func printBackupRun(w io.Writer, name string, run server.BackupRun) {
 	}
 }
 
+// sizeOf is n bytes, short: "1.2 GB", "64 MB", "12 kB".
 func sizeOf(n int64) string {
+	unit := func(x float64, u string) string {
+		if x < 10 {
+			return fmt.Sprintf("%.1f %s", x, u)
+		}
+		return fmt.Sprintf("%.0f %s", x, u)
+	}
 	switch {
 	case n >= 1<<30:
-		return fmt.Sprintf("%.1f GB", float64(n)/(1<<30))
+		return unit(float64(n)/(1<<30), "GB")
 	case n >= 1<<20:
-		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+		return unit(float64(n)/(1<<20), "MB")
 	case n >= 1<<10:
 		return fmt.Sprintf("%.0f kB", float64(n)/(1<<10))
 	}

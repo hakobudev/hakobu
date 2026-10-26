@@ -19,6 +19,8 @@ type Resource struct {
 	Name    string // "main", or "crm/uploads" for a volume
 	// DB is a database's spec on the server.
 	DB node.DBSpec
+	// Cache is a cache's.
+	Cache node.CacheSpec
 	// App and Volume name a volume on the server.
 	App, Volume string
 	// InFile tells whether hakobu.toml still has it.
@@ -53,7 +55,8 @@ func resources(project string, ps *ProjectState) []Resource {
 	}
 	for _, n := range sortedKeys(ps.Caches) {
 		_, in := spec.Caches[n]
-		out = append(out, Resource{Project: project, Kind: "cache", Name: n, InFile: in})
+		out = append(out, Resource{Project: project, Kind: "cache", Name: n, InFile: in,
+			Cache: node.CacheSpec{Name: CacheKey(project, n), Project: project, Password: ps.Caches[n].Password}})
 	}
 	for _, v := range sortedKeys(ps.Volumes) {
 		app, vol, _ := strings.Cut(v, "/")
