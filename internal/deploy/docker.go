@@ -252,7 +252,9 @@ func RunServiceContainer(ctx context.Context, name, image string, env []string, 
 	if err := pullImageIfMissing(ctx, image); err != nil {
 		return "", fmt.Errorf("failed to pull image %q: %w", image, err)
 	}
-	host := map[string]any{"Binds": []string{name + "_data:" + mountPath}}
+	// As the apps', for the containers made from now on: Postgres's
+	// entrypoint drops root by itself, with no setuid binary.
+	host := map[string]any{"Binds": []string{name + "_data:" + mountPath}, "SecurityOpt": []string{"no-new-privileges"}, "CapDrop": appCapDrop}
 	if shmSize > 0 {
 		host["ShmSize"] = shmSize
 	}
