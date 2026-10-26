@@ -356,13 +356,11 @@ func newMCP(cmd *cobra.Command) *mcp.Server {
 	return s
 }
 
-// pick is the named server, or all of them for "".
+// pick is the named server, or --server's (all of them without it) for
+// "". It leaves the flag as it is: tools run at once, and share it.
 func pick(cmd *cobra.Command, name string) ([]*client.Client, error) {
 	if name != "" {
-		if err := cmd.Flags().Set("server", name); err != nil {
-			return nil, err
-		}
-		defer func() { _ = cmd.Flags().Set("server", "") }()
+		return clientsNamed(name)
 	}
 	return clients(cmd)
 }

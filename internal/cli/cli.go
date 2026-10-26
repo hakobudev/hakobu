@@ -240,6 +240,12 @@ func known() (client.Servers, error) {
 
 // clients are the servers to ask: --server's, or all of them.
 func clients(cmd *cobra.Command) ([]*client.Client, error) {
+	name, _ := cmd.Flags().GetString("server")
+	return clientsNamed(name)
+}
+
+// clientsNamed is the named server, or all of them for "".
+func clientsNamed(name string) ([]*client.Client, error) {
 	all, err := known()
 	if err != nil {
 		return nil, err
@@ -251,8 +257,8 @@ func clients(cmd *cobra.Command) ([]*client.Client, error) {
 		return nil, errors.New("no servers yet: hakobu server create NAME --ssh root@HOST")
 	}
 	names := all.Names()
-	if s, _ := cmd.Flags().GetString("server"); s != "" {
-		names = []string{s}
+	if name != "" {
+		names = []string{name}
 	}
 	var out []*client.Client
 	for _, n := range names {
