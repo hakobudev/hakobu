@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -159,37 +160,108 @@ type deployed struct {
 // ErrShown is an error the command has already shown, in its output.
 var ErrShown = errors.New("failed, as shown above")
 
-// printDeploy is a deploy or rollback step by step, and how it ended.
-func printDeploy(w io.Writer, name string, d deployed) {
-	l := lookFor(w)
-	head := l.bold(printable(d.Project))
-	if rev := shortRev(d.Revision); rev != "" && d.Rollback {
+// deployView shows deploys and rollbacks on a server as they go: each
+// step as it starts and as it ends, and how each ended.
+type deployView struct {
+	w     io.Writer
+	l     look
+	name  string // the server
+	shown int    // deploys shown
+	open  bool   // a running step's line waits for its end
+}
+
+func newDeployView(w io.Writer) *deployView { return &deployView{w: w, l: lookFor(w)} }
+
+// event shows a line of the server's stream, and notes in failed a
+// deploy that failed; the error is the stream's, if it ended in one.
+func (v *deployView) event(b []byte, failed *bool) error {
+	var e struct {
+		Start  *apply.Result `json:"start"`
+		Step   *apply.Step   `json:"step"`
+		Done   bool          `json:"done"`
+		Result *deployed     `json:"result"`
+		Error  string        `json:"error"`
+	}
+	if err := json.Unmarshal(b, &e); err != nil {
+		return fmt.Errorf("%s: %w", v.name, err)
+	}
+	switch {
+	case e.Start != nil:
+		v.start(*e.Start)
+	case e.Step != nil:
+		v.step(*e.Step, e.Done)
+	case e.Result != nil:
+		v.end(*e.Result)
+		*failed = *failed || e.Result.Error != ""
+	case e.Error != "":
+		v.close()
+		return fmt.Errorf("%s: %s", v.name, e.Error)
+	}
+	return nil
+}
+
+func (v *deployView) start(r apply.Result) {
+	if v.shown > 0 {
+		fmt.Fprintln(v.w)
+	}
+	v.shown++
+	head := v.l.bold(printable(r.Project))
+	if rev := shortRev(r.Revision); rev != "" && r.Rollback {
 		head += "  back to " + rev
 	} else if rev != "" {
 		head += "  " + rev
 	}
-	head += "  " + l.dim(name)
-	if d.Error == "" && len(d.Changes) == 0 {
-		fmt.Fprintln(w, head+"  "+l.ok(symOK+" nothing to change"))
+	fmt.Fprintln(v.w, head+"  "+v.l.dim(v.name))
+	fmt.Fprintln(v.w)
+}
+
+// step shows a step as it ends; at a terminal, also as it starts, on the
+// line its end then takes.
+func (v *deployView) step(s apply.Step, done bool) {
+	line := " " + pad(s.Name, s.Name, 8) + " " + printable(s.Detail)
+	if !done {
+		if v.l.on {
+			v.close()
+			fmt.Fprint(v.w, "  "+v.l.dim("◌")+line)
+			v.open = true
+		}
 		return
 	}
-	fmt.Fprintln(w, head)
-	fmt.Fprintln(w)
+	if v.open {
+		fmt.Fprint(v.w, "\r\x1b[2K")
+		v.open = false
+	}
+	sym := v.l.ok(symOK)
+	if s.Error != "" {
+		sym = v.l.bad(symBad)
+	}
+	if s.Took >= time.Second {
+		line += v.l.dim(" · " + seconds(s.Took))
+	}
+	fmt.Fprintln(v.w, "  "+sym+line)
+	if s.Error != "" {
+		fmt.Fprintln(v.w, strings.Repeat(" ", 13)+v.l.dim(firstLine(printable(s.Error))))
+	}
+}
+
+// close ends a running step's line, so what comes next starts on its own.
+func (v *deployView) close() {
+	if v.open {
+		fmt.Fprintln(v.w)
+		v.open = false
+	}
+}
+
+// end is how a deploy or rollback ended.
+func (v *deployView) end(d deployed) {
+	v.close()
+	l, w := v.l, v.w
 	var took time.Duration
 	failed := ""
 	for _, s := range d.Steps {
 		took += s.Took
-		sym := l.ok(symOK)
 		if s.Error != "" {
-			sym, failed = l.bad(symBad), s.Name
-		}
-		line := "  " + sym + " " + pad(s.Name, s.Name, 8) + " " + printable(s.Detail)
-		if s.Took >= time.Second {
-			line += l.dim(" · " + seconds(s.Took))
-		}
-		fmt.Fprintln(w, line)
-		if s.Error != "" {
-			fmt.Fprintln(w, strings.Repeat(" ", 13)+l.dim(firstLine(printable(s.Error))))
+			failed = s.Name
 		}
 	}
 	if len(d.Steps) > 0 {
@@ -203,11 +275,24 @@ func printDeploy(w io.Writer, name string, d deployed) {
 		fmt.Fprintln(w, l.bad(symBad+" not "+outcome(d))+l.dim(" · the live version keeps running"))
 	case d.Error != "":
 		fmt.Fprintln(w, l.bad(symBad+" not "+outcome(d))+"  "+l.dim(firstLine(printable(d.Error))))
+	case len(d.Changes) == 0:
+		fmt.Fprintln(w, l.ok(symOK+" nothing to change"))
 	case d.Rollback:
 		fmt.Fprintln(w, l.warn(symBack+" rolled back")+l.dim(" in "+seconds(took)+" · the release after it waits for a newer one"))
 	default:
 		fmt.Fprintln(w, l.ok(symOK+" deployed")+l.dim(" in "+seconds(took)))
 	}
+}
+
+// printDeploy is a deploy or rollback that has ended, step by step.
+func printDeploy(w io.Writer, name string, d deployed) {
+	v := newDeployView(w)
+	v.name = name
+	v.start(d.Result)
+	for _, s := range d.Steps {
+		v.step(s, true)
+	}
+	v.end(d)
 }
 
 func outcome(d deployed) string {

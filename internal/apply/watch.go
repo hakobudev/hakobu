@@ -304,7 +304,7 @@ func (w *Watch) Check(ctx context.Context, ref registry.Ref, force bool) (*Resul
 	}
 	pinned := ref.Pinned(digest).String()
 	res := Result{At: time.Now().UTC(), Release: pinned}
-	var log Log
+	log := Log{progress: ProgressOf(ctx)}
 	release, meta, err := w.fetch(ctx, ref.Pinned(digest))
 	meta.Ref = pinned
 	res.Source, res.Revision = meta.Source, meta.Revision
@@ -321,6 +321,7 @@ func (w *Watch) Check(ctx context.Context, ref registry.Ref, force bool) (*Resul
 		if w.Started != nil {
 			w.Started(meta)
 		}
+		log.start(res)
 		var plan Plan
 		plan, err = w.Applier.Apply(ctx, release, &log)
 		for _, c := range plan.Changes {
@@ -360,7 +361,7 @@ func (w *Watch) Rollback(ctx context.Context, ref registry.Ref) (*Result, error)
 	}
 	pinned := ref.Pinned(s.Previous).String()
 	res := Result{At: time.Now().UTC(), Release: pinned, Rollback: true}
-	var log Log
+	log := Log{progress: ProgressOf(ctx)}
 	release, meta, err := w.fetch(ctx, ref.Pinned(s.Previous))
 	if err == nil && s.Applied != "" {
 		// The code goes back; the secrets stay current, so a key replaced
@@ -383,6 +384,7 @@ func (w *Watch) Rollback(ctx context.Context, ref registry.Ref) (*Result, error)
 		s.Project = release.Spec.Name
 		res.Project = release.Spec.Name
 		fmt.Fprintln(&log, "rolling back to", pinned)
+		log.start(res)
 		var plan Plan
 		plan, err = w.Applier.Apply(ctx, release, &log)
 		for _, c := range plan.Changes {

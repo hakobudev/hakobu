@@ -601,21 +601,17 @@ func deployCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			l, failed := lookFor(os.Stdout), false
-			for i, c := range cs {
-				var rs []deployed
-				if err := c.Post(cmd.Context(), "/v1/deploy", map[string]any{"project": project, "force": force}, &rs); err != nil {
+			v, failed := newDeployView(os.Stdout), false
+			for _, c := range cs {
+				v.name, v.shown = c.Name, 0
+				body := map[string]any{"project": project, "force": force}
+				err := c.Stream(cmd.Context(), "/v1/deploy", body, server.Streamed, func(b []byte) error { return v.event(b, &failed) })
+				v.close()
+				if err != nil {
 					return err
 				}
-				if len(rs) == 0 {
-					fmt.Println(l.bold(c.Name) + "  " + l.dim("nothing new"))
-				}
-				for j, r := range rs {
-					if i+j > 0 {
-						fmt.Println()
-					}
-					printDeploy(os.Stdout, c.Name, r)
-					failed = failed || r.Error != ""
+				if v.shown == 0 {
+					fmt.Println(v.l.bold(c.Name) + "  " + v.l.dim("nothing new"))
 				}
 			}
 			if failed {
@@ -638,12 +634,14 @@ func rollbackCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			var r deployed
-			if err := cl.Post(cmd.Context(), "/v1/rollback", map[string]string{"project": args[0]}, &r); err != nil {
+			v, failed := newDeployView(os.Stdout), false
+			v.name = cl.Name
+			err = cl.Stream(cmd.Context(), "/v1/rollback", map[string]string{"project": args[0]}, server.Streamed, func(b []byte) error { return v.event(b, &failed) })
+			v.close()
+			if err != nil {
 				return err
 			}
-			printDeploy(os.Stdout, cl.Name, r)
-			if r.Error != "" {
+			if failed {
 				return ErrShown
 			}
 			return nil

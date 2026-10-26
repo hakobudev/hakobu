@@ -29,7 +29,7 @@ func TestPrintDeploy(t *testing.T) {
 	}{
 		{ok, []string{"crm  a1f3c9e  nova-1", "  ● pull     web · ghcr.io/nova/crm-web · 3.2 s", "● deployed in 3.2 s"}},
 		{failed, []string{"  ✕ release  web · bin/rails db:migrate", "             release failed: PG::UndefinedColumn", "✕ not deployed · the live version keeps running"}},
-		{deployed{Result: apply.Result{Project: "crm"}}, []string{"crm  nova-1  ● nothing to change"}},
+		{deployed{Result: apply.Result{Project: "crm"}}, []string{"crm  nova-1", "● nothing to change"}},
 	} {
 		var b bytes.Buffer
 		printDeploy(&b, "nova-1", c.d)
@@ -55,5 +55,29 @@ func TestLookOverSSH(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	if lookFor(&bytes.Buffer{}).on {
 		t.Error("NO_COLOR ignored")
+	}
+}
+
+// At a terminal a step shows as it starts, and its end takes its line.
+func TestDeployViewLive(t *testing.T) {
+	var b bytes.Buffer
+	v := &deployView{w: &b, l: look{true}, name: "nova-1"}
+	failed := false
+	for _, e := range []string{
+		`{"start":{"project":"crm","revision":"a1f3c9e"}}`,
+		`{"step":{"name":"release","detail":"web · migrate"}}`,
+		`{"step":{"name":"release","detail":"web · migrate","error":"exited 1"},"done":true}`,
+		`{"result":{"project":"crm","error":"apps.web: exited 1","changes":["x"],"steps":[{"name":"release","error":"exited 1"}]}}`,
+	} {
+		if err := v.event([]byte(e), &failed); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out := b.String()
+	if !failed || !strings.Contains(out, "◌\x1b[0m release  web · migrate\r\x1b[2K  \x1b[1;91m✕\x1b[0m release") || !strings.Contains(out, "not deployed") {
+		t.Errorf("failed %v, out %q", failed, out)
+	}
+	if err := v.event([]byte(`{"error":"registry gone"}`), &failed); err == nil || err.Error() != "nova-1: registry gone" {
+		t.Errorf("err = %v", err)
 	}
 }

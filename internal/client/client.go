@@ -3,6 +3,7 @@
 package client
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -162,20 +163,62 @@ func (c *Client) Post(ctx context.Context, path string, body, v any) error {
 }
 
 func (c *Client) Do(ctx context.Context, method, path string, body, v any) error {
+	resp, err := c.send(ctx, method, path, body, "")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
+	if err != nil {
+		return err
+	}
+	if v == nil {
+		return nil
+	}
+	return json.Unmarshal(b, v)
+}
+
+// Stream calls POST path asking for a stream (accept), and hands each line
+// of the answer to line as it comes.
+func (c *Client) Stream(ctx context.Context, path string, body any, accept string, line func([]byte) error) error {
+	resp, err := c.send(ctx, "POST", path, body, accept)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	sc := bufio.NewScanner(resp.Body)
+	sc.Buffer(make([]byte, 64<<10), 64<<20)
+	for sc.Scan() {
+		if err := line(sc.Bytes()); err != nil {
+			return err
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return fmt.Errorf("%s: %w", c.Name, err)
+	}
+	return nil
+}
+
+// send makes the request, and turns an answer other than 200 into its
+// error.
+func (c *Client) send(ctx context.Context, method, path string, body any, accept string) (*http.Response, error) {
 	var r io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		r = bytes.NewReader(b)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, c.URL+path, r)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.Token)
 	req.Header.Set("Content-Type", "application/json")
+	if accept != "" {
+		req.Header.Set("Accept", accept)
+	}
 	hc := c.HTTP
 	if hc == nil {
 		// Backups and deploys take a while; status doesn't.
@@ -194,29 +237,23 @@ func (c *Client) Do(ctx context.Context, method, path string, body, v any) error
 	resp, err := hc.Do(req)
 	if err != nil {
 		if c.ssh != nil {
-			return fmt.Errorf("%s: %w%s", c.Name, err, c.ssh.why())
+			return nil, fmt.Errorf("%s: %w%s", c.Name, err, c.ssh.why())
 		}
 		if c.socket != "" {
-			return fmt.Errorf("%s: %w (is hakobu running? systemctl status hakobu)", c.Name, err)
+			return nil, fmt.Errorf("%s: %w (is hakobu running? systemctl status hakobu)", c.Name, err)
 		}
-		return fmt.Errorf("%s: %w (is this machine in the tailnet?)", c.Name, err)
-	}
-	defer resp.Body.Close()
-	b, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
-	if err != nil {
-		return err
+		return nil, fmt.Errorf("%s: %w (is this machine in the tailnet?)", c.Name, err)
 	}
 	if resp.StatusCode != http.StatusOK {
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		var e struct {
 			Error string `json:"error"`
 		}
 		if json.Unmarshal(b, &e) == nil && e.Error != "" {
-			return fmt.Errorf("%s: %s", c.Name, e.Error)
+			return nil, fmt.Errorf("%s: %s", c.Name, e.Error)
 		}
-		return fmt.Errorf("%s: %s %s: %d", c.Name, method, path, resp.StatusCode)
+		return nil, fmt.Errorf("%s: %s %s: %d", c.Name, method, path, resp.StatusCode)
 	}
-	if v == nil {
-		return nil
-	}
-	return json.Unmarshal(b, v)
+	return resp, nil
 }

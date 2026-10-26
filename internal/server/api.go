@@ -70,6 +70,9 @@ func (d *Daemon) need(level Level) func(handler) http.Handler {
 				return
 			}
 			v, err := h(w, r)
+			if _, ok := v.(streamed); ok {
+				return
+			}
 			if err != nil {
 				status := http.StatusInternalServerError
 				if e, ok := err.(apiError); ok {
@@ -249,15 +252,26 @@ func (d *Daemon) deploy(w http.ResponseWriter, r *http.Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	check := func(ctx context.Context, each func(*apply.Result)) error {
+		for _, ref := range refs {
+			res, err := d.Watch.Check(ctx, ref, req.Force)
+			if err != nil {
+				return fmt.Errorf("%s: %w", ref, err)
+			}
+			if res != nil {
+				each(res)
+			}
+		}
+		return nil
+	}
+	if r.Header.Get("Accept") == Streamed {
+		return stream(w, r, func(ctx context.Context, send func(Event)) error {
+			return check(ctx, func(res *apply.Result) { send(Event{Result: withLogs([]*apply.Result{res})[0]}) })
+		})
+	}
 	var out []*apply.Result
-	for _, ref := range refs {
-		res, err := d.Watch.Check(r.Context(), ref, req.Force)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", ref, err)
-		}
-		if res != nil {
-			out = append(out, res)
-		}
+	if err := check(r.Context(), func(res *apply.Result) { out = append(out, res) }); err != nil {
+		return nil, err
 	}
 	return withLogs(out), nil
 }
@@ -286,6 +300,15 @@ func (d *Daemon) rollback(w http.ResponseWriter, r *http.Request) (any, error) {
 	refs, err := d.refsOf(req.Project)
 	if err != nil {
 		return nil, err
+	}
+	if r.Header.Get("Accept") == Streamed {
+		return stream(w, r, func(ctx context.Context, send func(Event)) error {
+			res, err := d.Watch.Rollback(ctx, refs[0])
+			if err == nil {
+				send(Event{Result: withLogs([]*apply.Result{res})[0]})
+			}
+			return err
+		})
 	}
 	res, err := d.Watch.Rollback(r.Context(), refs[0])
 	if err != nil {
