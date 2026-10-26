@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"text/tabwriter"
 	"time"
+	"unicode"
 
 	"github.com/hakobudev/hakobu/internal/apply"
 	"github.com/hakobudev/hakobu/internal/backups"
@@ -240,6 +241,18 @@ func known() (client.Servers, error) {
 	return all, nil
 }
 
+// printable is an app's text without the control characters a terminal
+// would act on (escape sequences can retitle it, write to the clipboard,
+// or draw a prompt that isn't there); colors go with them.
+func printable(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\t' || !unicode.IsControl(r) {
+			return r
+		}
+		return -1
+	}, s)
+}
+
 // clients are the servers to ask: --server's, or all of them.
 func clients(cmd *cobra.Command) ([]*client.Client, error) {
 	name, _ := cmd.Flags().GetString("server")
@@ -449,7 +462,7 @@ func logsCmd() *cobra.Command {
 			if err := cl.Get(cmd.Context(), q, &out); err != nil {
 				return err
 			}
-			fmt.Print(out["logs"])
+			fmt.Print(printable(out["logs"]))
 			return nil
 		},
 	}
@@ -500,7 +513,7 @@ func deployCmd() *cobra.Command {
 func printResults(rs []map[string]any) error {
 	var errs []error
 	for _, r := range rs {
-		fmt.Print(r["log"])
+		fmt.Print(printable(fmt.Sprint(r["log"])))
 		if e, _ := r["error"].(string); e != "" {
 			errs = append(errs, errors.New(e))
 		}
