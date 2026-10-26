@@ -17,7 +17,7 @@
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="style.css?v=99094dbf">
+<link rel="stylesheet" href="style.css?v=89432e7d">
 </head>
 <body class="home">
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -336,13 +336,15 @@
         <div class="start-text"><span class="step-n is-live">3</span><div><h3>Push</h3><p>CI builds the apps and the release; within 30 seconds the server deploys it, and the job turns green once it's live.</p></div></div>
         <div class="copyable"><pre class="console"><span class="p">$</span> git push
 <span class="p">$</span> ssh nova-1 status
-nova-1
-  app       crm/admin  ghcr.io/nova/crm-admin@4be1…
-  app       crm/web    ghcr.io/nova/crm-web@90c7…
-  database  crm/main
-  cache     crm/cache
-  last deploy: 1m ago crm a1f3c9e, ok
-  backups: 6h ago, 2 made</pre></div>
+<span class="b">nova-1</span>  <span class="o">● all good</span>  <span class="d">hakobu v1.5 · Debian 13 · arm64</span>
+
+<span class="b">crm</span>  <span class="d">deployed a1f3c9e · 1 min ago</span>
+  <span class="o">●</span> admin  up        <span class="d">ghcr.io/nova/crm-admin</span>
+  <span class="o">●</span> web    up        <span class="d">ghcr.io/nova/crm-web</span>
+  <span class="o">◆</span> cache  valkey
+  <span class="o">◆</span> main   postgres  <span class="d">backed up 6 h ago</span>
+
+<span class="d">disk</span> <span class="o">━━━━━━━━</span><span class="d">────────────</span>  41%   <span class="d">mem</span> <span class="o">━━━━━━━━━━━━</span><span class="d">────────</span>  61%</pre></div>
       </li>
     </ol>
   </div></section>
@@ -376,6 +378,6 @@ nova-1
   </div></div>
 </footer>
 
-<script src="site.js?v=99094dbf"></script>
+<script src="site.js?v=89432e7d"></script>
 </body>
 </html>

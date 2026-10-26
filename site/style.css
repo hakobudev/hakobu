@@ -365,6 +365,10 @@ a.wordmark:hover { text-decoration: none; }
 /* Copyable commands */
 .console { background: var(--console-bg); color: var(--console-fg); border-radius: var(--radius-lg); font: 12px/20px var(--mono); padding: 12px 44px 12px 14px; overflow-x: auto; white-space: pre; }
 .console .p { color: var(--console-accent); }
+/* hakobu's own output, as a terminal shows it: bold, grey, blue for fine. */
+.console .b { color: #fff; font-weight: 700; }
+.console .d { color: var(--console-muted); }
+.console .o { color: var(--console-accent); }
 .copyable { position: relative; min-width: 0; }
 .copy { position: absolute; top: 6px; right: 6px; width: 28px; height: 28px; border-radius: var(--radius); border: 0; background: transparent; color: var(--console-muted); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
 .copy:hover { color: var(--console-fg); background: #ffffff14; }
