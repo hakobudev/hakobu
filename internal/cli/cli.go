@@ -720,6 +720,15 @@ func secretCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// A secret is sealed for its project, which hakobu.toml names.
+			b, err := os.ReadFile(spec.File)
+			if err != nil {
+				return err
+			}
+			p, err := spec.Parse(b)
+			if err != nil {
+				return fmt.Errorf("%s: %w", spec.File, err)
+			}
 			v, err := readSecret(args[1] + ": ")
 			if err != nil {
 				return err
@@ -727,7 +736,7 @@ func secretCmd() *cobra.Command {
 			if v == "" {
 				return errors.New("empty value; hakobu secret unset removes one")
 			}
-			if err := s.Set(args[0], args[1], v); err != nil {
+			if err := s.Set(p.Name, args[0], args[1], v); err != nil {
 				return err
 			}
 			return writeSecrets(s)

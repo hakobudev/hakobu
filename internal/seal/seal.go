@@ -114,13 +114,16 @@ func New(recipients ...string) (*Secrets, error) {
 	return s, s.check()
 }
 
-// Set seals value as app's variable name; app "hakobu" is hakobu's own
-// table.
-func (s *Secrets) Set(app, name, value string) error {
+// Set seals value as project's app's variable name; app "hakobu" is
+// hakobu's own table.
+func (s *Secrets) Set(project, app, name, value string) error {
 	if len(value) > maxSecret {
 		return fmt.Errorf("%s is more than 1 MiB: a secret that big goes in a volume, not the environment", name)
 	}
-	sealed, err := s.seal(value)
+	if project == "" || strings.ContainsAny(project+app, "/\n") {
+		return fmt.Errorf("%q of %q: not a project and app to seal a secret for", app, project)
+	}
+	sealed, err := s.SealAt(Place(project, app, name), value)
 	if err != nil {
 		return err
 	}
@@ -169,7 +172,52 @@ func (s *Secrets) Unset(app, name string) bool {
 func (s *Secrets) Seal(value string) (string, error) { return s.seal(value) }
 
 // OpenValue opens one value Seal sealed.
-func OpenValue(v string, id age.Identity) (string, error) { return unseal(v, id) }
+func OpenValue(v string, id age.Identity) (string, error) {
+	plain, err := unseal(v, id)
+	if err == nil && len(plain) > maxSecret {
+		return "", errors.New("a secret of more than 1 MiB")
+	}
+	return plain, err
+}
+
+// placed starts the text of a value sealed for its place, before the
+// place, a newline and the value. The server's key opens the values of
+// every project on it, and those of one are in its repository and its
+// release, so one sealed bare could be pasted into another project's
+// file, for its apps to read: one sealed for its place opens there alone.
+const placed = "hakobu-secret/1 "
+
+// Place is where a secret is sealed for: project, app ("hakobu" for
+// hakobu's own) and variable.
+func Place(project, app, name string) string { return project + "/" + app + "/" + name }
+
+// SealAt seals value for place alone.
+func (s *Secrets) SealAt(place, value string) (string, error) {
+	return s.seal(placed + place + "\n" + value)
+}
+
+// OpenAt opens a value sealed for place, or sealed bare by a hakobu
+// before 1.6 (bare is true then: it could be any project's). A value
+// sealed for another place is an error.
+func OpenAt(v string, id age.Identity, place string) (plain string, bare bool, err error) {
+	plain, err = unseal(v, id)
+	if err != nil {
+		return "", false, err
+	}
+	if rest, ok := strings.CutPrefix(plain, placed); ok {
+		at, value, _ := strings.Cut(rest, "\n")
+		if at != place {
+			return "", false, fmt.Errorf("sealed for %s, not %s: set it again here", at, place)
+		}
+		plain = value
+	} else {
+		bare = true
+	}
+	if len(plain) > maxSecret {
+		return "", false, errors.New("a secret of more than 1 MiB")
+	}
+	return plain, bare, nil
+}
 
 func (s *Secrets) seal(value string) (string, error) {
 	var rs []age.Recipient
@@ -201,28 +249,39 @@ func (s *Secrets) seal(value string) (string, error) {
 type Opened struct {
 	Apps   map[string]map[string]string
 	Hakobu map[string]string
+	// Bare are the values sealed before hakobu sealed each for its
+	// place, for the server to tell whether they're this project's.
+	Bare []Bare
 }
 
-// Open unseals every value with id; a value it can't open is an error
-// naming it, so a server left out of the recipients says so.
-func (s *Secrets) Open(id age.Identity) (Opened, error) {
+// Bare is a value sealed bare: its app ("hakobu" for hakobu's own),
+// variable and sealed text.
+type Bare struct{ App, Name, Sealed string }
+
+// Open unseals every value with id, as project's; a value it can't open,
+// or sealed for another place, is an error naming it, so a server left
+// out of the recipients says so.
+func (s *Secrets) Open(id age.Identity, project string) (Opened, error) {
 	o := Opened{Apps: map[string]map[string]string{}, Hakobu: map[string]string{}}
 	var errs []error
-	open := func(at, v string) string {
-		plain, err := unseal(v, id)
+	open := func(at, app, name, v string) string {
+		plain, bare, err := OpenAt(v, id, Place(project, app, name))
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", at, err))
+		}
+		if bare {
+			o.Bare = append(o.Bare, Bare{app, name, v})
 		}
 		return plain
 	}
 	for _, app := range sorted(s.Apps) {
 		o.Apps[app] = map[string]string{}
 		for _, k := range sorted(s.Apps[app]) {
-			o.Apps[app][k] = open("apps."+app+"."+k, s.Apps[app][k])
+			o.Apps[app][k] = open("apps."+app+"."+k, app, k, s.Apps[app][k])
 		}
 	}
 	for _, k := range sorted(s.Hakobu) {
-		o.Hakobu[k] = open("hakobu."+k, s.Hakobu[k])
+		o.Hakobu[k] = open("hakobu."+k, "hakobu", k, s.Hakobu[k])
 	}
 	return o, errors.Join(errs...)
 }
@@ -243,8 +302,9 @@ func unseal(v string, id age.Identity) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	plain, err := io.ReadAll(io.LimitReader(r, maxSecret+1))
-	if err == nil && len(plain) > maxSecret {
+	// Room for the place too; the callers hold the value to maxSecret.
+	plain, err := io.ReadAll(io.LimitReader(r, maxSecret+4<<10+1))
+	if err == nil && len(plain) > maxSecret+4<<10 {
 		return "", errors.New("a secret of more than 1 MiB")
 	}
 	return string(plain), err

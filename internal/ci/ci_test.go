@@ -204,7 +204,7 @@ func TestReleaseSealsSpecAndPullToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Set("hakobu", seal.StatusToken, "ghp_status"); err != nil {
+	if err := s.Set("crm", "hakobu", seal.StatusToken, "ghp_status"); err != nil {
 		t.Fatal(err)
 	}
 	secrets, _ := s.Marshal()

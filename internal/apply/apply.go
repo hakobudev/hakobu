@@ -18,6 +18,7 @@ import (
 	"github.com/hakobudev/hakobu/internal/deploy"
 	"github.com/hakobudev/hakobu/internal/node"
 	"github.com/hakobudev/hakobu/internal/registry"
+	"github.com/hakobudev/hakobu/internal/seal"
 	"github.com/hakobudev/hakobu/internal/spec"
 )
 
@@ -35,6 +36,9 @@ type Release struct {
 	// Pull is CI's token for its registry, if it sealed one in: it pulls
 	// the apps when the server has no credentials of its own there.
 	Pull *PullAuth
+	// Bare are its secrets sealed before hakobu sealed each for its
+	// place: the watch deploys them only where they were before.
+	Bare []seal.Bare
 }
 
 // Node is what apply needs of the machine; node.Local is the real one.

@@ -8,7 +8,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -81,9 +83,9 @@ func sealed(crmSecrets map[string]string) string {
 	if err != nil {
 		panic(err)
 	}
-	_ = s.Set("hakobu", seal.StatusToken, "status-token")
+	_ = s.Set("kasl", "hakobu", seal.StatusToken, "status-token")
 	for k, v := range crmSecrets {
-		_ = s.Set("crm", k, v)
+		_ = s.Set("kasl", "crm", k, v)
 	}
 	b, _ := s.Marshal()
 	return string(b)
@@ -226,6 +228,67 @@ func TestWatchSecrets(t *testing.T) {
 	}
 }
 
+// bareSecrets is a hakobu.secrets.toml as hakobu before 1.6 sealed it:
+// crm's values bare, for no project.
+func bareSecrets(crmSecrets map[string]string) string {
+	s, _ := seal.New(serverKey.Recipient().String())
+	_ = s.Set("kasl", "hakobu", seal.StatusToken, "status-token")
+	s.Apps = map[string]map[string]string{"crm": {}}
+	for k, v := range crmSecrets {
+		s.Apps["crm"][k] = v
+	}
+	b, _ := s.Marshal()
+	return string(b)
+}
+
+func TestWatchBareSecretsStayWhereTheyWere(t *testing.T) {
+	h, regs := newHarness(t), newReleases(t)
+	w, ref := newWatch(t, h, regs)
+	ctx := context.Background()
+	s, _ := seal.New(serverKey.Recipient().String())
+	stripe, _ := s.Seal("sk_live")
+	mail, _ := s.Seal("mail-key")
+	release := func(secrets map[string]string) *Result {
+		t.Helper()
+		l := releaseLabels(strings.Replace(crm, "[apps.crm]", "[apps.crm]\nrelease = \"m\"", 1), crmImage("a"))
+		l[LabelSecrets] = bareSecrets(secrets)
+		regs.publish(l)
+		res, err := w.Check(ctx, ref, true)
+		if err != nil || res == nil {
+			t.Fatalf("%+v, %v", res, err)
+		}
+		return res
+	}
+
+	// A release image that never deployed them: they could be another
+	// project's, pasted in.
+	if res := release(map[string]string{"STRIPE_KEY": stripe}); !strings.Contains(res.Error, "apps.crm.STRIPE_KEY: sealed by a hakobu before 1.6") {
+		t.Fatalf("new image: %+v", res)
+	}
+
+	// As if hakobu before 1.6 had deployed them: the image's release.
+	first := ref.Pinned(regs.tag).Digest
+	_ = w.save(map[string]watched{ref.String(): {Applied: first, Project: "kasl"}})
+	if res := release(map[string]string{"STRIPE_KEY": stripe, "MAIL_KEY": mail}); !strings.Contains(res.Error, "apps.crm.MAIL_KEY") || strings.Contains(res.Error, "STRIPE_KEY") {
+		t.Errorf("one more: %+v", res)
+	}
+	if res := release(map[string]string{"STRIPE_KEY": stripe}); res.Error != "" {
+		t.Errorf("as it was: %+v", res)
+	}
+	if env := h.releases[len(h.releases)-1].Env; !slices.Contains(env, "STRIPE_KEY=sk_live") {
+		t.Errorf("env: %v", env)
+	}
+	// Kept: the release it learned them from may be gone now.
+	_ = os.RemoveAll(filepath.Join(filepath.Dir(w.WatchFile), "releases"))
+	if res := release(map[string]string{"STRIPE_KEY": stripe}); res.Error != "" {
+		t.Errorf("again: %+v", res)
+	}
+	// Nor as another variable.
+	if res := release(map[string]string{"OTHER_KEY": stripe}); !strings.Contains(res.Error, "apps.crm.OTHER_KEY") {
+		t.Errorf("moved: %+v", res)
+	}
+}
+
 func TestWatchRefuses(t *testing.T) {
 	ctx := context.Background()
 	for _, c := range []struct {
@@ -246,7 +309,7 @@ func TestWatchRefuses(t *testing.T) {
 			l := releaseLabels(crm, crmImage("a"))
 			other, _ := seal.NewIdentity()
 			s, _ := seal.New(other.Recipient().String())
-			_ = s.Set("crm", "KEY", "v")
+			_ = s.Set("kasl", "crm", "KEY", "v")
 			b, _ := s.Marshal()
 			l[LabelSecrets] = string(b)
 			return l
@@ -259,7 +322,7 @@ func TestWatchRefuses(t *testing.T) {
 		{"secret of no app", func() map[string]string {
 			l := releaseLabels(crm, crmImage("a"))
 			s, _ := seal.Parse([]byte(sealed(nil)))
-			_ = s.Set("admin", "KEY", "v")
+			_ = s.Set("kasl", "admin", "KEY", "v")
 			b, _ := s.Marshal()
 			l[LabelSecrets] = string(b)
 			return l
@@ -435,6 +498,9 @@ func TestWatchKeepsProjectsToTheirImage(t *testing.T) {
 	regs.publish(releaseLabels(crm, crmImage("b")))
 	l := releaseLabels(crm, crmImage("b"))
 	l[LabelSpec] = strings.Replace(l[LabelSpec], `project = "kasl"`, `project = "other"`, 1)
+	// kasl's secrets are sealed for kasl, and wouldn't open as other's.
+	delete(l, LabelSecrets)
+	delete(l, LabelSource)
 	regs.publish(l)
 	if res, _ := w.Check(ctx, ref, false); res == nil || !strings.Contains(res.Error, "deploys project kasl") {
 		t.Errorf("moved: %+v", res)

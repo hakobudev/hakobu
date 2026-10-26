@@ -297,9 +297,11 @@ The names are in the file; to remove one, the agent deletes its line. An app get
 
 ## How they reach the server
 
-CI puts the file, still sealed, in the release image; the server opens it with its key as it deploys. A [rollback](https://hakobu.dev/docs/deploys/index.md) takes the older image but today's secrets, so a rotated key stays rotated.
+CI puts the file, still sealed, in the release image; the server opens it with its key as it deploys. Each value is sealed for its place, project, app and name: one key opens every project's on the server, so a value pasted into another project's file, or under another app or name, isn't opened there, and that release is refused. A [rollback](https://hakobu.dev/docs/deploys/index.md) takes the older image but today's secrets, so a rotated key stays rotated.
 
 Database and cache passwords aren't secrets you keep: the server makes them.
+
+Values sealed by hakobu before 1.6 have no place. The server still opens those its releases deployed before, where they were; any other is refused, and `secret set` seals it again with its place.
 
 ## A new server
 
@@ -676,11 +678,11 @@ SSH is as safe as its keys: turn passwords off (the installer warns while they'r
 
 ## Isolation
 
-hakobu runs as the unprivileged `hakobu` user, in a sandboxed systemd unit, and [rootless Docker](https://docs.docker.com/engine/security/rootless/) as another, `hakobu-docker`: neither a break-in into hakobu nor a container escape gets root, and an escape can't read hakobu's data. Containers run with `no-new-privileges` and without raw sockets. Each project has its own Docker network; each database its own PostgreSQL user, and each cache its own server and password.
+hakobu runs as the unprivileged `hakobu` user, in a sandboxed systemd unit, and [rootless Docker](https://docs.docker.com/engine/security/rootless/) as another, `hakobu-docker`: neither a break-in into hakobu nor a container escape gets root, and an escape can't read hakobu's data. Containers run with `no-new-privileges` and without raw sockets. Each project has its own Docker network; each database its own PostgreSQL user, and each cache its own server and password. A project whose containers, volumes or databases would be named as another's isn't deployed.
 
 ## Secrets and backups
 
-Sealed with age to the server's key and yours: see [Secrets](https://hakobu.dev/docs/secrets/index.md) and [Backups](https://hakobu.dev/docs/backups/index.md). The repository, the registry and the backup buckets hold nothing readable without one of the two keys. Backup copies go with a key that may only write.
+Sealed with age to the server's key and yours: see [Secrets](https://hakobu.dev/docs/secrets/index.md) and [Backups](https://hakobu.dev/docs/backups/index.md). A secret is sealed for its project, app and name, and opens there alone, so one project's release can't take another's secrets. The repository, the registry and the backup buckets hold nothing readable without one of the two keys. Backup copies go with a key that may only write.
 
 ## What's beyond it
 

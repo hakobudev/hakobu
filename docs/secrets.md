@@ -24,9 +24,11 @@ The names are in the file; to remove one, the agent deletes its line. An app get
 
 ## How they reach the server
 
-CI puts the file, still sealed, in the release image; the server opens it with its key as it deploys. A [rollback](deploys.md#rollback) takes the older image but today's secrets, so a rotated key stays rotated.
+CI puts the file, still sealed, in the release image; the server opens it with its key as it deploys. Each value is sealed for its place, project, app and name: one key opens every project's on the server, so a value pasted into another project's file, or under another app or name, isn't opened there, and that release is refused. A [rollback](deploys.md#rollback) takes the older image but today's secrets, so a rotated key stays rotated.
 
 Database and cache passwords aren't secrets you keep: the server makes them.
+
+Values sealed by hakobu before 1.6 have no place. The server still opens those its releases deployed before, where they were; any other is refused, and `secret set` seals it again with its place.
 
 ## A new server
 

@@ -147,7 +147,7 @@ releases = ["ghcr.io/kasl/crm-release:main"]
 	}
 	s, _ := seal.Parse(b)
 	id, _ := seal.LoadIdentity(cfg.KeyFile())
-	if o, err := s.Open(id); err != nil || o.Apps["crm"]["STRIPE_KEY"] != "sk_live_1" || o.Hakobu[seal.StatusToken] != "github_pat" {
+	if o, err := s.Open(id, "kasl"); err != nil || o.Apps["crm"]["STRIPE_KEY"] != "sk_live_1" || o.Hakobu[seal.StatusToken] != "github_pat" {
 		t.Errorf("the server opens %+v, %v", o, err)
 	}
 	if out, _ := run(t, "", "secret", "list"); out != "crm\tSTRIPE_KEY\nhakobu\tstatus_token\n" {

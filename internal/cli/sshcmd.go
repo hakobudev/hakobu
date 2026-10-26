@@ -120,7 +120,7 @@ func sendSecret(ctx context.Context, project, app, name string, out io.Writer) e
 	if v == "" {
 		return errors.New("empty value")
 	}
-	if err := s.Set(app, name, v); err != nil {
+	if err := s.Set(project, app, name, v); err != nil {
 		return err
 	}
 	sealed := s.Hakobu[name]
