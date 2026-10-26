@@ -44,10 +44,17 @@ func Router(routes Routes) http.Handler {
 				// the visitor's address is in the X-Forwarded-For it sent:
 				// keep it, or every visitor would be 127.0.0.1 to the app.
 				// From anywhere else the header is the client's to forge.
-				if fromLoopback(pr.In) {
+				tunneled := fromLoopback(pr.In)
+				if tunneled {
 					pr.Out.Header["X-Forwarded-For"] = pr.In.Header["X-Forwarded-For"]
 				}
 				pr.SetXForwarded()
+				// The visitor's https ends at Cloudflare: cloudflared says
+				// which it was, or every app would think it served http
+				// (cookies without Secure, links to http://).
+				if p := pr.In.Header.Get("X-Forwarded-Proto"); tunneled && (p == "https" || p == "http") {
+					pr.Out.Header.Set("X-Forwarded-Proto", p)
+				}
 				pr.Out.Host = pr.In.Host // the app sees its own domain
 			},
 			ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
