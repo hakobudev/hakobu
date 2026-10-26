@@ -212,6 +212,10 @@ type watched struct {
 	Applied  string `json:"applied,omitempty"`
 	Previous string `json:"previous,omitempty"`
 	Failed   string `json:"failed,omitempty"`
+	// Project is the one this release image deploys, and no other image
+	// may: a release says which project it is, and would otherwise get
+	// another's databases by naming it.
+	Project string `json:"project,omitempty"`
 }
 
 // Run polls until ctx ends.
@@ -290,6 +294,10 @@ func (w *Watch) Check(ctx context.Context, ref registry.Ref, force bool) (*Resul
 	meta.Ref = pinned
 	res.Source, res.Revision = meta.Source, meta.Revision
 	if err == nil {
+		err = w.claim(ctx, seen, key, release.Spec.Name)
+	}
+	if err == nil {
+		s.Project = release.Spec.Name
 		release.Force = force
 		res.Project = release.Spec.Name
 		if w.Started != nil {
@@ -348,6 +356,10 @@ func (w *Watch) Rollback(ctx context.Context, ref registry.Ref) (*Result, error)
 	meta.Ref = pinned
 	res.Source, res.Revision = meta.Source, meta.Revision
 	if err == nil {
+		err = w.claim(ctx, seen, key, release.Spec.Name)
+	}
+	if err == nil {
+		s.Project = release.Spec.Name
 		res.Project = release.Spec.Name
 		fmt.Fprintln(&log, "rolling back to", pinned)
 		var plan Plan
@@ -364,6 +376,75 @@ func (w *Watch) Rollback(ctx context.Context, ref registry.Ref) (*Result, error)
 	}
 	seen[key] = s
 	return w.finish(seen, meta, res)
+}
+
+// claim tells whether the release image key may deploy project: it's the
+// image's own, or no image's yet.
+func (w *Watch) claim(ctx context.Context, seen map[string]watched, key, project string) error {
+	w.backfill(ctx, seen)
+	if own := seen[key].Project; own != "" && own != project {
+		return fmt.Errorf("this release image deploys project %s, and this release is of %s: a project of its own needs an image of its own", own, project)
+	}
+	for _, k := range sortedKeys(seen) {
+		if k != key && seen[k].Project == project {
+			return fmt.Errorf("project %s is deployed by %s, and no other release image may deploy it", project, k)
+		}
+	}
+	return nil
+}
+
+// backfill gives the images that deployed before hakobu kept their
+// project the project of the release they applied.
+func (w *Watch) backfill(ctx context.Context, seen map[string]watched) {
+	for k, s := range seen {
+		if s.Project != "" || s.Applied == "" {
+			continue
+		}
+		ref, err := registry.ParseRef(k)
+		if err != nil {
+			continue
+		}
+		if r, _, err := w.fetch(ctx, ref.Pinned(s.Applied)); err == nil {
+			s.Project = r.Spec.Name
+			seen[k] = s
+		}
+	}
+}
+
+// Claimed is the project ref's release image deploys, if any; an error
+// when it can't tell.
+func (w *Watch) Claimed(ctx context.Context, ref registry.Ref) (string, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	seen, err := w.load()
+	if err != nil {
+		return "", err
+	}
+	s, ok := seen[ref.String()]
+	if !ok || s.Applied == "" {
+		return s.Project, nil
+	}
+	w.backfill(ctx, seen)
+	if seen[ref.String()].Project == "" {
+		return "", fmt.Errorf("%s: can't read the release it applied, to tell its project", ref)
+	}
+	return seen[ref.String()].Project, nil
+}
+
+// Forget drops what hakobu kept of ref's release image, its project too,
+// which another image may deploy then.
+func (w *Watch) Forget(ref registry.Ref) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	seen, err := w.load()
+	if err != nil {
+		return err
+	}
+	if _, ok := seen[ref.String()]; !ok {
+		return nil
+	}
+	delete(seen, ref.String())
+	return w.save(seen)
 }
 
 func (w *Watch) finish(seen map[string]watched, meta Meta, res Result) (*Result, error) {

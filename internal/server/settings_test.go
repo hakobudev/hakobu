@@ -157,6 +157,21 @@ func TestAPISettings(t *testing.T) {
 	if code != http.StatusOK || strings.Contains(fmt.Sprint(view), "p4ss") || strings.Contains(fmt.Sprint(view), "s3cret") {
 		t.Errorf("settings: %d %v", code, view)
 	}
+
+	// A release that deployed a project is the admin's to remove: another
+	// image may deploy the project then.
+	if err := os.WriteFile(d.Config.WatchFile(), []byte(`{"ghcr.io/kasl/crm:main":{"project":"crm"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, body := post("op-token", `{"remove_release":"ghcr.io/kasl/crm:main"}`); code != http.StatusForbidden || !strings.Contains(fmt.Sprint(body), "deploys project crm") {
+		t.Errorf("remove a project's release with the operator token: %d %v", code, body)
+	}
+	if code, body := post("admin-token", `{"remove_release":"ghcr.io/kasl/crm:main"}`); code != http.StatusOK {
+		t.Errorf("remove a project's release: %d %v", code, body)
+	}
+	if b, _ := os.ReadFile(d.Config.WatchFile()); strings.Contains(string(b), "crm") {
+		t.Errorf("watch.json still has it: %s", b)
+	}
 }
 
 // A restart waits for the backups to finish.

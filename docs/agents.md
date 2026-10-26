@@ -22,7 +22,7 @@ Its tools: `status`, `deploys`, `logs`, `backups`, `settings` (the server's rele
 
 - **Delete or replace data.** `hakobu destroy` and `hakobu restore` are root's on the server, and need a person at a terminal typing a confirmation: without a terminal they refuse. The MCP server has neither, and `.claude/settings.json` denies both to Claude Code as well. The backups' buckets are root's too.
 - **Read a secret, or see one.** You type a secret in your own terminal (`ssh -t kasl-1 secret set …`); the agent gets it sealed, and can't open it. The skill tells it never to ask for one in the chat.
-- **Get a shell.** Its key runs hakobu's commands on the server and nothing else, as an operator: look, deploy, roll back, back up, update, change the settings but the buckets.
+- **Get a shell.** Its key runs hakobu's commands on the server and nothing else, as an operator: look, deploy, roll back, back up, update, change the settings but the buckets, or remove a release image that deploys a project (another could take the project then).
 
 The logs an agent reads are written by your apps, and text in them could try to steer it; what it can do through its key is bounded the same either way.
 

@@ -432,7 +432,7 @@ Its tools: `status`, `deploys`, `logs`, `backups`, `settings` (the server's rele
 
 - **Delete or replace data.** `hakobu destroy` and `hakobu restore` are root's on the server, and need a person at a terminal typing a confirmation: without a terminal they refuse. The MCP server has neither, and `.claude/settings.json` denies both to Claude Code as well. The backups' buckets are root's too.
 - **Read a secret, or see one.** You type a secret in your own terminal (`ssh -t kasl-1 secret set …`); the agent gets it sealed, and can't open it. The skill tells it never to ask for one in the chat.
-- **Get a shell.** Its key runs hakobu's commands on the server and nothing else, as an operator: look, deploy, roll back, back up, update, change the settings but the buckets.
+- **Get a shell.** Its key runs hakobu's commands on the server and nothing else, as an operator: look, deploy, roll back, back up, update, change the settings but the buckets, or remove a release image that deploys a project (another could take the project then).
 
 The logs an agent reads are written by your apps, and text in them could try to steer it; what it can do through its key is bounded the same either way.
 
@@ -684,7 +684,7 @@ Sealed with age to the server's key and yours: see [Secrets](https://hakobu.dev/
 
 ## What's beyond it
 
-The release image is trusted as it comes: whoever can push to its tag deploys to the server. A public release shows its repository, its commits and its apps' image names; the rest is sealed. Guard the registry, and CI's ability to push, as you would SSH. A malicious app can read its own secrets and its own databases, as any app can.
+The release image is trusted as it comes: whoever can push to its tag deploys to the server. A public release shows its repository, its commits and its apps' image names; the rest is sealed. Guard the registry, and CI's ability to push, as you would SSH. A malicious app can read its own secrets and its own databases, as any app can. A release names its project, and only the release image that first deployed a project may deploy it again, so one repository's CI can't take another project, and its databases; removing that image from the server needs the admin token.
 
 ## Releases
 

@@ -24,7 +24,7 @@ Sealed with age to the server's key and yours: see [Secrets](secrets.md) and [Ba
 
 ## What's beyond it
 
-The release image is trusted as it comes: whoever can push to its tag deploys to the server. A public release shows its repository, its commits and its apps' image names; the rest is sealed. Guard the registry, and CI's ability to push, as you would SSH. A malicious app can read its own secrets and its own databases, as any app can.
+The release image is trusted as it comes: whoever can push to its tag deploys to the server. A public release shows its repository, its commits and its apps' image names; the rest is sealed. Guard the registry, and CI's ability to push, as you would SSH. A malicious app can read its own secrets and its own databases, as any app can. A release names its project, and only the release image that first deployed a project may deploy it again, so one repository's CI can't take another project, and its databases; removing that image from the server needs the admin token.
 
 ## Releases
 

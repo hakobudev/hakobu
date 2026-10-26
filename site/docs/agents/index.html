@@ -67,7 +67,7 @@
 <ul>
 <li><strong>Delete or replace data.</strong> <code>hakobu destroy</code> and <code>hakobu restore</code> are root's on the server, and need a person at a terminal typing a confirmation: without a terminal they refuse. The MCP server has neither, and <code>.claude/settings.json</code> denies both to Claude Code as well. The backups' buckets are root's too.</li>
 <li><strong>Read a secret, or see one.</strong> You type a secret in your own terminal (<code>ssh -t kasl-1 secret set …</code>); the agent gets it sealed, and can't open it. The skill tells it never to ask for one in the chat.</li>
-<li><strong>Get a shell.</strong> Its key runs hakobu's commands on the server and nothing else, as an operator: look, deploy, roll back, back up, update, change the settings but the buckets.</li>
+<li><strong>Get a shell.</strong> Its key runs hakobu's commands on the server and nothing else, as an operator: look, deploy, roll back, back up, update, change the settings but the buckets, or remove a release image that deploys a project (another could take the project then).</li>
 </ul>
 <p>The logs an agent reads are written by your apps, and text in them could try to steer it; what it can do through its key is bounded the same either way.</p>
 <h2 id="with-hakobu-on-a-laptop">With hakobu on a laptop</h2>

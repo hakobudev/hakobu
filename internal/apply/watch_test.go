@@ -390,3 +390,61 @@ func TestWatchKeepsPollErrors(t *testing.T) {
 		t.Errorf("poll errors %q", errs)
 	}
 }
+
+// A release says which project it is; only the image that deployed a
+// project may deploy it again, or another would get its databases.
+func TestWatchKeepsProjectsToTheirImage(t *testing.T) {
+	h, regs, other := newHarness(t), newReleases(t), newReleases(t)
+	w, ref := newWatch(t, h, regs)
+	_, ref2 := other.ref(t)
+	w.Registry.Insecure[ref2.Host] = true
+	ctx := context.Background()
+
+	regs.publish(releaseLabels(crm, crmImage("a")))
+	if res, err := w.Check(ctx, ref, false); err != nil || res.Error != "" {
+		t.Fatalf("first: %+v, %v", res, err)
+	}
+	calls := len(h.f.Calls())
+	takeover := func(why string) {
+		t.Helper()
+		other.publish(releaseLabels(crm, crmImage("c")))
+		res, err := w.Check(ctx, ref2, true)
+		if err != nil || res == nil || !strings.Contains(res.Error, "project kasl is deployed by "+ref.String()) {
+			t.Errorf("%s: %+v, %v", why, res, err)
+		}
+		if len(h.f.Calls()) != calls {
+			t.Errorf("%s: the node was touched: %v", why, h.f.Calls()[calls:])
+		}
+	}
+	takeover("another image")
+
+	// From a watch.json of before projects were kept: the project comes
+	// from the release applied.
+	seen, _ := w.load()
+	for k, s := range seen {
+		s.Project = ""
+		seen[k] = s
+	}
+	_ = w.save(seen)
+	takeover("no project kept")
+	if p, err := w.Claimed(ctx, ref); p != "kasl" || err != nil {
+		t.Errorf("claimed %q, %v", p, err)
+	}
+
+	// Nor does an image move to another project.
+	regs.publish(releaseLabels(crm, crmImage("b")))
+	l := releaseLabels(crm, crmImage("b"))
+	l[LabelSpec] = strings.Replace(l[LabelSpec], `project = "kasl"`, `project = "other"`, 1)
+	regs.publish(l)
+	if res, _ := w.Check(ctx, ref, false); res == nil || !strings.Contains(res.Error, "deploys project kasl") {
+		t.Errorf("moved: %+v", res)
+	}
+
+	// Once the first is forgotten, the project is free.
+	if err := w.Forget(ref); err != nil {
+		t.Fatal(err)
+	}
+	if res, _ := w.Check(ctx, ref2, true); res == nil || res.Error != "" {
+		t.Errorf("after forget: %+v", res)
+	}
+}

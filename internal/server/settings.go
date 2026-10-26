@@ -14,6 +14,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/hakobudev/hakobu/internal/alert"
+	"github.com/hakobudev/hakobu/internal/registry"
 	"github.com/hakobudev/hakobu/internal/s3"
 )
 
@@ -425,6 +426,23 @@ func (d *Daemon) changeSettings(w http.ResponseWriter, r *http.Request) (any, er
 			return nil, apiError{http.StatusForbidden, "the backups' buckets need the admin token"}
 		}
 	}
+	// A release image that deployed a project is the only one that may:
+	// removing it lets another image take the project, and its databases.
+	var freed *registry.Ref
+	if rel := ch.RemoveRelease; rel != "" {
+		if ref, err := registry.ParseRef(rel); err == nil {
+			project, err := d.Watch.Claimed(r.Context(), ref)
+			if err != nil {
+				return nil, err
+			}
+			if project != "" {
+				if d.levelOf(r) != Admin {
+					return nil, apiError{http.StatusForbidden, fmt.Sprintf("%s deploys project %s: removing it lets another release image deploy %s, so it needs the admin token (ssh root@… hakobu server set release --remove %s)", rel, project, project, rel)}
+				}
+				freed = &ref
+			}
+		}
+	}
 	if bs := ch.Backups; bs != nil && bs.Bucket != nil && bs.Bucket.Prefix == "" {
 		bs.Bucket.Prefix = "hakobu/" + d.Config.Name + "/"
 	}
@@ -449,6 +467,11 @@ func (d *Daemon) changeSettings(w http.ResponseWriter, r *http.Request) (any, er
 	}
 	if err := n.Save(d.Config.SettingsFile()); err != nil {
 		return nil, err
+	}
+	if freed != nil {
+		if err := d.Watch.Forget(*freed); err != nil {
+			fmt.Fprintln(d.log(), "warning:", err)
+		}
 	}
 	select {
 	case d.restart <- struct{}{}:
