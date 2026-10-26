@@ -11,21 +11,22 @@ Run your projects on servers you own. A project says what it needs in a file in 
 - **Backups** of databases and volumes to any S3 bucket and a copy elsewhere, sealed, and restored into scratch after every upload to prove they restore.
 - **Alerts** by email when an app is down, a deploy or backup fails, the disk fills, or the audit finds a port or container that shouldn't be there; a pulse to a dead man's switch.
 - **Agents welcome**: `hakobu init` gives a repository a skill for Claude Code, and `hakobu mcp` lets an agent see status and logs, deploy and roll back. Deleting or restoring data is a person's to do.
-- **One Go binary**, rootless Docker, the API on your tailnet only, signed releases. No provider's API is called.
+- **One Go binary**, rootless Docker, the API on loopback (through SSH) or your tailnet only, signed releases that install themselves. No provider's API is called.
 
 ## Start
 
-A server (Debian or Ubuntu, with a Tailscale auth key and your age public key):
+A server (Debian or Ubuntu, with your age public key; `TS_AUTHKEY=…` too, to put its API on your tailnet):
 
 ```bash
 curl -fsSL https://hakobu.dev/install.sh | sudo \
-  HAKOBU_NAME=web-1 HAKOBU_OWNER_KEY=age1… TS_AUTHKEY=tskey-auth-… HAKOBU_INGRESS=public bash
+  HAKOBU_NAME=web-1 HAKOBU_OWNER_KEY=age1… HAKOBU_INGRESS=public bash
 ```
 
 A project, in its repository, with the CLI from the [releases](https://github.com/hakobudev/hakobu/releases):
 
 ```bash
-hakobu server add web-1 http://100.x.y.z:7070   # the operator token on stdin
+ssh -fN -L 7070:127.0.0.1:7070 root@web-1        # the API, through SSH
+hakobu server add web-1 http://127.0.0.1:7070    # the operator token on stdin
 hakobu init --server web-1
 ```
 

@@ -6,18 +6,17 @@ One command sets a server up, and asks nothing: everything comes from the enviro
 curl -fsSL https://hakobu.dev/install.sh | sudo \
   HAKOBU_NAME=kasl-1 \
   HAKOBU_OWNER_KEY=age1… \
-  TS_AUTHKEY=tskey-auth-… TS_TAGS=tag:hakobu \
   HAKOBU_INGRESS=public HAKOBU_ACME_EMAIL=you@example.com \
   bash
 ```
 
-It installs rootless Docker (as the user `hakobu-docker`), Tailscale (unless `HAKOBU_API=loopback`), unattended upgrades, hakobu (its signature checked) as a sandboxed systemd service running as `hakobu`, writes `/etc/hakobu/server.toml` and makes the server's key. Run it again to update: the config, the key and the data stay.
+It installs rootless Docker (as the user `hakobu-docker`), unattended upgrades, hakobu (its signature checked) as a sandboxed systemd service running as `hakobu`, and Tailscale if you give a key; writes `/etc/hakobu/server.toml` and makes the server's key. After that hakobu updates itself: see [Updates](updates.md).
 
 ## Before you start
 
 - **Your key.** `age-keygen` makes one; keep the secret half in your password manager and give the public half (`age1…`) as `HAKOBU_OWNER_KEY`. Every secret and backup is sealed to it as well as to the server, so you can open them if the server is gone.
-- **A Tailscale auth key** ([admin console](https://login.tailscale.com/admin/settings/keys)), with the tag you'll give the server. The API listens only on the server's tailnet address. Your tailnet's policy should let your devices reach the tag on port 7070, and nothing else need reach it.
-- **Or no Tailscale:** with `HAKOBU_API=loopback` the API listens on 127.0.0.1 alone, and your laptop reaches it through SSH: `ssh -N -L 7070:127.0.0.1:7070 root@the-server`, then `hakobu server add NAME http://127.0.0.1:7070`.
+- **SSH to the server.** The API listens on 127.0.0.1 alone, and your laptop reaches it through a tunnel: `ssh -fN -L 7070:127.0.0.1:7070 root@the-server`, then `hakobu server add NAME http://127.0.0.1:7070`. The audit expects SSH to listen.
+- **Or a Tailscale auth key** ([admin console](https://login.tailscale.com/admin/settings/keys)), with the tag you'll give the server, as `TS_AUTHKEY` (and `TS_TAGS`): then the API listens only on the server's tailnet address, and your tailnet's policy should let your devices reach the tag on port 7070.
 
 ## Settings
 
@@ -25,8 +24,8 @@ It installs rootless Docker (as the user `hakobu-docker`), Tailscale (unless `HA
 |---|---|
 | `HAKOBU_NAME` | the server's name: lowercase letters, digits and `-` |
 | `HAKOBU_OWNER_KEY` | your age public key |
-| `HAKOBU_API` | `tailnet` (the default) or `loopback`: the API on 127.0.0.1, reached through SSH |
-| `TS_AUTHKEY` | a Tailscale auth key, unless the server is in the tailnet already (or `HAKOBU_API=loopback`) |
+| `TS_AUTHKEY` | a Tailscale auth key, for the API on the tailnet; without one (and a server not in a tailnet already), it's on 127.0.0.1, reached through SSH |
+| `HAKOBU_API` | `loopback` or `tailnet`, to say which outright |
 | `TS_TAGS` | the server's Tailscale tags, `tag:hakobu` say |
 | `HAKOBU_INGRESS` | `public`, `tunnel` or `none` (the default): see below |
 | `HAKOBU_ACME_EMAIL` | Let's Encrypt's contact, for `public` |

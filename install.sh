@@ -11,12 +11,12 @@
 #   HAKOBU_NAME        the server's name (lowercase letters, digits, -)
 #   HAKOBU_OWNER_KEY   your age public key: secrets and backups are sealed to
 #                      it too, so you can open them without the server
-#   TS_AUTHKEY         a Tailscale auth key, unless the server is in the
-#                      tailnet already: the API listens there and nowhere else
-#                      (not with HAKOBU_API=loopback)
 # Optional:
-#   HAKOBU_API         tailnet (default) or loopback: the API on 127.0.0.1
-#                      only, reached through SSH (ssh -L), no Tailscale
+#   TS_AUTHKEY         a Tailscale auth key: the API listens on the tailnet
+#                      and nowhere else. Without one (and a server not in a
+#                      tailnet already), it listens on 127.0.0.1, reached
+#                      through SSH (ssh -L), and Tailscale isn't installed
+#   HAKOBU_API         tailnet or loopback, to say which outright
 #   TS_TAGS            the server's Tailscale tags, e.g. tag:hakobu
 #   HAKOBU_INGRESS     public (80/443 with Let's Encrypt), tunnel (a Cloudflare
 #                      Tunnel to loopback) or none (default)
@@ -62,7 +62,10 @@ fi
 FIRST=""
 if [ ! -f "$CONFIG" ]; then
   FIRST=1
-  API="${HAKOBU_API:-tailnet}"
+  API="${HAKOBU_API:-}"
+  if [ -z "$API" ]; then
+    if [ -n "${TS_AUTHKEY:-}" ] || { command -v tailscale >/dev/null && tailscale ip -4 >/dev/null 2>&1; }; then API=tailnet; else API=loopback; fi
+  fi
   case "$API" in tailnet|loopback) ;; *) die "HAKOBU_API: tailnet or loopback" ;; esac
   [[ "${HAKOBU_NAME:-}" =~ ^[a-z][a-z0-9-]{0,30}$ ]] || die "HAKOBU_NAME: a name of lowercase letters, digits and -"
   [[ "${HAKOBU_OWNER_KEY:-}" =~ ^age1[a-z0-9]{58}$ ]] || die "HAKOBU_OWNER_KEY: your age public key (age1…); age-keygen makes a key pair, keep its secret half in your password manager"

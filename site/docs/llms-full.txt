@@ -14,8 +14,8 @@ hakobu runs your projects on servers you own. A project says what it needs in a 
 
 ## What it needs
 
-- A Linux server (Debian or Ubuntu, amd64 or arm64) with systemd. The installer sets up rootless Docker and Tailscale.
-- A [Tailscale](https://tailscale.com) tailnet: hakobu's API listens there and nowhere else.
+- A Linux server (Debian or Ubuntu, amd64 or arm64) with systemd. The installer sets up rootless Docker, and hakobu then updates itself.
+- SSH to it: hakobu's API listens on its loopback and nowhere else, and your laptop reaches it through an SSH tunnel. Or a [Tailscale](https://tailscale.com) tailnet, for the API to listen there instead.
 - A registry for the images (GitHub's ghcr.io works with no setup) and a CI to build them (the workflow hakobu provides is for GitHub Actions).
 - For backups, an S3 bucket (Cloudflare R2, Hetzner Object Storage, AWS, any other); for alerts, an SMTP account.
 - For the web, either ports 80 and 443 (hakobu gets Let's Encrypt certificates) or a Cloudflare Tunnel.
@@ -32,18 +32,17 @@ One command sets a server up, and asks nothing: everything comes from the enviro
 curl -fsSL https://hakobu.dev/install.sh | sudo \
   HAKOBU_NAME=kasl-1 \
   HAKOBU_OWNER_KEY=age1… \
-  TS_AUTHKEY=tskey-auth-… TS_TAGS=tag:hakobu \
   HAKOBU_INGRESS=public HAKOBU_ACME_EMAIL=you@example.com \
   bash
 ```
 
-It installs rootless Docker (as the user `hakobu-docker`), Tailscale (unless `HAKOBU_API=loopback`), unattended upgrades, hakobu (its signature checked) as a sandboxed systemd service running as `hakobu`, writes `/etc/hakobu/server.toml` and makes the server's key. Run it again to update: the config, the key and the data stay.
+It installs rootless Docker (as the user `hakobu-docker`), unattended upgrades, hakobu (its signature checked) as a sandboxed systemd service running as `hakobu`, and Tailscale if you give a key; writes `/etc/hakobu/server.toml` and makes the server's key. After that hakobu updates itself: see [Updates](https://hakobu.dev/docs/updates/index.md).
 
 ## Before you start
 
 - **Your key.** `age-keygen` makes one; keep the secret half in your password manager and give the public half (`age1…`) as `HAKOBU_OWNER_KEY`. Every secret and backup is sealed to it as well as to the server, so you can open them if the server is gone.
-- **A Tailscale auth key** ([admin console](https://login.tailscale.com/admin/settings/keys)), with the tag you'll give the server. The API listens only on the server's tailnet address. Your tailnet's policy should let your devices reach the tag on port 7070, and nothing else need reach it.
-- **Or no Tailscale:** with `HAKOBU_API=loopback` the API listens on 127.0.0.1 alone, and your laptop reaches it through SSH: `ssh -N -L 7070:127.0.0.1:7070 root@the-server`, then `hakobu server add NAME http://127.0.0.1:7070`.
+- **SSH to the server.** The API listens on 127.0.0.1 alone, and your laptop reaches it through a tunnel: `ssh -fN -L 7070:127.0.0.1:7070 root@the-server`, then `hakobu server add NAME http://127.0.0.1:7070`. The audit expects SSH to listen.
+- **Or a Tailscale auth key** ([admin console](https://login.tailscale.com/admin/settings/keys)), with the tag you'll give the server, as `TS_AUTHKEY` (and `TS_TAGS`): then the API listens only on the server's tailnet address, and your tailnet's policy should let your devices reach the tag on port 7070.
 
 ## Settings
 
@@ -51,8 +50,8 @@ It installs rootless Docker (as the user `hakobu-docker`), Tailscale (unless `HA
 |---|---|
 | `HAKOBU_NAME` | the server's name: lowercase letters, digits and `-` |
 | `HAKOBU_OWNER_KEY` | your age public key |
-| `HAKOBU_API` | `tailnet` (the default) or `loopback`: the API on 127.0.0.1, reached through SSH |
-| `TS_AUTHKEY` | a Tailscale auth key, unless the server is in the tailnet already (or `HAKOBU_API=loopback`) |
+| `TS_AUTHKEY` | a Tailscale auth key, for the API on the tailnet; without one (and a server not in a tailnet already), it's on 127.0.0.1, reached through SSH |
+| `HAKOBU_API` | `loopback` or `tailnet`, to say which outright |
 | `TS_TAGS` | the server's Tailscale tags, `tag:hakobu` say |
 | `HAKOBU_INGRESS` | `public`, `tunnel` or `none` (the default): see below |
 | `HAKOBU_ACME_EMAIL` | Let's Encrypt's contact, for `public` |
@@ -380,7 +379,7 @@ hakobu is built so an agent can do the work that's different in each project (th
 
 - **Delete or replace data.** `hakobu destroy` and `hakobu restore` need the admin token, which belongs in your password manager, and a person at a terminal typing a confirmation: without a terminal they refuse. `.claude/settings.json` denies both to Claude Code as well. The MCP server has neither.
 - **Read a secret.** It can seal a new one to the server, never open one. The skill tells it to ask you to run `hakobu secret set`.
-- **Reach the server.** No SSH is needed for any of this, and the API is on your tailnet only.
+- **Reach the server.** No shell is needed for any of this: the agent talks to the API (on loopback, through your SSH tunnel, or on your tailnet) with the operator token, and can't do more through it than that token allows.
 
 The logs an agent reads are written by your apps, and text in them could try to steer it; what it can do with the operator token is bounded the same either way.
 
@@ -453,14 +452,16 @@ to = "you@example.com"
 
 A bucket has `endpoint`, `region`, `bucket`, `access_key`, `secret_key`, and `prefix` (default `hakobu/NAME/`); copies have a `name`.
 
-## Tailscale
+## Reaching the API
 
-The API listens on the server's tailnet address only. In your tailnet's policy, let your own devices reach the server's tag on port 7070; nothing else needs to. The installer leaves Tailscale's SSH, routes and DNS off.
+By default the API listens on 127.0.0.1:7070 and nowhere else; your laptop reaches it through SSH (`ssh -fN -L 7070:127.0.0.1:7070 root@the-server`), and the audit expects SSH to listen.
+
+With a Tailscale key at install, it listens on the server's tailnet address instead. In your tailnet's policy, let your own devices reach the server's tag on port 7070; nothing else needs to. The installer leaves Tailscale's SSH, routes and DNS off.
 
 ## From your laptop
 
 ```bash
-hakobu server add kasl-1 http://100.101.102.103:7070   # the operator token on stdin
+hakobu server add kasl-1 http://127.0.0.1:7070   # through the tunnel, or its tailnet address; the operator token on stdin
 hakobu server list
 hakobu status              # every server
 hakobu --server kasl-1 deploys
@@ -515,7 +516,7 @@ The server watches itself and emails you through any SMTP server (`[alerts.smtp]
 - PostgreSQL not answering;
 - an update of hakobu that didn't install (closed once it does), and a newer minor release of hakobu out for 14 days that this server hasn't updated to;
 - the **audit**, hourly:
-  - a port listening beyond loopback and the tailnet that isn't in `alerts.allow_ports` (80 and 443 are allowed for `public` ingress by themselves; add 22 if SSH listens on every address);
+  - a port listening beyond loopback and the tailnet that isn't in `alerts.allow_ports` (80 and 443 are allowed for `public` ingress by themselves; 22 with the API on loopback, as SSH is the way to it; else add 22 if SSH listens on every address);
   - a container hakobu didn't start;
   - unattended upgrades that haven't run for 3 days.
 
@@ -577,7 +578,7 @@ What hakobu does to keep your apps and data yours, and what it doesn't promise.
 
 ## Nothing comes in
 
-The server pulls its releases; no CI, panel or agent connects to it. hakobu's API listens on the tailnet only (an address on every interface is refused), and the web reaches apps only through 80/443 for their own domains, or a Cloudflare Tunnel with no port open at all. The [audit](https://hakobu.dev/docs/alerts/index.md) emails you about any other port that listens.
+The server pulls its releases; no CI, panel or agent connects to it. hakobu's API listens on loopback, reached through SSH, or on the tailnet, and nowhere else (an address on every interface is refused); hakobu's own releases are signed, and install only if newer, and the web reaches apps only through 80/443 for their own domains, or a Cloudflare Tunnel with no port open at all. The [audit](https://hakobu.dev/docs/alerts/index.md) emails you about any other port that listens.
 
 ## Two tokens
 

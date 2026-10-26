@@ -14,6 +14,6 @@ hakobu is built so an agent can do the work that's different in each project (th
 
 - **Delete or replace data.** `hakobu destroy` and `hakobu restore` need the admin token, which belongs in your password manager, and a person at a terminal typing a confirmation: without a terminal they refuse. `.claude/settings.json` denies both to Claude Code as well. The MCP server has neither.
 - **Read a secret.** It can seal a new one to the server, never open one. The skill tells it to ask you to run `hakobu secret set`.
-- **Reach the server.** No SSH is needed for any of this, and the API is on your tailnet only.
+- **Reach the server.** No shell is needed for any of this: the agent talks to the API (on loopback, through your SSH tunnel, or on your tailnet) with the operator token, and can't do more through it than that token allows.
 
 The logs an agent reads are written by your apps, and text in them could try to steer it; what it can do with the operator token is bounded the same either way.

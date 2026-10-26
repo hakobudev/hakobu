@@ -64,7 +64,7 @@
 <li>an update of hakobu that didn't install (closed once it does), and a newer minor release of hakobu out for 14 days that this server hasn't updated to;</li>
 <li>the <strong>audit</strong>, hourly:
 <ul>
-<li>a port listening beyond loopback and the tailnet that isn't in <code>alerts.allow_ports</code> (80 and 443 are allowed for <code>public</code> ingress by themselves; add 22 if SSH listens on every address);</li>
+<li>a port listening beyond loopback and the tailnet that isn't in <code>alerts.allow_ports</code> (80 and 443 are allowed for <code>public</code> ingress by themselves; 22 with the API on loopback, as SSH is the way to it; else add 22 if SSH listens on every address);</li>
 <li>a container hakobu didn't start;</li>
 <li>unattended upgrades that haven't run for 3 days.</li>
 </ul>

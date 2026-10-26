@@ -56,7 +56,7 @@
       </div>
       <p>What hakobu does to keep your apps and data yours, and what it doesn't promise.</p>
 <h2 id="nothing-comes-in">Nothing comes in</h2>
-<p>The server pulls its releases; no CI, panel or agent connects to it. hakobu's API listens on the tailnet only (an address on every interface is refused), and the web reaches apps only through 80/443 for their own domains, or a Cloudflare Tunnel with no port open at all. The <a href="/docs/alerts/">audit</a> emails you about any other port that listens.</p>
+<p>The server pulls its releases; no CI, panel or agent connects to it. hakobu's API listens on loopback, reached through SSH, or on the tailnet, and nowhere else (an address on every interface is refused); hakobu's own releases are signed, and install only if newer, and the web reaches apps only through 80/443 for their own domains, or a Cloudflare Tunnel with no port open at all. The <a href="/docs/alerts/">audit</a> emails you about any other port that listens.</p>
 <h2 id="two-tokens">Two tokens</h2>
 <p>The <strong>operator</strong> token (laptop, agent) can look, deploy, roll back and back up. The <strong>admin</strong> token alone can restore or delete data; keep it in your password manager. The server keeps only their SHA-256. Restore and destroy also need a person at a terminal typing a confirmation, and delete only what the file no longer has, after a last backup.</p>
 <h2 id="isolation">Isolation</h2>

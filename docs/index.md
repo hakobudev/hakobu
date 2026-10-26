@@ -14,8 +14,8 @@ hakobu runs your projects on servers you own. A project says what it needs in a 
 
 ## What it needs
 
-- A Linux server (Debian or Ubuntu, amd64 or arm64) with systemd. The installer sets up rootless Docker and Tailscale.
-- A [Tailscale](https://tailscale.com) tailnet: hakobu's API listens there and nowhere else.
+- A Linux server (Debian or Ubuntu, amd64 or arm64) with systemd. The installer sets up rootless Docker, and hakobu then updates itself.
+- SSH to it: hakobu's API listens on its loopback and nowhere else, and your laptop reaches it through an SSH tunnel. Or a [Tailscale](https://tailscale.com) tailnet, for the API to listen there instead.
 - A registry for the images (GitHub's ghcr.io works with no setup) and a CI to build them (the workflow hakobu provides is for GitHub Actions).
 - For backups, an S3 bucket (Cloudflare R2, Hetzner Object Storage, AWS, any other); for alerts, an SMTP account.
 - For the web, either ports 80 and 443 (hakobu gets Let's Encrypt certificates) or a Cloudflare Tunnel.

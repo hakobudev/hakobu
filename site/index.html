@@ -255,7 +255,7 @@
       <div class="card span-12 tint-grey card-wide">
         <div class="card-text">
           <h3>Nothing comes in.</h3>
-          <p>The server pulls its releases. hakobu's API listens on your tailnet and nowhere else, and the web reaches your apps on 80 and 443 for their own domains, or through a Cloudflare Tunnel with no port open at all. The audit mails you about anything else that listens.</p>
+          <p>The server pulls its releases, hakobu's own too. hakobu's API listens on loopback, for your SSH tunnel, or on your tailnet, and nowhere else, and the web reaches your apps on 80 and 443 for their own domains, or through a Cloudflare Tunnel with no port open at all. The audit mails you about anything else that listens.</p>
         </div>
         <div class="card-viz"><div class="viz viz-doors" aria-hidden="true">
           <svg viewBox="0 0 640 260" class="doors">
@@ -266,7 +266,7 @@
             <path class="t-out" d="M392 118 C 434 118, 430 46, 472 46" marker-end="url(#arr)"/>
             <path class="t-out" d="M392 130 L 472 130" marker-end="url(#arr)"/>
             <path class="t-out" d="M392 142 C 434 142, 430 214, 472 214" marker-end="url(#arr)"/>
-            <g class="t-node"><rect x="16" y="24" width="150" height="44" rx="10"/><text x="30" y="43">you, your agent</text><text x="30" y="59" class="t-sub">the API, on the tailnet</text></g>
+            <g class="t-node"><rect x="16" y="24" width="150" height="44" rx="10"/><text x="30" y="43">you, your agent</text><text x="30" y="59" class="t-sub">the API: SSH or tailnet</text></g>
             <g class="t-node t-off"><rect x="16" y="108" width="150" height="44" rx="10"/><text x="30" y="127">anything else</text><text x="30" y="143" class="t-sub">nothing listens</text></g>
             <g class="t-node"><rect x="16" y="192" width="150" height="44" rx="10"/><text x="30" y="211">visitors</text><text x="30" y="227" class="t-sub">80/443, or a tunnel</text></g>
             <g class="t-node t-main"><rect class="t-halo" x="244" y="102" width="152" height="56" rx="28"/><rect x="250" y="108" width="140" height="44" rx="22"/><use href="#i-server" x="268" y="120" width="20" height="20"/><text x="296" y="135">your server</text></g>
@@ -275,8 +275,8 @@
             <g class="t-node"><rect x="474" y="192" width="150" height="44" rx="10"/><text x="488" y="211">SMTP, GitHub</text><text x="488" y="227" class="t-sub">alerts, commit status</text></g>
           </svg>
           <ul class="doors-list">
-            <li><b>In</b>you and your agent, on the tailnet; visitors on 80/443 or a tunnel</li>
-            <li><b>Out</b>the registry, your buckets, SMTP and GitHub's commit status</li>
+            <li><b>In</b>you and your agent, through SSH or the tailnet; visitors on 80/443 or a tunnel</li>
+            <li><b>Out</b>the registry, your buckets, SMTP, GitHub's commit status and hakobu's releases</li>
             <li><b>Else</b>nothing listens, and the audit checks hourly</li>
           </ul>
         </div></div>
@@ -292,7 +292,7 @@
     </div>
     <ul class="bring">
       <li><svg class="icon"><use href="#i-server"/></svg><b>A Linux server</b><span>Debian or Ubuntu, amd64 or arm64. The installer sets up rootless Docker.</span></li>
-      <li><svg class="icon"><use href="#i-network"/></svg><b>A Tailscale tailnet</b><span>Where hakobu's API listens, and nowhere else.</span></li>
+      <li><svg class="icon"><use href="#i-network"/></svg><b>SSH, or a tailnet</b><span>The way to hakobu's API, which listens nowhere else.</span></li>
       <li><svg class="icon"><use href="#i-box"/></svg><b>A registry and CI</b><span>ghcr.io and GitHub Actions work with no setup.</span></li>
       <li><svg class="icon"><use href="#i-archive"/></svg><b>An S3 bucket</b><span>R2, Hetzner, AWS or any other, for backups.</span></li>
       <li><svg class="icon"><use href="#i-mail"/></svg><b>An SMTP account</b><span>For the alerts.</span></li>
@@ -306,16 +306,18 @@
     </div>
     <ol class="start">
       <li>
-        <div class="start-text"><span class="step-n">1</span><div><h3>A server</h3><p>One command, nothing asked: everything comes from the environment, so cloud-init or an agent can run it. Run it again to update. <a href="/docs/install/">A server</a></p></div></div>
+        <div class="start-text"><span class="step-n">1</span><div><h3>A server</h3><p>One command, nothing asked: everything comes from the environment, so cloud-init or an agent can run it. After that it updates itself. <a href="/docs/install/">A server</a></p></div></div>
         <div class="copyable"><pre class="console"><span class="p">$</span> curl -fsSL https://hakobu.dev/install.sh | sudo \
     HAKOBU_NAME=kasl-1 HAKOBU_OWNER_KEY=age1… \
-    TS_AUTHKEY=tskey-auth-… HAKOBU_INGRESS=public bash</pre><button class="copy" type="button" data-copy="curl -fsSL https://hakobu.dev/install.sh | sudo HAKOBU_NAME=kasl-1 HAKOBU_OWNER_KEY=age1… TS_AUTHKEY=tskey-auth-… HAKOBU_INGRESS=public bash" aria-label="Copy the install command"><svg class="icon"><use href="#i-copy"/></svg></button></div>
+    HAKOBU_INGRESS=public bash</pre><button class="copy" type="button" data-copy="curl -fsSL https://hakobu.dev/install.sh | sudo HAKOBU_NAME=kasl-1 HAKOBU_OWNER_KEY=age1… HAKOBU_INGRESS=public bash" aria-label="Copy the install command"><svg class="icon"><use href="#i-copy"/></svg></button></div>
       </li>
       <li>
         <div class="start-text"><span class="step-n">2</span><div><h3>A project</h3><p>In the repository, with the CLI from the <a href="https://github.com/hakobudev/hakobu/releases">releases</a>. <code>init</code> writes hakobu.toml, the workflow and the agent's skill. <a href="/docs/project/">A project</a></p></div></div>
-        <div class="copyable"><pre class="console"><span class="p">$</span> hakobu server add kasl-1 http://100.x.y.z:7070
+        <div class="copyable"><pre class="console"><span class="p">$</span> ssh -fN -L 7070:127.0.0.1:7070 root@kasl-1
+<span class="p">$</span> hakobu server add kasl-1 http://127.0.0.1:7070
 <span class="p">$</span> hakobu init --server kasl-1
-<span class="p">$</span> hakobu secret set hakobu status_token</pre><button class="copy" type="button" data-copy="hakobu server add kasl-1 http://100.x.y.z:7070
+<span class="p">$</span> hakobu secret set hakobu status_token</pre><button class="copy" type="button" data-copy="ssh -fN -L 7070:127.0.0.1:7070 root@kasl-1
+hakobu server add kasl-1 http://127.0.0.1:7070
 hakobu init --server kasl-1
 hakobu secret set hakobu status_token" aria-label="Copy the commands"><svg class="icon"><use href="#i-copy"/></svg></button></div>
       </li>

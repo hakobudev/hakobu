@@ -65,7 +65,7 @@ type Alerts struct {
 	PulseFail string `toml:"pulse_fail_url"`
 	// AllowPorts may listen beyond loopback and the tailnet: 80 and 443
 	// for a server that serves the web itself, 22 for SSH on every
-	// address.
+	// address (allowed by itself with the API on loopback).
 	AllowPorts []int `toml:"allow_ports"`
 }
 
@@ -253,6 +253,9 @@ func (c *Config) check() error {
 	}
 	return errors.Join(errs...)
 }
+
+// LoopbackAPI tells whether the API is on loopback, reached through SSH.
+func (c *Config) LoopbackAPI() bool { return strings.HasPrefix(c.Listen, "127.0.0.1:") }
 
 // Paths in the data directory.
 func (c *Config) KeyFile() string     { return filepath.Join(c.DataDir, "key.age") }

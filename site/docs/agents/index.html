@@ -63,7 +63,7 @@
 <ul>
 <li><strong>Delete or replace data.</strong> <code>hakobu destroy</code> and <code>hakobu restore</code> need the admin token, which belongs in your password manager, and a person at a terminal typing a confirmation: without a terminal they refuse. <code>.claude/settings.json</code> denies both to Claude Code as well. The MCP server has neither.</li>
 <li><strong>Read a secret.</strong> It can seal a new one to the server, never open one. The skill tells it to ask you to run <code>hakobu secret set</code>.</li>
-<li><strong>Reach the server.</strong> No SSH is needed for any of this, and the API is on your tailnet only.</li>
+<li><strong>Reach the server.</strong> No shell is needed for any of this: the agent talks to the API (on loopback, through your SSH tunnel, or on your tailnet) with the operator token, and can't do more through it than that token allows.</li>
 </ul>
 <p>The logs an agent reads are written by your apps, and text in them could try to steer it; what it can do with the operator token is bounded the same either way.</p>
 

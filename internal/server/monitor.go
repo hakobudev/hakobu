@@ -162,6 +162,9 @@ func (d *Daemon) checkPostgres(ctx context.Context) {
 func (d *Daemon) Audit(ctx context.Context) []audit.Finding {
 	var found []audit.Finding
 	allow := append(d.Config.Ingress.Ports(), d.Config.Alerts.AllowPorts...)
+	if d.Config.LoopbackAPI() {
+		allow = append(allow, 22) // SSH is the way to the API
+	}
 	if ports, err := audit.HostPorts(allow); err == nil {
 		found = append(found, ports...)
 	}
