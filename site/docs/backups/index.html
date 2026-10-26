@@ -66,12 +66,12 @@
 <p>A volume's app and worker are paused for the seconds the archive takes, so files that belong together (SQLite and its journal) are copied as of one moment.</p>
 <p>A failed or unproved backup emails you (see <a href="/docs/alerts/">Alerts</a>).</p>
 <h2 id="commands">Commands</h2>
-<pre><code class="language-bash">ssh kasl-1 backup              # back up everything now
-ssh kasl-1 backups crm         # list, newest first, with what reading each back found
+<pre><code class="language-bash">ssh nova-1 backup              # back up everything now
+ssh nova-1 backups crm         # list, newest first, with what reading each back found
 </code></pre>
 <h2 id="restoring">Restoring</h2>
-<pre><code class="language-bash">ssh -t root@kasl-1 hakobu restore crm/main               # a database, from its newest backup
-ssh -t root@kasl-1 hakobu restore crm/web/uploads --at 2026-10-20T03:00:12Z
+<pre><code class="language-bash">ssh -t root@nova-1 hakobu restore crm/main               # a database, from its newest backup
+ssh -t root@nova-1 hakobu restore crm/web/uploads --at 2026-10-20T03:00:12Z
 </code></pre>
 <p>A restore replaces the data, so it's root's, and needs a person at a terminal: an agent can't run it. (On a laptop, <code>hakobu restore</code> needs the admin token, from <code>HAKOBU_ADMIN_TOKEN</code> or typed, hidden.) The database or volume must exist on the server (deploy the project first).</p>
 <h2 id="before-each-deploy">Before each deploy</h2>

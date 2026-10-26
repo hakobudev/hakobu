@@ -32,19 +32,19 @@ func get(t *testing.T, h http.Handler, host, path string) (int, string) {
 }
 
 func TestRouter(t *testing.T) {
-	routes := map[string]int64{"crm.kaslauto.com": app(t, "crm"), "admin.kaslauto.com": app(t, "admin")}
+	routes := map[string]int64{"crm.example.com": app(t, "crm"), "admin.example.com": app(t, "admin")}
 	r := Router(func() map[string]int64 { return routes })
-	if code, body := get(t, r, "crm.kaslauto.com", "/cars"); code != 200 || body != "crm crm.kaslauto.com /cars http" {
+	if code, body := get(t, r, "crm.example.com", "/cars"); code != 200 || body != "crm crm.example.com /cars http" {
 		t.Errorf("%d %q", code, body)
 	}
-	if _, body := get(t, r, "ADMIN.kaslauto.com:443", "/"); body[:5] != "admin" {
+	if _, body := get(t, r, "ADMIN.example.com:443", "/"); body[:5] != "admin" {
 		t.Errorf("by case and port: %q", body)
 	}
 	if code, _ := get(t, r, "other.example.com", "/"); code != http.StatusNotFound {
 		t.Errorf("unknown host: %d", code)
 	}
-	routes["down.kaslauto.com"] = 1 // nothing listens
-	if code, _ := get(t, r, "down.kaslauto.com", "/"); code != http.StatusBadGateway {
+	routes["down.example.com"] = 1 // nothing listens
+	if code, _ := get(t, r, "down.example.com", "/"); code != http.StatusBadGateway {
 		t.Errorf("app down: %d", code)
 	}
 }
@@ -53,7 +53,7 @@ func TestTunnel(t *testing.T) {
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
 	addr := l.Addr().String()
 	l.Close()
-	routes := map[string]int64{"crm.kaslauto.com": app(t, "crm")}
+	routes := map[string]int64{"crm.example.com": app(t, "crm")}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
@@ -63,7 +63,7 @@ func TestTunnel(t *testing.T) {
 	var err error
 	for range 50 {
 		req, _ := http.NewRequest("GET", "http://"+addr+"/x", nil)
-		req.Host = "crm.kaslauto.com"
+		req.Host = "crm.example.com"
 		if resp, err = http.DefaultClient.Do(req); err == nil {
 			break
 		}
@@ -74,7 +74,7 @@ func TestTunnel(t *testing.T) {
 	}
 	b, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if string(b) != "crm crm.kaslauto.com /x http" {
+	if string(b) != "crm crm.example.com /x http" {
 		t.Errorf("%q", b)
 	}
 	cancel()
@@ -108,13 +108,13 @@ func TestForwardedFor(t *testing.T) {
 	t.Cleanup(srv.Close)
 	u, _ := url.Parse(srv.URL)
 	port, _ := strconv.Atoi(u.Port())
-	r := Router(func() map[string]int64 { return map[string]int64{"crm.kaslauto.com": int64(port)} })
+	r := Router(func() map[string]int64 { return map[string]int64{"crm.example.com": int64(port)} })
 	for remote, want := range map[string]string{
 		"127.0.0.1:41234":   "203.0.113.7, 127.0.0.1 https",
 		"[::1]:41234":       "203.0.113.7, ::1 https",
 		"198.51.100.9:5555": "198.51.100.9 http",
 	} {
-		req := httptest.NewRequest("GET", "http://crm.kaslauto.com/", nil)
+		req := httptest.NewRequest("GET", "http://crm.example.com/", nil)
 		req.RemoteAddr = remote
 		req.Header.Set("X-Forwarded-For", "203.0.113.7")
 		req.Header.Set("X-Forwarded-Proto", "https")

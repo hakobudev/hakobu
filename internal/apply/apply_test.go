@@ -68,7 +68,7 @@ func (h *harness) state(t *testing.T) *ProjectState {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return s.Projects["kasl"]
+	return s.Projects["nova"]
 }
 
 func TestApplyFirstDeploy(t *testing.T) {
@@ -78,19 +78,19 @@ func TestApplyFirstDeploy(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := h.f
-	if f.Proxies["kasl-crm"] != "kasl-crm-green" || f.Containers["kasl-crm-green"] != "running" {
+	if f.Proxies["nova-crm"] != "nova-crm-green" || f.Containers["nova-crm-green"] != "running" {
 		t.Errorf("live: proxies %v, containers %v", f.Proxies, f.Containers)
 	}
-	if f.Runs["kasl-crm-worker"] != "reg/crm@sha256:aaa" {
-		t.Errorf("worker runs %q", f.Runs["kasl-crm-worker"])
+	if f.Runs["nova-crm-worker"] != "reg/crm@sha256:aaa" {
+		t.Errorf("worker runs %q", f.Runs["nova-crm-worker"])
 	}
-	if _, ok := f.DBs["kasl_main"]; !ok {
-		t.Errorf("no database kasl_main: %v", f.DBs)
+	if _, ok := f.DBs["nova_main"]; !ok {
+		t.Errorf("no database nova_main: %v", f.DBs)
 	}
-	if c := f.Caches["kasl-cache"]; c.MemoryMB != 256 || c.Password == "" {
+	if c := f.Caches["nova-cache"]; c.MemoryMB != 256 || c.Password == "" {
 		t.Errorf("cache %+v", c)
 	}
-	if len(h.released) != 1 || h.released[0] != "bun run migrate in hakobu/kasl-crm:next" {
+	if len(h.released) != 1 || h.released[0] != "bun run migrate in hakobu/nova-crm:next" {
 		t.Errorf("release commands %v", h.released)
 	}
 	s := h.state(t)
@@ -100,9 +100,9 @@ func TestApplyFirstDeploy(t *testing.T) {
 	env := strings.Join(h.releases[0].Env, "\n")
 	pw := s.Databases["main"].Password
 	for _, want := range []string{
-		"DATABASE_URL=postgres://kasl_main:" + pw + "@hakobu-postgres:5432/kasl_main",
+		"DATABASE_URL=postgres://nova_main:" + pw + "@hakobu-postgres:5432/nova_main",
 		"POSTGRES_PASSWORD=" + pw,
-		"REDIS_URL=redis://default:" + s.Caches["cache"].Password + "@kasl-cache:6379/0",
+		"REDIS_URL=redis://default:" + s.Caches["cache"].Password + "@nova-cache:6379/0",
 		"NODE_ENV=production",
 		"PORT=8080",
 	} {
@@ -110,10 +110,10 @@ func TestApplyFirstDeploy(t *testing.T) {
 			t.Errorf("%q missing from the env:\n%s", want, env)
 		}
 	}
-	if !slices.Contains(h.releases[0].Binds, "hakobu_vol_kasl-crm_uploads:/app/data") && !strings.Contains(strings.Join(h.releases[0].Binds, " "), "kasl-crm") {
+	if !slices.Contains(h.releases[0].Binds, "hakobu_vol_nova-crm_uploads:/app/data") && !strings.Contains(strings.Join(h.releases[0].Binds, " "), "nova-crm") {
 		t.Errorf("binds %v", h.releases[0].Binds)
 	}
-	if _, err := os.Stat(filepath.Join(h.a.SnapshotDir, "kasl_main.dump")); err != nil {
+	if _, err := os.Stat(filepath.Join(h.a.SnapshotDir, "nova_main.dump")); err != nil {
 		t.Errorf("no dump before the release command: %v", err)
 	}
 }
@@ -139,7 +139,7 @@ func TestEnvNamesWhatHakobuGives(t *testing.T) {
 	}
 	pw := h.state(t).Databases["main"].Password
 	env := h.releases[0].Env
-	for _, want := range []string{"DB_URI=postgres://kasl_main:" + pw + "@hakobu-postgres:5432/kasl_main?schema=x", "SELF=http://crm:8080"} {
+	for _, want := range []string{"DB_URI=postgres://nova_main:" + pw + "@hakobu-postgres:5432/nova_main?schema=x", "SELF=http://crm:8080"} {
 		if !slices.Contains(env, want) {
 			t.Errorf("%q missing from the env: %v", want, env)
 		}
@@ -168,7 +168,7 @@ func TestApplyNewImageSwapsSlots(t *testing.T) {
 	if _, err := h.apply(t, crm, map[string]string{"crm": "reg/crm@sha256:bbb"}); err != nil {
 		t.Fatal(err)
 	}
-	if h.f.Proxies["kasl-crm"] != "kasl-crm-blue" || h.f.Containers["kasl-crm-green"] != "" {
+	if h.f.Proxies["nova-crm"] != "nova-crm-blue" || h.f.Containers["nova-crm-green"] != "" {
 		t.Errorf("proxies %v, containers %v", h.f.Proxies, h.f.Containers)
 	}
 	a := h.state(t).Apps["crm"]
@@ -186,7 +186,7 @@ func TestApplyFailedReleaseKeepsLive(t *testing.T) {
 	if !errors.Is(err, deploy.ErrReleaseFailed) || !strings.Contains(err.Error(), "live version keeps running") {
 		t.Fatalf("err = %v", err)
 	}
-	if h.f.Proxies["kasl-crm"] != "kasl-crm-green" {
+	if h.f.Proxies["nova-crm"] != "nova-crm-green" {
 		t.Errorf("proxy moved: %v", h.f.Proxies)
 	}
 	s := h.state(t)
@@ -208,7 +208,7 @@ func TestApplyUnhealthyKeepsLive(t *testing.T) {
 	if _, err := h.apply(t, crm, map[string]string{"crm": "reg/crm@sha256:bbb"}); err == nil {
 		t.Fatal("no error")
 	}
-	if h.f.Proxies["kasl-crm"] != "kasl-crm-green" || h.state(t).Apps["crm"].Image != "reg/crm@sha256:aaa" {
+	if h.f.Proxies["nova-crm"] != "nova-crm-green" || h.state(t).Apps["crm"].Image != "reg/crm@sha256:aaa" {
 		t.Errorf("proxies %v, state %+v", h.f.Proxies, h.state(t).Apps["crm"])
 	}
 }
@@ -238,13 +238,13 @@ func TestApplyKeepsDataAndRemovesApps(t *testing.T) {
 	if len(p.Orphans()) != 3 {
 		t.Errorf("orphans %v", p.Orphans())
 	}
-	if _, ok := h.f.DBs["kasl_main"]; !ok {
+	if _, ok := h.f.DBs["nova_main"]; !ok {
 		t.Error("the database went")
 	}
 	if !h.f.Called("RemoveApp") || h.state(t).Apps["admin"] != nil {
 		t.Errorf("admin wasn't removed: %+v", h.state(t).Apps)
 	}
-	if h.f.Containers["kasl-crm-worker"] != "" {
+	if h.f.Containers["nova-crm-worker"] != "" {
 		t.Errorf("the worker still runs: %v", h.f.Containers)
 	}
 	if h.state(t).Databases["main"] == nil {
@@ -282,28 +282,28 @@ func TestDestroyOnlyOrphans(t *testing.T) {
 	ctx := context.Background()
 	backedUp := 0
 	backup := func(Resource) error { backedUp++; return nil }
-	if err := h.a.Destroy(ctx, h.f, "kasl", "main", backup, io.Discard); err == nil || !strings.Contains(err.Error(), "still in hakobu.toml") {
+	if err := h.a.Destroy(ctx, h.f, "nova", "main", backup, io.Discard); err == nil || !strings.Contains(err.Error(), "still in hakobu.toml") {
 		t.Errorf("destroying a database in the file: %v", err)
 	}
 	h.deploy(t, "[apps.crm]\n", map[string]string{"crm": "r/c@sha256:1"})
-	if err := h.a.Destroy(ctx, h.f, "kasl", "main", func(Resource) error { return errors.New("bucket down") }, io.Discard); err == nil || !strings.Contains(err.Error(), "nothing was destroyed") {
+	if err := h.a.Destroy(ctx, h.f, "nova", "main", func(Resource) error { return errors.New("bucket down") }, io.Discard); err == nil || !strings.Contains(err.Error(), "nothing was destroyed") {
 		t.Errorf("without a backup: %v", err)
 	}
-	if _, ok := h.f.DBs["kasl_main"]; !ok {
+	if _, ok := h.f.DBs["nova_main"]; !ok {
 		t.Fatal("dropped without a backup")
 	}
 	for _, name := range []string{"main", "cache", "crm/uploads"} {
-		if err := h.a.Destroy(ctx, h.f, "kasl", name, backup, io.Discard); err != nil {
+		if err := h.a.Destroy(ctx, h.f, "nova", name, backup, io.Discard); err != nil {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
-	if _, ok := h.f.DBs["kasl_main"]; ok || backedUp != 3 {
+	if _, ok := h.f.DBs["nova_main"]; ok || backedUp != 3 {
 		t.Errorf("dbs %v, %d backups", h.f.DBs, backedUp)
 	}
 	if rs, _ := h.a.Resources(); len(rs) != 0 {
 		t.Errorf("left %v", rs)
 	}
-	if err := h.a.Destroy(ctx, h.f, "kasl", "main", backup, io.Discard); err == nil {
+	if err := h.a.Destroy(ctx, h.f, "nova", "main", backup, io.Discard); err == nil {
 		t.Error("destroyed twice")
 	}
 }
@@ -315,7 +315,7 @@ func TestEnsureProxies(t *testing.T) {
 	if err := h.a.EnsureProxies(context.Background(), h.f); err != nil {
 		t.Fatal(err)
 	}
-	if h.f.Proxies["kasl-crm"] == "" {
+	if h.f.Proxies["nova-crm"] == "" {
 		t.Errorf("proxies %v", h.f.Proxies)
 	}
 }
@@ -365,7 +365,7 @@ func TestReadsDontWaitForADeploy(t *testing.T) {
 	}()
 	select {
 	case d := <-read:
-		if d["crm.kaslauto.com"] == 0 {
+		if d["crm.example.com"] == 0 {
 			t.Errorf("domains during the deploy: %v", d)
 		}
 	case <-time.After(2 * time.Second):
@@ -394,13 +394,13 @@ func TestApplyForcedRedeploys(t *testing.T) {
 func TestApplyRefusesAnotherProjectsDomain(t *testing.T) {
 	h := newHarness(t)
 	h.deploy(t, crm, map[string]string{"crm": "reg/crm@sha256:aaa"})
-	other, err := spec.Parse([]byte("project = \"shop\"\nserver = \"kasl-1\"\n[apps.web]\ndomain = \"crm.kaslauto.com\"\n"))
+	other, err := spec.Parse([]byte("project = \"shop\"\nserver = \"nova-1\"\n[apps.web]\ndomain = \"crm.example.com\"\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	before := len(h.f.Calls())
 	_, err = h.a.Apply(context.Background(), Release{Spec: other, Images: map[string]string{"web": "reg/web@sha256:bbb"}}, io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "is project kasl's") {
+	if err == nil || !strings.Contains(err.Error(), "is project nova's") {
 		t.Fatalf("err %v", err)
 	}
 	if len(h.f.Calls()) != before {
@@ -410,7 +410,7 @@ func TestApplyRefusesAnotherProjectsDomain(t *testing.T) {
 
 func TestApplyRefusesAnotherProjectsNames(t *testing.T) {
 	h := newHarness(t)
-	first, err := spec.Parse([]byte("project = \"kasl-crm\"\nserver = \"kasl-1\"\n[apps.web]\nvolumes = { uploads = \"/data\" }\n[caches.jobs]\n[databases.main]\n"))
+	first, err := spec.Parse([]byte("project = \"nova-crm\"\nserver = \"nova-1\"\n[apps.web]\nvolumes = { uploads = \"/data\" }\n[caches.jobs]\n[databases.main]\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -418,12 +418,12 @@ func TestApplyRefusesAnotherProjectsNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct{ toml, want string }{
-		// kasl + crm-web is kasl-crm + web: its containers, proxy, volumes.
-		{"[apps.crm-web]\n", "kasl's apps.crm-web would be named as kasl-crm's apps.web is"},
-		{"[apps.web]\n[caches.crm-jobs]\n", "kasl's caches.crm-jobs would be named as kasl-crm's caches.jobs is"},
-		{"[apps.web]\n[databases.crm-main]\n", "kasl's databases.crm-main would be named as kasl-crm's databases.main is"},
+		// nova + crm-web is nova-crm + web: its containers, proxy, volumes.
+		{"[apps.crm-web]\n", "nova's apps.crm-web would be named as nova-crm's apps.web is"},
+		{"[apps.web]\n[caches.crm-jobs]\n", "nova's caches.crm-jobs would be named as nova-crm's caches.jobs is"},
+		{"[apps.web]\n[databases.crm-main]\n", "nova's databases.crm-main would be named as nova-crm's databases.main is"},
 	} {
-		other, err := spec.Parse([]byte("project = \"kasl\"\nserver = \"kasl-1\"\n" + tc.toml))
+		other, err := spec.Parse([]byte("project = \"nova\"\nserver = \"nova-1\"\n" + tc.toml))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -447,7 +447,7 @@ func TestApplyRefusesNamesOfItsOwnAndHakobus(t *testing.T) {
 		{"project = \"hakobu\"\n[apps.web]\n[caches.postgres]\n", "hakobu's own"},
 		{"project = \"hakobu-vol\"\n[apps.web]\n", "hakobu's own"},
 	} {
-		p, err := spec.Parse([]byte("server = \"kasl-1\"\n" + tc.toml))
+		p, err := spec.Parse([]byte("server = \"nova-1\"\n" + tc.toml))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -472,7 +472,7 @@ func TestReconcilePassesTheLiveApps(t *testing.T) {
 	if err := h.a.Reconcile(context.Background(), &r); err != nil {
 		t.Fatal(err)
 	}
-	if len(r.apps) != 1 || r.apps[0].Name != "kasl-crm" || r.apps[0].ActiveSlot != h.state(t).Apps["crm"].Slot {
+	if len(r.apps) != 1 || r.apps[0].Name != "nova-crm" || r.apps[0].ActiveSlot != h.state(t).Apps["crm"].Slot {
 		t.Errorf("reconciled %+v", r.apps)
 	}
 }
@@ -480,17 +480,17 @@ func TestReconcilePassesTheLiveApps(t *testing.T) {
 // The server's own credentials for a registry win; else the token CI
 // sealed in the release pulls from its registry, and from no other.
 func TestAuthFor(t *testing.T) {
-	ci := &PullAuth{Host: "ghcr.io", Username: "kasl", Password: "ghs_job"}
+	ci := &PullAuth{Host: "ghcr.io", Username: "nova", Password: "ghs_job"}
 	r := Release{Pull: ci}
 	a := &Applier{}
-	if auth, fromCI := a.authFor(r, "ghcr.io/kasl/crm-web@sha256:"+strings.Repeat("a", 64)); !fromCI || auth.Password != "ghs_job" {
+	if auth, fromCI := a.authFor(r, "ghcr.io/nova/crm-web@sha256:"+strings.Repeat("a", 64)); !fromCI || auth.Password != "ghs_job" {
 		t.Errorf("ghcr.io: %+v %v", auth, fromCI)
 	}
 	if auth, fromCI := a.authFor(r, "docker.io/library/redis@sha256:"+strings.Repeat("a", 64)); fromCI || auth.Password != "" {
 		t.Errorf("another registry: %+v %v", auth, fromCI)
 	}
 	a.Auth = map[string]deploy.RegistryAuth{"ghcr.io": {Username: "bot", Password: "ghp_own"}}
-	if auth, fromCI := a.authFor(r, "ghcr.io/kasl/crm-web@sha256:"+strings.Repeat("a", 64)); fromCI || auth.Password != "ghp_own" {
+	if auth, fromCI := a.authFor(r, "ghcr.io/nova/crm-web@sha256:"+strings.Repeat("a", 64)); fromCI || auth.Password != "ghp_own" {
 		t.Errorf("the server's own: %+v %v", auth, fromCI)
 	}
 }

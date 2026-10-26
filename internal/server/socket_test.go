@@ -36,7 +36,7 @@ func TestSocket(t *testing.T) {
 	t.Cleanup(func() { _ = srv.Close() })
 
 	name, sv, ok := client.Local(d.Config.Socket)
-	if !ok || name != "kasl-2" {
+	if !ok || name != "nova-2" {
 		t.Fatalf("local: %q %v", name, ok)
 	}
 	c, _ := client.Servers{name: sv}.Client(name)
@@ -44,15 +44,15 @@ func TestSocket(t *testing.T) {
 		t.Error("not local")
 	}
 	var st Status
-	if err := c.Get(context.Background(), "/v1/status", &st); err != nil || st.Server != "kasl-2" {
+	if err := c.Get(context.Background(), "/v1/status", &st); err != nil || st.Server != "nova-2" {
 		t.Errorf("status: %v %+v", err, st)
 	}
-	err = c.Post(context.Background(), "/v1/destroy", map[string]string{"project": "kasl", "kind": "database", "name": "main"}, nil)
+	err = c.Post(context.Background(), "/v1/destroy", map[string]string{"project": "nova", "kind": "database", "name": "main"}, nil)
 	if os.Geteuid() != 0 && (err == nil || !strings.Contains(err.Error(), "admin")) {
 		t.Errorf("destroy as anyone but root: %v", err)
 	}
 	// The admin token still counts, on the socket too.
-	err = c.WithToken("admin-token").Post(context.Background(), "/v1/destroy", map[string]string{"project": "kasl", "kind": "database", "name": "main"}, nil)
+	err = c.WithToken("admin-token").Post(context.Background(), "/v1/destroy", map[string]string{"project": "nova", "kind": "database", "name": "main"}, nil)
 	if err != nil && strings.Contains(err.Error(), "needs the admin") {
 		t.Errorf("destroy with the admin token: %v", err)
 	}

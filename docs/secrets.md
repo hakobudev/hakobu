@@ -7,13 +7,13 @@ An app's secrets live in its repository, in `hakobu.secrets.toml` next to `hakob
 You type the value, in your own terminal; the server seals it, and your agent puts it in the file:
 
 ```bash
-ssh -t kasl-1 secret set kasl web STRIPE_KEY    # PROJECT APP NAME; typed, hidden
+ssh -t nova-1 secret set nova web STRIPE_KEY    # PROJECT APP NAME; typed, hidden
 ```
 
 The server keeps the sealed value for 7 days. The agent's MCP tool `pending_secrets` gives it, as `STRIPE_KEY = "age:…"` for `[apps.web]`; the agent writes it into `hakobu.secrets.toml` (replacing the one there), pushes, and clears it. The value never goes through the agent, nor its chat: it sees only what's sealed, which it can't open. From a password manager, without typing:
 
 ```bash
-op read op://crm/stripe/key | ssh kasl-1 secret set kasl web STRIPE_KEY
+op read op://crm/stripe/key | ssh nova-1 secret set nova web STRIPE_KEY
 ```
 
 The names are in the file; to remove one, the agent deletes its line. An app gets its secrets as variables. A secret can't have the name of one the file already sets (in `env`, from `uses`, `PORT` or `HAKOBU_REVISION`): the server refuses that release rather than guess which wins.

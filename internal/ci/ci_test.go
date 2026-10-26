@@ -71,7 +71,7 @@ func (f *fakeDocker) run(ctx context.Context, dir string, log io.Writer, name st
 
 func TestRelease(t *testing.T) {
 	dir := t.TempDir()
-	spec := "project = \"crm\"\nserver = \"kasl-1\"\n\n[apps.web]\n\n[apps.worker]\npath = \"jobs\"\n"
+	spec := "project = \"crm\"\nserver = \"nova-1\"\n\n[apps.web]\n\n[apps.worker]\npath = \"jobs\"\n"
 	write(t, dir, map[string]string{
 		"hakobu.toml":         spec,
 		"hakobu.secrets.toml": "",
@@ -79,12 +79,12 @@ func TestRelease(t *testing.T) {
 		"jobs/Dockerfile":     "FROM busybox\n",
 	})
 	f := &fakeDocker{}
-	b := Build{Dir: dir, Image: "ghcr.io/kasl/crm", Tag: "main", Source: "https://github.com/kasl/crm", Revision: sha, Run: f.run}
+	b := Build{Dir: dir, Image: "ghcr.io/nova/crm", Tag: "main", Source: "https://github.com/nova/crm", Revision: sha, Run: f.run}
 	ref, err := b.Release(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(ref, "ghcr.io/kasl/crm@sha256:") {
+	if !strings.HasPrefix(ref, "ghcr.io/nova/crm@sha256:") {
 		t.Errorf("release %s", ref)
 	}
 	want := []string{
@@ -94,8 +94,8 @@ func TestRelease(t *testing.T) {
 	if len(f.calls) != 3 || !slices.Equal(f.calls[:2], want) || !strings.HasSuffix(f.calls[2], ": docker buildx") {
 		t.Fatalf("calls %q", f.calls)
 	}
-	rel := f.labels["ghcr.io/kasl/crm:main"]
-	if rel[apply.LabelSpec] != spec || rel[apply.LabelRevision] != sha || rel[apply.LabelSource] != "https://github.com/kasl/crm" {
+	rel := f.labels["ghcr.io/nova/crm:main"]
+	if rel[apply.LabelSpec] != spec || rel[apply.LabelRevision] != sha || rel[apply.LabelSource] != "https://github.com/nova/crm" {
 		t.Errorf("release labels %v", rel)
 	}
 	if _, ok := rel[apply.LabelSecrets]; ok {
@@ -105,10 +105,10 @@ func TestRelease(t *testing.T) {
 	if err := json.Unmarshal([]byte(rel[apply.LabelImages]), &images); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(images["web"], "ghcr.io/kasl/crm-web@sha256:") || !strings.HasPrefix(images["worker"], "ghcr.io/kasl/crm-worker@sha256:") {
+	if !strings.HasPrefix(images["web"], "ghcr.io/nova/crm-web@sha256:") || !strings.HasPrefix(images["worker"], "ghcr.io/nova/crm-worker@sha256:") {
 		t.Errorf("images %v", images)
 	}
-	if f.labels["ghcr.io/kasl/crm-web:"+sha][apply.LabelRevision] != sha {
+	if f.labels["ghcr.io/nova/crm-web:"+sha][apply.LabelRevision] != sha {
 		t.Error("an app image has no revision")
 	}
 
@@ -121,21 +121,21 @@ func TestRelease(t *testing.T) {
 func TestReleaseOfAReadyImage(t *testing.T) {
 	dir := t.TempDir()
 	write(t, dir, map[string]string{
-		"hakobu.toml": "project = \"crm\"\nserver = \"kasl-1\"\n[apps.web]\n[apps.wa]\nimage = \"evoapicloud/evolution-api:v2.3.7\"\n",
+		"hakobu.toml": "project = \"crm\"\nserver = \"nova-1\"\n[apps.web]\n[apps.wa]\nimage = \"evoapicloud/evolution-api:v2.3.7\"\n",
 		"Dockerfile":  "FROM busybox\n",
 	})
 	f := &fakeDocker{}
-	if _, err := (Build{Dir: dir, Image: "ghcr.io/kasl/crm", Tag: "main", Revision: sha, Run: f.run}).Release(context.Background()); err != nil {
+	if _, err := (Build{Dir: dir, Image: "ghcr.io/nova/crm", Tag: "main", Revision: sha, Run: f.run}).Release(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	var images map[string]string
-	if err := json.Unmarshal([]byte(f.labels["ghcr.io/kasl/crm:main"][apply.LabelImages]), &images); err != nil {
+	if err := json.Unmarshal([]byte(f.labels["ghcr.io/nova/crm:main"][apply.LabelImages]), &images); err != nil {
 		t.Fatal(err)
 	}
 	if want := fmt.Sprintf("evoapicloud/evolution-api@sha256:%064x", len("evoapicloud/evolution-api:v2.3.7")); images["wa"] != want {
 		t.Errorf("wa runs %q, want %q", images["wa"], want)
 	}
-	if _, built := f.labels["ghcr.io/kasl/crm-wa:"+sha]; built {
+	if _, built := f.labels["ghcr.io/nova/crm-wa:"+sha]; built {
 		t.Error("a ready image was built")
 	}
 }
@@ -143,7 +143,7 @@ func TestReleaseOfAReadyImage(t *testing.T) {
 func TestReleaseNeedsDockerfiles(t *testing.T) {
 	dir := t.TempDir()
 	write(t, dir, map[string]string{
-		"hakobu.toml": "project = \"crm\"\nserver = \"kasl-1\"\n[apps.web]\n[apps.api]\npath = \"api\"\n[apps.jobs]\npath = \"jobs\"\n",
+		"hakobu.toml": "project = \"crm\"\nserver = \"nova-1\"\n[apps.web]\n[apps.api]\npath = \"api\"\n[apps.jobs]\npath = \"jobs\"\n",
 		"Dockerfile":  "FROM busybox\n",
 		"api/go.mod":  "module api\n",
 	})
@@ -156,7 +156,7 @@ func TestReleaseNeedsDockerfiles(t *testing.T) {
 
 func TestReleaseRefusesBadSpec(t *testing.T) {
 	dir := t.TempDir()
-	write(t, dir, map[string]string{"hakobu.toml": "project = \"crm\"\nserver = \"kasl-1\"\n[apps.web]\ndomian = \"x\"\n"})
+	write(t, dir, map[string]string{"hakobu.toml": "project = \"crm\"\nserver = \"nova-1\"\n[apps.web]\ndomian = \"x\"\n"})
 	f := &fakeDocker{}
 	_, err := Build{Dir: dir, Image: "i", Tag: "main", Revision: sha, Run: f.run}.Release(context.Background())
 	if err == nil || len(f.calls) != 0 {
@@ -181,7 +181,7 @@ func (s *statuses) Get(ctx context.Context, c status.Commit) (status.State, stri
 }
 
 func TestWait(t *testing.T) {
-	c := status.Commit{Source: "https://github.com/kasl/crm", Revision: sha}
+	c := status.Commit{Source: "https://github.com/nova/crm", Revision: sha}
 	ok := &statuses{{status.Pending, "deploying"}, {status.Success, "live"}}
 	if err := Wait(context.Background(), ok, c, time.Second, time.Millisecond, io.Discard); err != nil {
 		t.Error(err)
@@ -209,15 +209,15 @@ func TestReleaseSealsSpecAndPullToken(t *testing.T) {
 	}
 	secrets, _ := s.Marshal()
 	dir := t.TempDir()
-	spec := "project = \"crm\"\nserver = \"kasl-1\"\n\n[apps.web]\nenv = { PLAN = \"internal\" }\n"
+	spec := "project = \"crm\"\nserver = \"nova-1\"\n\n[apps.web]\nenv = { PLAN = \"internal\" }\n"
 	write(t, dir, map[string]string{"hakobu.toml": spec, "hakobu.secrets.toml": string(secrets), "Dockerfile": "FROM busybox\n"})
 	f := &fakeDocker{}
-	pull := &apply.PullAuth{Host: "ghcr.io", Username: "kasl", Password: "ghs_jobtoken"}
-	b := Build{Dir: dir, Image: "ghcr.io/kasl/crm", Tag: "main", Source: "https://github.com/kasl/crm", Revision: sha, Pull: pull, Run: f.run}
+	pull := &apply.PullAuth{Host: "ghcr.io", Username: "nova", Password: "ghs_jobtoken"}
+	b := Build{Dir: dir, Image: "ghcr.io/nova/crm", Tag: "main", Source: "https://github.com/nova/crm", Revision: sha, Pull: pull, Run: f.run}
 	if _, err := b.Release(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	rel := f.labels["ghcr.io/kasl/crm:main"]
+	rel := f.labels["ghcr.io/nova/crm:main"]
 	if _, ok := rel[apply.LabelSpec]; ok {
 		t.Error("hakobu.toml is in the clear")
 	}

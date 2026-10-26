@@ -11,7 +11,7 @@ import (
 )
 
 func TestInit(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "Kasl_CRM")
+	dir := filepath.Join(t.TempDir(), "Nova_CRM")
 	for name, text := range map[string]string{
 		"Dockerfile":                  "FROM node\nEXPOSE 3000\n",
 		"package.json":                `{"dependencies":{"next":"15"}}`,
@@ -26,7 +26,7 @@ func TestInit(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	o := Options{Dir: dir, Server: "kasl-1", Image: "ghcr.io/kasl/crm", Version: "1.0.0-alpha.1"}
+	o := Options{Dir: dir, Server: "nova-1", Image: "ghcr.io/nova/crm", Version: "1.0.0-alpha.1"}
 	files, err := Init(o)
 	if err != nil {
 		t.Fatal(err)
@@ -42,7 +42,7 @@ func TestInit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Name != "kasl-crm" || p.Server != "kasl-1" || len(p.Apps) != 2 || p.Apps["web"].Port != 3000 || p.Apps["worker"].Path != "worker" {
+	if p.Name != "nova-crm" || p.Server != "nova-1" || len(p.Apps) != 2 || p.Apps["web"].Port != 3000 || p.Apps["worker"].Path != "worker" {
 		t.Errorf("hakobu.toml:\n%s", b)
 	}
 	if !strings.Contains(string(b), "Node.js · Next.js, built from its Dockerfile") || !strings.Contains(string(b), "Python; it needs a Dockerfile") {
@@ -50,7 +50,7 @@ func TestInit(t *testing.T) {
 	}
 
 	wf, _ := os.ReadFile(filepath.Join(dir, ".github/workflows/hakobu.yml"))
-	for _, want := range []string{"branches: [main]", Workflow + "@v1.0.0-alpha.1", "version: v1.0.0-alpha.1", "image: ghcr.io/kasl/crm", "packages: write"} {
+	for _, want := range []string{"branches: [main]", Workflow + "@v1.0.0-alpha.1", "version: v1.0.0-alpha.1", "image: ghcr.io/nova/crm", "packages: write"} {
 		if !strings.Contains(string(wf), want) {
 			t.Errorf("workflow lacks %q:\n%s", want, wf)
 		}

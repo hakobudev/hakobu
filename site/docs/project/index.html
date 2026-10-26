@@ -69,14 +69,14 @@
 </li>
 <li>
 <p><strong>Secrets.</strong> The server sets the commit's status with a <a href="https://github.com/settings/personal-access-tokens/new">fine-grained token</a> with <strong>Commit statuses: Read and write</strong> on this repository alone. Make one, and seal it, in your own terminal:</p>
-<pre><code class="language-bash">ssh -t kasl-1 secret set kasl hakobu status_token
+<pre><code class="language-bash">ssh -t nova-1 secret set nova hakobu status_token
 </code></pre>
 <p>Your agent then adds it to <code>hakobu.secrets.toml</code>; your app's own secrets go the same way. See <a href="/docs/secrets/">Secrets</a>.</p>
 </li>
 <li>
-<p><strong>Push.</strong> CI builds the apps, pushes them and the release; within 30 seconds the server deploys it, and the job turns green once it's live. <code>ssh kasl-1 status</code> and the MCP tools show it.</p>
+<p><strong>Push.</strong> CI builds the apps, pushes them and the release; within 30 seconds the server deploys it, and the job turns green once it's live. <code>ssh nova-1 status</code> and the MCP tools show it.</p>
 <p>The first time, while the job waits, make the release image public: on GitHub, the package <code>REPO</code> (not <code>REPO-APP</code>), <strong>Package settings → Change visibility → Public</strong>. Everything in it is sealed to the server's key and yours, and the server polls it with no token; until then, <code>status</code> says the registry refused. The apps' images stay private: CI seals the job's own token in each release, and the server pulls them with it while the job waits for the deploy. The token dies with the job, so the server keeps none for ghcr.io.</p>
-<p>A private release works too, with a token for the server to read it: a classic token with <code>read:packages</code> alone, given with <code>ssh kasl-1 server set registry ghcr.io --username YOU</code> (the password typed, hidden). It reads every package of your account, so a public release is the safer one.</p>
+<p>A private release works too, with a token for the server to read it: a classic token with <code>read:packages</code> alone, given with <code>ssh nova-1 server set registry ghcr.io --username YOU</code> (the password typed, hidden). It reads every package of your account, so a public release is the safer one.</p>
 </li>
 </ol>
 <h2 id="an-arm64-server">An arm64 server</h2>
@@ -84,7 +84,7 @@
 <h2 id="tests-first">Tests first</h2>
 <p>The workflow is a job like any other: put your tests in a job of their own and add <code>needs: [test]</code> to the deploy job.</p>
 <h2 id="with-hakobu-on-a-laptop">With hakobu on a laptop</h2>
-<p><code>hakobu init --server kasl-1</code>, in the repository, writes the same files, with an app already for each directory (the root and one level down) that has a Dockerfile, or a stack it recognizes (Node, Python, Go, …), and <code>.mcp.json</code> for <code>hakobu mcp</code>; <code>hakobu secret set hakobu status_token</code> seals the token straight into the file.</p>
+<p><code>hakobu init --server nova-1</code>, in the repository, writes the same files, with an app already for each directory (the root and one level down) that has a Dockerfile, or a stack it recognizes (Node, Python, Go, …), and <code>.mcp.json</code> for <code>hakobu mcp</code>; <code>hakobu secret set hakobu status_token</code> seals the token straight into the file.</p>
 
     </article>
     <nav class="docs-pager" aria-label="Pages"><a class="docs-prev" href="/docs/install/"><span>Previous</span>A server</a><a class="docs-next" href="/docs/hakobu-toml/"><span>Next</span>hakobu.toml</a>

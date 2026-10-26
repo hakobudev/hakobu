@@ -46,14 +46,14 @@ func TestSetSettingsWaits(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	all := client.Servers{"kasl-2": {URL: srv.URL, Token: "op"}}
+	all := client.Servers{"nova-2": {URL: srv.URL, Token: "op"}}
 	if err := all.Save(filepath.Join(cfg, "hakobu", "servers.toml")); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("HAKOBU_S3_SECRET_KEY", "s3cret")
 	var out bytes.Buffer
 	ch := server.SettingsChange{Backups: &server.BackupsSet{Bucket: &server.Bucket{Endpoint: "https://e", Bucket: "b", AccessKey: "k", SecretKey: os.Getenv("HAKOBU_S3_SECRET_KEY")}}}
-	if err := setSettings(context.Background(), "kasl-2", "admin", ch, &out); err != nil {
+	if err := setSettings(context.Background(), "nova-2", "admin", ch, &out); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "in effect") || gets.Load() != 3 || posted.Backups.Bucket.SecretKey != "s3cret" {

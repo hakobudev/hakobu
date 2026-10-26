@@ -89,7 +89,7 @@ func TestServerCreate(t *testing.T) {
 			http.Error(w, `{"error":"no"}`, http.StatusUnauthorized)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]string{"server": "kasl-2", "recipient": "age1server"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"server": "nova-2", "recipient": "age1server"})
 	}))
 	defer api.Close()
 	t.Setenv("FAKE_API", api.Listener.Addr().String())
@@ -105,13 +105,13 @@ func TestServerCreate(t *testing.T) {
 	id, _ := age.GenerateX25519Identity()
 	o := createOpts{ssh: "root@1.2.3.4", ingress: "public", email: "me@example.com", ownerKey: id.Recipient().String()}
 	var out bytes.Buffer
-	if err := createServer(context.Background(), "kasl-2", o, "v1.3.0", &out); err != nil {
+	if err := createServer(context.Background(), "nova-2", o, "v1.3.0", &out); err != nil {
 		t.Fatalf("%v\n%s", err, out.String())
 	}
 
 	script, _ := os.ReadFile(filepath.Join(dir, "install.sh"))
 	for _, want := range []string{
-		"export HAKOBU_NAME='kasl-2'\n", "export HAKOBU_API='loopback'\n", "export HAKOBU_INGRESS='public'\n",
+		"export HAKOBU_NAME='nova-2'\n", "export HAKOBU_API='loopback'\n", "export HAKOBU_INGRESS='public'\n",
 		"export HAKOBU_OWNER_KEY='" + id.Recipient().String() + "'\n", "export HAKOBU_VERSION='v1.3.0'\n",
 		"export HAKOBU_RESULT='json'\n", "export HAKOBU_TUNNEL_KEY='ssh-ed25519 ", InstallScript,
 	} {
@@ -131,10 +131,10 @@ func TestServerCreate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	key := filepath.Join(cfg, "hakobu", "keys", "kasl-2")
+	key := filepath.Join(cfg, "hakobu", "keys", "nova-2")
 	want := client.Server{URL: "http://127.0.0.1:7070", Token: "hk_op", SSH: "hakobu-tunnel@1.2.3.4", SSHKey: key}
-	if all["kasl-2"] != want {
-		t.Errorf("servers.toml has %+v, want %+v", all["kasl-2"], want)
+	if all["nova-2"] != want {
+		t.Errorf("servers.toml has %+v, want %+v", all["nova-2"], want)
 	}
 	if fi, err := os.Stat(key); err != nil || fi.Mode().Perm() != 0o600 {
 		t.Errorf("the key: %v %v", fi, err)
@@ -151,7 +151,7 @@ func TestServerCreate(t *testing.T) {
 	// the one it has, and the key.
 	pub1 := tunnelPub(t, script)
 	out.Reset()
-	if err := createServer(context.Background(), "kasl-2", o, "v1.3.0", &out); err != nil {
+	if err := createServer(context.Background(), "nova-2", o, "v1.3.0", &out); err != nil {
 		t.Fatalf("again: %v\n%s", err, out.String())
 	}
 	if strings.Contains(out.String(), "admin token") {
@@ -162,12 +162,12 @@ func TestServerCreate(t *testing.T) {
 		t.Error("again made another key")
 	}
 	all, _ = client.LoadServers(filepath.Join(cfg, "hakobu", "servers.toml"))
-	if all["kasl-2"].Token != "hk_op" {
-		t.Errorf("again: %+v", all["kasl-2"])
+	if all["nova-2"].Token != "hk_op" {
+		t.Errorf("again: %+v", all["nova-2"])
 	}
 
 	// Another name for a server that has one is refused, and not kept.
-	if err := createServer(context.Background(), "kasl-3", o, "v1.3.0", &out); err == nil || !strings.Contains(err.Error(), "kasl-2") {
+	if err := createServer(context.Background(), "nova-3", o, "v1.3.0", &out); err == nil || !strings.Contains(err.Error(), "nova-2") {
 		t.Errorf("another name: %v", err)
 	}
 }

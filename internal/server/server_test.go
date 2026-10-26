@@ -20,26 +20,26 @@ var owner, _ = age.GenerateX25519Identity()
 
 func configText(dataDir string) string {
 	return fmt.Sprintf(`
-name = "kasl-1"
+name = "nova-1"
 listen = "100.64.0.1:7070"
 data_dir = %q
 owner_key = %q
 operator_token_sha256 = %q
 admin_token_sha256 = %q
-releases = ["ghcr.io/kasl/crm-release:main"]
+releases = ["ghcr.io/nova/crm-release:main"]
 [registries."ghcr.io"]
 username = "bot"
 password = "pat"
 [backups.primary]
 name = "r2"
 endpoint = "https://acc.r2.cloudflarestorage.com"
-bucket = "kasl-backups"
+bucket = "nova-backups"
 access_key = "k"
 secret_key = "s"
 [[backups.copies]]
 name = "hetzner"
 endpoint = "https://fsn1.your-objectstorage.com"
-bucket = "kasl-copy"
+bucket = "nova-copy"
 access_key = "k2"
 secret_key = "s2"
 `, dataDir, owner.Recipient().String(), HashToken("op-token"), HashToken("admin-token"))
@@ -50,7 +50,7 @@ func TestConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Backups.Primary.Prefix != "hakobu/kasl-1/" || c.Backups.Copies[0].Prefix != "hakobu/kasl-1/" {
+	if c.Backups.Primary.Prefix != "hakobu/nova-1/" || c.Backups.Copies[0].Prefix != "hakobu/nova-1/" {
 		t.Errorf("prefixes %q %q", c.Backups.Primary.Prefix, c.Backups.Copies[0].Prefix)
 	}
 	if time.Duration(c.Every) != 30*time.Second || c.Backups.At != "03:00" || c.Backups.Daily != 7 || c.Backups.Weekly != 4 {
@@ -168,7 +168,7 @@ func TestAPIAuth(t *testing.T) {
 	if code, _ := call(t, srv, "wrong", "GET", "/v1/status", ""); code != http.StatusUnauthorized {
 		t.Errorf("wrong token: %d", code)
 	}
-	if code, body := call(t, srv, "op-token", "GET", "/v1/status", ""); code != http.StatusOK || body["server"] != "kasl-1" || body["backups"] != true {
+	if code, body := call(t, srv, "op-token", "GET", "/v1/status", ""); code != http.StatusOK || body["server"] != "nova-1" || body["backups"] != true {
 		t.Errorf("status: %d %v", code, body)
 	}
 	for _, path := range []string{"/v1/restore", "/v1/destroy"} {
@@ -188,19 +188,19 @@ func TestAPIKey(t *testing.T) {
 
 func TestAPIDestroyNeedsConfirm(t *testing.T) {
 	_, srv := newDaemon(t)
-	code, body := call(t, srv, "admin-token", "POST", "/v1/destroy", `{"project":"kasl","name":"main","confirm":"kasl/mian"}`)
-	if code != http.StatusBadRequest || !strings.Contains(fmt.Sprint(body["error"]), "repeat kasl/main") {
+	code, body := call(t, srv, "admin-token", "POST", "/v1/destroy", `{"project":"nova","name":"main","confirm":"nova/mian"}`)
+	if code != http.StatusBadRequest || !strings.Contains(fmt.Sprint(body["error"]), "repeat nova/main") {
 		t.Errorf("%d %v", code, body)
 	}
-	code, body = call(t, srv, "admin-token", "POST", "/v1/destroy", `{"project":"kasl","name":"main","confirm":"kasl/main"}`)
-	if code != http.StatusConflict || !strings.Contains(fmt.Sprint(body["error"]), "no project kasl") {
+	code, body = call(t, srv, "admin-token", "POST", "/v1/destroy", `{"project":"nova","name":"main","confirm":"nova/main"}`)
+	if code != http.StatusConflict || !strings.Contains(fmt.Sprint(body["error"]), "no project nova") {
 		t.Errorf("%d %v", code, body)
 	}
 }
 
 func TestAPILogsOfNothing(t *testing.T) {
 	_, srv := newDaemon(t)
-	if code, _ := call(t, srv, "op-token", "GET", "/v1/logs?project=kasl&app=crm", ""); code != http.StatusNotFound {
+	if code, _ := call(t, srv, "op-token", "GET", "/v1/logs?project=nova&app=crm", ""); code != http.StatusNotFound {
 		t.Errorf("%d", code)
 	}
 }
@@ -210,7 +210,7 @@ func TestAPILogsOfNothing(t *testing.T) {
 func TestGoneReleasesAlertsClose(t *testing.T) {
 	d, _ := newDaemon(t)
 	keep := d.Watch.Releases[0]
-	_ = d.Alerts.Raise("deploy:"+keep.Host+"/"+keep.Repo, "deploy of kasl failed", "")
+	_ = d.Alerts.Raise("deploy:"+keep.Host+"/"+keep.Repo, "deploy of nova failed", "")
 	_ = d.Alerts.Raise("deploy:ttl.sh/gone", "deploy of gone failed", "")
 	d.closeGoneReleases()
 	keys, _ := d.Alerts.Keys("deploy:")

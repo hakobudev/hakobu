@@ -18,15 +18,15 @@ A failed or unproved backup emails you (see [Alerts](alerts.md)).
 ## Commands
 
 ```bash
-ssh kasl-1 backup              # back up everything now
-ssh kasl-1 backups crm         # list, newest first, with what reading each back found
+ssh nova-1 backup              # back up everything now
+ssh nova-1 backups crm         # list, newest first, with what reading each back found
 ```
 
 ## Restoring
 
 ```bash
-ssh -t root@kasl-1 hakobu restore crm/main               # a database, from its newest backup
-ssh -t root@kasl-1 hakobu restore crm/web/uploads --at 2026-10-20T03:00:12Z
+ssh -t root@nova-1 hakobu restore crm/main               # a database, from its newest backup
+ssh -t root@nova-1 hakobu restore crm/web/uploads --at 2026-10-20T03:00:12Z
 ```
 
 A restore replaces the data, so it's root's, and needs a person at a terminal: an agent can't run it. (On a laptop, `hakobu restore` needs the admin token, from `HAKOBU_ADMIN_TOKEN` or typed, hidden.) The database or volume must exist on the server (deploy the project first).

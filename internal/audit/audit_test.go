@@ -41,8 +41,8 @@ func TestPorts(t *testing.T) {
 }
 
 func TestContainers(t *testing.T) {
-	ours := func(n string) bool { return strings.HasPrefix(n, "kasl-") || n == "hakobu-postgres" }
-	got := Containers([]string{"kasl-crm-blue", "hakobu-postgres", "adminer"}, ours)
+	ours := func(n string) bool { return strings.HasPrefix(n, "nova-") || n == "hakobu-postgres" }
+	got := Containers([]string{"nova-crm-blue", "hakobu-postgres", "adminer"}, ours)
 	if len(got) != 1 || got[0].Key != "container:adminer" {
 		t.Errorf("%v", got)
 	}

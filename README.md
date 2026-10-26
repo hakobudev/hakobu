@@ -10,7 +10,7 @@ Run your projects on servers you own. A project says what it needs in a file in 
 - **Secrets in the repository**, each sealed with [age](https://age-encryption.org) to the server and to you: anyone can add one, only the two of you can read it.
 - **Backups** of databases and volumes to any S3 bucket and a copy elsewhere, sealed, and restored into scratch after every upload to prove they restore.
 - **Alerts** by email when an app is down, a deploy or backup fails, the disk fills, or the audit finds a port or container that shouldn't be there; a pulse to a dead man's switch.
-- **Agents welcome, nothing on your laptop**: each server is its own MCP server, over SSH (`ssh deploy@SERVER mcp`), so an agent sees status and logs, deploys, rolls back and sets a repository up, with a skill for Claude Code; you run the same, `ssh kasl-1 status`. Deleting or restoring data is root's.
+- **Agents welcome, nothing on your laptop**: each server is its own MCP server, over SSH (`ssh deploy@SERVER mcp`), so an agent sees status and logs, deploys, rolls back and sets a repository up, with a skill for Claude Code; you run the same, `ssh nova-1 status`. Deleting or restoring data is root's.
 - **One Go binary** on the server, rootless Docker, SSH keys that run hakobu's commands alone, signed releases that install themselves. No provider's API is called.
 
 ## Start

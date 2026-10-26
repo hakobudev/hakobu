@@ -130,20 +130,20 @@ func newKit(t *testing.T) *kit {
 	k := &kit{src: &fakeSource{content: bytes.Repeat([]byte("row;"), 1000)}, primary: newMem(), copy: newMem(), server: server, owner: owner,
 		now: time.Date(2026, 10, 22, 3, 0, 0, 0, time.UTC)}
 	k.v = &Vault{
-		Source: k.src, Primary: Target{Name: "r2", Store: k.primary, Prefix: "hakobu/kasl-1/"},
-		Copies:     []Target{{Name: "hetzner", Store: k.copy, Prefix: "hakobu/kasl-1/"}},
+		Source: k.src, Primary: Target{Name: "r2", Store: k.primary, Prefix: "hakobu/nova-1/"},
+		Copies:     []Target{{Name: "hetzner", Store: k.copy, Prefix: "hakobu/nova-1/"}},
 		Recipients: []string{server.Recipient().String(), owner.Recipient().String()},
 		Identity:   server, PartSize: 1000, TempDir: t.TempDir(), Now: func() time.Time { return k.now },
 	}
 	return k
 }
 
-var db = node.DBSpec{Name: "kasl_main", User: "kasl_main", Password: "pw"}
+var db = node.DBSpec{Name: "nova_main", User: "nova_main", Password: "pw"}
 
 func TestBackupAndRestore(t *testing.T) {
 	k := newKit(t)
 	ctx := context.Background()
-	m, err := k.v.BackupDatabase(ctx, "kasl", "main", db)
+	m, err := k.v.BackupDatabase(ctx, "nova", "main", db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +158,7 @@ func TestBackupAndRestore(t *testing.T) {
 	if len(k.copy.objects) != len(k.primary.objects) {
 		t.Errorf("the copy has %d objects, the primary %d", len(k.copy.objects), len(k.primary.objects))
 	}
-	list, err := k.v.List(ctx, "kasl")
+	list, err := k.v.List(ctx, "nova")
 	if err != nil || len(list) != 1 || list[0].SHA256 != m.SHA256 {
 		t.Fatalf("list %v, %v", list, err)
 	}
@@ -186,11 +186,11 @@ func TestBackupAndRestore(t *testing.T) {
 
 func TestVolumeBackup(t *testing.T) {
 	k := newKit(t)
-	m, err := k.v.BackupVolume(context.Background(), "kasl", "crm", "kasl-crm", "uploads")
+	m, err := k.v.BackupVolume(context.Background(), "nova", "crm", "nova-crm", "uploads")
 	if err != nil || m.Name != "crm/uploads" || m.Checked != "7 files" {
 		t.Fatalf("%+v, %v", m, err)
 	}
-	if err := k.v.RestoreVolume(context.Background(), m, node.AppSpec{Name: "kasl-crm"}, "uploads", io.Discard); err != nil {
+	if err := k.v.RestoreVolume(context.Background(), m, node.AppSpec{Name: "nova-crm"}, "uploads", io.Discard); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -198,7 +198,7 @@ func TestVolumeBackup(t *testing.T) {
 func TestTamperedBackupIsRefused(t *testing.T) {
 	k := newKit(t)
 	ctx := context.Background()
-	m, _ := k.v.BackupDatabase(ctx, "kasl", "main", db)
+	m, _ := k.v.BackupDatabase(ctx, "nova", "main", db)
 	for key := range k.primary.objects {
 		if strings.HasSuffix(key, "part-0001") {
 			k.primary.objects[key][10] ^= 1
@@ -215,10 +215,10 @@ func TestTamperedBackupIsRefused(t *testing.T) {
 func TestFailedCheckLeavesNoManifest(t *testing.T) {
 	k := newKit(t)
 	k.src.checkErr = errors.New("pg_restore: bad")
-	if _, err := k.v.BackupDatabase(context.Background(), "kasl", "main", db); err == nil || !strings.Contains(err.Error(), "didn't restore") {
+	if _, err := k.v.BackupDatabase(context.Background(), "nova", "main", db); err == nil || !strings.Contains(err.Error(), "didn't restore") {
 		t.Errorf("err = %v", err)
 	}
-	if list, _ := k.v.List(context.Background(), "kasl"); len(list) != 0 {
+	if list, _ := k.v.List(context.Background(), "nova"); len(list) != 0 {
 		t.Errorf("an unchecked backup is listed: %v", list)
 	}
 	if len(k.copy.objects) != 0 {
@@ -229,11 +229,11 @@ func TestFailedCheckLeavesNoManifest(t *testing.T) {
 func TestFailedCopyKeepsPrimary(t *testing.T) {
 	k := newKit(t)
 	k.copy.failPut = errors.New("403 AccessDenied")
-	m, err := k.v.BackupDatabase(context.Background(), "kasl", "main", db)
+	m, err := k.v.BackupDatabase(context.Background(), "nova", "main", db)
 	if err == nil || !strings.Contains(err.Error(), "copy to hetzner") {
 		t.Errorf("err = %v", err)
 	}
-	if list, _ := k.v.List(context.Background(), "kasl"); len(list) != 1 || list[0].SHA256 != m.SHA256 {
+	if list, _ := k.v.List(context.Background(), "nova"); len(list) != 1 || list[0].SHA256 != m.SHA256 {
 		t.Errorf("the primary lost it: %v", list)
 	}
 }
@@ -241,7 +241,7 @@ func TestFailedCopyKeepsPrimary(t *testing.T) {
 func TestBadRecipient(t *testing.T) {
 	k := newKit(t)
 	k.v.Recipients = append(k.v.Recipients, "ssh-ed25519 AAAA")
-	if _, err := k.v.BackupDatabase(context.Background(), "kasl", "main", db); err == nil {
+	if _, err := k.v.BackupDatabase(context.Background(), "nova", "main", db); err == nil {
 		t.Error("a backup was sealed while a recipient was dropped")
 	}
 }
@@ -289,22 +289,22 @@ func TestRotate(t *testing.T) {
 	start := k.now
 	for d := range 10 {
 		k.now = start.AddDate(0, 0, d)
-		if _, err := k.v.BackupDatabase(ctx, "kasl", "main", db); err != nil {
+		if _, err := k.v.BackupDatabase(ctx, "nova", "main", db); err != nil {
 			t.Fatal(err)
 		}
 	}
 	// The bucket's lock refuses to delete what's under a week old.
 	k.primary.locked = func(key string) bool { return strings.Contains(key, start.AddDate(0, 0, 2).Format(stamp)) }
-	deleted, err := k.v.Rotate(ctx, "kasl", 7, 0)
+	deleted, err := k.v.Rotate(ctx, "nova", 7, 0)
 	if err != nil || len(deleted) != 2 {
 		t.Errorf("deleted %v, %v", deleted, err)
 	}
-	if list, _ := k.v.List(ctx, "kasl"); len(list) != 8 {
+	if list, _ := k.v.List(ctx, "nova"); len(list) != 8 {
 		t.Errorf("%d left, want 7 and the locked one", len(list))
 	}
 	// Still locked a month on, the lock outlasts the rotation: an error.
 	k.now = start.AddDate(0, 0, 40)
-	if _, err := k.v.Rotate(ctx, "kasl", 7, 0); !errors.Is(err, s3.ErrLocked) {
+	if _, err := k.v.Rotate(ctx, "nova", 7, 0); !errors.Is(err, s3.ErrLocked) {
 		t.Errorf("a month on: %v", err)
 	}
 }
@@ -316,15 +316,15 @@ func TestRotateDropsUnfinished(t *testing.T) {
 	old := k.now.Add(-48 * time.Hour).UTC().Format(stamp)
 	young := k.now.Add(-time.Hour).UTC().Format(stamp)
 	for _, at := range []string{old, young} {
-		_ = k.primary.Put(ctx, k.v.Primary.Prefix+"kasl/databases/main/"+at+"/part-0000", []byte("x"))
+		_ = k.primary.Put(ctx, k.v.Primary.Prefix+"nova/databases/main/"+at+"/part-0000", []byte("x"))
 	}
-	if _, err := k.v.BackupDatabase(ctx, "kasl", "main", db); err != nil {
+	if _, err := k.v.BackupDatabase(ctx, "nova", "main", db); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := k.v.Rotate(ctx, "kasl", 7, 4); err != nil {
+	if _, err := k.v.Rotate(ctx, "nova", 7, 4); err != nil {
 		t.Fatal(err)
 	}
-	keys, _ := k.primary.List(ctx, k.v.Primary.Prefix+"kasl/")
+	keys, _ := k.primary.List(ctx, k.v.Primary.Prefix+"nova/")
 	joined := strings.Join(keys, " ")
 	if strings.Contains(joined, old) || !strings.Contains(joined, young) || !strings.Contains(joined, "manifest.json") {
 		t.Errorf("left %v", keys)

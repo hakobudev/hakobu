@@ -64,7 +64,7 @@
       <div class="window" id="demo" aria-label="An example project: its files, and what a push does">
         <div class="win-bar">
           <span class="win-dots" aria-hidden="true"><i></i><i></i><i></i></span>
-          <span class="win-title"><svg class="icon"><use href="#i-github"/></svg>kasl/crm</span>
+          <span class="win-title"><svg class="icon"><use href="#i-github"/></svg>nova/crm</span>
         </div>
         <div class="win-panes">
           <div class="pane pane-files">
@@ -74,7 +74,7 @@
               <button type="button" role="tab" class="file-tab" aria-selected="false" data-file="ci"><svg class="icon"><use href="#i-workflow"/></svg>hakobu.yml</button>
             </div>
 <pre class="code" data-file="toml"><span class="k">project</span> = <span class="s">"crm"</span>
-<span class="k">server</span> = <span class="s">"kasl-1"</span>
+<span class="k">server</span> = <span class="s">"nova-1"</span>
 
 <span class="t">[apps.web]</span>
 <span class="k">domain</span> = <span class="s">"crm.example.com"</span>
@@ -94,7 +94,7 @@
 <span class="k">memory</span> = <span class="s">"128mb"</span></pre>
 <pre class="code" data-file="secrets" hidden><span class="c"># each value sealed with age to the server and to you</span>
 <span class="k">recipients</span> = [
-  <span class="s">"age1x7k9…2qpm"</span>,  <span class="c"># kasl-1</span>
+  <span class="s">"age1x7k9…2qpm"</span>,  <span class="c"># nova-1</span>
   <span class="s">"age1m3dz…08fh"</span>,  <span class="c"># you</span>
 ]
 
@@ -120,7 +120,7 @@
     <span class="k">uses</span>: <span class="s">hakobudev/hakobu/.github/workflows/build.yml@v1.0.0</span>
     <span class="k">with</span>:
       <span class="k">version</span>: v1.0.0
-      <span class="k">image</span>: ghcr.io/kasl/crm</pre>
+      <span class="k">image</span>: ghcr.io/nova/crm</pre>
           </div>
           <div class="pane pane-term">
             <div class="term-bar">
@@ -186,7 +186,7 @@
             <div class="deploy"><span class="mono">07dd9b2</span><span class="deploy-msg">Sign in with email</span><span class="live">Live</span><span class="when">2 weeks ago</span></div>
           </div>
           <div class="roll-foot">
-            <button class="btn btn-sm" type="button" id="rollback"><svg class="icon"><use href="#i-history"/></svg><span id="rollback-label">ssh kasl-1 rollback crm</span></button>
+            <button class="btn btn-sm" type="button" id="rollback"><svg class="icon"><use href="#i-history"/></svg><span id="rollback-label">ssh nova-1 rollback crm</span></button>
             <span class="legend">no registry needed: the server keeps them</span>
           </div>
         </div></div>
@@ -206,7 +206,7 @@
             <div class="d-ctx"><span class="d-sign"> </span>[hakobu]</div>
             <div class="d-ctx"><span class="d-sign"> </span>status_token = "age:Ci0+IFgyNTUxOSBuUEFw…"</div>
           </div>
-          <div class="diff-foot mono"><span class="p">$</span> op read op://crm/stripe | ssh kasl-1 secret set crm web STRIPE_KEY</div>
+          <div class="diff-foot mono"><span class="p">$</span> op read op://crm/stripe | ssh nova-1 secret set crm web STRIPE_KEY</div>
         </div></div>
       </div>
 
@@ -215,7 +215,7 @@
         <p>Every database and volume, each day: sealed, copied to a second bucket with a key that may only write, then restored into scratch before it counts.</p>
         <div class="card-viz"><div class="viz viz-seal">
           <div class="seal-row" aria-hidden="true">
-            <div class="seal-node"><span class="seal-ic"><svg class="icon"><use href="#i-server"/></svg><span class="key"><svg class="icon"><use href="#i-key-round"/></svg></span></span>kasl-1</div>
+            <div class="seal-node"><span class="seal-ic"><svg class="icon"><use href="#i-server"/></svg><span class="key"><svg class="icon"><use href="#i-key-round"/></svg></span></span>nova-1</div>
             <div class="seal-pipe"><span class="seal-file"><svg class="icon"><use href="#i-lock"/></svg>crm/main, sealed</span></div>
             <div class="seal-node"><span class="seal-ic"><svg class="icon"><use href="#i-archive"/></svg></span>any S3</div>
           </div>
@@ -231,10 +231,10 @@
         <h3>One email when it breaks, one when it's over.</h3>
         <p>An app down, a failed deploy or backup, a full disk, or the hourly audit finding a port or container that shouldn't be there. A pulse to a dead man's switch says hakobu itself is alive.</p>
         <div class="card-viz"><div class="mails">
-          <div class="mail"><svg class="icon text-danger"><use href="#i-mail"/></svg><div class="min-w-0"><div class="mail-subj">[hakobu kasl-1] crm/web is down: GET /up: 502</div><div class="mail-meta">09:14 · with its last output</div></div></div>
-          <div class="mail"><svg class="icon text-success"><use href="#i-mail"/></svg><div class="min-w-0"><div class="mail-subj">[hakobu kasl-1] resolved: crm/web is down (after 6m)</div><div class="mail-meta">09:20</div></div></div>
-          <div class="mail"><svg class="icon text-danger"><use href="#i-mail"/></svg><div class="min-w-0"><div class="mail-subj">[hakobu kasl-1] audit: port 5432 listens on 0.0.0.0</div><div class="mail-meta">yesterday · hourly audit</div></div></div>
-          <div class="mail"><svg class="icon text-danger"><use href="#i-mail"/></svg><div class="min-w-0"><div class="mail-subj">[hakobu kasl-1] the disk is 86% full</div><div class="mail-meta">Monday · closes under 80%</div></div></div>
+          <div class="mail"><svg class="icon text-danger"><use href="#i-mail"/></svg><div class="min-w-0"><div class="mail-subj">[hakobu nova-1] crm/web is down: GET /up: 502</div><div class="mail-meta">09:14 · with its last output</div></div></div>
+          <div class="mail"><svg class="icon text-success"><use href="#i-mail"/></svg><div class="min-w-0"><div class="mail-subj">[hakobu nova-1] resolved: crm/web is down (after 6m)</div><div class="mail-meta">09:20</div></div></div>
+          <div class="mail"><svg class="icon text-danger"><use href="#i-mail"/></svg><div class="min-w-0"><div class="mail-subj">[hakobu nova-1] audit: port 5432 listens on 0.0.0.0</div><div class="mail-meta">yesterday · hourly audit</div></div></div>
+          <div class="mail"><svg class="icon text-danger"><use href="#i-mail"/></svg><div class="min-w-0"><div class="mail-subj">[hakobu nova-1] the disk is 86% full</div><div class="mail-meta">Monday · closes under 80%</div></div></div>
         </div></div>
       </div>
 
@@ -245,10 +245,10 @@
           <div class="turn turn-me"><div class="msg msg-me">Add a cache for sessions and ship it.</div></div>
           <div class="turn">
             <div class="tools"><span class="tool"><svg class="icon"><use href="#i-check"/></svg>edit hakobu.toml</span><span class="tool"><svg class="icon"><use href="#i-check"/></svg>validate</span><span class="tool"><svg class="icon"><use href="#i-check"/></svg>git push</span><span class="tool"><svg class="icon"><use href="#i-check"/></svg>deploys</span></div>
-            <div class="msg msg-ai">Added <code>[caches.sessions]</code> and gave web <code>SESSIONS_REDIS_URL</code>. <span class="mono">c3d9a20</span> is live on kasl-1.</div>
+            <div class="msg msg-ai">Added <code>[caches.sessions]</code> and gave web <code>SESSIONS_REDIS_URL</code>. <span class="mono">c3d9a20</span> is live on nova-1.</div>
           </div>
           <div class="turn turn-me"><div class="msg msg-me">Now restore last night's backup of main.</div></div>
-          <div class="turn"><div class="msg msg-ai">That one's yours: <code>ssh -t root@kasl-1 hakobu restore crm/main</code>, at your terminal. My key can't.</div></div>
+          <div class="turn"><div class="msg msg-ai">That one's yours: <code>ssh -t root@nova-1 hakobu restore crm/main</code>, at your terminal. My key can't.</div></div>
         </div></div>
       </div>
 
@@ -308,23 +308,23 @@
       <li>
         <div class="start-text"><span class="step-n">1</span><div><h3>A server</h3><p>One command, nothing asked, so your agent can run it. It ends with the line that gives your agent the server's MCP. After that it updates itself. <a href="/docs/install/">A server</a></p></div></div>
         <div class="copyable"><pre class="console"><span class="p">$</span> ssh root@203.0.113.7 'curl -fsSL https://hakobu.dev/install.sh \
-    | HAKOBU_NAME=kasl-1 HAKOBU_INGRESS=public bash'
-<span class="p">$</span> claude mcp add --scope user kasl-1 -- \
-    ssh -T deploy@203.0.113.7 mcp</pre><button class="copy" type="button" data-copy="ssh root@203.0.113.7 'curl -fsSL https://hakobu.dev/install.sh | HAKOBU_NAME=kasl-1 HAKOBU_INGRESS=public bash'" aria-label="Copy the install command"><svg class="icon"><use href="#i-copy"/></svg></button></div>
+    | HAKOBU_NAME=nova-1 HAKOBU_INGRESS=public bash'
+<span class="p">$</span> claude mcp add --scope user nova-1 -- \
+    ssh -T deploy@203.0.113.7 mcp</pre><button class="copy" type="button" data-copy="ssh root@203.0.113.7 'curl -fsSL https://hakobu.dev/install.sh | HAKOBU_NAME=nova-1 HAKOBU_INGRESS=public bash'" aria-label="Copy the install command"><svg class="icon"><use href="#i-copy"/></svg></button></div>
       </li>
       <li>
         <div class="start-text"><span class="step-n">2</span><div><h3>A project</h3><p>Ask your agent to set the repository up: it writes hakobu.toml, the workflow and its skill. You type the secrets in your own terminal, sealed on the server; the agent adds them, never seeing one. <a href="/docs/project/">A project</a></p></div></div>
-        <div class="copyable"><pre class="console"><span class="p">you&gt;</span> Set this repository up for hakobu on kasl-1.
-<span class="p">$</span> ssh -t kasl-1 secret set crm hakobu status_token
-<span class="p">you&gt;</span> I sealed the status token; add it and push.</pre><button class="copy" type="button" data-copy="ssh -t kasl-1 secret set crm hakobu status_token" aria-label="Copy the command"><svg class="icon"><use href="#i-copy"/></svg></button></div>
+        <div class="copyable"><pre class="console"><span class="p">you&gt;</span> Set this repository up for hakobu on nova-1.
+<span class="p">$</span> ssh -t nova-1 secret set crm hakobu status_token
+<span class="p">you&gt;</span> I sealed the status token; add it and push.</pre><button class="copy" type="button" data-copy="ssh -t nova-1 secret set crm hakobu status_token" aria-label="Copy the command"><svg class="icon"><use href="#i-copy"/></svg></button></div>
       </li>
       <li>
         <div class="start-text"><span class="step-n is-live">3</span><div><h3>Push</h3><p>CI builds the apps and the release; within 30 seconds the server deploys it, and the job turns green once it's live.</p></div></div>
         <div class="copyable"><pre class="console"><span class="p">$</span> git push
-<span class="p">$</span> ssh kasl-1 status
-kasl-1
-  app       crm/admin  ghcr.io/kasl/crm-admin@4be1…
-  app       crm/web    ghcr.io/kasl/crm-web@90c7…
+<span class="p">$</span> ssh nova-1 status
+nova-1
+  app       crm/admin  ghcr.io/nova/crm-admin@4be1…
+  app       crm/web    ghcr.io/nova/crm-web@90c7…
   database  crm/main
   cache     crm/cache
   last deploy: 1m ago crm a1f3c9e, ok
