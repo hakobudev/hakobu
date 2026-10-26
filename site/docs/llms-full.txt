@@ -519,7 +519,7 @@ to = "you@example.com"
 | Key | |
 |---|---|
 | `name` | the server's name; a project's `server` must match it |
-| `listen` | the API's address, on the tailnet or 127.0.0.1 (reached through SSH); an address on every interface is refused |
+| `listen` | the API's address, on the tailnet or 127.0.0.1 (reached through SSH); any other address is refused |
 | `socket` | the API's Unix socket, default `/run/hakobu-api/api.sock`: root may do anything there, the SSH user what an operator may |
 | `data_dir` | default `/var/lib/hakobu`: the key, state, deploy history, dumps |
 | `owner_key` | your age public key |
@@ -664,7 +664,7 @@ What hakobu does to keep your apps and data yours, and what it doesn't promise.
 
 ## Nothing comes in
 
-The server pulls its releases; no CI or panel connects to it. You and your agent reach it over SSH alone, with keys that run hakobu's commands and nothing else (no shell, no files, no forwarding); hakobu's API listens on loopback and a Unix socket, or on the tailnet, and nowhere else (an address on every interface is refused); hakobu's own releases are signed, and install only if newer, and the web reaches apps only through 80/443 for their own domains, or a Cloudflare Tunnel with no port open at all. The [audit](https://hakobu.dev/docs/alerts/index.md) emails you about any other port that listens.
+The server pulls its releases; no CI or panel connects to it. You and your agent reach it over SSH alone, with keys that run hakobu's commands and nothing else (no shell, no files, no forwarding); hakobu's API listens on loopback and a Unix socket, or on the tailnet, and nowhere else (any other address is refused); hakobu's own releases are signed, and install only if newer, and the web reaches apps only through 80/443 for their own domains, or a Cloudflare Tunnel with no port open at all. The [audit](https://hakobu.dev/docs/alerts/index.md) emails you about any other port that listens.
 
 ## Who may do what
 

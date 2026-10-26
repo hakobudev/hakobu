@@ -9,9 +9,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -228,6 +231,30 @@ func (c *Config) buckets() []*Bucket {
 	return out
 }
 
+// tailnets are Tailscale's addresses.
+var tailnets = []netip.Prefix{netip.MustParsePrefix("100.64.0.0/10"), netip.MustParsePrefix("fd7a:115c:a1e0::/48")}
+
+// checkListen refuses an API address anyone but this machine and its
+// tailnet could reach: the API speaks plain HTTP, its tokens in the clear.
+func checkListen(listen string) error {
+	host, _, err := net.SplitHostPort(listen)
+	if err != nil {
+		return fmt.Errorf("%s isn't host:port", listen)
+	}
+	ip, err := netip.ParseAddr(host)
+	switch {
+	case host == "localhost":
+		return nil
+	case err != nil:
+		return fmt.Errorf("%s: give an address, not a name, so it can't come to mean another", listen)
+	case ip.IsUnspecified():
+		return fmt.Errorf("%s would listen on every address, the public one too; give the tailnet one", listen)
+	case ip.IsLoopback(), slices.ContainsFunc(tailnets, func(p netip.Prefix) bool { return p.Contains(ip.Unmap()) }):
+		return nil
+	}
+	return fmt.Errorf("%s isn't loopback or on a tailnet: the API speaks plain HTTP, so it listens nowhere else", listen)
+}
+
 func (c *Config) check() error {
 	var errs []error
 	bad := func(format string, a ...any) { errs = append(errs, fmt.Errorf(format, a...)) }
@@ -236,8 +263,8 @@ func (c *Config) check() error {
 	}
 	if c.Listen == "" {
 		bad("listen: the API needs an address on the tailnet, like 100.64.0.1:7070, or 127.0.0.1:7070")
-	} else if host := strings.Split(c.Listen, ":")[0]; host == "" || host == "0.0.0.0" {
-		bad("listen: %s would listen on every address, the public one too; give the tailnet one", c.Listen)
+	} else if err := checkListen(c.Listen); err != nil {
+		bad("listen: %v", err)
 	}
 	if _, err := age.ParseX25519Recipient(c.OwnerKey); err != nil {
 		bad("owner_key: %q isn't an age public key (age1…)", c.OwnerKey)

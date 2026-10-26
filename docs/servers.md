@@ -77,7 +77,7 @@ to = "you@example.com"
 | Key | |
 |---|---|
 | `name` | the server's name; a project's `server` must match it |
-| `listen` | the API's address, on the tailnet or 127.0.0.1 (reached through SSH); an address on every interface is refused |
+| `listen` | the API's address, on the tailnet or 127.0.0.1 (reached through SSH); any other address is refused |
 | `socket` | the API's Unix socket, default `/run/hakobu-api/api.sock`: root may do anything there, the SSH user what an operator may |
 | `data_dir` | default `/var/lib/hakobu`: the key, state, deploy history, dumps |
 | `owner_key` | your age public key |

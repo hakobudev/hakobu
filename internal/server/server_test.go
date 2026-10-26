@@ -67,6 +67,10 @@ func TestConfigRefuses(t *testing.T) {
 	good := configText("/tmp/x")
 	for _, c := range []struct{ name, from, to, want string }{
 		{"public listen", `listen = "100.64.0.1:7070"`, `listen = "0.0.0.0:7070"`, "every address"},
+		{"public listen v6", `listen = "100.64.0.1:7070"`, `listen = "[::]:7070"`, "every address"},
+		{"no port", `listen = "100.64.0.1:7070"`, `listen = "100.64.0.1"`, "host:port"},
+		{"a name", `listen = "100.64.0.1:7070"`, `listen = "example.com:7070"`, "not a name"},
+		{"a public address", `listen = "100.64.0.1:7070"`, `listen = "203.0.113.5:7070"`, "isn't loopback or on a tailnet"},
 		{"no listen", `listen = "100.64.0.1:7070"`, `listen = ""`, "tailnet"},
 		{"owner key", `owner_key = "age1`, `owner_key = "ssh-ed25519 age1`, "owner_key"},
 		{"pinned release", `crm-release:main"`, `crm-release@sha256:` + strings.Repeat("a", 64) + `"`, "would never change"},
