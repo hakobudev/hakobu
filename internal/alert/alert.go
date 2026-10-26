@@ -40,11 +40,15 @@ type SMTP struct {
 var sendTimeout = time.Minute
 
 func (s SMTP) Send(subject, body string) error {
+	// Each is a header: a line break in one would start another.
+	if strings.ContainsAny(s.From+s.To, "\r\n") {
+		return errors.New("mail: from and to are an address each, on one line")
+	}
 	addr := net.JoinHostPort(s.Host, strconv.Itoa(s.Port))
 	msg := strings.Join([]string{
 		"From: " + s.From,
 		"To: " + s.To,
-		"Subject: " + strings.ReplaceAll(subject, "\n", " "),
+		"Subject: " + strings.NewReplacer("\r", " ", "\n", " ").Replace(subject),
 		"Date: " + time.Now().Format(time.RFC1123Z),
 		"Content-Type: text/plain; charset=utf-8",
 		"", body,
