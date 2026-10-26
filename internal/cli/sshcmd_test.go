@@ -110,7 +110,7 @@ func TestSSHSecretSet(t *testing.T) {
 		t.Errorf("sent %v", got)
 	}
 	for _, id := range []age.Identity{server, owner} {
-		if v, err := seal.OpenValue(got["sealed"], id); err != nil || v != "s3cret" {
+		if v, bare, err := seal.OpenAt(got["sealed"], id, "kasl/web/DATABASE_URL"); err != nil || bare || v != "s3cret" {
 			t.Errorf("opens to %q, %v", v, err)
 		}
 	}

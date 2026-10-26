@@ -2,6 +2,8 @@ package apply
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -36,6 +38,9 @@ const (
 	LabelSource     = "org.opencontainers.image.source"
 	LabelRevision   = "org.opencontainers.image.revision"
 )
+
+// PullPlace is the name CI's pull token is sealed for, as hakobu's own.
+const PullPlace = "pull"
 
 // PullAuth is a registry's credentials a release carries: CI's own token,
 // good while its job runs.
@@ -100,7 +105,9 @@ func ReadRelease(labels map[string]string, id age.Identity) (Release, Meta, erro
 	r := Release{Spec: p, Images: images, Revision: meta.Revision}
 	if sealed := labels[LabelPull]; sealed != "" && id != nil {
 		var pa PullAuth
-		plain, err := seal.OpenValue(sealed, id)
+		// One sealed bare still goes: it's good while its job runs, and
+		// only for pulls.
+		plain, _, err := seal.OpenAt(sealed, id, seal.Place(p.Name, "hakobu", PullPlace))
 		if err == nil {
 			err = json.Unmarshal([]byte(plain), &pa)
 		}
@@ -115,7 +122,7 @@ func ReadRelease(labels map[string]string, id age.Identity) (Release, Meta, erro
 		if err != nil {
 			errs = append(errs, err)
 		}
-		r.Secrets, meta.StatusToken = secrets.Apps, secrets.Hakobu[seal.StatusToken]
+		r.Secrets, r.Bare, meta.StatusToken = secrets.Apps, secrets.Bare, secrets.Hakobu[seal.StatusToken]
 	}
 	if _, err := status.Repo(meta.Source); err == nil && meta.StatusToken == "" {
 		errs = append(errs, fmt.Errorf("%s: no token for the commit status; add one that may set commit statuses on the repository: ssh -t SERVER secret set %s hakobu %s (hakobu secret set hakobu %[3]s on a laptop)", seal.FileName, p.Name, seal.StatusToken))
@@ -134,7 +141,7 @@ func openSecrets(text string, id age.Identity, p *spec.Project) (seal.Opened, er
 	if id == nil {
 		return seal.Opened{}, fmt.Errorf("%s: this server has no key to open it", seal.FileName)
 	}
-	o, err := s.Open(id)
+	o, err := s.Open(id, p.Name)
 	if err != nil {
 		return o, fmt.Errorf("%s: %w", seal.FileName, err)
 	}
@@ -216,6 +223,12 @@ type watched struct {
 	// may: a release says which project it is, and would otherwise get
 	// another's databases by naming it.
 	Project string `json:"project,omitempty"`
+	// Bare are the secrets of its releases sealed before hakobu sealed
+	// each for its place, by the sealed text's SHA-256: the app and
+	// variable each was deployed as. Those may stay where they were, and
+	// no other is opened, for it could be another project's, pasted in.
+	// nil until the releases it applied are read for them.
+	Bare map[string]string `json:"bare"`
 }
 
 // Run polls until ctx ends.
@@ -297,6 +310,9 @@ func (w *Watch) Check(ctx context.Context, ref registry.Ref, force bool) (*Resul
 		err = w.claim(ctx, seen, key, release.Spec.Name)
 	}
 	if err == nil {
+		err = w.bareOK(ctx, key, &s, release.Bare)
+	}
+	if err == nil {
 		s.Project = release.Spec.Name
 		release.Force = force
 		res.Project = release.Spec.Name
@@ -351,12 +367,15 @@ func (w *Watch) Rollback(ctx context.Context, ref registry.Ref) (*Result, error)
 		if cerr != nil {
 			err = fmt.Errorf("reading the current release for its secrets: %w", cerr)
 		}
-		release.Secrets, meta.StatusToken = current.Secrets, cmeta.StatusToken
+		release.Secrets, release.Bare, meta.StatusToken = current.Secrets, current.Bare, cmeta.StatusToken
 	}
 	meta.Ref = pinned
 	res.Source, res.Revision = meta.Source, meta.Revision
 	if err == nil {
 		err = w.claim(ctx, seen, key, release.Spec.Name)
+	}
+	if err == nil {
+		err = w.bareOK(ctx, key, &s, release.Bare)
 	}
 	if err == nil {
 		s.Project = release.Spec.Name
@@ -391,6 +410,49 @@ func (w *Watch) claim(ctx context.Context, seen map[string]watched, key, project
 		}
 	}
 	return nil
+}
+
+// bareOK tells whether the release image key may deploy secrets sealed
+// bare: each only as the app and variable a release it applied had it,
+// before hakobu sealed them for their place. s keeps those once it has
+// read every release it applied; one it can't read now is tried again
+// the next time.
+func (w *Watch) bareOK(ctx context.Context, key string, s *watched, bare []seal.Bare) error {
+	known := s.Bare
+	if known == nil {
+		known = map[string]string{}
+		ref, err := registry.ParseRef(key)
+		for _, d := range []string{s.Applied, s.Previous} {
+			if d == "" || err != nil {
+				continue
+			}
+			var r Release
+			if r, _, err = w.fetch(ctx, ref.Pinned(d)); err == nil {
+				for _, b := range r.Bare {
+					known[bareKey(b.Sealed)] = b.App + "/" + b.Name
+				}
+			}
+		}
+		if err == nil {
+			s.Bare = known
+		}
+	}
+	var errs []error
+	for _, b := range bare {
+		if known[bareKey(b.Sealed)] != b.App+"/"+b.Name {
+			at := "apps." + b.App + "." + b.Name
+			if b.App == "hakobu" {
+				at = "hakobu." + b.Name
+			}
+			errs = append(errs, fmt.Errorf("%s: %s: sealed by a hakobu before 1.6, which didn't seal a secret for its project, and new here: set it again (ssh -t SERVER secret set PROJECT %s %s)", seal.FileName, at, b.App, b.Name))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func bareKey(sealed string) string {
+	sum := sha256.Sum256([]byte(sealed))
+	return hex.EncodeToString(sum[:])
 }
 
 // backfill gives the images that deployed before hakobu kept their

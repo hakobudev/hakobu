@@ -74,15 +74,17 @@ func (d *Daemon) addPending(w http.ResponseWriter, r *http.Request) (any, error)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.Set(p.App, p.Name, "x"); err != nil {
+	if err := s.Set(p.Project, p.App, p.Name, "x"); err != nil {
 		return nil, badRequest("%v", err)
 	}
 	id, err := seal.LoadIdentity(d.Config.KeyFile())
 	if err != nil {
 		return nil, err
 	}
-	if _, err := seal.OpenValue(p.Sealed, id); err != nil {
+	if _, bare, err := seal.OpenAt(p.Sealed, id, seal.Place(p.Project, p.App, p.Name)); err != nil {
 		return nil, badRequest("the value isn't sealed to this server: %v", err)
+	} else if bare {
+		return nil, badRequest("the value isn't sealed for %s's %s %s: seal it with hakobu 1.6 or later", p.Project, p.App, p.Name)
 	}
 	p.At = time.Now().UTC()
 	d.pendingMu.Lock()

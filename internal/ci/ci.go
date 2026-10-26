@@ -132,7 +132,7 @@ func (b Build) Release(ctx context.Context) (string, error) {
 		specLabel = apply.LabelSpecSealed
 		if b.Pull != nil {
 			pj, _ := json.Marshal(b.Pull)
-			sealed, err := sealer.Seal(string(pj))
+			sealed, err := sealer.SealAt(seal.Place(p.Name, "hakobu", apply.PullPlace), string(pj))
 			if err != nil {
 				return "", fmt.Errorf("sealing the pull token: %w", err)
 			}

@@ -16,11 +16,11 @@ SSH is as safe as its keys: turn passwords off (the installer warns while they'r
 
 ## Isolation
 
-hakobu runs as the unprivileged `hakobu` user, in a sandboxed systemd unit, and [rootless Docker](https://docs.docker.com/engine/security/rootless/) as another, `hakobu-docker`: neither a break-in into hakobu nor a container escape gets root, and an escape can't read hakobu's data. Containers run with `no-new-privileges` and without raw sockets. Each project has its own Docker network; each database its own PostgreSQL user, and each cache its own server and password.
+hakobu runs as the unprivileged `hakobu` user, in a sandboxed systemd unit, and [rootless Docker](https://docs.docker.com/engine/security/rootless/) as another, `hakobu-docker`: neither a break-in into hakobu nor a container escape gets root, and an escape can't read hakobu's data. Containers run with `no-new-privileges` and without raw sockets. Each project has its own Docker network; each database its own PostgreSQL user, and each cache its own server and password. A project whose containers, volumes or databases would be named as another's isn't deployed.
 
 ## Secrets and backups
 
-Sealed with age to the server's key and yours: see [Secrets](secrets.md) and [Backups](backups.md). The repository, the registry and the backup buckets hold nothing readable without one of the two keys. Backup copies go with a key that may only write.
+Sealed with age to the server's key and yours: see [Secrets](secrets.md) and [Backups](backups.md). A secret is sealed for its project, app and name, and opens there alone, so one project's release can't take another's secrets. The repository, the registry and the backup buckets hold nothing readable without one of the two keys. Backup copies go with a key that may only write.
 
 ## What's beyond it
 
