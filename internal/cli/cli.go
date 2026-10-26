@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -441,7 +442,7 @@ func logsCmd() *cobra.Command {
 				return err
 			}
 			var out map[string]string
-			q := fmt.Sprintf("/v1/logs?project=%s&app=%s&lines=%d", project, app, lines)
+			q := fmt.Sprintf("/v1/logs?project=%s&app=%s&lines=%d", url.QueryEscape(project), url.QueryEscape(app), lines)
 			if worker {
 				q += "&worker=1"
 			}
@@ -566,7 +567,7 @@ func backupsCmd() *cobra.Command {
 				return err
 			}
 			var ms []backups.Manifest
-			if err := cl.Get(cmd.Context(), "/v1/backups?project="+args[0], &ms); err != nil {
+			if err := cl.Get(cmd.Context(), "/v1/backups?project="+url.QueryEscape(args[0]), &ms); err != nil {
 				return err
 			}
 			tw := tabwriter.NewWriter(os.Stdout, 2, 4, 2, ' ', 0)

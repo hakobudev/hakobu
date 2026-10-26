@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net/url"
 	"os"
 	"os/user"
 	"slices"
@@ -132,7 +133,7 @@ func newMCP(cmd *cobra.Command) *mcp.Server {
 			if err != nil {
 				return nil, nil, err
 			}
-			q := fmt.Sprintf("/v1/logs?project=%s&app=%s&lines=%d", project, app, in.Lines)
+			q := fmt.Sprintf("/v1/logs?project=%s&app=%s&lines=%d", url.QueryEscape(project), url.QueryEscape(app), in.Lines)
 			if in.Worker {
 				q += "&worker=1"
 			}
@@ -153,7 +154,7 @@ func newMCP(cmd *cobra.Command) *mcp.Server {
 			if err != nil {
 				return nil, out, err
 			}
-			return nil, out, c.Get(ctx, "/v1/backups?project="+in.Project, &out.Backups)
+			return nil, out, c.Get(ctx, "/v1/backups?project="+url.QueryEscape(in.Project), &out.Backups)
 		})
 
 	type deployIn struct {
@@ -269,9 +270,9 @@ func newMCP(cmd *cobra.Command) *mcp.Server {
 			}
 			if in.Clear {
 				out.Note = "Forgotten on the server."
-				return nil, out, c.Post(ctx, "/v1/secrets/clear?project="+in.Project, struct{}{}, &out.Secrets)
+				return nil, out, c.Post(ctx, "/v1/secrets/clear?project="+url.QueryEscape(in.Project), struct{}{}, &out.Secrets)
 			}
-			if err := c.Get(ctx, "/v1/secrets?project="+in.Project, &out.Secrets); err != nil {
+			if err := c.Get(ctx, "/v1/secrets?project="+url.QueryEscape(in.Project), &out.Secrets); err != nil {
 				return nil, out, err
 			}
 			if len(out.Secrets) == 0 {
