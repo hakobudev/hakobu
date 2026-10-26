@@ -130,6 +130,13 @@ func ValidDigest(d string) bool {
 // Labels are the labels of the image r names, for this machine's platform
 // when r is an index of several.
 func (c *Client) Labels(ctx context.Context, r Ref) (map[string]string, error) {
+	return c.labels(ctx, r, false)
+}
+
+// labels are Labels; inIndex tells it r came from an index, which may not
+// name another: a registry could otherwise send it from one to the next
+// forever.
+func (c *Client) labels(ctx context.Context, r Ref, inIndex bool) (map[string]string, error) {
 	var m struct {
 		MediaType string `json:"mediaType"`
 		Config    struct {
@@ -166,10 +173,19 @@ func (c *Client) Labels(ctx context.Context, r Ref) (map[string]string, error) {
 		if pick == "" {
 			return nil, fmt.Errorf("%s: no image in the index", r)
 		}
-		return c.Labels(ctx, r.Pinned(pick))
+		if inIndex {
+			return nil, fmt.Errorf("%s: an index in an index", r)
+		}
+		if !ValidDigest(pick) {
+			return nil, fmt.Errorf("%s: the index names %q, not a sha256: digest", r, pick)
+		}
+		return c.labels(ctx, r.Pinned(pick), true)
 	}
 	if m.Config.Digest == "" {
 		return nil, fmt.Errorf("%s: not an image manifest", r)
+	}
+	if !ValidDigest(m.Config.Digest) {
+		return nil, fmt.Errorf("%s: the manifest names %q as its config, not a sha256: digest", r, m.Config.Digest)
 	}
 	var cfg struct {
 		Config struct {
