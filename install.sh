@@ -72,15 +72,15 @@ fi
 
 echo "==> packages"
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
-apt-get install -y -qq curl openssl ca-certificates uidmap dbus-user-session unattended-upgrades >/dev/null
+apt-get -o DPkg::Lock::Timeout=600 update -qq
+apt-get -o DPkg::Lock::Timeout=600 install -y -qq curl openssl ca-certificates uidmap dbus-user-session unattended-upgrades >/dev/null
 # Security updates install themselves; hakobu's audit checks they do.
 dpkg-reconfigure -f noninteractive unattended-upgrades >/dev/null 2>&1 || true
 
 echo "==> Docker, rootless, for the hakobu-docker user"
 HAD_DOCKER=""
 if command -v docker >/dev/null; then HAD_DOCKER=1; else curl -fsSL https://get.docker.com | sh >/dev/null; fi
-apt-get install -y -qq docker-ce-rootless-extras >/dev/null
+apt-get -o DPkg::Lock::Timeout=600 install -y -qq docker-ce-rootless-extras >/dev/null
 command -v dockerd-rootless-setuptool.sh >/dev/null || die "rootless Docker isn't available: hakobu needs Docker's own packages, not the distribution's"
 id hakobu >/dev/null 2>&1 || useradd --system --create-home --home-dir /home/hakobu --shell /usr/sbin/nologin hakobu
 id hakobu-docker >/dev/null 2>&1 || useradd --system --create-home --home-dir /home/hakobu-docker --shell /usr/sbin/nologin hakobu-docker
@@ -262,7 +262,7 @@ if [ "${HAKOBU_INGRESS:-}" = tunnel ] && ! systemctl -q is-active cloudflared 2>
   install -d -m 0755 /usr/share/keyrings
   curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg -o /usr/share/keyrings/cloudflare-main.gpg
   echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main" > /etc/apt/sources.list.d/cloudflared.list
-  apt-get update -qq && apt-get install -y -qq cloudflared >/dev/null
+  apt-get -o DPkg::Lock::Timeout=600 update -qq && apt-get -o DPkg::Lock::Timeout=600 install -y -qq cloudflared >/dev/null
   cloudflared service install "$CLOUDFLARE_TUNNEL_TOKEN" >/dev/null
 fi
 
@@ -314,9 +314,32 @@ SystemCallArchitectures=native
 [Install]
 WantedBy=multi-user.target
 EOF
+# hakobu can't write its binary: it asks for an update by creating
+# update-request in its data, and root runs the update (hakobu server
+# update), which installs only a newer signed release.
+cat > /etc/systemd/system/hakobu-update.path <<EOF
+[Unit]
+Description=hakobu's requests to update it
+
+[Path]
+PathExists=$DATA/update-request
+
+[Install]
+WantedBy=multi-user.target
+EOF
+cat > /etc/systemd/system/hakobu-update.service <<EOF
+[Unit]
+Description=Update hakobu to a newer signed release, as it asked
+
+[Service]
+Type=oneshot
+ExecStart=$BIN server update --requested --config $CONFIG
+TimeoutStartSec=30min
+EOF
 systemctl daemon-reload
 as_docker systemctl --user restart hakobu-dialer
 systemctl enable hakobu >/dev/null 2>&1
+systemctl enable --now hakobu-update.path >/dev/null 2>&1
 systemctl restart hakobu
 
 echo

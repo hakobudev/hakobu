@@ -29,6 +29,7 @@ import (
 	"github.com/hakobudev/hakobu/internal/seal"
 	"github.com/hakobudev/hakobu/internal/server"
 	"github.com/hakobudev/hakobu/internal/spec"
+	"github.com/hakobudev/hakobu/internal/update"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -45,7 +46,7 @@ func Root(version string) *cobra.Command {
 		SilenceErrors:    true,
 	}
 	root.PersistentFlags().String("server", "", "the server to talk to (default: the one the project is on, or the only one)")
-	root.AddCommand(serveCmd(), serverCmd(), statusCmd(), deploysCmd(), logsCmd(), deployCmd(), rollbackCmd(),
+	root.AddCommand(serveCmd(), serverCmd(version), statusCmd(), deploysCmd(), logsCmd(), deployCmd(), rollbackCmd(),
 		backupCmd(), backupsCmd(), restoreCmd(), destroyCmd(), initCmd(), secretCmd(), validateCmd(), buildCmd(), waitCmd(),
 		mcpCmd(), dialerCmd())
 	return root
@@ -77,7 +78,11 @@ func serveCmd() *cobra.Command {
 	return c
 }
 
-func serverCmd() *cobra.Command {
+// InstallScript is install.sh, which main embeds: an update runs the new
+// release's own.
+var InstallScript string
+
+func serverCmd(version string) *cobra.Command {
 	c := &cobra.Command{Use: "server", Short: "Set up this server, or the servers this laptop knows"}
 	config := server.ConfigFile
 	initCmd := &cobra.Command{
@@ -155,7 +160,49 @@ func serverCmd() *cobra.Command {
 			return nil
 		},
 	}
-	c.AddCommand(initCmd, token, add, list)
+	var requested bool
+	var to string
+	updateCmd := &cobra.Command{
+		Use:   "update",
+		Short: "On this server, as root: install a newer signed release (the latest, or --to's), and put this one back if it doesn't come up",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if os.Geteuid() != 0 {
+				return errors.New("run it on the server as root")
+			}
+			cfg, err := server.LoadConfig(config)
+			if err != nil {
+				return fmt.Errorf("%s: %w", config, err)
+			}
+			if requested {
+				if to, err = update.ReadRequest(cfg.DataDir); err != nil {
+					return err
+				}
+			} else if to != "" {
+				to = update.Tag(to)
+			}
+			bin, err := os.Executable()
+			if err != nil {
+				return err
+			}
+			in := &update.Install{Dir: filepath.Dir(bin), Data: cfg.DataDir, Version: version, Listen: cfg.Listen, Out: os.Stdout}
+			return in.Update(to)
+		},
+	}
+	updateCmd.Flags().StringVar(&config, "config", config, "the server's config")
+	updateCmd.Flags().StringVar(&to, "to", "", "the release to install (default: the latest)")
+	updateCmd.Flags().BoolVar(&requested, "requested", false, "the release hakobu asked for (hakobu-update.service runs it so)")
+	installer := &cobra.Command{
+		Use:    "installer",
+		Short:  "Print this release's install.sh (an update runs it)",
+		Hidden: true,
+		Args:   cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_, err := io.WriteString(os.Stdout, InstallScript)
+			return err
+		},
+	}
+	c.AddCommand(initCmd, token, add, list, updateCmd, installer)
 	return c
 }
 
