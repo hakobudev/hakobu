@@ -1,7 +1,9 @@
 <!doctype html>
 <!-- hakobu.dev's preview image (og:image). Render it after a change:
      google-chrome --headless=new --hide-scrollbars --force-device-scale-factor=1 \
-       --window-size=1200,630 --screenshot=site/og.png "file://$PWD/tools/og/og.html" -->
+       --window-size=1200,630 --screenshot=site/og.png "file://$PWD/tools/og/og.html"
+     The README's dark banner is the same with --blink-settings=preferredColorScheme=0
+     and --screenshot=site/og-dark.png. -->
 <html><head><meta charset="utf-8">
 <link rel="stylesheet" href="../../site/style.css">
 <style>
@@ -19,6 +21,15 @@ pre { margin: 0; padding: 20px 22px; font: 17px/1.75 var(--mono); color: #8b8a96
 .s { color: #a3acff; } .w { color: #e4e3ea; }
 .st { position: absolute; left: 720px; top: 456px; display: inline-flex; align-items: center; gap: 10px; padding: 9px 16px; border-radius: 999px; background: #fff; box-shadow: 0 0 0 1px #e3e1db, 0 10px 24px -12px #16161b40; font: 500 18px var(--mono); }
 .st b { width: 11px; height: 11px; border-radius: 9px; background: #3b4de0; }
+@media (prefers-color-scheme: dark) {
+  body { background: #0d0d11; color: #ececf1; }
+  .glow { background: radial-gradient(ellipse 55% 60% at 70% 30%, #8390ff2e, transparent 70%); }
+  p { color: #9a99a6; }
+  .win { background: #1a1a21; box-shadow: inset 0 0 0 1px #ffffff14; }
+  .win > div { background: #08080b; }
+  .st { background: #15151b; color: #ececf1; box-shadow: 0 0 0 1px #262630, 0 10px 24px -12px #000; }
+  .st b { background: #8390ff; }
+}
 </style></head>
 <body>
 <div class="glow"></div>
