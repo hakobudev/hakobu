@@ -938,10 +938,32 @@ func Disk(ctx context.Context) (used, total uint64, err error) {
 	}
 	var st syscall.Statfs_t
 	if err := syscall.Statfs(root, &st); err != nil {
-		return 0, 0, err
+		// Rootless, Docker's root is in its user's home, which hakobu's
+		// user may not enter: the mount it's on tells the same.
+		m, merr := os.ReadFile("/proc/self/mountinfo")
+		if merr != nil || syscall.Statfs(mountOf(root, string(m)), &st) != nil {
+			return 0, 0, err
+		}
 	}
 	total = st.Blocks * uint64(st.Bsize)
 	return total - st.Bavail*uint64(st.Bsize), total, nil
+}
+
+// mountOf is the mount point path is on, from mountinfo: the longest
+// that path is in.
+func mountOf(path, mountinfo string) string {
+	best := "/"
+	for line := range strings.SplitSeq(mountinfo, "\n") {
+		f := strings.Fields(line)
+		if len(f) < 5 {
+			continue
+		}
+		mp := f[4]
+		if (path == mp || strings.HasPrefix(path, strings.TrimSuffix(mp, "/")+"/")) && len(mp) > len(best) {
+			best = mp
+		}
+	}
+	return best
 }
 
 // Listener is a TCP socket listening, from /proc/net/tcp{,6}.
@@ -1022,4 +1044,52 @@ func PostgresQueryIn(ctx context.Context, containerName, db, sql string) ([][]st
 		}
 	}
 	return rows, nil
+}
+
+// PostgresSizes are the bytes each database on the server takes, by name.
+func PostgresSizes(ctx context.Context, containerName string) (map[string]int64, error) {
+	rows, err := PostgresQueryIn(ctx, containerName, "postgres", "SELECT datname, pg_database_size(datname) FROM pg_database WHERE NOT datistemplate")
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]int64{}
+	for _, r := range rows {
+		if len(r) == 2 {
+			if n, err := strconv.ParseInt(r[1], 10, 64); err == nil {
+				out[r[0]] = n
+			}
+		}
+	}
+	return out, nil
+}
+
+// ValkeyMemory is the memory a cache's Valkey uses, and its limit (0 for
+// none), from INFO memory.
+func ValkeyMemory(ctx context.Context, name, password string) (used, limit int64, err error) {
+	out, code, err := execInContainer(ctx, name, []string{"valkey-cli", "--no-auth-warning", "-a", password, "info", "memory"})
+	if err != nil {
+		return 0, 0, err
+	}
+	if code != 0 {
+		return 0, 0, fmt.Errorf("valkey-cli exited %d: %s", code, strings.TrimSpace(out))
+	}
+	return valkeyMemory(out)
+}
+
+func valkeyMemory(info string) (used, limit int64, err error) {
+	found := false
+	for line := range strings.SplitSeq(info, "\n") {
+		k, v, _ := strings.Cut(strings.TrimSpace(line), ":")
+		switch k {
+		case "used_memory":
+			used, err = strconv.ParseInt(v, 10, 64)
+			found = err == nil
+		case "maxmemory":
+			limit, _ = strconv.ParseInt(v, 10, 64)
+		}
+	}
+	if !found {
+		return 0, 0, fmt.Errorf("no used_memory in INFO memory")
+	}
+	return used, limit, nil
 }

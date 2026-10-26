@@ -48,46 +48,68 @@ func serverGetCmd() *cobra.Command {
 			if err := cl.Get(cmd.Context(), "/v1/settings", &v); err != nil {
 				return err
 			}
-			printSettings(cmd.OutOrStdout(), v)
+			printSettings(cmd.OutOrStdout(), cl.Name, v)
 			return nil
 		},
 	}
 }
 
-func printSettings(w io.Writer, v server.SettingsView) {
-	from := func(src string) string {
+// printSettings is a server's settings, one a line; what isn't set says
+// how to set it.
+func printSettings(w io.Writer, name string, v server.SettingsView) {
+	l := lookFor(w)
+	fixed := func(src string) string {
 		if src == "server.toml" {
-			return "  (server.toml)"
+			return "  " + l.dim("(server.toml)")
 		}
 		return ""
 	}
-	fmt.Fprintln(w, "releases:")
-	for _, r := range v.Releases {
-		fmt.Fprintf(w, "  %s%s\n", r.Image, from(r.Source))
+	fmt.Fprintln(w, l.bold(name)+"  "+l.dim("settings"))
+	fmt.Fprintln(w)
+	const col = 10
+	set := func(label, value string) {
+		fmt.Fprintf(w, "  %s %s %s\n", l.ok(symOK), pad(label, label, col), value)
+	}
+	missing := func(label, hint string) {
+		fmt.Fprintf(w, "  %s %s %s  %s\n", l.warn(symData), pad(l.warn(label), label, col), l.warn("none"), l.dim(hint))
+	}
+	more := func(value string) { fmt.Fprintf(w, "    %s %s\n", strings.Repeat(" ", col), value) }
+
+	if len(v.Releases) == 0 {
+		missing("releases", "your agent's init tool adds one")
+	}
+	for i, r := range v.Releases {
+		if i == 0 {
+			set("releases", r.Image+fixed(r.Source))
+		} else {
+			more(r.Image + fixed(r.Source))
+		}
 	}
 	for _, r := range v.Registries {
-		fmt.Fprintf(w, "registry: %s as %s%s\n", r.Host, r.Username, from(r.Source))
+		set("registry", r.Host+" "+l.dim("as "+r.Username)+fixed(r.Source))
 	}
 	if b := v.Backups; b != nil {
-		fmt.Fprintf(w, "backups: at %s UTC, %d daily, %d weekly%s\n", b.At, b.Daily, b.Weekly, from(b.Source))
+		set("backups", fmt.Sprintf("%s UTC %s", b.At, l.dim(fmt.Sprintf("· %d daily · %d weekly", b.Daily, b.Weekly)))+fixed(b.Source))
 		if p := b.Primary; p != nil {
-			fmt.Fprintf(w, "  primary: %s/%s at %s (key %s)\n", p.Bucket, p.Prefix, p.Endpoint, p.AccessKey)
+			more(p.Bucket + "/" + p.Prefix + " " + l.dim("at "+p.Endpoint+", key "+p.AccessKey))
 		}
 		for _, c := range b.Copies {
-			fmt.Fprintf(w, "  copy %s: %s/%s at %s (key %s)\n", c.Name, c.Bucket, c.Prefix, c.Endpoint, c.AccessKey)
+			more("+ " + c.Name + ": " + c.Bucket + "/" + c.Prefix + " " + l.dim("at "+c.Endpoint+", key "+c.AccessKey))
 		}
 	} else {
-		fmt.Fprintln(w, "backups: none (server set backups, root's)")
+		missing("backups", "root's: ssh root@"+name+" hakobu server set backups")
 	}
 	if m := v.SMTP; m != nil {
-		fmt.Fprintf(w, "mail: %s → %s through %s:%d%s\n", m.From, m.To, m.Host, m.Port, from(m.Source))
+		set("mail", m.From+l.dim(" → ")+m.To+" "+l.dim(fmt.Sprintf("through %s:%d", m.Host, m.Port))+fixed(m.Source))
 	} else {
-		fmt.Fprintln(w, "mail: none (server set mail)")
+		missing("mail", "ssh "+name+" server set mail --host … --from … --to …")
 	}
 	if v.Pulse != "" {
-		fmt.Fprintf(w, "pulse: %s\n", v.Pulse)
+		set("pulse", v.Pulse)
+	} else {
+		missing("pulse", "ssh "+name+" server set pulse URL")
 	}
-	fmt.Fprintf(w, "updates: %s at %s UTC%s\n", v.Updates.Auto, v.Updates.At, from(v.Updates.Source))
+	set("updates", v.Updates.Auto+" "+l.dim("at "+v.Updates.At+" UTC")+fixed(v.Updates.Source))
 }
 
 func serverSetCmd() *cobra.Command {

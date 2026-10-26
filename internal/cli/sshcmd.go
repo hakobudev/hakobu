@@ -26,21 +26,46 @@ var sshCommands = [][]string{
 	{"--version"},
 }
 
-const sshHelp = `This key runs hakobu's commands on %[1]s, and nothing else:
+// sshHelp is what a key that runs hakobu's commands may run.
+var sshHelp = [][2]string{
+	{"status", "what runs, what's wrong, how full it is"},
+	{"deploys", "the last deploys"},
+	{"logs PROJECT/APP", "an app's output"},
+	{"deploy PROJECT", "check for its release now"},
+	{"rollback PROJECT", "back one release"},
+	{"backup · backups PROJECT", "back up now · the backups"},
+	{"secret set PROJECT APP NAME", "with ssh -t: seal a secret for the agent"},
+	{"server get · set · update", "this server's settings, hakobu's updates"},
+	{"mcp", "the MCP server, for an agent"},
+}
 
-  ssh … status                       what runs, the last deploy, backups
-  ssh … deploys                      the last deploys
-  ssh … logs PROJECT/APP             an app's output
-  ssh … deploy PROJECT               check for its release now
-  ssh … rollback PROJECT             back one release
-  ssh … backup | backups PROJECT     back up now | the backups
-  ssh -t … secret set PROJECT APP NAME
-                                     seal a secret here, for the agent to add
-  ssh … server get | set … | update  this server's settings, hakobu's updates
-  ssh … mcp                          the MCP server, for an agent
-
-Restore, destroy and the backups' buckets are root's: ssh root@… hakobu …
-`
+func printSSHHelp(w io.Writer, name string) {
+	l := lookFor(w)
+	fmt.Fprintln(w, l.bold(name)+"  "+l.dim("this key runs hakobu's commands, and nothing else"))
+	fmt.Fprintln(w)
+	cmds := make([]string, len(sshHelp))
+	for i, c := range sshHelp {
+		cmds[i] = c[0]
+	}
+	cw := width(cmds...)
+	for _, c := range sshHelp {
+		// The command's words bold, its ARGUMENTS as they are.
+		var words []string
+		for _, f := range strings.Fields(c[0]) {
+			switch {
+			case f == "·":
+				words = append(words, l.dim(f))
+			case f == strings.ToUpper(f):
+				words = append(words, f)
+			default:
+				words = append(words, l.bold(f))
+			}
+		}
+		fmt.Fprintf(w, "  %s  %s\n", pad(strings.Join(words, " "), c[0], cw), l.dim(c[1]))
+	}
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, l.dim("ssh "+name+" COMMAND. Restore, destroy and the backups' buckets are root's: ssh root@"+name+" hakobu …"))
+}
 
 func sshCmd(version string) *cobra.Command {
 	return &cobra.Command{
@@ -49,6 +74,7 @@ func sshCmd(version string) *cobra.Command {
 		Hidden: true,
 		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			overSSH = true
 			return runSSH(cmd.Context(), version, os.Getenv("SSH_ORIGINAL_COMMAND"), cmd.OutOrStdout())
 		},
 	}
@@ -64,7 +90,7 @@ func runSSH(ctx context.Context, version, line string, out io.Writer) error {
 		if all, err := known(); err == nil && len(all) == 1 {
 			name = all.Names()[0]
 		}
-		fmt.Fprintf(out, sshHelp, name)
+		printSSHHelp(out, name)
 		return nil
 	}
 	if !sshAllowed(words) {

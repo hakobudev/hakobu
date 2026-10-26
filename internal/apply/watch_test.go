@@ -201,6 +201,35 @@ func TestWatchRollback(t *testing.T) {
 	}
 }
 
+// A rollback after a newer release failed holds that one back too: the
+// tag names it, and polls would only fail it again.
+func TestWatchRollbackAfterFailed(t *testing.T) {
+	h, regs := newHarness(t), newReleases(t)
+	w, ref := newWatch(t, h, regs)
+	ctx := context.Background()
+	toml := strings.Replace(crm, "[apps.crm]", "[apps.crm]\nrelease = \"m\"", 1)
+	for _, c := range []string{"a", "b", "c"} {
+		h.failRun = nil
+		if c == "c" {
+			h.failRun = deploy.ErrReleaseFailed
+		}
+		regs.publish(releaseLabels(toml, crmImage(c)))
+		if res, err := w.Check(ctx, ref, false); err != nil || (res.Error != "") != (c == "c") {
+			t.Fatalf("release %s: %+v, %v", c, res, err)
+		}
+	}
+	h.failRun = nil
+	if res, err := w.Rollback(ctx, ref); err != nil || res.Error != "" {
+		t.Fatalf("rollback: %+v, %v", res, err)
+	}
+	if got := h.state(t).Apps["crm"].Image; !strings.HasSuffix(got, "aaaa") {
+		t.Errorf("live image %s after the rollback", got)
+	}
+	if res, _ := w.Check(ctx, ref, false); res != nil {
+		t.Errorf("the failed release was tried again: %+v", res)
+	}
+}
+
 func TestWatchSecrets(t *testing.T) {
 	h, regs := newHarness(t), newReleases(t)
 	w, ref := newWatch(t, h, regs)

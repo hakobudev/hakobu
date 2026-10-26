@@ -90,7 +90,7 @@ releases = ["ghcr.io/nova/crm-release:main"]
 	}
 
 	out, err = run(t, "", "status")
-	if err != nil || !strings.Contains(out, "nova-1") || !strings.Contains(out, "backups: NONE") {
+	if err != nil || !strings.Contains(out, "nova-1") || !strings.Contains(out, "no backups") {
 		t.Errorf("status: %q, %v", out, err)
 	}
 

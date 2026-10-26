@@ -183,7 +183,9 @@ type Result struct {
 	Revision string    `json:"revision,omitempty"`
 	Changes  []string  `json:"changes,omitempty"`
 	Error    string    `json:"error,omitempty"`
+	Rollback bool      `json:"rollback,omitempty"` // back to the release before
 	Log      string    `json:"-"`
+	Steps    []Step    `json:"-"`
 }
 
 // Watch polls the release images of the server's projects and deploys
@@ -302,7 +304,7 @@ func (w *Watch) Check(ctx context.Context, ref registry.Ref, force bool) (*Resul
 	}
 	pinned := ref.Pinned(digest).String()
 	res := Result{At: time.Now().UTC(), Release: pinned}
-	var log strings.Builder
+	log := Log{progress: ProgressOf(ctx)}
 	release, meta, err := w.fetch(ctx, ref.Pinned(digest))
 	meta.Ref = pinned
 	res.Source, res.Revision = meta.Source, meta.Revision
@@ -319,6 +321,7 @@ func (w *Watch) Check(ctx context.Context, ref registry.Ref, force bool) (*Resul
 		if w.Started != nil {
 			w.Started(meta)
 		}
+		log.start(res)
 		var plan Plan
 		plan, err = w.Applier.Apply(ctx, release, &log)
 		for _, c := range plan.Changes {
@@ -331,7 +334,7 @@ func (w *Watch) Check(ctx context.Context, ref registry.Ref, force bool) (*Resul
 			return nil, ctx.Err()
 		}
 	}
-	res.Log = log.String()
+	res.Log, res.Steps = log.String(), log.Steps
 	if err != nil {
 		res.Error = err.Error()
 		s.Failed = digest
@@ -357,8 +360,8 @@ func (w *Watch) Rollback(ctx context.Context, ref registry.Ref) (*Result, error)
 		return nil, fmt.Errorf("%s: no earlier release to roll back to", ref)
 	}
 	pinned := ref.Pinned(s.Previous).String()
-	res := Result{At: time.Now().UTC(), Release: pinned}
-	var log strings.Builder
+	res := Result{At: time.Now().UTC(), Release: pinned, Rollback: true}
+	log := Log{progress: ProgressOf(ctx)}
 	release, meta, err := w.fetch(ctx, ref.Pinned(s.Previous))
 	if err == nil && s.Applied != "" {
 		// The code goes back; the secrets stay current, so a key replaced
@@ -381,17 +384,23 @@ func (w *Watch) Rollback(ctx context.Context, ref registry.Ref) (*Result, error)
 		s.Project = release.Spec.Name
 		res.Project = release.Spec.Name
 		fmt.Fprintln(&log, "rolling back to", pinned)
+		log.start(res)
 		var plan Plan
 		plan, err = w.Applier.Apply(ctx, release, &log)
 		for _, c := range plan.Changes {
 			res.Changes = append(res.Changes, c.String())
 		}
 	}
-	res.Log = log.String()
+	res.Log, res.Steps = log.String(), log.Steps
 	if err != nil {
 		res.Error = "rollback: " + err.Error()
 	} else {
-		s.Failed, s.Applied, s.Previous = s.Applied, s.Previous, ""
+		// Held back: the release rolled back from, or a newer one that
+		// failed, which is what the tag names now.
+		if s.Failed == "" {
+			s.Failed = s.Applied
+		}
+		s.Applied, s.Previous = s.Previous, ""
 	}
 	seen[key] = s
 	return w.finish(seen, meta, res)

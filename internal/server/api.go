@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/hakobudev/hakobu/internal/alert"
 	"github.com/hakobudev/hakobu/internal/apply"
 	"github.com/hakobudev/hakobu/internal/backups"
+	"github.com/hakobudev/hakobu/internal/node"
 	"github.com/hakobudev/hakobu/internal/registry"
 	"github.com/hakobudev/hakobu/internal/update"
 )
@@ -69,6 +71,9 @@ func (d *Daemon) need(level Level) func(handler) http.Handler {
 				return
 			}
 			v, err := h(w, r)
+			if _, ok := v.(streamed); ok {
+				return
+			}
 			if err != nil {
 				status := http.StatusInternalServerError
 				if e, ok := err.(apiError); ok {
@@ -118,6 +123,12 @@ type Status struct {
 	Version    string                               `json:"version"`
 	Latest     string                               `json:"latest,omitempty"` // a newer release of hakobu
 	LastUpdate *update.Status                       `json:"last_update,omitempty"`
+	// Down are the apps whose health checks fail ("project/app"), as the
+	// open alerts say.
+	Down []string `json:"down,omitempty"`
+	// Deployed is each project's last deploy.
+	Deployed map[string]apply.Result `json:"deployed,omitempty"`
+	Host     *node.Host              `json:"host,omitempty"`
 }
 
 type ResourceStatus struct {
@@ -125,15 +136,33 @@ type ResourceStatus struct {
 	Kind    string `json:"kind"`
 	Name    string `json:"name"`
 	Orphan  bool   `json:"orphan"`
+	Size    int64  `json:"size,omitempty"`  // bytes a database takes, or a cache's memory
+	Limit   int64  `json:"limit,omitempty"` // a cache's memory limit
+}
+
+// sizer measures data; a moment each, so status asks with a deadline.
+type sizer interface {
+	DatabaseSizes(ctx context.Context) (map[string]int64, error)
+	CacheMemory(ctx context.Context, c node.CacheSpec) (used, limit int64, err error)
 }
 
 func (d *Daemon) status(w http.ResponseWriter, r *http.Request) (any, error) {
 	s := Status{Server: d.Config.Name, Releases: d.Config.Releases, Backups: d.Vault != nil, Mail: d.Config.Alerts.SMTP != nil}
 	if d.Alerts != nil {
 		s.Problems, _ = d.Alerts.Open()
+		keys, _ := d.Alerts.Keys("app:")
+		for _, k := range keys {
+			s.Down = append(s.Down, strings.TrimPrefix(k, "app:"))
+		}
 	}
 	if d.Watch != nil {
 		s.PollErrors = d.Watch.PollErrors()
+	}
+	if h, ok := d.Machine.(interface {
+		Host(context.Context) node.Host
+	}); ok {
+		host := h.Host(r.Context())
+		s.Host = &host
 	}
 	var err error
 	if s.Apps, err = d.Applier.Apps(); err != nil {
@@ -143,11 +172,34 @@ func (d *Daemon) status(w http.ResponseWriter, r *http.Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	for _, x := range res {
-		s.Resources = append(s.Resources, ResourceStatus{x.Project, x.Kind, x.Name, !x.InFile})
+	m, measure := d.Machine.(sizer)
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	var dbs map[string]int64
+	if measure && slices.ContainsFunc(res, func(x apply.Resource) bool { return x.Kind == "database" }) {
+		dbs, _ = m.DatabaseSizes(ctx)
 	}
-	if last, _ := apply.Deploys(d.Config.DeploysFile(), 1); len(last) == 1 {
-		s.LastDeploy = &last[0]
+	for _, x := range res {
+		rs := ResourceStatus{Project: x.Project, Kind: x.Kind, Name: x.Name, Orphan: !x.InFile}
+		switch {
+		case x.Kind == "database":
+			rs.Size = dbs[x.DB.Name]
+		case x.Kind == "cache" && measure && ctx.Err() == nil:
+			rs.Size, rs.Limit, _ = m.CacheMemory(ctx, x.Cache)
+		}
+		s.Resources = append(s.Resources, rs)
+	}
+	recent, _ := apply.Deploys(d.Config.DeploysFile(), 100)
+	if len(recent) > 0 {
+		s.LastDeploy = &recent[0]
+	}
+	for _, x := range recent {
+		if _, seen := s.Deployed[x.Project]; x.Project != "" && !seen {
+			if s.Deployed == nil {
+				s.Deployed = map[string]apply.Result{}
+			}
+			s.Deployed[x.Project] = x
+		}
 	}
 	d.mu.Lock()
 	if !d.lastBackup.At.IsZero() {
@@ -223,15 +275,26 @@ func (d *Daemon) deploy(w http.ResponseWriter, r *http.Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	check := func(ctx context.Context, each func(*apply.Result)) error {
+		for _, ref := range refs {
+			res, err := d.Watch.Check(ctx, ref, req.Force)
+			if err != nil {
+				return fmt.Errorf("%s: %w", ref, err)
+			}
+			if res != nil {
+				each(res)
+			}
+		}
+		return nil
+	}
+	if r.Header.Get("Accept") == Streamed {
+		return stream(w, r, func(ctx context.Context, send func(Event)) error {
+			return check(ctx, func(res *apply.Result) { send(Event{Result: withLogs([]*apply.Result{res})[0]}) })
+		})
+	}
 	var out []*apply.Result
-	for _, ref := range refs {
-		res, err := d.Watch.Check(r.Context(), ref, req.Force)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", ref, err)
-		}
-		if res != nil {
-			out = append(out, res)
-		}
+	if err := check(r.Context(), func(res *apply.Result) { out = append(out, res) }); err != nil {
+		return nil, err
 	}
 	return withLogs(out), nil
 }
@@ -243,7 +306,7 @@ func withLogs(rs []*apply.Result) []map[string]any {
 		b, _ := json.Marshal(r)
 		var m map[string]any
 		_ = json.Unmarshal(b, &m)
-		m["log"] = r.Log
+		m["log"], m["steps"] = r.Log, r.Steps
 		out = append(out, m)
 	}
 	return out
@@ -260,6 +323,15 @@ func (d *Daemon) rollback(w http.ResponseWriter, r *http.Request) (any, error) {
 	refs, err := d.refsOf(req.Project)
 	if err != nil {
 		return nil, err
+	}
+	if r.Header.Get("Accept") == Streamed {
+		return stream(w, r, func(ctx context.Context, send func(Event)) error {
+			res, err := d.Watch.Rollback(ctx, refs[0])
+			if err == nil {
+				send(Event{Result: withLogs([]*apply.Result{res})[0]})
+			}
+			return err
+		})
 	}
 	res, err := d.Watch.Rollback(r.Context(), refs[0])
 	if err != nil {

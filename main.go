@@ -4,6 +4,7 @@ package main
 
 import (
 	_ "embed"
+	"errors"
 	"fmt"
 	"os"
 
@@ -21,7 +22,9 @@ func main() {
 	deploy.RunDialerIfChild() // rootless Docker: this binary is the dialer too
 	cli.InstallScript = installScript
 	if err := cli.Root(version).Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		if !errors.Is(err, cli.ErrShown) {
+			fmt.Fprintln(os.Stderr, err)
+		}
 		os.Exit(1)
 	}
 }

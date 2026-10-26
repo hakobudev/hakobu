@@ -124,7 +124,7 @@ func TestSSHSecretSet(t *testing.T) {
 		t.Error("took secret set without a name")
 	}
 	out.Reset()
-	if err := runSSH(context.Background(), "v1.5.0", "", &out); err != nil || !strings.Contains(out.String(), "hakobu's commands on nova-1") {
+	if err := runSSH(context.Background(), "v1.5.0", "", &out); err != nil || !strings.Contains(out.String(), "nova-1  this key runs hakobu's commands") {
 		t.Errorf("help: %v %s", err, out.String())
 	}
 }
