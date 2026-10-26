@@ -29,7 +29,7 @@ func TestApplySteps(t *testing.T) {
 	}
 	want := `plan main, cache, crm/uploads, crm
 data main, cache
-pull crm · reg/crm@sha256:aaa
+pull crm · reg/crm
 dump main, before the release command
 release crm · migrate
 start crm
@@ -37,6 +37,9 @@ switch crm
 worker crm`
 	if got := steps(&l); got != want {
 		t.Errorf("steps:\n%s\nwant:\n%s", got, want)
+	}
+	if len(l.Steps) != 8 {
+		t.Errorf("%d steps, each once", len(l.Steps))
 	}
 	if !strings.Contains(l.String(), "pulling reg/crm@sha256:aaa") {
 		t.Errorf("the text log lost its lines:\n%s", l.String())

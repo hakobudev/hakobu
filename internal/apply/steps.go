@@ -9,7 +9,7 @@ import (
 )
 
 // Step is one thing a deploy did, in order: plan, data, pull, dump,
-// release, start, switch, worker, remove.
+// release, start, switch, stop, worker, remove.
 type Step struct {
 	Name   string        `json:"name"`
 	Detail string        `json:"detail,omitempty"`

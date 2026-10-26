@@ -410,7 +410,8 @@ func (a *Applier) deployApp(ctx context.Context, r Release, st *State, ps *Proje
 		}
 	default:
 		fmt.Fprintln(out, "pulling", ref)
-		done := step(out, "pull", name+" · "+ref)
+		image, _, _ := strings.Cut(ref, "@") // the digest is in the log
+		done := step(out, "pull", name+" · "+image)
 		if err := done(a.pull(ctx, r, ref, next)); err != nil {
 			return err
 		}
@@ -445,6 +446,12 @@ func (a *Applier) deployApp(ctx context.Context, r Release, st *State, ps *Proje
 			fmt.Fprintln(out, "warning:", serr)
 		}
 		return done(a.Node.Discard(ctx, app, c, out, err))
+	}
+	_ = done(nil)
+	done = func(err error) error { return err }
+	if prev.Image != "" {
+		// The old version has its stop timeout to finish its requests.
+		done = step(out, "stop", name+"'s old version")
 	}
 	a.Node.Retire(ctx, app, c, out)
 	if err := a.Node.Promote(ctx, key); err != nil {

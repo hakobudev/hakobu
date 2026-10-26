@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/hakobudev/hakobu/internal/apply"
 	"github.com/hakobudev/hakobu/internal/backups"
 	"github.com/hakobudev/hakobu/internal/server"
+	"golang.org/x/term"
 )
 
 // printDeploys is a server's last deploys, newest first, one a line.
@@ -25,7 +27,7 @@ func printDeploys(w io.Writer, name string, rs []apply.Result) {
 	whats, whens, outcomes := make([]string, len(rs)), make([]string, len(rs)), make([]string, len(rs))
 	for i, r := range rs {
 		whats[i] = strings.TrimSpace(r.Project + " " + shortRev(r.Revision))
-		whens[i] = since(r.At) + " ago"
+		whens[i] = ago(r.At)
 		switch {
 		case r.Error != "":
 			outcomes[i] = "failed"
@@ -229,6 +231,11 @@ func (v *deployView) step(s apply.Step, done bool) {
 	if !done {
 		if v.l.on {
 			v.close()
+			// Its end takes the line back with \r, which only reaches the
+			// terminal's last row: the line fits on one.
+			if r := []rune(line); len(r) > v.cols()-4 {
+				line = string(r[:v.cols()-5]) + "…"
+			}
 			fmt.Fprint(v.w, "  "+v.l.dim("◌")+line)
 			v.open = true
 		}
@@ -249,6 +256,16 @@ func (v *deployView) step(s apply.Step, done bool) {
 	if s.Error != "" {
 		fmt.Fprintln(v.w, strings.Repeat(" ", 13)+v.l.dim(firstLine(printable(s.Error))))
 	}
+}
+
+// cols is the terminal's width, or 80 without one (ssh without -t).
+func (v *deployView) cols() int {
+	if f, ok := v.w.(*os.File); ok {
+		if c, _, err := term.GetSize(int(f.Fd())); err == nil && c >= 20 {
+			return c
+		}
+	}
+	return 80
 }
 
 // close ends a running step's line, so what comes next starts on its own.

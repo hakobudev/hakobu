@@ -96,3 +96,24 @@ func TestStatusSizes(t *testing.T) {
 		}
 	}
 }
+
+// A running step's line fits the terminal, so its end can take it back.
+func TestDeployViewLongStep(t *testing.T) {
+	var b bytes.Buffer
+	v := &deployView{w: &b, l: look{true}, name: "nova-1"}
+	v.step(apply.Step{Name: "release", Detail: "web · " + strings.Repeat("x", 200)}, false)
+	if n := len([]rune(stripANSI(b.String()))); n > 80 {
+		t.Errorf("%d columns: %q", n, b.String())
+	}
+}
+
+func stripANSI(s string) string {
+	for {
+		i := strings.Index(s, "\x1b[")
+		if i < 0 {
+			return s
+		}
+		j := strings.IndexByte(s[i:], 'm')
+		s = s[:i] + s[i+j+1:]
+	}
+}

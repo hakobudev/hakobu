@@ -410,7 +410,7 @@ func printStatus(w io.Writer, st server.Status) {
 		for i, x := range issues {
 			titles[i] = x.title
 		}
-		tw := width(titles...)
+		tw := min(width(titles...), 32) // a long title just goes on
 		for _, x := range issues {
 			sym, title := l.bad(x.sym), l.bold(x.title)
 			if x.sym == symData {
@@ -455,7 +455,7 @@ func printStatus(w io.Writer, st server.Status) {
 		case st.LastBackup != nil && slices.ContainsFunc(st.LastBackup.Made, func(m string) bool {
 			return strings.HasPrefix(m, x.Kind+" "+x.Project+"/"+x.Name+" of ")
 		}):
-			about = append(about, "backed up "+since(st.LastBackup.At)+" ago")
+			about = append(about, "backed up "+ago(st.LastBackup.At))
 		}
 		if len(about) > 0 {
 			detail := l.dim(strings.Join(about, " · "))
@@ -482,9 +482,9 @@ func printStatus(w io.Writer, st server.Status) {
 		line := l.bold(p)
 		if d, ok := st.Deployed[p]; ok {
 			if d.Error != "" {
-				line += "  " + l.bad("deploy failed") + " " + l.dim(shortRev(d.Revision)+" · "+since(d.At)+" ago")
+				line += "  " + l.bad("deploy failed") + " " + l.dim(shortRev(d.Revision)+" · "+ago(d.At))
 			} else {
-				line += "  " + l.dim(strings.TrimSpace("deployed "+shortRev(d.Revision))+" · "+since(d.At)+" ago")
+				line += "  " + l.dim(strings.TrimSpace("deployed "+shortRev(d.Revision))+" · "+ago(d.At))
 			}
 		}
 		fmt.Fprintln(w, line)
