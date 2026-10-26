@@ -142,3 +142,13 @@ const bar = $(".topbar");
 const onScroll = () => bar.classList.toggle("is-scrolled", scrollY > 8);
 addEventListener("scroll", onScroll, { passive: true });
 onScroll();
+
+// The release pill and the footer name the latest release; the version in
+// the page stands if GitHub can't be asked.
+fetch("https://api.github.com/repos/hakobudev/hakobu/releases/latest")
+  .then(r => r.ok ? r.json() : null)
+  .then(r => {
+    if (!r?.tag_name || !/^v\d+\.\d+\.\d+$/.test(r.tag_name)) return;
+    document.querySelectorAll("[data-release]").forEach(el => { el.textContent = r.tag_name; });
+  })
+  .catch(() => {});
