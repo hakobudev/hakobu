@@ -122,7 +122,7 @@ func serverCmd(version string) *cobra.Command {
 	}
 	add := &cobra.Command{
 		Use:   "add NAME URL",
-		Short: "Remember a server: its API's URL on the tailnet and the operator token (read from stdin)",
+		Short: "Remember a server hakobu server create didn't make: its API's URL (on the tailnet, or through your own ssh -L) and the operator token (read from stdin)",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			tok, err := readSecret("operator token: ")
@@ -175,7 +175,7 @@ func serverCmd(version string) *cobra.Command {
 			return err
 		},
 	}
-	c.AddCommand(initCmd, token, add, list, updateCmd, installer)
+	c.AddCommand(serverCreateCmd(version), initCmd, token, add, list, updateCmd, installer)
 	return c
 }
 
@@ -219,7 +219,7 @@ func clients(cmd *cobra.Command) ([]*client.Client, error) {
 		return nil, err
 	}
 	if len(all) == 0 {
-		return nil, errors.New("no servers yet: hakobu server add NAME URL")
+		return nil, errors.New("no servers yet: hakobu server create NAME --ssh root@HOST")
 	}
 	names := all.Names()
 	if s, _ := cmd.Flags().GetString("server"); s != "" {

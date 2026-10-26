@@ -5,7 +5,7 @@
 ## Getting started
 
 - [Introduction](https://hakobu.dev/docs/index.md): hakobu runs your projects on servers you own. A project says what it needs in a file in its repository, hakobu.toml; CI builds each commit into images; the server pulls the new release and swaps it…
-- [A server](https://hakobu.dev/docs/install/index.md): One command sets a server up, and asks nothing: everything comes from the environment, so cloud-init or an agent can run it.
+- [A server](https://hakobu.dev/docs/install/index.md): From your laptop, with the hakobu CLI from the releases, and SSH to a new Debian or Ubuntu server as root (or a user with sudo):
 - [A project](https://hakobu.dev/docs/project/index.md): A project is a repository with a hakobu.toml at its root. In the repository, with a server added:
 
 ## Reference

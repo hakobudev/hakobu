@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>A server · hakobu docs</title>
-<meta name="description" content="One command sets a server up, and asks nothing: everything comes from the environment, so cloud-init or an agent can run it.">
+<meta name="description" content="From your laptop, with the hakobu CLI from the releases, and SSH to a new Debian or Ubuntu server as root (or a user with sudo):">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/style.css?v=8c38cfb7">
@@ -54,21 +54,61 @@
           <a class="btn btn-sm" href="index.md">View as Markdown</a>
         </div>
       </div>
-      <p>One command sets a server up, and asks nothing: everything comes from the environment, so cloud-init or an agent can run it.</p>
+      <p>From your laptop, with the hakobu CLI from the <a href="https://github.com/hakobudev/hakobu/releases">releases</a>, and SSH to a new Debian or Ubuntu server as root (or a user with sudo):</p>
+<pre><code class="language-bash">hakobu server create kasl-1 --ssh root@203.0.113.7 --ingress public --email you@example.com
+hakobu status
+</code></pre>
+<p>That's the one time anything runs on the server by hand. It installs rootless Docker (as the user <code>hakobu-docker</code>), unattended upgrades, and hakobu (its signature checked) as a sandboxed systemd service running as <code>hakobu</code>; writes <code>/etc/hakobu/server.toml</code> and makes the server's key; and remembers the server on your laptop. After that hakobu updates itself (see <a href="/docs/updates/">Updates</a>), and you, your agent and the CLI reach it only through its API.</p>
+<h2 id="your-key">Your key</h2>
+<p>Every secret and backup is sealed to your age key as well as to the server's, so you can open them if the server is gone. <code>age-keygen</code> makes one: keep the secret half in your password manager. <code>server create</code> asks for the public half (<code>age1…</code>) the first time, and keeps it in <code>~/.config/hakobu/owner.pub</code>; <code>--owner-key</code> gives another.</p>
+<h2 id="reaching-the-api">Reaching the API</h2>
+<p>hakobu's API listens on the server's 127.0.0.1 and nowhere else. <code>server create</code> makes an SSH key for it on your laptop (<code>~/.config/hakobu/keys/NAME</code>) and puts its public half on the server for a user, <code>hakobu-tunnel</code>, that can't log in: the key may reach the API's port and nothing else, no shell, no other port. The CLI and <code>hakobu mcp</code> go through it by themselves (<code>ssh -W</code>, with your <code>ssh</code> and its config). The audit expects SSH to listen.</p>
+<p>With <code>--tailscale</code>, the API listens on the server's tailnet address instead: give a Tailscale <a href="https://login.tailscale.com/admin/settings/keys">auth key</a> as <code>TS_AUTHKEY</code> (or type it when asked) and the server's tags with <code>--tags tag:hakobu</code>; your tailnet's policy should let your devices reach the tag on port 7070.</p>
+<h2 id="options">Options</h2>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--ssh</code></td>
+<td>how to reach the server: <code>user@host</code>, or a host of <code>~/.ssh/config</code></td>
+</tr>
+<tr>
+<td><code>--ingress</code></td>
+<td><code>public</code>, <code>tunnel</code> or <code>none</code> (the default): see below</td>
+</tr>
+<tr>
+<td><code>--email</code></td>
+<td>Let's Encrypt's contact, for <code>public</code></td>
+</tr>
+<tr>
+<td><code>--tailscale</code>, <code>--tags</code></td>
+<td>the API on the tailnet</td>
+</tr>
+<tr>
+<td><code>--owner-key</code></td>
+<td>your age public key, if not the one kept</td>
+</tr>
+<tr>
+<td><code>--version</code></td>
+<td>a release; default the CLI's own</td>
+</tr>
+</tbody>
+</table>
+<p>Secrets never go in an argument: a tunnel's token comes from <code>CLOUDFLARE_TUNNEL_TOKEN</code> and a Tailscale key from <code>TS_AUTHKEY</code>, or each is asked for, hidden. <code>HAKOBU_SSH</code> names another ssh to run, as <code>GIT_SSH</code> does for git.</p>
+<p>Run it again for the same server to put this CLI's release on it as an installer would: the tokens and the data stay.</p>
+<h2 id="without-the-laptop">Without the laptop</h2>
+<p>For cloud-init, or a server you set up some other way, the same installer runs on the server, and asks nothing: everything comes from the environment.</p>
 <pre><code class="language-bash">curl -fsSL https://hakobu.dev/install.sh | sudo \
-  HAKOBU_NAME=kasl-1 \
-  HAKOBU_OWNER_KEY=age1… \
+  HAKOBU_NAME=kasl-1 HAKOBU_OWNER_KEY=age1… \
   HAKOBU_INGRESS=public HAKOBU_ACME_EMAIL=you@example.com \
   bash
 </code></pre>
-<p>It installs rootless Docker (as the user <code>hakobu-docker</code>), unattended upgrades, hakobu (its signature checked) as a sandboxed systemd service running as <code>hakobu</code>, and Tailscale if you give a key; writes <code>/etc/hakobu/server.toml</code> and makes the server's key. After that hakobu updates itself: see <a href="/docs/updates/">Updates</a>.</p>
-<h2 id="before-you-start">Before you start</h2>
-<ul>
-<li><strong>Your key.</strong> <code>age-keygen</code> makes one; keep the secret half in your password manager and give the public half (<code>age1…</code>) as <code>HAKOBU_OWNER_KEY</code>. Every secret and backup is sealed to it as well as to the server, so you can open them if the server is gone.</li>
-<li><strong>SSH to the server.</strong> The API listens on 127.0.0.1 alone, and your laptop reaches it through a tunnel: <code>ssh -fN -L 7070:127.0.0.1:7070 root@the-server</code>, then <code>hakobu server add NAME http://127.0.0.1:7070</code>. The audit expects SSH to listen.</li>
-<li><strong>Or a Tailscale auth key</strong> (<a href="https://login.tailscale.com/admin/settings/keys">admin console</a>), with the tag you'll give the server, as <code>TS_AUTHKEY</code> (and <code>TS_TAGS</code>): then the API listens only on the server's tailnet address, and your tailnet's policy should let your devices reach the tag on port 7070.</li>
-</ul>
-<h2 id="settings">Settings</h2>
+<p>It prints the tokens; on your laptop, <code>hakobu server add kasl-1 URL</code> with the operator one, through your own tunnel (<code>ssh -fN -L 7070:127.0.0.1:7070 root@the-server</code>, then <code>http://127.0.0.1:7070</code>) or the tailnet address.</p>
 <table>
 <thead>
 <tr>
@@ -117,6 +157,10 @@
 <td><code>HAKOBU_VERSION</code></td>
 <td>a release; default the newest</td>
 </tr>
+<tr>
+<td><code>HAKOBU_TUNNEL_KEY</code></td>
+<td>an SSH public key (<code>ssh-ed25519 …</code>) that may reach the API and nothing else</td>
+</tr>
 </tbody>
 </table>
 <h2 id="how-the-web-gets-in">How the web gets in</h2>
@@ -126,16 +170,11 @@
 <li><strong><code>none</code></strong>: apps aren't served to the web; for a server of workers only, or while you set it up.</li>
 </ul>
 <h2 id="the-tokens">The tokens</h2>
-<p>On a first install it prints two tokens, once:</p>
+<p>A first install makes two tokens:</p>
 <ul>
-<li>the <strong>operator</strong> token, for your laptop and your agent: status, logs, deploy, rollback, backup;</li>
-<li>the <strong>admin</strong> token, for your password manager only: it alone can restore and delete data.</li>
+<li>the <strong>operator</strong> token, for your laptop and your agent: status, logs, deploy, rollback, backup, updates. <code>server create</code> keeps it in <code>~/.config/hakobu/servers.toml</code>;</li>
+<li>the <strong>admin</strong> token, for your password manager only: it alone can restore and delete data. It's shown once, and kept nowhere.</li>
 </ul>
-<p>On your laptop, with the hakobu binary from the <a href="https://github.com/hakobudev/hakobu/releases">releases</a>:</p>
-<pre><code class="language-bash">hakobu server add kasl-1 http://100.x.y.z:7070   # then paste the operator token
-hakobu status
-</code></pre>
-<p>The installer's output names the API's address. Servers are remembered in <code>~/.config/hakobu/servers.toml</code>.</p>
 <h2 id="back-up-the-servers-key">Back up the server's key</h2>
 <p><code>/var/lib/hakobu/key.age</code> opens the server's secrets and backups. Your own key does too, so losing the server's isn't fatal, but a copy off the server spares you re-sealing secrets on a new one.</p>
 
@@ -145,8 +184,10 @@ hakobu status
   </main>
   <aside class="docs-toc">
     <div class="docs-toc-title">On this page</div>
-    <a href="#before-you-start" class="toc-2">Before you start</a>
-    <a href="#settings" class="toc-2">Settings</a>
+    <a href="#your-key" class="toc-2">Your key</a>
+    <a href="#reaching-the-api" class="toc-2">Reaching the API</a>
+    <a href="#options" class="toc-2">Options</a>
+    <a href="#without-the-laptop" class="toc-2">Without the laptop</a>
     <a href="#how-the-web-gets-in" class="toc-2">How the web gets in</a>
     <a href="#the-tokens" class="toc-2">The tokens</a>
     <a href="#back-up-the-servers-key" class="toc-2">Back up the server&#39;s key</a>

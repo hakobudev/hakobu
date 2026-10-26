@@ -15,19 +15,11 @@ Run your projects on servers you own. A project says what it needs in a file in 
 
 ## Start
 
-A server (Debian or Ubuntu, with your age public key; `TS_AUTHKEY=…` too, to put its API on your tailnet):
+From your laptop, with the CLI from the [releases](https://github.com/hakobudev/hakobu/releases) and SSH to a new Debian or Ubuntu server:
 
 ```bash
-curl -fsSL https://hakobu.dev/install.sh | sudo \
-  HAKOBU_NAME=web-1 HAKOBU_OWNER_KEY=age1… HAKOBU_INGRESS=public bash
-```
-
-A project, in its repository, with the CLI from the [releases](https://github.com/hakobudev/hakobu/releases):
-
-```bash
-ssh -fN -L 7070:127.0.0.1:7070 root@web-1        # the API, through SSH
-hakobu server add web-1 http://127.0.0.1:7070    # the operator token on stdin
-hakobu init --server web-1
+hakobu server create web-1 --ssh root@203.0.113.7 --ingress public --email you@example.com
+hakobu init --server web-1                       # in a project's repository
 ```
 
 Then see [A project](https://hakobu.dev/docs/project/).

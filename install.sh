@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Installs hakobu v1 on a Linux server (Debian or Ubuntu), or updates it:
-# rootless Docker for the apps, Tailscale for the API (or none), the server's key
-# and config, and the hakobu service. Nothing asks: everything comes from
-# the environment, so cloud-init or an agent can run it.
+# rootless Docker for the apps, the server's key and config, and the hakobu
+# service, its API on loopback (or the tailnet). Nothing asks: everything
+# comes from the environment. hakobu server create runs it over SSH; for
+# cloud-init:
 #
 #   curl -fsSL https://hakobu.dev/install.sh | sudo \
-#     HAKOBU_NAME=kasl-1 HAKOBU_OWNER_KEY=age1… TS_AUTHKEY=tskey-auth-… bash
+#     HAKOBU_NAME=kasl-1 HAKOBU_OWNER_KEY=age1… bash
 #
 # Needs, on a first install:
 #   HAKOBU_NAME        the server's name (lowercase letters, digits, -)
@@ -29,6 +30,10 @@
 #   HAKOBU_VERSION     a release (default: the latest, pre-releases included)
 #   HAKOBU_BINARY      install this local binary instead of downloading one
 #   HAKOBU_REPO        default hakobudev/hakobu
+#   HAKOBU_TUNNEL_KEY  an SSH public key (ssh-ed25519 …) that may reach the API
+#                      and nothing else: the user hakobu-tunnel, no shell
+#   HAKOBU_RESULT      json: end with one line, HAKOBU_RESULT {…}, for
+#                      hakobu server create, instead of the tokens' lines
 #
 # Run again to update: the config, the key and the data stay.
 set -euo pipefail
@@ -76,6 +81,9 @@ if [ ! -f "$CONFIG" ]; then
   if [ -n "${HAKOBU_CONFIG_EXTRA:-}" ] && [ ! -r "$HAKOBU_CONFIG_EXTRA" ]; then
     die "can't read HAKOBU_CONFIG_EXTRA $HAKOBU_CONFIG_EXTRA"
   fi
+fi
+if [ -n "${HAKOBU_TUNNEL_KEY:-}" ]; then
+  [[ "$HAKOBU_TUNNEL_KEY" =~ ^ssh-ed25519\ [A-Za-z0-9+/]+=*(\ [A-Za-z0-9@._-]+)?$ ]] || die "HAKOBU_TUNNEL_KEY: an ssh-ed25519 public key"
 fi
 
 echo "==> packages"
@@ -265,6 +273,24 @@ if [ -n "$FIRST" ]; then
   chmod 0640 "$CONFIG.new"
   mv "$CONFIG.new" "$CONFIG"
 fi
+if [ -n "${HAKOBU_TUNNEL_KEY:-}" ]; then
+  echo "==> the API's SSH key"
+  # A user that can't log in, whose one key may forward to the API alone.
+  # Its keys are root's, so nothing running as it could add one.
+  id hakobu-tunnel >/dev/null 2>&1 || useradd --system --create-home --home-dir /home/hakobu-tunnel --shell /usr/sbin/nologin hakobu-tunnel
+  install -d -m 0755 -o root -g root /home/hakobu-tunnel /home/hakobu-tunnel/.ssh
+  printf 'restrict,port-forwarding,permitopen="127.0.0.1:%s",command="/usr/sbin/nologin" %s\n' "$API_PORT" "$HAKOBU_TUNNEL_KEY" > /home/hakobu-tunnel/.ssh/authorized_keys.new
+  chmod 0644 /home/hakobu-tunnel/.ssh/authorized_keys.new
+  mv /home/hakobu-tunnel/.ssh/authorized_keys.new /home/hakobu-tunnel/.ssh/authorized_keys
+  if command -v sshd >/dev/null; then
+    FWD="$(sshd -T -C user=hakobu-tunnel,host=localhost,addr=127.0.0.1 2>/dev/null | awk '$1 == "allowtcpforwarding" {print $2}')"
+    case "$FWD" in yes|local|all|"") ;; *) echo "    warning: sshd has AllowTcpForwarding $FWD: the key can't reach the API until it's yes or local" ;; esac
+    if sshd -T -C user=hakobu-tunnel,host=localhost,addr=127.0.0.1 2>/dev/null | grep -q '^allowusers '; then
+      echo "    warning: sshd has AllowUsers: add hakobu-tunnel to it, or the key can't reach the API"
+    fi
+  fi
+fi
+
 # Checks the config, and makes the server's key on the first run.
 SERVER_KEY="$(runuser -u hakobu -- "$BIN" server init --config "$CONFIG" 2>/dev/null)" || {
   runuser -u hakobu -- "$BIN" server init --config "$CONFIG" || true
@@ -360,7 +386,11 @@ echo
 echo "Done: $("$BIN" --version) runs on $API_IP:$API_PORT (journalctl -u hakobu)."
 echo "The server's key: $SERVER_KEY"
 echo "Back up $DATA/key.age somewhere off this server."
-if [ -n "$OP_TOKEN" ]; then
+if [ "${HAKOBU_RESULT:-}" = json ]; then
+  NAME="$(sed -n 's/^name = "\(.*\)"$/\1/p' "$CONFIG" | head -1)"
+  printf 'HAKOBU_RESULT {"name":"%s","api":"%s:%s","mode":"%s","key":"%s","version":"%s","operator_token":"%s","admin_token":"%s"}\n' \
+    "$NAME" "$API_IP" "$API_PORT" "$API" "$SERVER_KEY" "$("$BIN" --version | awk '{print $NF}')" "$OP_TOKEN" "$ADMIN_TOKEN"
+elif [ -n "$OP_TOKEN" ]; then
   echo
   echo "These tokens show only now:"
   echo "  admin:    $ADMIN_TOKEN    (your password manager; never on a disk an agent reads)"

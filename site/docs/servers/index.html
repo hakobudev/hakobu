@@ -160,10 +160,11 @@ to = &quot;you@example.com&quot;
 </table>
 <p>A bucket has <code>endpoint</code>, <code>region</code>, <code>bucket</code>, <code>access_key</code>, <code>secret_key</code>, and <code>prefix</code> (default <code>hakobu/NAME/</code>); copies have a <code>name</code>.</p>
 <h2 id="reaching-the-api">Reaching the API</h2>
-<p>By default the API listens on 127.0.0.1:7070 and nowhere else; your laptop reaches it through SSH (<code>ssh -fN -L 7070:127.0.0.1:7070 root@the-server</code>), and the audit expects SSH to listen.</p>
+<p>By default the API listens on 127.0.0.1:7070 and nowhere else; your laptop reaches it through SSH, with the key <code>hakobu server create</code> made, which may reach that port and nothing else (see <a href="/docs/install/#reaching-the-api">A server</a>). The audit expects SSH to listen.</p>
 <p>With a Tailscale key at install, it listens on the server's tailnet address instead. In your tailnet's policy, let your own devices reach the server's tag on port 7070; nothing else needs to. The installer leaves Tailscale's SSH, routes and DNS off.</p>
 <h2 id="from-your-laptop">From your laptop</h2>
-<pre><code class="language-bash">hakobu server add kasl-1 http://127.0.0.1:7070   # through the tunnel, or its tailnet address; the operator token on stdin
+<pre><code class="language-bash">hakobu server create kasl-1 --ssh root@203.0.113.7   # once: installs, and remembers it
+hakobu server add kasl-2 http://100.101.102.103:7070  # one installed otherwise; the operator token on stdin
 hakobu server list
 hakobu status              # every server
 hakobu --server kasl-1 deploys

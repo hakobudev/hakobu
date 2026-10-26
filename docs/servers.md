@@ -69,14 +69,15 @@ A bucket has `endpoint`, `region`, `bucket`, `access_key`, `secret_key`, and `pr
 
 ## Reaching the API
 
-By default the API listens on 127.0.0.1:7070 and nowhere else; your laptop reaches it through SSH (`ssh -fN -L 7070:127.0.0.1:7070 root@the-server`), and the audit expects SSH to listen.
+By default the API listens on 127.0.0.1:7070 and nowhere else; your laptop reaches it through SSH, with the key `hakobu server create` made, which may reach that port and nothing else (see [A server](install.md#reaching-the-api)). The audit expects SSH to listen.
 
 With a Tailscale key at install, it listens on the server's tailnet address instead. In your tailnet's policy, let your own devices reach the server's tag on port 7070; nothing else needs to. The installer leaves Tailscale's SSH, routes and DNS off.
 
 ## From your laptop
 
 ```bash
-hakobu server add kasl-1 http://127.0.0.1:7070   # through the tunnel, or its tailnet address; the operator token on stdin
+hakobu server create kasl-1 --ssh root@203.0.113.7   # once: installs, and remembers it
+hakobu server add kasl-2 http://100.101.102.103:7070  # one installed otherwise; the operator token on stdin
 hakobu server list
 hakobu status              # every server
 hakobu --server kasl-1 deploys

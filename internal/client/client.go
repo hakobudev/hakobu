@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -22,8 +23,14 @@ import (
 // Server is one server as the laptop knows it. The token is the operator
 // one: the admin token is never kept, it's given for the one call.
 type Server struct {
+	// URL is the API's, on the tailnet; or, with SSH, as the server sees
+	// it (http://127.0.0.1:7070).
 	URL   string `toml:"url"`
 	Token string `toml:"token"`
+	// SSH (user@host) and SSHKey, for an API on loopback: each connection
+	// goes through ssh -W with that key, which may only reach the API.
+	SSH    string `toml:"ssh,omitempty"`
+	SSHKey string `toml:"ssh_key,omitempty"`
 }
 
 // Servers are the laptop's servers by name.
@@ -87,6 +94,7 @@ type Client struct {
 	URL   string
 	Token string
 	HTTP  *http.Client
+	ssh   *sshTransport
 }
 
 func (s Servers) Client(name string) (*Client, error) {
@@ -94,7 +102,15 @@ func (s Servers) Client(name string) (*Client, error) {
 	if !ok {
 		return nil, fmt.Errorf("no server %s (hakobu server add)", name)
 	}
-	return &Client{Name: name, URL: strings.TrimSuffix(sv.URL, "/"), Token: sv.Token}, nil
+	c := &Client{Name: name, URL: strings.TrimSuffix(sv.URL, "/"), Token: sv.Token}
+	if sv.SSH != "" {
+		u, err := url.Parse(c.URL)
+		if err != nil || u.Host == "" {
+			return nil, fmt.Errorf("server %s: its url %q isn't one", name, sv.URL)
+		}
+		c.ssh = transportFor(sv.SSH, sv.SSHKey, u.Host)
+	}
+	return c, nil
 }
 
 // WithToken is the client calling with another token: the admin one.
@@ -133,9 +149,15 @@ func (c *Client) Do(ctx context.Context, method, path string, body, v any) error
 	if hc == nil {
 		// Backups and deploys take a while; status doesn't.
 		hc = &http.Client{Timeout: 3 * time.Hour}
+		if c.ssh != nil {
+			hc.Transport = c.ssh.http
+		}
 	}
 	resp, err := hc.Do(req)
 	if err != nil {
+		if c.ssh != nil {
+			return fmt.Errorf("%s: %w%s", c.Name, err, c.ssh.why())
+		}
 		return fmt.Errorf("%s: %w (is this machine in the tailnet?)", c.Name, err)
 	}
 	defer resp.Body.Close()

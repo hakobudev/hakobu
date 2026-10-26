@@ -26,25 +26,52 @@ Start with [a server](https://hakobu.dev/docs/install/index.md), then [a project
 
 # A server
 
-One command sets a server up, and asks nothing: everything comes from the environment, so cloud-init or an agent can run it.
+From your laptop, with the hakobu CLI from the [releases](https://github.com/hakobudev/hakobu/releases), and SSH to a new Debian or Ubuntu server as root (or a user with sudo):
+
+```bash
+hakobu server create kasl-1 --ssh root@203.0.113.7 --ingress public --email you@example.com
+hakobu status
+```
+
+That's the one time anything runs on the server by hand. It installs rootless Docker (as the user `hakobu-docker`), unattended upgrades, and hakobu (its signature checked) as a sandboxed systemd service running as `hakobu`; writes `/etc/hakobu/server.toml` and makes the server's key; and remembers the server on your laptop. After that hakobu updates itself (see [Updates](https://hakobu.dev/docs/updates/index.md)), and you, your agent and the CLI reach it only through its API.
+
+## Your key
+
+Every secret and backup is sealed to your age key as well as to the server's, so you can open them if the server is gone. `age-keygen` makes one: keep the secret half in your password manager. `server create` asks for the public half (`age1…`) the first time, and keeps it in `~/.config/hakobu/owner.pub`; `--owner-key` gives another.
+
+## Reaching the API
+
+hakobu's API listens on the server's 127.0.0.1 and nowhere else. `server create` makes an SSH key for it on your laptop (`~/.config/hakobu/keys/NAME`) and puts its public half on the server for a user, `hakobu-tunnel`, that can't log in: the key may reach the API's port and nothing else, no shell, no other port. The CLI and `hakobu mcp` go through it by themselves (`ssh -W`, with your `ssh` and its config). The audit expects SSH to listen.
+
+With `--tailscale`, the API listens on the server's tailnet address instead: give a Tailscale [auth key](https://login.tailscale.com/admin/settings/keys) as `TS_AUTHKEY` (or type it when asked) and the server's tags with `--tags tag:hakobu`; your tailnet's policy should let your devices reach the tag on port 7070.
+
+## Options
+
+| | |
+|---|---|
+| `--ssh` | how to reach the server: `user@host`, or a host of `~/.ssh/config` |
+| `--ingress` | `public`, `tunnel` or `none` (the default): see below |
+| `--email` | Let's Encrypt's contact, for `public` |
+| `--tailscale`, `--tags` | the API on the tailnet |
+| `--owner-key` | your age public key, if not the one kept |
+| `--version` | a release; default the CLI's own |
+
+Secrets never go in an argument: a tunnel's token comes from `CLOUDFLARE_TUNNEL_TOKEN` and a Tailscale key from `TS_AUTHKEY`, or each is asked for, hidden. `HAKOBU_SSH` names another ssh to run, as `GIT_SSH` does for git.
+
+Run it again for the same server to put this CLI's release on it as an installer would: the tokens and the data stay.
+
+## Without the laptop
+
+For cloud-init, or a server you set up some other way, the same installer runs on the server, and asks nothing: everything comes from the environment.
 
 ```bash
 curl -fsSL https://hakobu.dev/install.sh | sudo \
-  HAKOBU_NAME=kasl-1 \
-  HAKOBU_OWNER_KEY=age1… \
+  HAKOBU_NAME=kasl-1 HAKOBU_OWNER_KEY=age1… \
   HAKOBU_INGRESS=public HAKOBU_ACME_EMAIL=you@example.com \
   bash
 ```
 
-It installs rootless Docker (as the user `hakobu-docker`), unattended upgrades, hakobu (its signature checked) as a sandboxed systemd service running as `hakobu`, and Tailscale if you give a key; writes `/etc/hakobu/server.toml` and makes the server's key. After that hakobu updates itself: see [Updates](https://hakobu.dev/docs/updates/index.md).
-
-## Before you start
-
-- **Your key.** `age-keygen` makes one; keep the secret half in your password manager and give the public half (`age1…`) as `HAKOBU_OWNER_KEY`. Every secret and backup is sealed to it as well as to the server, so you can open them if the server is gone.
-- **SSH to the server.** The API listens on 127.0.0.1 alone, and your laptop reaches it through a tunnel: `ssh -fN -L 7070:127.0.0.1:7070 root@the-server`, then `hakobu server add NAME http://127.0.0.1:7070`. The audit expects SSH to listen.
-- **Or a Tailscale auth key** ([admin console](https://login.tailscale.com/admin/settings/keys)), with the tag you'll give the server, as `TS_AUTHKEY` (and `TS_TAGS`): then the API listens only on the server's tailnet address, and your tailnet's policy should let your devices reach the tag on port 7070.
-
-## Settings
+It prints the tokens; on your laptop, `hakobu server add kasl-1 URL` with the operator one, through your own tunnel (`ssh -fN -L 7070:127.0.0.1:7070 root@the-server`, then `http://127.0.0.1:7070`) or the tailnet address.
 
 | Variable | |
 |---|---|
@@ -58,6 +85,7 @@ It installs rootless Docker (as the user `hakobu-docker`), unattended upgrades, 
 | `CLOUDFLARE_TUNNEL_TOKEN` | the tunnel's token, for `tunnel` |
 | `HAKOBU_CONFIG_EXTRA` | a file whose TOML goes at the end of the config: releases, registries, backups, alerts (see [Server config](https://hakobu.dev/docs/servers/index.md)) |
 | `HAKOBU_VERSION` | a release; default the newest |
+| `HAKOBU_TUNNEL_KEY` | an SSH public key (`ssh-ed25519 …`) that may reach the API and nothing else |
 
 ## How the web gets in
 
@@ -67,19 +95,10 @@ It installs rootless Docker (as the user `hakobu-docker`), unattended upgrades, 
 
 ## The tokens
 
-On a first install it prints two tokens, once:
+A first install makes two tokens:
 
-- the **operator** token, for your laptop and your agent: status, logs, deploy, rollback, backup;
-- the **admin** token, for your password manager only: it alone can restore and delete data.
-
-On your laptop, with the hakobu binary from the [releases](https://github.com/hakobudev/hakobu/releases):
-
-```bash
-hakobu server add kasl-1 http://100.x.y.z:7070   # then paste the operator token
-hakobu status
-```
-
-The installer's output names the API's address. Servers are remembered in `~/.config/hakobu/servers.toml`.
+- the **operator** token, for your laptop and your agent: status, logs, deploy, rollback, backup, updates. `server create` keeps it in `~/.config/hakobu/servers.toml`;
+- the **admin** token, for your password manager only: it alone can restore and delete data. It's shown once, and kept nowhere.
 
 ## Back up the server's key
 
@@ -454,14 +473,15 @@ A bucket has `endpoint`, `region`, `bucket`, `access_key`, `secret_key`, and `pr
 
 ## Reaching the API
 
-By default the API listens on 127.0.0.1:7070 and nowhere else; your laptop reaches it through SSH (`ssh -fN -L 7070:127.0.0.1:7070 root@the-server`), and the audit expects SSH to listen.
+By default the API listens on 127.0.0.1:7070 and nowhere else; your laptop reaches it through SSH, with the key `hakobu server create` made, which may reach that port and nothing else (see [A server](https://hakobu.dev/docs/install/index.md)). The audit expects SSH to listen.
 
 With a Tailscale key at install, it listens on the server's tailnet address instead. In your tailnet's policy, let your own devices reach the server's tag on port 7070; nothing else needs to. The installer leaves Tailscale's SSH, routes and DNS off.
 
 ## From your laptop
 
 ```bash
-hakobu server add kasl-1 http://127.0.0.1:7070   # through the tunnel, or its tailnet address; the operator token on stdin
+hakobu server create kasl-1 --ssh root@203.0.113.7   # once: installs, and remembers it
+hakobu server add kasl-2 http://100.101.102.103:7070  # one installed otherwise; the operator token on stdin
 hakobu server list
 hakobu status              # every server
 hakobu --server kasl-1 deploys
