@@ -484,7 +484,11 @@ func printStatus(w io.Writer, st server.Status) {
 			if d.Error != "" {
 				line += "  " + l.bad("deploy failed") + " " + l.dim(shortRev(d.Revision)+" · "+ago(d.At))
 			} else {
-				line += "  " + l.dim(strings.TrimSpace("deployed "+shortRev(d.Revision))+" · "+ago(d.At))
+				did := "deployed "
+				if d.Rollback {
+					did = "rolled back to "
+				}
+				line += "  " + l.dim(strings.TrimSpace(did+shortRev(d.Revision))+" · "+ago(d.At))
 			}
 		}
 		fmt.Fprintln(w, line)

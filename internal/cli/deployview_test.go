@@ -117,3 +117,13 @@ func stripANSI(s string) string {
 		s = s[:i] + s[i+j+1:]
 	}
 }
+
+func TestStatusRolledBack(t *testing.T) {
+	var b bytes.Buffer
+	printStatus(&b, server.Status{Server: "nova-1",
+		Apps:     map[string]map[string]apply.AppState{"crm": {"web": {}}},
+		Deployed: map[string]apply.Result{"crm": {Project: "crm", Revision: "f853b57aa", Rollback: true, At: time.Now()}}})
+	if !strings.Contains(b.String(), "crm  rolled back to f853b57 · just now\n") {
+		t.Errorf("status:\n%s", b.String())
+	}
+}
