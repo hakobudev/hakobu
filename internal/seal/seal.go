@@ -81,7 +81,7 @@ func (s *Secrets) check() error {
 				errs = append(errs, fmt.Errorf("apps.%s.%s: not a variable name (uppercase letters, digits and _)", app, k))
 			}
 			if !strings.HasPrefix(s.Apps[app][k], prefix) {
-				errs = append(errs, fmt.Errorf("apps.%s.%s: not sealed; set it with hakobu secret set, never by hand", app, k))
+				errs = append(errs, fmt.Errorf("apps.%s.%s: not sealed; seal it with secret set, never by hand", app, k))
 			}
 		}
 	}
@@ -90,7 +90,7 @@ func (s *Secrets) check() error {
 			errs = append(errs, fmt.Errorf("hakobu.%s: hakobu has no such secret (it knows %s)", k, strings.Join(hakobuNames, ", ")))
 		}
 		if !strings.HasPrefix(s.Hakobu[k], prefix) {
-			errs = append(errs, fmt.Errorf("hakobu.%s: not sealed; set it with hakobu secret set, never by hand", k))
+			errs = append(errs, fmt.Errorf("hakobu.%s: not sealed; seal it with secret set, never by hand", k))
 		}
 	}
 	return errors.Join(errs...)

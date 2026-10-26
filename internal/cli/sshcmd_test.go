@@ -210,3 +210,28 @@ func TestMCPOnServer(t *testing.T) {
 		t.Errorf("pending: %v %s", out, msg)
 	}
 }
+
+// On a server, its name may be left out.
+func TestNameFirst(t *testing.T) {
+	fakeSocket(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"server":"kasl-1"}`))
+	}))
+	for _, c := range []struct {
+		in   string
+		want string
+	}{
+		{"", "kasl-1"},
+		{"kasl-1", "kasl-1"},
+		{"ghcr.io/kasl/crm:main", "kasl-1 ghcr.io/kasl/crm:main"},
+		{"kasl-1 ghcr.io/kasl/crm:main", "kasl-1 ghcr.io/kasl/crm:main"},
+	} {
+		in, _ := splitWords(c.in)
+		got, err := nameFirst(in, 1, 2)
+		if err != nil || strings.Join(got, " ") != c.want {
+			t.Errorf("%q: %q %v", c.in, got, err)
+		}
+	}
+	if _, err := nameFirst([]string{"kasl-1"}, 2, 2); err == nil {
+		t.Error("took release with no image")
+	}
+}

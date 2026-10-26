@@ -1,6 +1,6 @@
 # Alerts and audit
 
-The server watches itself and emails you through any SMTP server (`[alerts.smtp]` in its [config](servers.md)): one email when a problem starts and one when it's over, never a stream. Without SMTP, problems show only in `hakobu status`.
+The server watches itself and emails you through any SMTP server (`[alerts.smtp]` in its [config](servers.md)): one email when a problem starts and one when it's over, never a stream. Without SMTP, problems show only in `status`.
 
 ## What it watches
 
@@ -10,9 +10,10 @@ The server watches itself and emails you through any SMTP server (`[alerts.smtp]
 - PostgreSQL not answering;
 - an update of hakobu that didn't install (closed once it does), and a newer minor release of hakobu out for 14 days that this server hasn't updated to;
 - the **audit**, hourly:
-  - a port listening beyond loopback and the tailnet that isn't in `alerts.allow_ports` (80 and 443 are allowed for `public` ingress by themselves; 22 with the API on loopback, as SSH is the way to it; else add 22 if SSH listens on every address);
+  - a port listening beyond loopback and the tailnet that isn't in `alerts.allow_ports` (80 and 443 are allowed for `public` ingress by themselves, and 22, as SSH is the way to hakobu);
   - a container hakobu didn't start;
-  - unattended upgrades that haven't run for 3 days.
+  - unattended upgrades that haven't run for 3 days;
+  - your owner's key still on the server, where the installer made it (`ssh -t root@SERVER hakobu server owner-key` takes it).
 
 What's fixed closes by itself. Problems survive a restart of hakobu, so you aren't mailed twice.
 

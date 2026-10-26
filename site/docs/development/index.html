@@ -67,10 +67,10 @@
 <p>Pushing a <code>vX.Y.Z</code> tag builds and publishes a release (<code>.github/workflows/release.yml</code>), signed with the key in the <code>HAKOBU_SIGNING_KEY</code> secret of the <code>release</code> environment; without it the release fails rather than going out unsigned. <code>just release-check</code> builds a snapshot without signing.</p>
 <h2 id="layout">Layout</h2>
 <ul>
-<li><code>main.go</code>, <code>internal/cli/</code>: the command line and the MCP server</li>
+<li><code>main.go</code>, <code>internal/cli/</code>: the command line, the MCP server, and <code>hakobu ssh</code>, the SSH user's forced command</li>
 <li><code>internal/spec/</code>: hakobu.toml</li>
 <li><code>internal/seal/</code>: hakobu.secrets.toml</li>
-<li><code>internal/server/</code>: the daemon: config, API, polling, monitoring</li>
+<li><code>internal/server/</code>: the daemon: config, API (TCP and its Unix socket), polling, monitoring</li>
 <li><code>internal/apply/</code>: plans and deploys a release; watches the release images</li>
 <li><code>internal/ci/</code>, <code>internal/scaffold/</code>: <code>hakobu build</code>/<code>wait</code>, <code>hakobu init</code> and the skill</li>
 <li><code>internal/backups/</code>: sealed backups to S3, their proof and rotation</li>

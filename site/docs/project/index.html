@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>A project · hakobu docs</title>
-<meta name="description" content="A project is a repository with a hakobu.toml at its root. In the repository, with a server added:">
+<meta name="description" content="A project is a repository with a hakobu.toml at its root. With a server and its MCP added to your agent, ask it to set the repository up for hakobu: its init tool registers the release image on the…">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/style.css?v=8c38cfb7">
@@ -54,39 +54,37 @@
           <a class="btn btn-sm" href="index.md">View as Markdown</a>
         </div>
       </div>
-      <p>A project is a repository with a <code>hakobu.toml</code> at its root. In the repository, with a <a href="/docs/install/">server</a> added:</p>
-<pre><code class="language-bash">hakobu init --server kasl-1
-</code></pre>
-<p>It writes, leaving any file that's already there:</p>
+      <p>A project is a repository with a <code>hakobu.toml</code> at its root. With a <a href="/docs/install/">server</a> and its MCP added to your agent, ask it to set the repository up for hakobu: its <code>init</code> tool registers the release image on the server and gives the files, which it writes, leaving any that's already there:</p>
 <ul>
-<li><strong><code>hakobu.toml</code></strong>, with an app for each directory (the root and one level down) that has a Dockerfile, or a stack it recognizes (Node, Python, Go, …), marked as needing a Dockerfile: hakobu builds each app from its own;</li>
+<li><strong><code>hakobu.toml</code></strong>, the project and its server, with an app for the agent to fill in from the repository's Dockerfiles: hakobu builds each app from its own;</li>
+<li><strong><code>hakobu.secrets.toml</code></strong>, empty, sealed to the server's key and yours;</li>
 <li><strong><code>.github/workflows/hakobu.yml</code></strong>, which builds each push to the default branch and waits for its deploy;</li>
-<li><strong><code>.claude/skills/hakobu/SKILL.md</code></strong>, a section in <strong><code>CLAUDE.md</code></strong>, <strong><code>.mcp.json</code></strong> and <strong><code>.claude/settings.json</code></strong>: see <a href="/docs/agents/">Agents</a>.</li>
+<li><strong><code>.claude/skills/hakobu/SKILL.md</code></strong>, a section in <strong><code>CLAUDE.md</code></strong> and <strong><code>.claude/settings.json</code></strong>: see <a href="/docs/agents/">Agents</a>.</li>
 </ul>
-<p>The image goes to <code>ghcr.io/OWNER/REPO</code> (from <code>origin</code>); <code>--image</code> gives another.</p>
+<p>The release image is <code>ghcr.io/OWNER/REPO</code>, the repository's.</p>
 <h2 id="then">Then</h2>
 <ol>
 <li>
-<p><strong>The file.</strong> Give each app its <code>domain</code>, a <code>health</code> path it answers once it's ready (<code>/up</code> by default), and the databases and caches it uses: see <a href="/docs/hakobu-toml/">hakobu.toml</a>. <code>hakobu validate</code> checks it.</p>
+<p><strong>The file.</strong> Each app gets its <code>domain</code>, a <code>health</code> path it answers once it's ready (<code>/up</code> by default), and the databases and caches it uses: see <a href="/docs/hakobu-toml/">hakobu.toml</a>. The <code>validate</code> tool checks it, as CI does.</p>
 </li>
 <li>
-<p><strong>Secrets.</strong> <code>hakobu secret init</code> starts <code>hakobu.secrets.toml</code>, sealed to the server's key and yours. Add the token that lets the server set the commit's status, a <a href="https://github.com/settings/personal-access-tokens/new">fine-grained token</a> with <strong>Commit statuses: Read and write</strong> on this repository alone:</p>
-<pre><code class="language-bash">hakobu secret set hakobu status_token
+<p><strong>Secrets.</strong> The server sets the commit's status with a <a href="https://github.com/settings/personal-access-tokens/new">fine-grained token</a> with <strong>Commit statuses: Read and write</strong> on this repository alone. Make one, and seal it, in your own terminal:</p>
+<pre><code class="language-bash">ssh -t kasl-1 secret set kasl hakobu status_token
 </code></pre>
-<p>and your app's own secrets with <code>hakobu secret set APP NAME</code>. See <a href="/docs/secrets/">Secrets</a>.</p>
+<p>Your agent then adds it to <code>hakobu.secrets.toml</code>; your app's own secrets go the same way. See <a href="/docs/secrets/">Secrets</a>.</p>
 </li>
 <li>
-<p><strong>The server</strong> deploys the release image from now on: <code>hakobu init</code> told it (<code>hakobu server set release SERVER IMAGE:main</code> does it otherwise; see <a href="/docs/servers/">Server config</a>).</p>
-</li>
-<li>
-<p><strong>Push.</strong> CI builds the apps, pushes them and the release; within 30 seconds the server deploys it, and the job turns green once it's live. <code>hakobu status</code> and <code>hakobu deploys</code> show it from your laptop.</p>
-<p>The first time, while the job waits, make the release image public: on GitHub, the package <code>REPO</code> (not <code>REPO-APP</code>), <strong>Package settings → Change visibility → Public</strong>. Everything in it is sealed to the server's key and yours, and the server polls it with no token; until then, <code>hakobu status</code> says the registry refused. The apps' images stay private: CI seals the job's own token in each release, and the server pulls them with it while the job waits for the deploy. The token dies with the job, so the server keeps none for ghcr.io.</p>
+<p><strong>Push.</strong> CI builds the apps, pushes them and the release; within 30 seconds the server deploys it, and the job turns green once it's live. <code>ssh kasl-1 status</code> and the MCP tools show it.</p>
+<p>The first time, while the job waits, make the release image public: on GitHub, the package <code>REPO</code> (not <code>REPO-APP</code>), <strong>Package settings → Change visibility → Public</strong>. Everything in it is sealed to the server's key and yours, and the server polls it with no token; until then, <code>status</code> says the registry refused. The apps' images stay private: CI seals the job's own token in each release, and the server pulls them with it while the job waits for the deploy. The token dies with the job, so the server keeps none for ghcr.io.</p>
+<p>A private release works too, with a token for the server to read it: a classic token with <code>read:packages</code> alone, given with <code>ssh kasl-1 server set registry ghcr.io --username YOU</code> (the password typed, hidden). It reads every package of your account, so a public release is the safer one.</p>
 </li>
 </ol>
 <h2 id="an-arm64-server">An arm64 server</h2>
 <p>Images are built on CI's runner, for its architecture. For an arm64 server, set <code>runner: ubuntu-24.04-arm</code> in the workflow.</p>
 <h2 id="tests-first">Tests first</h2>
 <p>The workflow is a job like any other: put your tests in a job of their own and add <code>needs: [test]</code> to the deploy job.</p>
+<h2 id="with-hakobu-on-a-laptop">With hakobu on a laptop</h2>
+<p><code>hakobu init --server kasl-1</code>, in the repository, writes the same files, with an app already for each directory (the root and one level down) that has a Dockerfile, or a stack it recognizes (Node, Python, Go, …), and <code>.mcp.json</code> for <code>hakobu mcp</code>; <code>hakobu secret set hakobu status_token</code> seals the token straight into the file.</p>
 
     </article>
     <nav class="docs-pager" aria-label="Pages"><a class="docs-prev" href="/docs/install/"><span>Previous</span>A server</a><a class="docs-next" href="/docs/hakobu-toml/"><span>Next</span>hakobu.toml</a>
@@ -97,6 +95,7 @@
     <a href="#then" class="toc-2">Then</a>
     <a href="#an-arm64-server" class="toc-2">An arm64 server</a>
     <a href="#tests-first" class="toc-2">Tests first</a>
+    <a href="#with-hakobu-on-a-laptop" class="toc-2">With hakobu on a laptop</a>
   </aside>
 </div>
 <footer class="footer">

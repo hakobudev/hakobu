@@ -70,3 +70,16 @@ func TestUpgrades(t *testing.T) {
 		t.Errorf("fresh stamp: %v", got)
 	}
 }
+
+func TestOwnerKey(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "owner-key")
+	if got := OwnerKey(f); got != nil {
+		t.Errorf("none: %v", got)
+	}
+	if err := os.WriteFile(f, []byte("AGE-SECRET-KEY-1…\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := OwnerKey(f); len(got) != 1 || got[0].Key != "owner-key" {
+		t.Errorf("there: %v", got)
+	}
+}

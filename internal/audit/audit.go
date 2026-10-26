@@ -106,3 +106,13 @@ func Upgrades(stamp string, now time.Time, maxAge time.Duration) []Finding {
 
 // AptStamp is where unattended-upgrades marks a run.
 const AptStamp = "/var/lib/apt/periodic/upgrade-stamp"
+
+// OwnerKey finds the owner's secret key still on the server, where the
+// installer made it: it's there for the person to take, and a server that
+// keeps it would hand a thief the backups' second key too.
+func OwnerKey(file string) []Finding {
+	if _, err := os.Stat(file); err != nil {
+		return nil
+	}
+	return []Finding{{"owner-key", "your owner's key is still on the server: take it into your password manager with ssh -t root@SERVER hakobu server owner-key, in your own terminal"}}
+}

@@ -32,10 +32,14 @@ var settingsPoll = 2 * time.Second
 
 func serverGetCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "get NAME",
+		Use:   "get [NAME]",
 		Short: "Show a server's settings: releases, registries, backups, mail, updates (never a password or key)",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			args, err := nameFirst(args, 1, 1)
+			if err != nil {
+				return err
+			}
 			cl, err := namedClient(args[0])
 			if err != nil {
 				return err
@@ -73,12 +77,12 @@ func printSettings(w io.Writer, v server.SettingsView) {
 			fmt.Fprintf(w, "  copy %s: %s/%s at %s (key %s)\n", c.Name, c.Bucket, c.Prefix, c.Endpoint, c.AccessKey)
 		}
 	} else {
-		fmt.Fprintln(w, "backups: none (hakobu server set backups NAME)")
+		fmt.Fprintln(w, "backups: none (server set backups, root's)")
 	}
 	if m := v.SMTP; m != nil {
 		fmt.Fprintf(w, "mail: %s → %s through %s:%d%s\n", m.From, m.To, m.Host, m.Port, from(m.Source))
 	} else {
-		fmt.Fprintln(w, "mail: none (hakobu server set mail NAME)")
+		fmt.Fprintln(w, "mail: none (server set mail)")
 	}
 	if v.Pulse != "" {
 		fmt.Fprintf(w, "pulse: %s\n", v.Pulse)
@@ -94,10 +98,14 @@ func serverSetCmd() *cobra.Command {
 
 	var remove bool
 	release := &cobra.Command{
-		Use:   "release NAME IMAGE:TAG",
+		Use:   "release [NAME] IMAGE:TAG",
 		Short: "Deploy a project's release image on the server (hakobu init does), or --remove it",
-		Args:  cobra.ExactArgs(2),
+		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			args, err := nameFirst(args, 2, 2)
+			if err != nil {
+				return err
+			}
 			ch := server.SettingsChange{AddRelease: args[1]}
 			if remove {
 				ch = server.SettingsChange{RemoveRelease: args[1]}
@@ -110,10 +118,14 @@ func serverSetCmd() *cobra.Command {
 	var regUser string
 	var regRemove bool
 	registry := &cobra.Command{
-		Use:   "registry NAME HOST --username USER",
+		Use:   "registry [NAME] HOST --username USER",
 		Short: "Credentials to pull from a registry (the password from HAKOBU_REGISTRY_PASSWORD, or typed); ghcr.io needs none",
-		Args:  cobra.ExactArgs(2),
+		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			args, err := nameFirst(args, 2, 2)
+			if err != nil {
+				return err
+			}
 			rg := &server.RegistrySet{Host: args[1], Username: regUser, Remove: regRemove}
 			if !regRemove {
 				if regUser == "" {
@@ -133,10 +145,14 @@ func serverSetCmd() *cobra.Command {
 	var m alert.SMTP
 	var mailRemove bool
 	mail := &cobra.Command{
-		Use:   "mail NAME --host HOST --port 465 --from FROM --to TO [--username USER]",
+		Use:   "mail [NAME] --host HOST --port 465 --from FROM --to TO [--username USER]",
 		Short: "Where the server mails you its problems: any SMTP server (the password from HAKOBU_SMTP_PASSWORD, or typed); it sends a mail first to prove it works",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			args, err := nameFirst(args, 1, 1)
+			if err != nil {
+				return err
+			}
 			if mailRemove {
 				return setSettings(cmd.Context(), args[0], "", server.SettingsChange{RemoveSMTP: true}, cmd.OutOrStdout())
 			}
@@ -158,10 +174,14 @@ func serverSetCmd() *cobra.Command {
 	mail.Flags().BoolVar(&mailRemove, "remove", false, "mail no more: problems show only in hakobu status")
 
 	pulse := &cobra.Command{
-		Use:   "pulse NAME URL [FAIL_URL]",
+		Use:   "pulse [NAME] URL [FAIL_URL]",
 		Short: "A dead man's switch the server fetches every 15 minutes (FAIL_URL while a problem is open), which mails you when it stops",
-		Args:  cobra.RangeArgs(2, 3),
+		Args:  cobra.RangeArgs(1, 3),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			args, err := nameFirst(args, 2, 3)
+			if err != nil {
+				return err
+			}
 			p := &server.PulseSet{URL: args[1]}
 			if len(args) == 3 {
 				p.FailURL = args[2]
@@ -172,10 +192,14 @@ func serverSetCmd() *cobra.Command {
 
 	var u server.Updates
 	updates := &cobra.Command{
-		Use:   "updates NAME --auto patch|minor|none [--at 04:00]",
+		Use:   "updates [NAME] --auto patch|minor|none [--at 04:00]",
 		Short: "Which newer releases of hakobu the server installs by itself, and when (UTC)",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			args, err := nameFirst(args, 1, 1)
+			if err != nil {
+				return err
+			}
 			uu := u
 			return setSettings(cmd.Context(), args[0], "", server.SettingsChange{Updates: &uu}, cmd.OutOrStdout())
 		},
@@ -188,10 +212,14 @@ func serverSetCmd() *cobra.Command {
 	var copyName, removeCopy string
 	var bRemove bool
 	backupsCmd := &cobra.Command{
-		Use:   "backups NAME --endpoint URL --bucket BUCKET --access-key KEY [--copy NAME]",
+		Use:   "backups [NAME] --endpoint URL --bucket BUCKET --access-key KEY [--copy NAME]",
 		Short: "The bucket the server backs up to, or a copy (--copy NAME, a key that may only write): the admin token's (HAKOBU_ADMIN_TOKEN, or typed); the secret key from HAKOBU_S3_SECRET_KEY, or typed",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			args, err := nameFirst(args, 1, 1)
+			if err != nil {
+				return err
+			}
 			ch := server.SettingsChange{RemoveBackups: bRemove, RemoveCopyName: removeCopy}
 			if !bRemove && removeCopy == "" {
 				set := bs
@@ -240,6 +268,34 @@ func serverSetCmd() *cobra.Command {
 
 	c.AddCommand(release, registry, mail, pulse, updates, backupsCmd)
 	return c
+}
+
+// nameFirst puts the server's name first in args when they don't start
+// with one and there's one server: on a server (ssh … server set mail …),
+// its own.
+// The arguments, the name included, are from lo to hi.
+func nameFirst(args []string, lo, hi int) ([]string, error) {
+	all, err := known()
+	if err != nil {
+		return nil, err
+	}
+	if _, ok := all[firstOf(args)]; !ok {
+		if len(all) != 1 {
+			return nil, errors.New("which server? give its name first")
+		}
+		args = append([]string{all.Names()[0]}, args...)
+	}
+	if len(args) < lo || len(args) > hi {
+		return nil, fmt.Errorf("%d arguments, the server's name included, where it takes %d to %d", len(args), lo, hi)
+	}
+	return args, nil
+}
+
+func firstOf(args []string) string {
+	if len(args) == 0 {
+		return ""
+	}
+	return args[0]
 }
 
 func namedClient(name string) (*client.Client, error) {

@@ -10,19 +10,18 @@ Run your projects on servers you own. A project says what it needs in a file in 
 - **Secrets in the repository**, each sealed with [age](https://age-encryption.org) to the server and to you: anyone can add one, only the two of you can read it.
 - **Backups** of databases and volumes to any S3 bucket and a copy elsewhere, sealed, and restored into scratch after every upload to prove they restore.
 - **Alerts** by email when an app is down, a deploy or backup fails, the disk fills, or the audit finds a port or container that shouldn't be there; a pulse to a dead man's switch.
-- **Agents welcome**: `hakobu init` gives a repository a skill for Claude Code, and `hakobu mcp` lets an agent see status and logs, deploy and roll back. Deleting or restoring data is a person's to do.
-- **One Go binary**, rootless Docker, the API on loopback (through SSH) or your tailnet only, signed releases that install themselves. No provider's API is called.
+- **Agents welcome, nothing on your laptop**: each server is its own MCP server, over SSH (`ssh deploy@SERVER mcp`), so an agent sees status and logs, deploys, rolls back and sets a repository up, with a skill for Claude Code; you run the same, `ssh kasl-1 status`. Deleting or restoring data is root's.
+- **One Go binary** on the server, rootless Docker, SSH keys that run hakobu's commands alone, signed releases that install themselves. No provider's API is called.
 
 ## Start
 
-From your laptop, with the CLI from the [releases](https://github.com/hakobudev/hakobu/releases) and SSH to a new Debian or Ubuntu server:
+On a new Debian or Ubuntu server, once (you or your agent):
 
 ```bash
-hakobu server create web-1 --ssh root@203.0.113.7 --ingress public --email you@example.com
-hakobu init --server web-1                       # in a project's repository
+ssh root@203.0.113.7 'curl -fsSL https://hakobu.dev/install.sh | HAKOBU_NAME=web-1 HAKOBU_INGRESS=public HAKOBU_ACME_EMAIL=you@example.com bash'
 ```
 
-Then see [A project](https://hakobu.dev/docs/project/).
+It ends with the line that gives your agent the server's MCP (`claude mcp add … -- ssh -T deploy@203.0.113.7 mcp`); then ask the agent to set a repository up. See [A server](https://hakobu.dev/docs/install/) and [A project](https://hakobu.dev/docs/project/).
 
 ## Development
 

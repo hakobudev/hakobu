@@ -28,6 +28,11 @@ import (
 // hakobu reads it.
 const ConfigFile = "/etc/hakobu/server.toml"
 
+// OwnerKeyFile is the owner's secret key when the server made it (the
+// person had no age key at install): root's alone, and there until
+// hakobu server owner-key hands it to the person.
+const OwnerKeyFile = "/etc/hakobu/owner-key"
+
 type Config struct {
 	Name string `toml:"name"`
 	// Listen is the API's address, on the tailnet or loopback (reached

@@ -118,7 +118,7 @@ func ReadRelease(labels map[string]string, id age.Identity) (Release, Meta, erro
 		r.Secrets, meta.StatusToken = secrets.Apps, secrets.Hakobu[seal.StatusToken]
 	}
 	if _, err := status.Repo(meta.Source); err == nil && meta.StatusToken == "" {
-		errs = append(errs, fmt.Errorf("%s: no token for the commit status; add one that may set commit statuses on the repository with hakobu secret set hakobu %s", seal.FileName, seal.StatusToken))
+		errs = append(errs, fmt.Errorf("%s: no token for the commit status; add one that may set commit statuses on the repository: ssh -t SERVER secret set %s hakobu %s (hakobu secret set hakobu %[3]s on a laptop)", seal.FileName, p.Name, seal.StatusToken))
 	}
 	return r, meta, errors.Join(errs...)
 }

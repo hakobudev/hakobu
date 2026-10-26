@@ -24,10 +24,10 @@ Pushing a `vX.Y.Z` tag builds and publishes a release (`.github/workflows/releas
 
 ## Layout
 
-- `main.go`, `internal/cli/`: the command line and the MCP server
+- `main.go`, `internal/cli/`: the command line, the MCP server, and `hakobu ssh`, the SSH user's forced command
 - `internal/spec/`: hakobu.toml
 - `internal/seal/`: hakobu.secrets.toml
-- `internal/server/`: the daemon: config, API, polling, monitoring
+- `internal/server/`: the daemon: config, API (TCP and its Unix socket), polling, monitoring
 - `internal/apply/`: plans and deploys a release; watches the release images
 - `internal/ci/`, `internal/scaffold/`: `hakobu build`/`wait`, `hakobu init` and the skill
 - `internal/backups/`: sealed backups to S3, their proof and rotation

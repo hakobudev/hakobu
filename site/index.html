@@ -104,7 +104,7 @@
 
 <span class="t">[hakobu]</span>
 <span class="k">status_token</span> = <span class="s">"age:Ci0+IFgyNTUxOSBuUEFw…"</span></pre>
-<pre class="code" data-file="ci" hidden><span class="c"># written by hakobu init</span>
+<pre class="code" data-file="ci" hidden><span class="c"># written by your agent, from hakobu's init</span>
 <span class="k">name</span>: deploy
 
 <span class="k">on</span>:
@@ -176,7 +176,7 @@
 
       <div class="card span-5 tint-grey">
         <h3>Back in one command.</h3>
-        <p><code>hakobu rollback</code> runs the release before, with today's secrets. Try it.</p>
+        <p><code>rollback</code> runs the release before, with today's secrets. Try it.</p>
         <div class="card-viz"><div class="viz viz-roll">
           <div class="deploys" id="deploys">
             <div class="deploy is-live"><span class="mono">a1f3c9e</span><span class="deploy-msg">Add invoices</span><span class="live">Live</span><span class="when">4 min ago</span></div>
@@ -186,7 +186,7 @@
             <div class="deploy"><span class="mono">07dd9b2</span><span class="deploy-msg">Sign in with email</span><span class="live">Live</span><span class="when">2 weeks ago</span></div>
           </div>
           <div class="roll-foot">
-            <button class="btn btn-sm" type="button" id="rollback"><svg class="icon"><use href="#i-history"/></svg><span id="rollback-label">hakobu rollback crm</span></button>
+            <button class="btn btn-sm" type="button" id="rollback"><svg class="icon"><use href="#i-history"/></svg><span id="rollback-label">ssh kasl-1 rollback crm</span></button>
             <span class="legend">no registry needed: the server keeps them</span>
           </div>
         </div></div>
@@ -206,7 +206,7 @@
             <div class="d-ctx"><span class="d-sign"> </span>[hakobu]</div>
             <div class="d-ctx"><span class="d-sign"> </span>status_token = "age:Ci0+IFgyNTUxOSBuUEFw…"</div>
           </div>
-          <div class="diff-foot mono"><span class="p">$</span> op read op://crm/stripe | hakobu secret set web STRIPE_KEY</div>
+          <div class="diff-foot mono"><span class="p">$</span> op read op://crm/stripe | ssh kasl-1 secret set crm web STRIPE_KEY</div>
         </div></div>
       </div>
 
@@ -240,22 +240,22 @@
 
       <div class="card span-7 tint-blue">
         <h3>Agents welcome. Data stays a person's.</h3>
-        <p><code>hakobu init</code> gives a repository a skill for Claude Code, and <code>hakobu mcp</code> lets an agent see status and logs, deploy and roll back. Restoring or deleting data needs the admin token and a person at a terminal.</p>
+        <p>Each server is its own MCP server, over SSH: an agent sees status and logs, deploys, rolls back and sets a repository up, with a skill for Claude Code. Nothing to install on your laptop. Restoring or deleting data is root's, and a person's at a terminal.</p>
         <div class="card-viz"><div class="chat" aria-label="An example conversation with Claude">
           <div class="turn turn-me"><div class="msg msg-me">Add a cache for sessions and ship it.</div></div>
           <div class="turn">
-            <div class="tools"><span class="tool"><svg class="icon"><use href="#i-check"/></svg>edit hakobu.toml</span><span class="tool"><svg class="icon"><use href="#i-check"/></svg>hakobu validate</span><span class="tool"><svg class="icon"><use href="#i-check"/></svg>git push</span><span class="tool"><svg class="icon"><use href="#i-check"/></svg>deploys</span></div>
+            <div class="tools"><span class="tool"><svg class="icon"><use href="#i-check"/></svg>edit hakobu.toml</span><span class="tool"><svg class="icon"><use href="#i-check"/></svg>validate</span><span class="tool"><svg class="icon"><use href="#i-check"/></svg>git push</span><span class="tool"><svg class="icon"><use href="#i-check"/></svg>deploys</span></div>
             <div class="msg msg-ai">Added <code>[caches.sessions]</code> and gave web <code>SESSIONS_REDIS_URL</code>. <span class="mono">c3d9a20</span> is live on kasl-1.</div>
           </div>
           <div class="turn turn-me"><div class="msg msg-me">Now restore last night's backup of main.</div></div>
-          <div class="turn"><div class="msg msg-ai">That one's yours: <code>hakobu restore crm/main</code> asks for the admin token at a terminal, and I don't have it.</div></div>
+          <div class="turn"><div class="msg msg-ai">That one's yours: <code>ssh -t root@kasl-1 hakobu restore crm/main</code>, at your terminal. My key can't.</div></div>
         </div></div>
       </div>
 
       <div class="card span-12 tint-grey card-wide">
         <div class="card-text">
           <h3>Nothing comes in.</h3>
-          <p>The server pulls its releases, hakobu's own too. hakobu's API listens on loopback, for your SSH tunnel, or on your tailnet, and nowhere else, and the web reaches your apps on 80 and 443 for their own domains, or through a Cloudflare Tunnel with no port open at all. The audit mails you about anything else that listens.</p>
+          <p>The server pulls its releases, hakobu's own too. You and your agent reach hakobu over SSH, with keys that run its commands and nothing else; its API listens on loopback alone, and the web reaches your apps on 80 and 443 for their own domains, or through a Cloudflare Tunnel with no port open at all. The audit mails you about anything else that listens.</p>
         </div>
         <div class="card-viz"><div class="viz viz-doors" aria-hidden="true">
           <svg viewBox="0 0 640 260" class="doors">
@@ -266,7 +266,7 @@
             <path class="t-out" d="M392 118 C 434 118, 430 46, 472 46" marker-end="url(#arr)"/>
             <path class="t-out" d="M392 130 L 472 130" marker-end="url(#arr)"/>
             <path class="t-out" d="M392 142 C 434 142, 430 214, 472 214" marker-end="url(#arr)"/>
-            <g class="t-node"><rect x="16" y="24" width="150" height="44" rx="10"/><text x="30" y="43">you, your agent</text><text x="30" y="59" class="t-sub">the API: SSH or tailnet</text></g>
+            <g class="t-node"><rect x="16" y="24" width="150" height="44" rx="10"/><text x="30" y="43">you, your agent</text><text x="30" y="59" class="t-sub">hakobu, over SSH</text></g>
             <g class="t-node t-off"><rect x="16" y="108" width="150" height="44" rx="10"/><text x="30" y="127">anything else</text><text x="30" y="143" class="t-sub">nothing listens</text></g>
             <g class="t-node"><rect x="16" y="192" width="150" height="44" rx="10"/><text x="30" y="211">visitors</text><text x="30" y="227" class="t-sub">80/443, or a tunnel</text></g>
             <g class="t-node t-main"><rect class="t-halo" x="244" y="102" width="152" height="56" rx="28"/><rect x="250" y="108" width="140" height="44" rx="22"/><use href="#i-server" x="268" y="120" width="20" height="20"/><text x="296" y="135">your server</text></g>
@@ -275,7 +275,7 @@
             <g class="t-node"><rect x="474" y="192" width="150" height="44" rx="10"/><text x="488" y="211">SMTP, GitHub</text><text x="488" y="227" class="t-sub">alerts, commit status</text></g>
           </svg>
           <ul class="doors-list">
-            <li><b>In</b>you and your agent, through SSH or the tailnet; visitors on 80/443 or a tunnel</li>
+            <li><b>In</b>you and your agent, over SSH; visitors on 80/443 or a tunnel</li>
             <li><b>Out</b>the registry, your buckets, SMTP, GitHub's commit status and hakobu's releases</li>
             <li><b>Else</b>nothing listens, and the audit checks hourly</li>
           </ul>
@@ -292,11 +292,11 @@
     </div>
     <ul class="bring">
       <li><svg class="icon"><use href="#i-server"/></svg><b>A Linux server</b><span>Debian or Ubuntu, amd64 or arm64. The installer sets up rootless Docker.</span></li>
-      <li><svg class="icon"><use href="#i-network"/></svg><b>SSH, or a tailnet</b><span>The way to hakobu's API, which listens nowhere else.</span></li>
+      <li><svg class="icon"><use href="#i-network"/></svg><b>SSH</b><span>Your laptop has it: you and your agent reach hakobu through it, and nothing else.</span></li>
       <li><svg class="icon"><use href="#i-box"/></svg><b>A registry and CI</b><span>ghcr.io and GitHub Actions work with no setup.</span></li>
       <li><svg class="icon"><use href="#i-archive"/></svg><b>An S3 bucket</b><span>R2, Hetzner, AWS or any other, for backups.</span></li>
       <li><svg class="icon"><use href="#i-mail"/></svg><b>An SMTP account</b><span>For the alerts.</span></li>
-      <li><svg class="icon"><use href="#i-key-round"/></svg><b>Your age key</b><span>Opens every secret and backup, even without the server.</span></li>
+      <li><svg class="icon"><use href="#i-key-round"/></svg><b>Your owner's key</b><span>Opens every secret and backup, even without the server. The server makes it, for your password manager.</span></li>
     </ul>
   </div></section>
 
@@ -306,25 +306,22 @@
     </div>
     <ol class="start">
       <li>
-        <div class="start-text"><span class="step-n">1</span><div><h3>A server</h3><p>One command, nothing asked: everything comes from the environment, so cloud-init or an agent can run it. After that it updates itself. <a href="/docs/install/">A server</a></p></div></div>
-        <div class="copyable"><pre class="console"><span class="p">$</span> curl -fsSL https://hakobu.dev/install.sh | sudo \
-    HAKOBU_NAME=kasl-1 HAKOBU_OWNER_KEY=age1… \
-    HAKOBU_INGRESS=public bash</pre><button class="copy" type="button" data-copy="curl -fsSL https://hakobu.dev/install.sh | sudo HAKOBU_NAME=kasl-1 HAKOBU_OWNER_KEY=age1… HAKOBU_INGRESS=public bash" aria-label="Copy the install command"><svg class="icon"><use href="#i-copy"/></svg></button></div>
+        <div class="start-text"><span class="step-n">1</span><div><h3>A server</h3><p>One command, nothing asked, so your agent can run it. It ends with the line that gives your agent the server's MCP. After that it updates itself. <a href="/docs/install/">A server</a></p></div></div>
+        <div class="copyable"><pre class="console"><span class="p">$</span> ssh root@203.0.113.7 'curl -fsSL https://hakobu.dev/install.sh \
+    | HAKOBU_NAME=kasl-1 HAKOBU_INGRESS=public bash'
+<span class="p">$</span> claude mcp add --scope user kasl-1 -- \
+    ssh -T deploy@203.0.113.7 mcp</pre><button class="copy" type="button" data-copy="ssh root@203.0.113.7 'curl -fsSL https://hakobu.dev/install.sh | HAKOBU_NAME=kasl-1 HAKOBU_INGRESS=public bash'" aria-label="Copy the install command"><svg class="icon"><use href="#i-copy"/></svg></button></div>
       </li>
       <li>
-        <div class="start-text"><span class="step-n">2</span><div><h3>A project</h3><p>In the repository, with the CLI from the <a href="https://github.com/hakobudev/hakobu/releases">releases</a>. <code>init</code> writes hakobu.toml, the workflow and the agent's skill. <a href="/docs/project/">A project</a></p></div></div>
-        <div class="copyable"><pre class="console"><span class="p">$</span> ssh -fN -L 7070:127.0.0.1:7070 root@kasl-1
-<span class="p">$</span> hakobu server add kasl-1 http://127.0.0.1:7070
-<span class="p">$</span> hakobu init --server kasl-1
-<span class="p">$</span> hakobu secret set hakobu status_token</pre><button class="copy" type="button" data-copy="ssh -fN -L 7070:127.0.0.1:7070 root@kasl-1
-hakobu server add kasl-1 http://127.0.0.1:7070
-hakobu init --server kasl-1
-hakobu secret set hakobu status_token" aria-label="Copy the commands"><svg class="icon"><use href="#i-copy"/></svg></button></div>
+        <div class="start-text"><span class="step-n">2</span><div><h3>A project</h3><p>Ask your agent to set the repository up: it writes hakobu.toml, the workflow and its skill. You type the secrets in your own terminal, sealed on the server; the agent adds them, never seeing one. <a href="/docs/project/">A project</a></p></div></div>
+        <div class="copyable"><pre class="console"><span class="p">you&gt;</span> Set this repository up for hakobu on kasl-1.
+<span class="p">$</span> ssh -t kasl-1 secret set crm hakobu status_token
+<span class="p">you&gt;</span> I sealed the status token; add it and push.</pre><button class="copy" type="button" data-copy="ssh -t kasl-1 secret set crm hakobu status_token" aria-label="Copy the command"><svg class="icon"><use href="#i-copy"/></svg></button></div>
       </li>
       <li>
         <div class="start-text"><span class="step-n is-live">3</span><div><h3>Push</h3><p>CI builds the apps and the release; within 30 seconds the server deploys it, and the job turns green once it's live.</p></div></div>
         <div class="copyable"><pre class="console"><span class="p">$</span> git push
-<span class="p">$</span> hakobu status
+<span class="p">$</span> ssh kasl-1 status
 kasl-1
   app       crm/admin  ghcr.io/kasl/crm-admin@4be1…
   app       crm/web    ghcr.io/kasl/crm-web@90c7…

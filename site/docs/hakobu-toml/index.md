@@ -101,5 +101,5 @@ A Valkey server of the project's own, with its own password.
 ## What a change does
 
 - **Adding** an app, database, cache or volume makes it on the next deploy.
-- **Removing** one doesn't delete it: a database, cache or volume is kept, *orphaned*, and only `hakobu destroy` (a person's, with the admin token, after a last backup) deletes it.
+- **Removing** one doesn't delete it: a database, cache or volume is kept, *orphaned*, and only `hakobu destroy` (a person's, as root on the server, after a last backup) deletes it.
 - **Renaming** is removing and adding: the new one starts empty and the old one is orphaned. For a database, the deploy stops instead and says so: deploy the new one, move the data, then take the old one out.

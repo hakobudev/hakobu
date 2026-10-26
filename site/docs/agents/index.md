@@ -1,19 +1,31 @@
 # Agents (Claude Code, MCP)
 
-hakobu is built so an agent can do the work that's different in each project (the file, the Dockerfile, migrations, DNS) while the parts that guard your data stay in tested code it can't change. `hakobu init` sets a repository up for that.
-
-## The skill
-
-`.claude/skills/hakobu/SKILL.md` tells Claude Code how deploys work, how to write `hakobu.toml`, that migrations must work with the version before, how to add secrets without reading them, and what not to do. `hakobu init` writes it anew each time, so it matches the hakobu you run; a short section in `CLAUDE.md` points to it and says to read the servers through the MCP tools or the CLI, never ssh and docker. `hakobu init` brings that section up to date too, and leaves the rest of `CLAUDE.md` alone.
+hakobu is built so an agent can do the work that's different in each project (the file, the Dockerfile, migrations, DNS) while the parts that guard your data stay in tested code it can't change.
 
 ## MCP
 
-`.mcp.json` adds hakobu's MCP server, `hakobu mcp`, which runs on your laptop and talks to every server you've added, with the operator token. Its tools: `status`, `deploys`, `logs`, `backups`, `settings` (the servers' releases, buckets, mail, updates; no secrets), `deploy`, `rollback`, `backup` and `update` (hakobu itself, to a newer signed release). For another client, add it as a local (stdio) server running `hakobu mcp`.
+Each server has its own MCP server, run on the server itself over SSH: the installer prints the line that adds it to Claude Code, named after the server.
+
+```bash
+claude mcp add --scope user kasl-1 -- ssh -T deploy@203.0.113.7 mcp
+```
+
+For another client, add a local (stdio) server whose command is `ssh -T deploy@203.0.113.7 mcp`. Nothing of hakobu runs on your machine: it's your `ssh` and your key, which may run hakobu's commands on that server and nothing else.
+
+Its tools: `status`, `deploys`, `logs`, `backups`, `settings` (the server's releases, buckets, mail, updates; no secrets), `deploy`, `rollback`, `backup`, `update` (hakobu itself, to a newer signed release), `init` (set a repository up), `validate` (check `hakobu.toml` and `hakobu.secrets.toml` as the server will) and `pending_secrets` (the secrets you sealed, for it to add).
+
+## The skill
+
+`.claude/skills/hakobu/SKILL.md`, which the `init` tool gives, tells Claude Code how deploys work, how to write `hakobu.toml`, that migrations must work with the version before, how to add secrets without seeing them, and what not to do. A short section in `CLAUDE.md` points to it and says to read the servers through the MCP tools, never a shell or docker. Each `init` gives this hakobu's version of both, and leaves the rest of `CLAUDE.md` alone.
 
 ## What an agent can't do
 
-- **Delete or replace data.** `hakobu destroy` and `hakobu restore` need the admin token, which belongs in your password manager, and a person at a terminal typing a confirmation: without a terminal they refuse. `.claude/settings.json` denies both to Claude Code as well. The MCP server has neither.
-- **Read a secret.** It can seal a new one to the server, never open one. The skill tells it to ask you to run `hakobu secret set`.
-- **Reach the server.** No shell is needed for any of this: the agent talks to the API (on loopback, through your SSH tunnel, or on your tailnet) with the operator token, and can't do more through it than that token allows.
+- **Delete or replace data.** `hakobu destroy` and `hakobu restore` are root's on the server, and need a person at a terminal typing a confirmation: without a terminal they refuse. The MCP server has neither, and `.claude/settings.json` denies both to Claude Code as well. The backups' buckets are root's too.
+- **Read a secret, or see one.** You type a secret in your own terminal (`ssh -t kasl-1 secret set …`); the agent gets it sealed, and can't open it. The skill tells it never to ask for one in the chat.
+- **Get a shell.** Its key runs hakobu's commands on the server and nothing else, as an operator: look, deploy, roll back, back up, update, change the settings but the buckets.
 
-The logs an agent reads are written by your apps, and text in them could try to steer it; what it can do with the operator token is bounded the same either way.
+The logs an agent reads are written by your apps, and text in them could try to steer it; what it can do through its key is bounded the same either way.
+
+## With hakobu on a laptop
+
+`hakobu init` writes the same files, and `.mcp.json` for `hakobu mcp`, which runs on the laptop and talks to every server it knows, with the operator token: the same tools, for all of them.

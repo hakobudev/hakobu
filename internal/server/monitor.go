@@ -173,6 +173,7 @@ func (d *Daemon) Audit(ctx context.Context) []audit.Finding {
 		}
 	}
 	found = append(found, audit.Upgrades(audit.AptStamp, time.Now(), 72*time.Hour)...)
+	found = append(found, audit.OwnerKey(OwnerKeyFile)...)
 	if d.Alerts == nil {
 		return found
 	}

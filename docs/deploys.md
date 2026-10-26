@@ -22,7 +22,7 @@ A deploy never deletes data: databases, caches and volumes gone from the file ar
 
 The server sets the commit's `hakobu/deploy` status: pending as it starts, then success, or failure with the reason. The workflow's `hakobu wait` waits for it (15 minutes by default), so the CI job fails when the deploy does. Without the [status token](secrets.md#hakobus-own) the release is refused.
 
-The failure email, `hakobu deploys` and `hakobu logs PROJECT/APP` say more.
+The failure email, `ssh kasl-1 deploys` and `ssh kasl-1 logs PROJECT/APP` (or the MCP tools) say more.
 
 ## Migrations
 
@@ -36,14 +36,14 @@ The failure email, `hakobu deploys` and `hakobu logs PROJECT/APP` say more.
 ## Rollback
 
 ```bash
-hakobu rollback crm
+ssh kasl-1 rollback crm
 ```
 
 deploys the release before the current one, with today's secrets, and holds the current one back until a newer one comes. It doesn't undo migrations: the dump taken before the last deploy stays on the server, in `/var/lib/hakobu/snapshots`, and `hakobu restore` puts back a [backup](backups.md). `hakobu deploy crm` checks for a release now instead of in 30 seconds; `--force` deploys the current one again.
 
 ## The workflow
 
-`hakobu init` writes `.github/workflows/hakobu.yml`, which calls `hakobudev/hakobu/.github/workflows/build.yml` with:
+The `init` tool (or `hakobu init`) gives `.github/workflows/hakobu.yml`, which calls `hakobudev/hakobu/.github/workflows/build.yml` with:
 
 | Input | |
 |---|---|

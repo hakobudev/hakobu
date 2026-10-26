@@ -185,7 +185,7 @@ func serverCmd(version string) *cobra.Command {
 			return err
 		},
 	}
-	c.AddCommand(serverCreateCmd(version), initCmd, token, add, list, serverGetCmd(), serverSetCmd(), updateCmd, installer)
+	c.AddCommand(serverCreateCmd(version), initCmd, token, add, list, serverGetCmd(), serverSetCmd(), updateCmd, installer, ownerKeyCmd())
 	return c
 }
 

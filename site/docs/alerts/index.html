@@ -54,7 +54,7 @@
           <a class="btn btn-sm" href="index.md">View as Markdown</a>
         </div>
       </div>
-      <p>The server watches itself and emails you through any SMTP server (<code>[alerts.smtp]</code> in its <a href="/docs/servers/">config</a>): one email when a problem starts and one when it's over, never a stream. Without SMTP, problems show only in <code>hakobu status</code>.</p>
+      <p>The server watches itself and emails you through any SMTP server (<code>[alerts.smtp]</code> in its <a href="/docs/servers/">config</a>): one email when a problem starts and one when it's over, never a stream. Without SMTP, problems show only in <code>status</code>.</p>
 <h2 id="what-it-watches">What it watches</h2>
 <ul>
 <li>an app that hasn't answered its health check for 3 minutes;</li>
@@ -64,9 +64,10 @@
 <li>an update of hakobu that didn't install (closed once it does), and a newer minor release of hakobu out for 14 days that this server hasn't updated to;</li>
 <li>the <strong>audit</strong>, hourly:
 <ul>
-<li>a port listening beyond loopback and the tailnet that isn't in <code>alerts.allow_ports</code> (80 and 443 are allowed for <code>public</code> ingress by themselves; 22 with the API on loopback, as SSH is the way to it; else add 22 if SSH listens on every address);</li>
+<li>a port listening beyond loopback and the tailnet that isn't in <code>alerts.allow_ports</code> (80 and 443 are allowed for <code>public</code> ingress by themselves, and 22, as SSH is the way to hakobu);</li>
 <li>a container hakobu didn't start;</li>
-<li>unattended upgrades that haven't run for 3 days.</li>
+<li>unattended upgrades that haven't run for 3 days;</li>
+<li>your owner's key still on the server, where the installer made it (<code>ssh -t root@SERVER hakobu server owner-key</code> takes it).</li>
 </ul>
 </li>
 </ul>

@@ -56,9 +56,11 @@
       </div>
       <p>What hakobu does to keep your apps and data yours, and what it doesn't promise.</p>
 <h2 id="nothing-comes-in">Nothing comes in</h2>
-<p>The server pulls its releases; no CI, panel or agent connects to it. hakobu's API listens on loopback, reached through SSH, or on the tailnet, and nowhere else (an address on every interface is refused); hakobu's own releases are signed, and install only if newer, and the web reaches apps only through 80/443 for their own domains, or a Cloudflare Tunnel with no port open at all. The <a href="/docs/alerts/">audit</a> emails you about any other port that listens.</p>
-<h2 id="two-tokens">Two tokens</h2>
-<p>The <strong>operator</strong> token (laptop, agent) can look, deploy, roll back and back up. The <strong>admin</strong> token alone can restore or delete data; keep it in your password manager. The server keeps only their SHA-256. Restore and destroy also need a person at a terminal typing a confirmation, and delete only what the file no longer has, after a last backup.</p>
+<p>The server pulls its releases; no CI or panel connects to it. You and your agent reach it over SSH alone, with keys that run hakobu's commands and nothing else (no shell, no files, no forwarding); hakobu's API listens on loopback and a Unix socket, or on the tailnet, and nowhere else (an address on every interface is refused); hakobu's own releases are signed, and install only if newer, and the web reaches apps only through 80/443 for their own domains, or a Cloudflare Tunnel with no port open at all. The <a href="/docs/alerts/">audit</a> emails you about any other port that listens.</p>
+<h2 id="who-may-do-what">Who may do what</h2>
+<p>On the API's socket the kernel says who connects: root may do anything, the SSH user (<code>deploy</code>, your agent's and yours) what an operator may: look, deploy, roll back, back up, update hakobu, change the settings but the backups' buckets. No token is kept for either. Restore and destroy are root's, need a person at a terminal typing a confirmation, and delete only what the file no longer has, after a last backup.</p>
+<p>For hakobu on a laptop, the API's tokens do the same over TCP: the <strong>operator</strong> token, and the <strong>admin</strong> token, which alone restores or deletes; the server keeps only their SHA-256.</p>
+<p>SSH is as safe as its keys: turn passwords off (the installer warns while they're on), and guard your key as you would the server.</p>
 <h2 id="isolation">Isolation</h2>
 <p>hakobu runs as the unprivileged <code>hakobu</code> user, in a sandboxed systemd unit, and <a href="https://docs.docker.com/engine/security/rootless/">rootless Docker</a> as another, <code>hakobu-docker</code>: neither a break-in into hakobu nor a container escape gets root, and an escape can't read hakobu's data. Containers run with <code>no-new-privileges</code> and without raw sockets. Each project has its own Docker network; each database its own PostgreSQL user, and each cache its own server and password.</p>
 <h2 id="secrets-and-backups">Secrets and backups</h2>
@@ -77,7 +79,7 @@
   <aside class="docs-toc">
     <div class="docs-toc-title">On this page</div>
     <a href="#nothing-comes-in" class="toc-2">Nothing comes in</a>
-    <a href="#two-tokens" class="toc-2">Two tokens</a>
+    <a href="#who-may-do-what" class="toc-2">Who may do what</a>
     <a href="#isolation" class="toc-2">Isolation</a>
     <a href="#secrets-and-backups" class="toc-2">Secrets and backups</a>
     <a href="#whats-beyond-it" class="toc-2">What&#39;s beyond it</a>

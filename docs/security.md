@@ -4,11 +4,15 @@ What hakobu does to keep your apps and data yours, and what it doesn't promise.
 
 ## Nothing comes in
 
-The server pulls its releases; no CI, panel or agent connects to it. hakobu's API listens on loopback, reached through SSH, or on the tailnet, and nowhere else (an address on every interface is refused); hakobu's own releases are signed, and install only if newer, and the web reaches apps only through 80/443 for their own domains, or a Cloudflare Tunnel with no port open at all. The [audit](alerts.md) emails you about any other port that listens.
+The server pulls its releases; no CI or panel connects to it. You and your agent reach it over SSH alone, with keys that run hakobu's commands and nothing else (no shell, no files, no forwarding); hakobu's API listens on loopback and a Unix socket, or on the tailnet, and nowhere else (an address on every interface is refused); hakobu's own releases are signed, and install only if newer, and the web reaches apps only through 80/443 for their own domains, or a Cloudflare Tunnel with no port open at all. The [audit](alerts.md) emails you about any other port that listens.
 
-## Two tokens
+## Who may do what
 
-The **operator** token (laptop, agent) can look, deploy, roll back and back up. The **admin** token alone can restore or delete data; keep it in your password manager. The server keeps only their SHA-256. Restore and destroy also need a person at a terminal typing a confirmation, and delete only what the file no longer has, after a last backup.
+On the API's socket the kernel says who connects: root may do anything, the SSH user (`deploy`, your agent's and yours) what an operator may: look, deploy, roll back, back up, update hakobu, change the settings but the backups' buckets. No token is kept for either. Restore and destroy are root's, need a person at a terminal typing a confirmation, and delete only what the file no longer has, after a last backup.
+
+For hakobu on a laptop, the API's tokens do the same over TCP: the **operator** token, and the **admin** token, which alone restores or deletes; the server keeps only their SHA-256.
+
+SSH is as safe as its keys: turn passwords off (the installer warns while they're on), and guard your key as you would the server.
 
 ## Isolation
 

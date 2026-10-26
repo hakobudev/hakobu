@@ -1,19 +1,24 @@
 # Server config
 
-A server's settings change from your laptop, through its API: no one edits a file on the server.
+A server's settings change through its API, from your terminal or your agent's: no one edits a file on the server.
 
 ```bash
-hakobu server get kasl-1                      # what's set, never a password or key
-hakobu server set release kasl-1 ghcr.io/kasl/crm:main   # hakobu init does this
-hakobu server set mail kasl-1 --host smtp.example.com --from hakobu@example.com --to you@example.com --username …
-hakobu server set backups kasl-1 --endpoint https://ACCOUNT.r2.cloudflarestorage.com --bucket kasl-backups --access-key …
-hakobu server set backups kasl-1 --copy hetzner --endpoint https://fsn1.your-objectstorage.com --region fsn1 --bucket kasl-copy --access-key …
-hakobu server set pulse kasl-1 https://hc-ping.com/… https://hc-ping.com/…/fail
-hakobu server set updates kasl-1 --auto patch --at 04:00
-hakobu server set registry kasl-1 registry.example.com --username …   # ghcr.io needs none
+ssh kasl-1 server get                          # what's set, never a password or key
+ssh kasl-1 server set release ghcr.io/kasl/crm:main   # the init tool does this
+ssh -t kasl-1 server set mail --host smtp.example.com --from hakobu@example.com --to you@example.com --username …
+ssh kasl-1 server set pulse https://hc-ping.com/… https://hc-ping.com/…/fail
+ssh kasl-1 server set updates --auto patch --at 04:00
+ssh -t kasl-1 server set registry registry.example.com --username …   # ghcr.io needs none
 ```
 
-Passwords and keys never go in an argument: each comes from its variable (`HAKOBU_SMTP_PASSWORD`, `HAKOBU_S3_SECRET_KEY`, `HAKOBU_REGISTRY_PASSWORD`) or is typed, hidden. A change is proved before it's kept: the mail server sends you a mail, a bucket takes an object and gives it back (a copy only takes one, as its key may only write). hakobu then restarts itself into it, as soon as no deploy or backup runs, and the command waits for that. The backups' buckets need the admin token (`HAKOBU_ADMIN_TOKEN`, or typed), as a change of them could stop the backups, or send them elsewhere; the rest, the operator's. `hakobu server create` asks for a bucket and a mail server at its end.
+The backups' buckets are root's, as a change of them could stop the backups, or send them elsewhere:
+
+```bash
+ssh -t root@kasl-1 hakobu server set backups --endpoint https://ACCOUNT.r2.cloudflarestorage.com --bucket kasl-backups --access-key …
+ssh -t root@kasl-1 hakobu server set backups --copy hetzner --endpoint https://fsn1.your-objectstorage.com --region fsn1 --bucket kasl-copy --access-key …
+```
+
+Passwords and keys never go in an argument: each is typed, hidden (hence `-t`), or comes from its variable on a laptop (`HAKOBU_SMTP_PASSWORD`, `HAKOBU_S3_SECRET_KEY`, `HAKOBU_REGISTRY_PASSWORD`). A change is proved before it's kept: the mail server sends you a mail, a bucket takes an object and gives it back (a copy only takes one, as its key may only write). hakobu then restarts itself into it, as soon as no deploy or backup runs, and the command waits for that.
 
 hakobu keeps them in `settings.toml` in its data directory.
 
@@ -73,6 +78,7 @@ to = "you@example.com"
 |---|---|
 | `name` | the server's name; a project's `server` must match it |
 | `listen` | the API's address, on the tailnet or 127.0.0.1 (reached through SSH); an address on every interface is refused |
+| `socket` | the API's Unix socket, default `/run/hakobu-api/api.sock`: root may do anything there, the SSH user what an operator may |
 | `data_dir` | default `/var/lib/hakobu`: the key, state, deploy history, dumps |
 | `owner_key` | your age public key |
 | `operator_token_sha256`, `admin_token_sha256` | the tokens' SHA-256 (`hakobu server token` makes a new pair) |
@@ -88,11 +94,11 @@ A bucket has `endpoint`, `region`, `bucket`, `access_key`, `secret_key`, and `pr
 
 ## Reaching the API
 
-By default the API listens on 127.0.0.1:7070 and nowhere else; your laptop reaches it through SSH, with the key `hakobu server create` made, which may reach that port and nothing else (see [A server](install.md#reaching-the-api)). The audit expects SSH to listen.
+The API listens on 127.0.0.1:7070, and on a Unix socket, `/run/hakobu-api/api.sock`, for root and the SSH user's group: `ssh kasl-1 …` and `ssh kasl-1 mcp` go through the socket (see [A server](install.md#the-ssh-user)). The audit expects SSH to listen.
 
-With a Tailscale key at install, it listens on the server's tailnet address instead. In your tailnet's policy, let your own devices reach the server's tag on port 7070; nothing else needs to. The installer leaves Tailscale's SSH, routes and DNS off.
+With a Tailscale key at install, the API listens on the server's tailnet address instead of 127.0.0.1, for hakobu on a laptop. In your tailnet's policy, let your own devices reach the server's tag on port 7070; nothing else needs to. The installer leaves Tailscale's SSH, routes and DNS off.
 
-## From your laptop
+## From a laptop
 
 ```bash
 hakobu server create kasl-1 --ssh root@203.0.113.7   # once: installs, and remembers it
@@ -100,4 +106,7 @@ hakobu server add kasl-2 http://100.101.102.103:7070  # one installed otherwise;
 hakobu server list
 hakobu status              # every server
 hakobu --server kasl-1 deploys
+hakobu server set mail kasl-1 --host …               # the commands above, with the server's name
 ```
+
+The backups' buckets need the admin token there (`HAKOBU_ADMIN_TOKEN`, or typed).

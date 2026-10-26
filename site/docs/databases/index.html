@@ -70,7 +70,7 @@ uses = [&quot;main&quot;]
 <h2 id="backups">Backups</h2>
 <p>Every database is backed up daily, sealed, checked by a restore into scratch, and kept 7 days plus 4 weeks: see <a href="/docs/backups/">Backups and recovery</a>.</p>
 <h2 id="deleting-one">Deleting one</h2>
-<p>Removing it from the file keeps it, orphaned. <code>hakobu destroy PROJECT/NAME</code> deletes it after a last backup, with the admin token, at a terminal, typing its name to confirm.</p>
+<p>Removing it from the file keeps it, orphaned. <code>ssh -t root@kasl-1 hakobu destroy PROJECT/NAME</code> deletes it after a last backup, at a terminal, typing its name to confirm.</p>
 
     </article>
     <nav class="docs-pager" aria-label="Pages"><a class="docs-prev" href="/docs/deploys/"><span>Previous</span>Deploys and CI</a><a class="docs-next" href="/docs/agents/"><span>Next</span>Agents (Claude Code, MCP)</a>

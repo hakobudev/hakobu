@@ -195,7 +195,7 @@ env = { DATABASE_CONNECTION_URI = &quot;${DATABASE_URL}?schema=evolution&quot; }
 <h2 id="what-a-change-does">What a change does</h2>
 <ul>
 <li><strong>Adding</strong> an app, database, cache or volume makes it on the next deploy.</li>
-<li><strong>Removing</strong> one doesn't delete it: a database, cache or volume is kept, <em>orphaned</em>, and only <code>hakobu destroy</code> (a person's, with the admin token, after a last backup) deletes it.</li>
+<li><strong>Removing</strong> one doesn't delete it: a database, cache or volume is kept, <em>orphaned</em>, and only <code>hakobu destroy</code> (a person's, as root on the server, after a last backup) deletes it.</li>
 <li><strong>Renaming</strong> is removing and adding: the new one starts empty and the old one is orphaned. For a database, the deploy stops instead and says so: deploy the new one, move the data, then take the old one out.</li>
 </ul>
 

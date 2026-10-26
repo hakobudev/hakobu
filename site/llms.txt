@@ -5,8 +5,8 @@
 ## Getting started
 
 - [Introduction](https://hakobu.dev/docs/index.md): hakobu runs your projects on servers you own. A project says what it needs in a file in its repository, hakobu.toml; CI builds each commit into images; the server pulls the new release and swaps it…
-- [A server](https://hakobu.dev/docs/install/index.md): From your laptop, with the hakobu CLI from the releases, and SSH to a new Debian or Ubuntu server as root (or a user with sudo):
-- [A project](https://hakobu.dev/docs/project/index.md): A project is a repository with a hakobu.toml at its root. In the repository, with a server added:
+- [A server](https://hakobu.dev/docs/install/index.md): You need a new Debian or Ubuntu server you can SSH to as root (or a user with sudo), and nothing on your laptop but ssh. You, or your agent, run one line:
+- [A project](https://hakobu.dev/docs/project/index.md): A project is a repository with a hakobu.toml at its root. With a server and its MCP added to your agent, ask it to set the repository up for hakobu: its init tool registers the release image on the…
 
 ## Reference
 
@@ -14,14 +14,14 @@
 - [Secrets](https://hakobu.dev/docs/secrets/index.md): An app's secrets live in its repository, in hakobu.secrets.toml next to hakobu.toml, each value sealed on its own with age to two keys: the server's and yours. Anyone with the repository can add or…
 - [Deploys and CI](https://hakobu.dev/docs/deploys/index.md): Nothing pushes to a server. CI builds each commit into a release image and pushes it to a registry under a tag (main); the server checks that tag every 30 seconds and deploys each new one. CI needs…
 - [Databases](https://hakobu.dev/docs/databases/index.md): [databases.NAME] in hakobu.toml is a PostgreSQL database with its own user, in the server's one PostgreSQL, which every project on the server shares. Only the apps that use it get its address and…
-- [Agents (Claude Code, MCP)](https://hakobu.dev/docs/agents/index.md): hakobu is built so an agent can do the work that's different in each project (the file, the Dockerfile, migrations, DNS) while the parts that guard your data stay in tested code it can't change.…
+- [Agents (Claude Code, MCP)](https://hakobu.dev/docs/agents/index.md): hakobu is built so an agent can do the work that's different in each project (the file, the Dockerfile, migrations, DNS) while the parts that guard your data stay in tested code it can't change.
 
 ## Operating
 
-- [Server config](https://hakobu.dev/docs/servers/index.md): A server's settings change from your laptop, through its API: no one edits a file on the server.
+- [Server config](https://hakobu.dev/docs/servers/index.md): A server's settings change through its API, from your terminal or your agent's: no one edits a file on the server.
 - [Backups and recovery](https://hakobu.dev/docs/backups/index.md): With a bucket in the server's config, every database and volume on the server is backed up each day at backups.at (UTC). Caches aren't: they're caches.
 - [Alerts and audit](https://hakobu.dev/docs/alerts/index.md): The server watches itself and emails you through any SMTP server ([alerts.smtp] in its config): one email when a problem starts and one when it's over, never a stream. Without SMTP, problems show…
-- [Updates](https://hakobu.dev/docs/updates/index.md): Each server looks for a newer hakobu once a day, and hakobu status (and the MCP status) shows one that's out. To update, from your laptop:
+- [Updates](https://hakobu.dev/docs/updates/index.md): Each server looks for a newer hakobu once a day, and status (and the MCP status) shows one that's out. To update:
 - [Security](https://hakobu.dev/docs/security/index.md): What hakobu does to keep your apps and data yours, and what it doesn't promise.
 
 ## Contributing

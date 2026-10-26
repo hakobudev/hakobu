@@ -114,7 +114,7 @@ $("#rollback")?.addEventListener("click", () => {
     d.classList.toggle("is-live", i === live);
     d.classList.toggle("is-held", i < live);
   });
-  $("#rollback-label").textContent = live === deploys.length - 1 ? "start over" : "hakobu rollback crm";
+  $("#rollback-label").textContent = live === deploys.length - 1 ? "start over" : "ssh kasl-1 rollback crm";
 });
 
 document.querySelectorAll("[data-copy]").forEach(b => b.addEventListener("click", () => {

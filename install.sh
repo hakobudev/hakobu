@@ -5,14 +5,15 @@
 # nothing else, for your agent's MCP and for you. Nothing asks: everything
 # comes from the environment. Your agent runs it, once:
 #
-#   ssh root@SERVER 'curl -fsSL https://hakobu.dev/install.sh | \
-#     HAKOBU_NAME=kasl-1 HAKOBU_OWNER_KEY=age1… bash'
+#   ssh root@SERVER 'curl -fsSL https://hakobu.dev/install.sh | HAKOBU_NAME=kasl-1 bash'
 #
 # Needs, on a first install:
 #   HAKOBU_NAME        the server's name (lowercase letters, digits, -)
-#   HAKOBU_OWNER_KEY   your age public key: secrets and backups are sealed to
-#                      it too, so you can open them without the server
 # Optional:
+#   HAKOBU_OWNER_KEY   your age public key: secrets and backups are sealed to
+#                      it too, so you can open them without the server.
+#                      Without it, the server makes one, whose secret half
+#                      you take with hakobu server owner-key
 #   HAKOBU_SSH_USER    the SSH user for hakobu's commands (default deploy)
 #   HAKOBU_SSH_KEYS    its keys, one a line (default: root's, the first time)
 #   TS_AUTHKEY         a Tailscale auth key: the API listens on the tailnet
@@ -77,7 +78,9 @@ if [ ! -f "$CONFIG" ]; then
   fi
   case "$API" in tailnet|loopback) ;; *) die "HAKOBU_API: tailnet or loopback" ;; esac
   [[ "${HAKOBU_NAME:-}" =~ ^[a-z][a-z0-9-]{0,30}$ ]] || die "HAKOBU_NAME: a name of lowercase letters, digits and -"
-  [[ "${HAKOBU_OWNER_KEY:-}" =~ ^age1[a-z0-9]{58}$ ]] || die "HAKOBU_OWNER_KEY: your age public key (age1…); age-keygen makes a key pair, keep its secret half in your password manager"
+  if [ -n "${HAKOBU_OWNER_KEY:-}" ]; then
+    [[ "$HAKOBU_OWNER_KEY" =~ ^age1[a-z0-9]{58}$ ]] || die "HAKOBU_OWNER_KEY: your age public key (age1…), or none for the server to make one"
+  fi
   case "${HAKOBU_INGRESS:-none}" in public|tunnel|none) ;; *) die "HAKOBU_INGRESS: public, tunnel or none" ;; esac
   if [ "${HAKOBU_INGRESS:-none}" = tunnel ] && [ -z "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then
     die "HAKOBU_INGRESS=tunnel needs CLOUDFLARE_TUNNEL_TOKEN"
@@ -262,6 +265,11 @@ if [ -n "$FIRST" ]; then
   echo "==> config"
   install -d -m 0750 -o root -g hakobu /etc/hakobu
   install -d -m 0700 -o hakobu -g hakobu "$DATA"
+  if [ -z "${HAKOBU_OWNER_KEY:-}" ]; then
+    # Yours, made here: its secret half waits, root's alone, until you take
+    # it (hakobu server owner-key).
+    HAKOBU_OWNER_KEY="$("$BIN" server owner-key --new)"
+  fi
   OP_TOKEN="hk_$(openssl rand -hex 32)"
   ADMIN_TOKEN="hk_$(openssl rand -hex 32)"
   sha() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
@@ -458,26 +466,26 @@ NAME="$(sed -n 's/^name = "\(.*\)"$/\1/p' "$CONFIG" | head -1)"
 # The address this was reached on over SSH, else the first one it has.
 HOST="$(printf '%s' "${SSH_CONNECTION:-}" | awk '{print $3}')"
 [ -n "$HOST" ] || HOST="$(hostname -I 2>/dev/null | awk '{print $1}')"
+if [ -f /etc/hakobu/owner-key ] && [ "${HAKOBU_RESULT:-}" != json ]; then
+  echo
+  echo "Your owner's key was made here: it opens every secret and backup without"
+  echo "the server. Take it into your password manager, in your own terminal (not"
+  echo "an agent's): ssh -t root@$HOST hakobu server owner-key"
+fi
 if [ -n "$SSH_USER" ] && [ "${HAKOBU_RESULT:-}" != json ]; then
   echo
   echo "For your agent, once (Claude Code):"
   echo "  claude mcp add --scope user $NAME -- ssh -T $SSH_USER@$HOST mcp"
-  echo "For you: ssh $SSH_USER@$HOST status (ssh $SSH_USER@$HOST help shows the rest)."
+  echo "For you, in ~/.ssh/config:"
+  echo "  Host $NAME"
+  echo "    HostName $HOST"
+  echo "    User $SSH_USER"
+  echo "then ssh $NAME status (ssh $NAME help shows the rest; ssh root@$NAME is still root)."
 fi
 if [ "${HAKOBU_RESULT:-}" = json ]; then
   printf 'HAKOBU_RESULT {"name":"%s","api":"%s:%s","mode":"%s","key":"%s","version":"%s","ssh":"%s","operator_token":"%s","admin_token":"%s"}\n' \
     "$NAME" "$API_IP" "$API_PORT" "$API" "$SERVER_KEY" "$("$BIN" --version | awk '{print $NF}')" "${SSH_USER:+$SSH_USER@$HOST}" "$OP_TOKEN" "$ADMIN_TOKEN"
-elif [ -n "$OP_TOKEN" ]; then
-  echo
-  echo "These tokens show only now:"
-  echo "  admin:    $ADMIN_TOKEN    (your password manager; never on a disk an agent reads)"
-  echo "  operator: $OP_TOKEN"
-  echo
-  if [ "$API" = loopback ]; then
-    echo "On your laptop, with a tunnel to the API (ssh -N -L $API_PORT:127.0.0.1:$API_PORT root@this-server):"
-    echo "  hakobu server add $HAKOBU_NAME http://127.0.0.1:$API_PORT    (paste the operator token)"
-  else
-    echo "On your laptop, in the tailnet:"
-    echo "  hakobu server add $HAKOBU_NAME http://$API_IP:$API_PORT    (paste the operator token)"
-  fi
 fi
+# The API's tokens are for hakobu on a laptop (hakobu server create gets
+# them above); here root is the admin and the SSH user the operator, so
+# they're not shown: an agent running this reads what it prints.

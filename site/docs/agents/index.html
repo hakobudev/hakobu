@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Agents (Claude Code, MCP) · hakobu docs</title>
-<meta name="description" content="hakobu is built so an agent can do the work that&#39;s different in each project (the file, the Dockerfile, migrations, DNS) while the parts that guard your data stay in tested code it can&#39;t change.…">
+<meta name="description" content="hakobu is built so an agent can do the work that&#39;s different in each project (the file, the Dockerfile, migrations, DNS) while the parts that guard your data stay in tested code it can&#39;t change.">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/style.css?v=8c38cfb7">
@@ -54,18 +54,24 @@
           <a class="btn btn-sm" href="index.md">View as Markdown</a>
         </div>
       </div>
-      <p>hakobu is built so an agent can do the work that's different in each project (the file, the Dockerfile, migrations, DNS) while the parts that guard your data stay in tested code it can't change. <code>hakobu init</code> sets a repository up for that.</p>
-<h2 id="the-skill">The skill</h2>
-<p><code>.claude/skills/hakobu/SKILL.md</code> tells Claude Code how deploys work, how to write <code>hakobu.toml</code>, that migrations must work with the version before, how to add secrets without reading them, and what not to do. <code>hakobu init</code> writes it anew each time, so it matches the hakobu you run; a short section in <code>CLAUDE.md</code> points to it and says to read the servers through the MCP tools or the CLI, never ssh and docker. <code>hakobu init</code> brings that section up to date too, and leaves the rest of <code>CLAUDE.md</code> alone.</p>
+      <p>hakobu is built so an agent can do the work that's different in each project (the file, the Dockerfile, migrations, DNS) while the parts that guard your data stay in tested code it can't change.</p>
 <h2 id="mcp">MCP</h2>
-<p><code>.mcp.json</code> adds hakobu's MCP server, <code>hakobu mcp</code>, which runs on your laptop and talks to every server you've added, with the operator token. Its tools: <code>status</code>, <code>deploys</code>, <code>logs</code>, <code>backups</code>, <code>settings</code> (the servers' releases, buckets, mail, updates; no secrets), <code>deploy</code>, <code>rollback</code>, <code>backup</code> and <code>update</code> (hakobu itself, to a newer signed release). For another client, add it as a local (stdio) server running <code>hakobu mcp</code>.</p>
+<p>Each server has its own MCP server, run on the server itself over SSH: the installer prints the line that adds it to Claude Code, named after the server.</p>
+<pre><code class="language-bash">claude mcp add --scope user kasl-1 -- ssh -T deploy@203.0.113.7 mcp
+</code></pre>
+<p>For another client, add a local (stdio) server whose command is <code>ssh -T deploy@203.0.113.7 mcp</code>. Nothing of hakobu runs on your machine: it's your <code>ssh</code> and your key, which may run hakobu's commands on that server and nothing else.</p>
+<p>Its tools: <code>status</code>, <code>deploys</code>, <code>logs</code>, <code>backups</code>, <code>settings</code> (the server's releases, buckets, mail, updates; no secrets), <code>deploy</code>, <code>rollback</code>, <code>backup</code>, <code>update</code> (hakobu itself, to a newer signed release), <code>init</code> (set a repository up), <code>validate</code> (check <code>hakobu.toml</code> and <code>hakobu.secrets.toml</code> as the server will) and <code>pending_secrets</code> (the secrets you sealed, for it to add).</p>
+<h2 id="the-skill">The skill</h2>
+<p><code>.claude/skills/hakobu/SKILL.md</code>, which the <code>init</code> tool gives, tells Claude Code how deploys work, how to write <code>hakobu.toml</code>, that migrations must work with the version before, how to add secrets without seeing them, and what not to do. A short section in <code>CLAUDE.md</code> points to it and says to read the servers through the MCP tools, never a shell or docker. Each <code>init</code> gives this hakobu's version of both, and leaves the rest of <code>CLAUDE.md</code> alone.</p>
 <h2 id="what-an-agent-cant-do">What an agent can't do</h2>
 <ul>
-<li><strong>Delete or replace data.</strong> <code>hakobu destroy</code> and <code>hakobu restore</code> need the admin token, which belongs in your password manager, and a person at a terminal typing a confirmation: without a terminal they refuse. <code>.claude/settings.json</code> denies both to Claude Code as well. The MCP server has neither.</li>
-<li><strong>Read a secret.</strong> It can seal a new one to the server, never open one. The skill tells it to ask you to run <code>hakobu secret set</code>.</li>
-<li><strong>Reach the server.</strong> No shell is needed for any of this: the agent talks to the API (on loopback, through your SSH tunnel, or on your tailnet) with the operator token, and can't do more through it than that token allows.</li>
+<li><strong>Delete or replace data.</strong> <code>hakobu destroy</code> and <code>hakobu restore</code> are root's on the server, and need a person at a terminal typing a confirmation: without a terminal they refuse. The MCP server has neither, and <code>.claude/settings.json</code> denies both to Claude Code as well. The backups' buckets are root's too.</li>
+<li><strong>Read a secret, or see one.</strong> You type a secret in your own terminal (<code>ssh -t kasl-1 secret set …</code>); the agent gets it sealed, and can't open it. The skill tells it never to ask for one in the chat.</li>
+<li><strong>Get a shell.</strong> Its key runs hakobu's commands on the server and nothing else, as an operator: look, deploy, roll back, back up, update, change the settings but the buckets.</li>
 </ul>
-<p>The logs an agent reads are written by your apps, and text in them could try to steer it; what it can do with the operator token is bounded the same either way.</p>
+<p>The logs an agent reads are written by your apps, and text in them could try to steer it; what it can do through its key is bounded the same either way.</p>
+<h2 id="with-hakobu-on-a-laptop">With hakobu on a laptop</h2>
+<p><code>hakobu init</code> writes the same files, and <code>.mcp.json</code> for <code>hakobu mcp</code>, which runs on the laptop and talks to every server it knows, with the operator token: the same tools, for all of them.</p>
 
     </article>
     <nav class="docs-pager" aria-label="Pages"><a class="docs-prev" href="/docs/databases/"><span>Previous</span>Databases</a><a class="docs-next" href="/docs/servers/"><span>Next</span>Server config</a>
@@ -73,9 +79,10 @@
   </main>
   <aside class="docs-toc">
     <div class="docs-toc-title">On this page</div>
-    <a href="#the-skill" class="toc-2">The skill</a>
     <a href="#mcp" class="toc-2">MCP</a>
+    <a href="#the-skill" class="toc-2">The skill</a>
     <a href="#what-an-agent-cant-do" class="toc-2">What an agent can&#39;t do</a>
+    <a href="#with-hakobu-on-a-laptop" class="toc-2">With hakobu on a laptop</a>
   </aside>
 </div>
 <footer class="footer">
