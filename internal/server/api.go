@@ -31,6 +31,9 @@ func (d *Daemon) API() http.Handler {
 	mux.Handle("POST /v1/rollback", op(d.rollback))
 	mux.Handle("POST /v1/backup", op(d.backupNow))
 	mux.Handle("POST /v1/update", op(d.requestUpdate))
+	mux.Handle("GET /v1/settings", op(d.settings))
+	// The backups' buckets need the admin token: the handler asks.
+	mux.Handle("POST /v1/settings", op(d.changeSettings))
 	mux.Handle("POST /v1/restore", admin(d.restore))
 	mux.Handle("POST /v1/destroy", admin(d.destroy))
 	return mux

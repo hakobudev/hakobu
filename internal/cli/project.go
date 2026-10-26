@@ -11,6 +11,7 @@ import (
 	"github.com/hakobudev/hakobu/internal/apply"
 	"github.com/hakobudev/hakobu/internal/ci"
 	"github.com/hakobudev/hakobu/internal/scaffold"
+	srv "github.com/hakobudev/hakobu/internal/server"
 	"github.com/hakobudev/hakobu/internal/status"
 	"github.com/spf13/cobra"
 )
@@ -58,19 +59,25 @@ func initCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// The server deploys the release from now on.
+			release := image + ":main"
+			_, _, registered := postSettings(cmd.Context(), server, "", srv.SettingsChange{AddRelease: release})
+			fmt.Println()
+			if registered != nil {
+				fmt.Printf("%s doesn't know the release yet (%v): hakobu server set release %s %s\n", server, registered, server, release)
+			} else {
+				fmt.Printf("%s deploys %s from now on.\n", server, release)
+			}
 			fmt.Printf(`
 Next:
   1. Read hakobu.toml: give each app its domain and health path, add databases.
   2. hakobu secret init, then a fine-grained GitHub token with "Commit
      statuses: write" on this repository alone: hakobu secret set hakobu status_token
-  3. On %s, in /etc/hakobu/server.toml (then systemctl restart hakobu):
-       releases = [..., "%s:main"]
-     and, as ghcr.io images are private, a token that may read them:
-       [registries."ghcr.io"]
-       username = "<GitHub user>"
-       password = "<token with read:packages>"
-  4. hakobu validate, commit, push: CI builds it and %s deploys it.
-`, server, image, server)
+  3. hakobu validate, commit, push: CI builds it and %s deploys it.
+  4. The first time, while the job waits: on GitHub, the package %s
+     (not its apps'), Package settings, Change visibility, Public. It's
+     sealed; the server reads it with no token.
+`, server, image[strings.LastIndex(image, "/")+1:])
 			return nil
 		},
 	}

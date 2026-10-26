@@ -86,6 +86,6 @@ After pushing, wait for its run of `.github/workflows/hakobu.yml` (`gh run list 
 ## Never
 
 - `hakobu destroy` or `hakobu restore`: they delete or replace data, need the admin token and a person at the terminal, and are denied in `.claude/settings.json`. If one seems needed, say why and let the person run it.
-- SSH to the server, or editing its `/etc/hakobu/server.toml`: that's the owner's (releases, registries, backups, alerts).
+- SSH to the server, or editing its `/etc/hakobu/server.toml`. Its settings (releases, registries, backups, mail, updates) are `hakobu server set`'s; the MCP tool `settings` shows them. A release is registered by `hakobu init`; the backups' bucket needs the admin token, the owner's.
 - Pushing an image to the release tag by hand, or deploying from anywhere but the default branch.
 - Weakening the health check or the workflow's wait to make a red deploy green.

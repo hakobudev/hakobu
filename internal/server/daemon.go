@@ -63,6 +63,10 @@ type Daemon struct {
 	lastBackup BackupRun
 	latest     update.Release // hakobu's newest release, as last found
 	backingUp  bool
+	restarting bool
+
+	settingsMu sync.Mutex    // one change of the settings at a time
+	restart    chan struct{} // the settings changed
 }
 
 // BackupRun is how the last daily backups went.
@@ -106,7 +110,7 @@ func New(c *Config, m Machine, log io.Writer) (*Daemon, error) {
 	}
 	w.ReportTo(status.GitHub{})
 	d := &Daemon{Config: c, Machine: m, Applier: a, Watch: w, Log: log, Containers: RunningContainers,
-		Alerts: &alert.Alerts{Server: c.Name, File: c.AlertsFile()}}
+		Alerts: &alert.Alerts{Server: c.Name, File: c.AlertsFile()}, restart: make(chan struct{}, 1)}
 	if c.Alerts.SMTP != nil {
 		d.Alerts.Mailer = *c.Alerts.SMTP
 	}
@@ -139,6 +143,12 @@ func target(b Bucket) backups.Target {
 // then polls, backs up and serves the API
 // until ctx ends.
 func (d *Daemon) Run(ctx context.Context) error {
+	ctx, stop := context.WithCancel(ctx)
+	defer stop()
+	if d.restart == nil {
+		d.restart = make(chan struct{}, 1)
+	}
+	go d.restartWhenAsked(ctx, stop)
 	if err := d.Applier.Reconcile(ctx, d.Machine); err != nil {
 		return err
 	}
@@ -171,6 +181,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 	fmt.Fprintf(d.log(), "hakobu %s: API on %s, watching %d release images\n", d.Config.Name, d.Config.Listen, len(d.Config.Releases))
 	if err := srv.Serve(l); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.restarting {
+		return ErrRestart
 	}
 	return nil
 }

@@ -75,7 +75,17 @@ func serveCmd(version string) *cobra.Command {
 			}
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
-			return d.Run(ctx)
+			err = d.Run(ctx)
+			if errors.Is(err, server.ErrRestart) {
+				// In place, the same process: systemd would wait
+				// RestartSec, with the apps' proxies down.
+				bin, berr := os.Executable()
+				if berr != nil {
+					return berr
+				}
+				return syscall.Exec(bin, os.Args, os.Environ())
+			}
+			return err
 		},
 	}
 	c.Flags().StringVar(&config, "config", config, "the server's config")
@@ -175,7 +185,7 @@ func serverCmd(version string) *cobra.Command {
 			return err
 		},
 	}
-	c.AddCommand(serverCreateCmd(version), initCmd, token, add, list, updateCmd, installer)
+	c.AddCommand(serverCreateCmd(version), initCmd, token, add, list, serverGetCmd(), serverSetCmd(), updateCmd, installer)
 	return c
 }
 

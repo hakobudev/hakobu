@@ -1,6 +1,25 @@
 # Server config
 
-A server is configured in `/etc/hakobu/server.toml`, readable by hakobu alone. The installer writes the first part; the rest you add (or pass to the installer as `HAKOBU_CONFIG_EXTRA`), then `sudo systemctl restart hakobu`. Like `hakobu.toml`, it's strict: an unknown key stops hakobu from starting, and `journalctl -u hakobu` says why.
+A server's settings change from your laptop, through its API: no one edits a file on the server.
+
+```bash
+hakobu server get kasl-1                      # what's set, never a password or key
+hakobu server set release kasl-1 ghcr.io/kasl/crm:main   # hakobu init does this
+hakobu server set mail kasl-1 --host smtp.example.com --from hakobu@example.com --to you@example.com --username …
+hakobu server set backups kasl-1 --endpoint https://ACCOUNT.r2.cloudflarestorage.com --bucket kasl-backups --access-key …
+hakobu server set backups kasl-1 --copy hetzner --endpoint https://fsn1.your-objectstorage.com --region fsn1 --bucket kasl-copy --access-key …
+hakobu server set pulse kasl-1 https://hc-ping.com/… https://hc-ping.com/…/fail
+hakobu server set updates kasl-1 --auto patch --at 04:00
+hakobu server set registry kasl-1 registry.example.com --username …   # ghcr.io needs none
+```
+
+Passwords and keys never go in an argument: each comes from its variable (`HAKOBU_SMTP_PASSWORD`, `HAKOBU_S3_SECRET_KEY`, `HAKOBU_REGISTRY_PASSWORD`) or is typed, hidden. A change is proved before it's kept: the mail server sends you a mail, a bucket takes an object and gives it back (a copy only takes one, as its key may only write). hakobu then restarts itself into it, as soon as no deploy or backup runs, and the command waits for that. The backups' buckets need the admin token (`HAKOBU_ADMIN_TOKEN`, or typed), as a change of them could stop the backups, or send them elsewhere; the rest, the operator's. `hakobu server create` asks for a bucket and a mail server at its end.
+
+hakobu keeps them in `settings.toml` in its data directory.
+
+## server.toml
+
+The server's own file, `/etc/hakobu/server.toml`, readable by hakobu alone, is what the installer wrote: its name, the API's address, your key and the tokens' hashes, and how the web gets in. The settings above may be set there too (then `sudo systemctl restart hakobu`), and what it sets wins: the API refuses to change it. Like `hakobu.toml`, it's strict: an unknown key stops hakobu from starting, and `journalctl -u hakobu` says why.
 
 ```toml
 name = "kasl-1"

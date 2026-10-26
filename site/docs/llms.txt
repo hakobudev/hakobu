@@ -18,7 +18,7 @@
 
 ## Operating
 
-- [Server config](https://hakobu.dev/docs/servers/index.md): A server is configured in /etc/hakobu/server.toml, readable by hakobu alone. The installer writes the first part; the rest you add (or pass to the installer as HAKOBU_CONFIG_EXTRA), then sudo…
+- [Server config](https://hakobu.dev/docs/servers/index.md): A server's settings change from your laptop, through its API: no one edits a file on the server.
 - [Backups and recovery](https://hakobu.dev/docs/backups/index.md): With a bucket in the server's config, every database and volume on the server is backed up each day at backups.at (UTC). Caches aren't: they're caches.
 - [Alerts and audit](https://hakobu.dev/docs/alerts/index.md): The server watches itself and emails you through any SMTP server ([alerts.smtp] in its config): one email when a problem starts and one when it's over, never a stream. Without SMTP, problems show…
 - [Updates](https://hakobu.dev/docs/updates/index.md): Each server looks for a newer hakobu once a day, and hakobu status (and the MCP status) shows one that's out. To update, from your laptop:

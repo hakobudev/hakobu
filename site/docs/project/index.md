@@ -24,13 +24,7 @@ The image goes to `ghcr.io/OWNER/REPO` (from `origin`); `--image` gives another.
    ```
 
    and your app's own secrets with `hakobu secret set APP NAME`. See [Secrets](https://hakobu.dev/docs/secrets/index.md).
-3. **The server** needs to know the release image. In its `/etc/hakobu/server.toml`, then `sudo systemctl restart hakobu`:
-
-   ```toml
-   releases = ["ghcr.io/kasl/crm:main"]
-   ```
-
-   See [Server config](https://hakobu.dev/docs/servers/index.md).
+3. **The server** deploys the release image from now on: `hakobu init` told it (`hakobu server set release SERVER IMAGE:main` does it otherwise; see [Server config](https://hakobu.dev/docs/servers/index.md)).
 4. **Push.** CI builds the apps, pushes them and the release; within 30 seconds the server deploys it, and the job turns green once it's live. `hakobu status` and `hakobu deploys` show it from your laptop.
 
    The first time, while the job waits, make the release image public: on GitHub, the package `REPO` (not `REPO-APP`), **Package settings → Change visibility → Public**. Everything in it is sealed to the server's key and yours, and the server polls it with no token; until then, `hakobu status` says the registry refused. The apps' images stay private: CI seals the job's own token in each release, and the server pulls them with it while the job waits for the deploy. The token dies with the job, so the server keeps none for ghcr.io.

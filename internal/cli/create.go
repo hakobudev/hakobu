@@ -190,6 +190,7 @@ func createServer(ctx context.Context, name string, o createOpts, version string
 	}
 	if res.AdminToken != "" {
 		fmt.Fprintf(out, "\nThe admin token, shown only now: put it in your password manager, never on a disk an agent reads.\n  %s\n", res.AdminToken)
+		askSetup(ctx, name, res.AdminToken, out)
 	}
 	fmt.Fprintln(out, "\nNext: hakobu status, then hakobu init --server", name, "in a project.")
 	return nil

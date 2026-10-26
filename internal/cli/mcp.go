@@ -160,6 +160,25 @@ func newMCP(cmd *cobra.Command) *mcp.Server {
 	type runs struct {
 		Runs map[string]server.BackupRun `json:"runs"`
 	}
+	type settingsOut struct {
+		Settings map[string]server.SettingsView `json:"settings"`
+	}
+	mcp.AddTool(s, &mcp.Tool{Name: "settings", Description: "Each server's settings: the release images it deploys, registries, the backups' buckets, mail, the pulse and hakobu's updates; never a password or key. The user changes them with hakobu server set.", Annotations: readOnly},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in serverIn) (*mcp.CallToolResult, settingsOut, error) {
+			out := settingsOut{Settings: map[string]server.SettingsView{}}
+			cs, err := pick(cmd, in.Server)
+			if err != nil {
+				return nil, out, err
+			}
+			for _, c := range cs {
+				var v server.SettingsView
+				if err := c.Get(ctx, "/v1/settings", &v); err != nil {
+					return nil, out, err
+				}
+				out.Settings[c.Name] = v
+			}
+			return nil, out, nil
+		})
 	type updateIn struct {
 		Server string `json:"server,omitempty" jsonschema:"the server; all of them if empty"`
 		To     string `json:"to,omitempty" jsonschema:"a release, like v1.3.0; the latest if empty"`

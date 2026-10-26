@@ -8,7 +8,7 @@ hakobu is built so an agent can do the work that's different in each project (th
 
 ## MCP
 
-`.mcp.json` adds hakobu's MCP server, `hakobu mcp`, which runs on your laptop and talks to every server you've added, with the operator token. Its tools: `status`, `deploys`, `logs`, `backups`, `deploy`, `rollback`, `backup` and `update` (hakobu itself, to a newer signed release). For another client, add it as a local (stdio) server running `hakobu mcp`.
+`.mcp.json` adds hakobu's MCP server, `hakobu mcp`, which runs on your laptop and talks to every server you've added, with the operator token. Its tools: `status`, `deploys`, `logs`, `backups`, `settings` (the servers' releases, buckets, mail, updates; no secrets), `deploy`, `rollback`, `backup` and `update` (hakobu itself, to a newer signed release). For another client, add it as a local (stdio) server running `hakobu mcp`.
 
 ## What an agent can't do
 

@@ -52,6 +52,14 @@ type Config struct {
 	Ingress    ingress.Config         `toml:"ingress"`
 	// Every is the time between polls of the release images.
 	Every Duration `toml:"poll_every"`
+
+	// Settings are what the API set (settings.toml in the data
+	// directory), merged in where server.toml doesn't say; fixed are the
+	// keys server.toml sets, which the API can't change; base is
+	// server.toml itself, to check a change against.
+	Settings *Settings      `toml:"-"`
+	fixed    map[string]bool `toml:"-"`
+	base     []byte          `toml:"-"`
 }
 
 type Alerts struct {
@@ -95,15 +103,15 @@ type Backups struct {
 }
 
 type Bucket struct {
-	Name      string `toml:"name"`
-	Endpoint  string `toml:"endpoint"`
-	Region    string `toml:"region"`
-	Bucket    string `toml:"bucket"`
-	AccessKey string `toml:"access_key"`
-	SecretKey string `toml:"secret_key"`
+	Name      string `toml:"name" json:"name,omitempty"`
+	Endpoint  string `toml:"endpoint" json:"endpoint"`
+	Region    string `toml:"region" json:"region"`
+	Bucket    string `toml:"bucket" json:"bucket"`
+	AccessKey string `toml:"access_key" json:"access_key"`
+	SecretKey string `toml:"secret_key" json:"secret_key"`
 	// Prefix is where this server's backups go in the bucket; default
 	// "hakobu/<name>/".
-	Prefix string `toml:"prefix"`
+	Prefix string `toml:"prefix" json:"prefix,omitempty"`
 }
 
 // Duration is a duration written like "30s".
@@ -124,16 +132,29 @@ var (
 	atPattern   = regexp.MustCompile(`^([01][0-9]|2[0-3]):[0-5][0-9]$`)
 )
 
-// LoadConfig reads and checks the config, filling in defaults.
+// LoadConfig reads and checks the config, filling in defaults, with the
+// settings the API made where it doesn't say.
 func LoadConfig(file string) (*Config, error) {
 	b, err := os.ReadFile(file)
 	if err != nil {
 		return nil, err
 	}
-	return ParseConfig(b)
+	c, err := ParseConfig(b)
+	if err != nil {
+		return nil, err
+	}
+	s, err := LoadSettings(c.SettingsFile())
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", c.SettingsFile(), err)
+	}
+	return ParseConfigWith(b, s)
 }
 
-func ParseConfig(b []byte) (*Config, error) {
+func ParseConfig(b []byte) (*Config, error) { return ParseConfigWith(b, nil) }
+
+// ParseConfigWith is the config of server.toml b, with the settings s
+// where b doesn't say.
+func ParseConfigWith(b []byte, s *Settings) (*Config, error) {
 	var c Config
 	md, err := toml.Decode(string(b), &c)
 	if err != nil {
@@ -149,6 +170,13 @@ func ParseConfig(b []byte) (*Config, error) {
 	if c.DataDir == "" {
 		c.DataDir = "/var/lib/hakobu"
 	}
+	c.base = b
+	c.fixed = fixedKeys(md, &c)
+	if s == nil {
+		s = &Settings{}
+	}
+	c.Settings = s
+	c.merge(s)
 	if c.Every == 0 {
 		c.Every = Duration(30 * time.Second)
 	}
@@ -253,6 +281,8 @@ func (c *Config) check() error {
 	}
 	return errors.Join(errs...)
 }
+
+func (c *Config) SettingsFile() string { return filepath.Join(c.DataDir, "settings.toml") }
 
 // LoopbackAPI tells whether the API is on loopback, reached through SSH.
 func (c *Config) LoopbackAPI() bool { return strings.HasPrefix(c.Listen, "127.0.0.1:") }
