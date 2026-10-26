@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -53,16 +54,16 @@ func Init(o Options) ([]File, error) {
 	}
 	var files []File
 	write := func(name string, replace bool) error {
-		p := filepath.Join(o.Dir, filepath.FromSlash(name))
+		p, err := InRepo(o.Dir, name)
+		if err != nil {
+			return err
+		}
 		if _, err := os.Stat(p); err == nil && !replace {
 			files = append(files, File{Path: name, Kept: true})
 			return nil
 		}
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-			return err
-		}
 		files = append(files, File{Path: name})
-		return os.WriteFile(p, []byte(b[name]), 0o644)
+		return WriteFile(p, []byte(b[name]))
 	}
 	steps := []func() error{
 		func() error { return write(spec.File, false) },
@@ -91,8 +92,15 @@ func Bundle(o Options) (map[string]string, error) {
 	if last := o.Image[strings.LastIndex(o.Image, "/")+1:]; !strings.Contains(o.Image, "/") || strings.ContainsAny(last, ":@") {
 		return nil, fmt.Errorf("image %q: give the release image without its tag, like ghcr.io/owner/repo", o.Image)
 	}
+	if !imagePattern.MatchString(o.Image) {
+		return nil, fmt.Errorf("image %q isn't an image's name (lowercase, like ghcr.io/owner/repo)", o.Image)
+	}
 	if o.Branch == "" {
 		o.Branch = "main"
+	}
+	// Both go into the workflow as they are.
+	if !branchPattern.MatchString(o.Branch) || strings.Contains(o.Branch, "..") {
+		return nil, fmt.Errorf("branch %q isn't a branch's name", o.Branch)
 	}
 	if o.Project == "" {
 		o.Project = toName(filepath.Base(absDir(o.Dir)))
@@ -130,6 +138,8 @@ func Bundle(o Options) (map[string]string, error) {
 var (
 	namePattern    = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)
 	releasePattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+`)
+	imagePattern   = regexp.MustCompile(`^[a-z0-9.-]+(:[0-9]+)?(/[a-z0-9._-]+)+$`)
+	branchPattern  = regexp.MustCompile(`^[A-Za-z0-9._/-]{1,255}$`)
 )
 
 // projectFile is a hakobu.toml with an app for each directory that has a
@@ -276,7 +286,10 @@ This repository deploys with hakobu: hakobu.toml says what its server runs, and 
 // up to this version: it runs from the marker to the next heading after its
 // own.
 func appendClaudeMD(dir string, files *[]File) error {
-	p := filepath.Join(dir, "CLAUDE.md")
+	p, err := InRepo(dir, "CLAUDE.md")
+	if err != nil {
+		return err
+	}
 	old, err := os.ReadFile(p)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
@@ -294,13 +307,13 @@ func appendClaudeMD(dir string, files *[]File) error {
 			return nil
 		}
 		*files = append(*files, File{Path: "CLAUDE.md"})
-		return os.WriteFile(p, []byte(text[:i]+claudeSection+after), 0o644)
+		return WriteFile(p, []byte(text[:i]+claudeSection+after))
 	}
 	if text != "" {
 		text = strings.TrimRight(text, "\n") + "\n\n"
 	}
 	*files = append(*files, File{Path: "CLAUDE.md"})
-	return os.WriteFile(p, []byte(text+claudeSection), 0o644)
+	return WriteFile(p, []byte(text+claudeSection))
 }
 
 // settings keeps an agent off what's a person's to do, even if it's asked.
@@ -314,7 +327,10 @@ var mcpServers = map[string]any{"mcpServers": map[string]any{"hakobu": map[strin
 // mergeJSON adds add's keys to a JSON file, keeping what's there: lists
 // gain the entries they lack, objects the keys.
 func mergeJSON(dir, name string, add map[string]any, files *[]File) error {
-	p := filepath.Join(dir, filepath.FromSlash(name))
+	p, err := InRepo(dir, name)
+	if err != nil {
+		return err
+	}
 	doc := map[string]any{}
 	old, err := os.ReadFile(p)
 	switch {
@@ -333,11 +349,57 @@ func mergeJSON(dir, name string, add map[string]any, files *[]File) error {
 	if err != nil {
 		return err
 	}
+	*files = append(*files, File{Path: name})
+	return WriteFile(p, append(b, '\n'))
+}
+
+// InRepo is name's path in the repository dir, if no part of it is a
+// link: a repository's link could point the write anywhere (CLAUDE.md
+// at ~/.bashrc, the skill at ~/.ssh/authorized_keys).
+func InRepo(dir, name string) (string, error) {
+	rel := ""
+	for _, part := range strings.Split(filepath.ToSlash(filepath.Clean(name)), "/") {
+		if part == ".." {
+			return "", fmt.Errorf("%s isn't in the repository", name)
+		}
+		rel = path.Join(rel, part)
+		fi, err := os.Lstat(filepath.Join(dir, filepath.FromSlash(rel)))
+		if errors.Is(err, os.ErrNotExist) {
+			break
+		}
+		if err != nil {
+			return "", err
+		}
+		if fi.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("%s is a link; hakobu writes no file through one", rel)
+		}
+	}
+	return filepath.Join(dir, filepath.FromSlash(name)), nil
+}
+
+// WriteFile writes p whole, through a file beside it, so a link put in
+// its place since InRepo is replaced, not followed.
+func WriteFile(p string, b []byte) error {
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err
 	}
-	*files = append(*files, File{Path: name})
-	return os.WriteFile(p, append(b, '\n'), 0o644)
+	f, err := os.CreateTemp(filepath.Dir(p), "."+filepath.Base(p)+".*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	if _, err := f.Write(b); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Chmod(0o644); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), p)
 }
 
 // merge reports whether it changed dst.

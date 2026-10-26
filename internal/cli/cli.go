@@ -26,6 +26,7 @@ import (
 	"github.com/hakobudev/hakobu/internal/client"
 	"github.com/hakobudev/hakobu/internal/deploy"
 	"github.com/hakobudev/hakobu/internal/node"
+	"github.com/hakobudev/hakobu/internal/scaffold"
 	"github.com/hakobudev/hakobu/internal/seal"
 	"github.com/hakobudev/hakobu/internal/server"
 	"github.com/hakobudev/hakobu/internal/spec"
@@ -776,7 +777,11 @@ func writeSecrets(s *seal.Secrets) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(seal.FileName, b, 0o644)
+	p, err := scaffold.InRepo(".", seal.FileName)
+	if err != nil {
+		return err
+	}
+	return scaffold.WriteFile(p, b)
 }
 
 func validateCmd() *cobra.Command {

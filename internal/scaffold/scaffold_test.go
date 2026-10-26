@@ -122,3 +122,40 @@ func TestSkill(t *testing.T) {
 		t.Error("the skill has no frontmatter")
 	}
 }
+
+// A repository's link isn't followed out of it.
+func TestInitRefusesLinks(t *testing.T) {
+	for _, name := range []string{"CLAUDE.md", ".claude", ".claude/skills/hakobu/SKILL.md", ".mcp.json"} {
+		dir, outside := t.TempDir(), filepath.Join(t.TempDir(), "victim")
+		if err := os.WriteFile(outside, []byte("mine\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		link := filepath.Join(dir, filepath.FromSlash(name))
+		_ = os.MkdirAll(filepath.Dir(link), 0o755)
+		if err := os.Symlink(outside, link); err != nil {
+			t.Fatal(err)
+		}
+		_, err := Init(Options{Dir: dir, Server: "s", Image: "ghcr.io/a/b", Version: "dev"})
+		if err == nil || !strings.Contains(err.Error(), "is a link") {
+			t.Errorf("%s: %v", name, err)
+		}
+		if b, _ := os.ReadFile(outside); string(b) != "mine\n" {
+			t.Errorf("%s: written through: %q", name, b)
+		}
+	}
+}
+
+// What goes into the workflow as it is can't be more than a name.
+func TestBundleRefusesOddNames(t *testing.T) {
+	for _, o := range []Options{
+		{Server: "s", Image: "ghcr.io/a/b", Branch: "main]\n  evil:"},
+		{Server: "s", Image: "ghcr.io/a/b", Branch: "../x"},
+		{Server: "s", Image: "ghcr.io/a\n  evil: x/b"},
+		{Server: "s", Image: "ghcr.io/A/b"},
+	} {
+		o.Dir, o.Version = t.TempDir(), "dev"
+		if _, err := Bundle(o); err == nil {
+			t.Errorf("%q %q: no error", o.Branch, o.Image)
+		}
+	}
+}
