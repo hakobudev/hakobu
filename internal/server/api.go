@@ -34,6 +34,9 @@ func (d *Daemon) API() http.Handler {
 	mux.Handle("GET /v1/settings", op(d.settings))
 	// The backups' buckets need the admin token: the handler asks.
 	mux.Handle("POST /v1/settings", op(d.changeSettings))
+	mux.Handle("POST /v1/secrets", op(d.addPending))
+	mux.Handle("GET /v1/secrets", op(d.pending))
+	mux.Handle("POST /v1/secrets/clear", op(d.pending))
 	mux.Handle("POST /v1/restore", admin(d.restore))
 	mux.Handle("POST /v1/destroy", admin(d.destroy))
 	return mux
@@ -56,8 +59,7 @@ func badRequest(format string, a ...any) error {
 func (d *Daemon) need(level Level) func(handler) http.Handler {
 	return func(h handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			token, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-			have := d.Config.TokenLevel(token)
+			have := d.levelOf(r)
 			switch {
 			case have == None:
 				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "no valid token"})

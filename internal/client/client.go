@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -31,6 +32,9 @@ type Server struct {
 	// goes through ssh -W with that key, which may only reach the API.
 	SSH    string `toml:"ssh,omitempty"`
 	SSHKey string `toml:"ssh_key,omitempty"`
+	// Socket is the API's Unix socket, on the server itself: no token,
+	// the server knows who connects.
+	Socket string `toml:"-"`
 }
 
 // Servers are the laptop's servers by name.
@@ -90,11 +94,34 @@ func (s Servers) Names() []string {
 
 // Client calls one server's API.
 type Client struct {
-	Name  string
-	URL   string
-	Token string
-	HTTP  *http.Client
-	ssh   *sshTransport
+	Name   string
+	URL    string
+	Token  string
+	HTTP   *http.Client
+	ssh    *sshTransport
+	socket string
+}
+
+// Local says whether the client is on the server itself, on its socket.
+func (c *Client) Local() bool { return c.socket != "" }
+
+// Local is the server this machine is, through its socket, if there's
+// one: the name is the server's.
+func Local(socket string) (string, Server, bool) {
+	if _, err := os.Stat(socket); err != nil {
+		return "", Server{}, false
+	}
+	sv := Server{Socket: socket}
+	c, _ := Servers{"": sv}.Client("")
+	var key struct {
+		Server string `json:"server"`
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := c.Get(ctx, "/v1/key", &key); err != nil || key.Server == "" {
+		return "", Server{}, false
+	}
+	return key.Server, sv, true
 }
 
 func (s Servers) Client(name string) (*Client, error) {
@@ -103,6 +130,10 @@ func (s Servers) Client(name string) (*Client, error) {
 		return nil, fmt.Errorf("no server %s (hakobu server add)", name)
 	}
 	c := &Client{Name: name, URL: strings.TrimSuffix(sv.URL, "/"), Token: sv.Token}
+	if sv.Socket != "" {
+		c.URL, c.socket = "http://hakobu", sv.Socket
+		return c, nil
+	}
 	if sv.SSH != "" {
 		u, err := url.Parse(c.URL)
 		if err != nil || u.Host == "" {
@@ -149,14 +180,24 @@ func (c *Client) Do(ctx context.Context, method, path string, body, v any) error
 	if hc == nil {
 		// Backups and deploys take a while; status doesn't.
 		hc = &http.Client{Timeout: 3 * time.Hour}
-		if c.ssh != nil {
+		switch {
+		case c.ssh != nil:
 			hc.Transport = c.ssh.http
+		case c.socket != "":
+			sock := c.socket
+			hc.Transport = &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				var d net.Dialer
+				return d.DialContext(ctx, "unix", sock)
+			}}
 		}
 	}
 	resp, err := hc.Do(req)
 	if err != nil {
 		if c.ssh != nil {
 			return fmt.Errorf("%s: %w%s", c.Name, err, c.ssh.why())
+		}
+		if c.socket != "" {
+			return fmt.Errorf("%s: %w (is hakobu running? systemctl status hakobu)", c.Name, err)
 		}
 		return fmt.Errorf("%s: %w (is this machine in the tailnet?)", c.Name, err)
 	}

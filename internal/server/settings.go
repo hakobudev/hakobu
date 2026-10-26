@@ -421,8 +421,7 @@ func (d *Daemon) changeSettings(w http.ResponseWriter, r *http.Request) (any, er
 		return nil, err
 	}
 	if ch.admin() {
-		token, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if d.Config.TokenLevel(token) != Admin {
+		if d.levelOf(r) != Admin {
 			return nil, apiError{http.StatusForbidden, "the backups' buckets need the admin token"}
 		}
 	}

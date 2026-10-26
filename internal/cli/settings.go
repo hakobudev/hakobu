@@ -212,6 +212,10 @@ func serverSetCmd() *cobra.Command {
 				ch.Backups = &set
 			}
 			admin := os.Getenv("HAKOBU_ADMIN_TOKEN")
+			// Root on the server is the admin already.
+			if cl, err := namedClient(args[0]); err == nil && cl.Local() && os.Geteuid() == 0 {
+				return setSettings(cmd.Context(), args[0], "", ch, cmd.OutOrStdout())
+			}
 			if admin == "" {
 				var err error
 				if admin, err = readSecret("admin token of " + args[0] + ": "); err != nil {
@@ -239,7 +243,7 @@ func serverSetCmd() *cobra.Command {
 }
 
 func namedClient(name string) (*client.Client, error) {
-	_, all, err := servers()
+	all, err := known()
 	if err != nil {
 		return nil, err
 	}

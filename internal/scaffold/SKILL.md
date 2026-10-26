@@ -11,7 +11,7 @@ A deploy: dump of each database the app uses (when it has a `release` command) �
 
 ## hakobu.toml
 
-Strict: an unknown key, a typo or a reference to nothing fails `hakobu validate`, and CI runs it. Run `hakobu validate` after every change.
+Strict: an unknown key, a typo or a reference to nothing fails validation, and CI runs it. Check it with the MCP tool `validate` after every change.
 
 ```toml
 project = "crm"            # lowercase letters, digits, -
@@ -44,7 +44,7 @@ memory = "256mb"
 - `release` and `worker` run with `/bin/sh -c` in the app's image, so the image needs a shell (not distroless or scratch).
 - An app with volumes is stopped before its new version starts (a few seconds down), so two versions never write the same files.
 - The PostgreSQL version is the server's, not the project's. Renaming a volume or cache in the file doesn't rename it: the old one is kept, orphaned, and a new empty one is made; renaming a database stops the deploy. Don't rename them.
-- Removing a database, cache or volume from the file doesn't delete it either. Deleting is `hakobu destroy`, a person's to run.
+- Removing a database, cache or volume from the file doesn't delete it either. Deleting is `hakobu destroy`, a person's to run, as root on the server.
 
 ## Migrations
 
@@ -57,35 +57,38 @@ The live version keeps serving while `release` migrates the database, and if any
 
 ## Secrets
 
-`hakobu.secrets.toml` is in the repository, each value sealed with age to the server's key and its owner's. You can add a secret but never read one.
+`hakobu.secrets.toml` is in the repository, each value sealed with age to the server's key and its owner's. You can add a secret but never read one, and you never see its value.
 
-- Ask the person to run `hakobu secret set APP NAME` (it reads the value from stdin, never an argument). Don't run it with a value you made up, and never print, log or commit a secret.
-- `hakobu secret list` shows the names; `hakobu secret unset APP NAME` removes one.
+- Ask the person to run, in their own terminal, `ssh -t SERVER secret set PROJECT APP NAME` (SERVER: what the server's MCP command connects to, like `deploy@1.2.3.4`). They type the value there, unseen; the server seals it and keeps it for you. Then the MCP tool `pending_secrets` gives the sealed values: write each as `NAME = "age:…"` under `[apps.APP]` (`[hakobu]` for APP `hakobu`), keeping the file's `recipients`, push, and call `pending_secrets` again with `clear`. With hakobu on the laptop, `hakobu secret set APP NAME` seals one straight into the file.
+- Never ask for a secret's value in the chat, never make one up, and never print, log or commit one.
 - A secret mustn't have the name of a variable hakobu.toml already sets (`env`, `uses`, `PORT`, `HAKOBU_REVISION`).
-- `hakobu secret set hakobu status_token`: a fine-grained GitHub token with "Commit statuses: write" on this repository alone. Without it, the server refuses the release.
+- The status token, `hakobu status_token`: a fine-grained GitHub token with "Commit statuses: write" on this repository alone. Without it, the server refuses the release.
 
 ## Builds
 
 Each app is built from the `Dockerfile` in its directory (`path`), and nothing else: if an app has none, write one. Keep it small and reproducible: a multi-stage build, a pinned base image, the app listening on `$PORT`, and a shell in the final image if the app has a `release` or `worker`. The image is built on CI's runner, so its architecture is the runner's: an arm64 server needs `runner: ubuntu-24.04-arm`.
 
-## Commands and MCP
+## MCP and commands
 
-The `hakobu` MCP server (`hakobu mcp`, in `.mcp.json`; its tools are the commands below, use them first) and the CLI talk to the servers listed in `~/.config/hakobu/servers.toml`:
+Each server has its own MCP server, named after it (the `server` in hakobu.toml), which runs on the server itself over SSH (`ssh -T deploy@HOST mcp`); use its tools first:
 
-- `hakobu status`: apps, their health, last deploy, open alerts, on every server.
-- `hakobu deploys`, `hakobu logs PROJECT/APP [--worker]`: what happened and why.
-- `hakobu deploy [PROJECT]` checks for a new release now; `--force` deploys the current one again (a restart).
-- `hakobu rollback PROJECT`: the release before, with today's secrets. It doesn't undo a migration.
-- `hakobu backup`, `hakobu backups PROJECT`: back up now, list them.
-- `hakobu server update [NAME]` (MCP `update`): patches of hakobu install themselves at night; when status shows a newer minor or major one, update it. Only releases signed by hakobu and newer than the server's; one that doesn't come up is replaced by the one before. Don't update in the middle of something the user is watching (a migration, a deploy).
+- `status`: apps, their health, last deploy, open alerts.
+- `deploys`, `logs` (`PROJECT/APP`, a worker's too): what happened and why.
+- `deploy` checks for a new release now; with `force` it deploys the current one again (a restart).
+- `rollback`: the release before, with today's secrets. It doesn't undo a migration.
+- `backup`, `backups`: back up now, list them.
+- `settings`: the server's settings; `validate`: check hakobu.toml and hakobu.secrets.toml; `init`: set a new repository up; `pending_secrets`: see Secrets.
+- `update`: patches of hakobu install themselves at night; when status shows a newer minor or major one, update it. Only releases signed by hakobu and newer than the server's; one that doesn't come up is replaced by the one before. Don't update in the middle of something the user is watching (a migration, a deploy).
 
-`hakobu wait` is CI's: it needs the commit and a GitHub token. From here, the servers are read with these, and only these: not ssh, not docker on the server, not `printenv HAKOBU_REVISION` in a container.
+The person runs the same as commands: `ssh deploy@HOST status`, `ssh deploy@HOST logs PROJECT/APP`, `ssh deploy@HOST help` for the rest. That SSH key runs hakobu's commands and nothing else. With hakobu on the laptop, `hakobu mcp` and `hakobu status`… do the same for the servers in `~/.config/hakobu/servers.toml`.
 
-After pushing, wait for its run of `.github/workflows/hakobu.yml` (`gh run list -w hakobu.yml -L 1`, then `gh run watch ID`; it waits for the deploy; another workflow going green says nothing) or watch `hakobu deploys` before saying a change is live; if it failed, read the reason there and in `hakobu logs`.
+`hakobu wait` is CI's: it needs the commit and a GitHub token. From here, the servers are read with these, and only these: not a shell on the server, not docker, not `printenv HAKOBU_REVISION` in a container.
+
+After pushing, wait for its run of `.github/workflows/hakobu.yml` (`gh run list -w hakobu.yml -L 1`, then `gh run watch ID`; it waits for the deploy; another workflow going green says nothing) or watch `deploys` before saying a change is live; if it failed, read the reason there and in `logs`.
 
 ## Never
 
-- `hakobu destroy` or `hakobu restore`: they delete or replace data, need the admin token and a person at the terminal, and are denied in `.claude/settings.json`. If one seems needed, say why and let the person run it.
-- SSH to the server, or editing its `/etc/hakobu/server.toml`. Its settings (releases, registries, backups, mail, updates) are `hakobu server set`'s; the MCP tool `settings` shows them. A release is registered by `hakobu init`; the backups' bucket needs the admin token, the owner's.
+- `hakobu destroy` or `hakobu restore`: they delete or replace data, are root's on the server and need a person at the terminal, and are denied in `.claude/settings.json`. If one seems needed, say why and let the person run it.
+- A shell on the server as root (once, to install hakobu, is the exception), or editing its `/etc/hakobu/server.toml`. Its settings (releases, registries, mail, updates) are `ssh deploy@HOST server set …`'s; the MCP tool `settings` shows them. A release is registered by the `init` tool; the backups' bucket is the owner's (root's).
 - Pushing an image to the release tag by hand, or deploying from anywhere but the default branch.
 - Weakening the health check or the workflow's wait to make a red deploy green.

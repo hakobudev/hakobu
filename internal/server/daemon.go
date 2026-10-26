@@ -23,8 +23,8 @@ import (
 	"github.com/hakobudev/hakobu/internal/registry"
 	"github.com/hakobudev/hakobu/internal/s3"
 	"github.com/hakobudev/hakobu/internal/seal"
-	"github.com/hakobudev/hakobu/internal/update"
 	"github.com/hakobudev/hakobu/internal/status"
+	"github.com/hakobudev/hakobu/internal/update"
 )
 
 // Machine is what the daemon needs of the server beyond deploys: the
@@ -65,6 +65,7 @@ type Daemon struct {
 	backingUp  bool
 	restarting bool
 
+	pendingMu  sync.Mutex
 	settingsMu sync.Mutex    // one change of the settings at a time
 	restart    chan struct{} // the settings changed
 }
@@ -160,7 +161,19 @@ func (d *Daemon) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("the API can't listen on %s: %w (is the server in the tailnet?)", d.Config.Listen, err)
 	}
-	srv := &http.Server{Handler: d.API(), ReadHeaderTimeout: 10 * time.Second}
+	sl, err := d.listenSocket()
+	if err != nil {
+		l.Close()
+		return err
+	}
+	srv := &http.Server{Handler: d.API(), ReadHeaderTimeout: 10 * time.Second, ConnContext: peerContext}
+	if sl != nil {
+		go func() {
+			if err := srv.Serve(sl); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				fmt.Fprintln(d.log(), "the API's socket:", err)
+			}
+		}()
+	}
 	go d.Watch.Run(ctx)
 	go d.backupDaily(ctx)
 	go d.monitor(ctx)

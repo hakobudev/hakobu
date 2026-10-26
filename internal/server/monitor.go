@@ -161,10 +161,8 @@ func (d *Daemon) checkPostgres(ctx context.Context) {
 // each thing out of place and closing those that are fixed.
 func (d *Daemon) Audit(ctx context.Context) []audit.Finding {
 	var found []audit.Finding
-	allow := append(d.Config.Ingress.Ports(), d.Config.Alerts.AllowPorts...)
-	if d.Config.LoopbackAPI() {
-		allow = append(allow, 22) // SSH is the way to the API
-	}
+	// SSH is the way to hakobu's commands and MCP, and to the API.
+	allow := append(d.Config.Ingress.Ports(), append(d.Config.Alerts.AllowPorts, 22)...)
 	if ports, err := audit.HostPorts(allow); err == nil {
 		found = append(found, ports...)
 	}

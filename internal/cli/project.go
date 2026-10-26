@@ -27,7 +27,7 @@ func initCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			server, _ := cmd.Flags().GetString("server")
 			if server == "" {
-				_, all, err := servers()
+				all, err := known()
 				if err != nil {
 					return err
 				}

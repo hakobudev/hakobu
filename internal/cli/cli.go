@@ -48,7 +48,7 @@ func Root(version string) *cobra.Command {
 	root.PersistentFlags().String("server", "", "the server to talk to (default: the one the project is on, or the only one)")
 	root.AddCommand(serveCmd(version), serverCmd(version), statusCmd(), deploysCmd(), logsCmd(), deployCmd(), rollbackCmd(),
 		backupCmd(), backupsCmd(), restoreCmd(), destroyCmd(), initCmd(), secretCmd(), validateCmd(), buildCmd(), waitCmd(),
-		mcpCmd(), dialerCmd())
+		mcpCmd(), dialerCmd(), sshCmd(version))
 	return root
 }
 
@@ -222,13 +222,32 @@ func servers() (string, client.Servers, error) {
 	return file, all, err
 }
 
+// localSocket is the API's socket on a server; a variable for the tests.
+var localSocket = server.Socket
+
+// known are the servers to talk to: the laptop's, or on a server (no
+// servers.toml there) the server itself, through its socket.
+func known() (client.Servers, error) {
+	_, all, err := servers()
+	if err != nil || len(all) > 0 {
+		return all, err
+	}
+	if name, sv, ok := client.Local(localSocket); ok {
+		all[name] = sv
+	}
+	return all, nil
+}
+
 // clients are the servers to ask: --server's, or all of them.
 func clients(cmd *cobra.Command) ([]*client.Client, error) {
-	_, all, err := servers()
+	all, err := known()
 	if err != nil {
 		return nil, err
 	}
 	if len(all) == 0 {
+		if _, err := os.Stat(filepath.Dir(localSocket)); err == nil {
+			return nil, errors.New("hakobu on this server doesn't answer yet: it may be starting (systemctl status hakobu, journalctl -u hakobu)")
+		}
 		return nil, errors.New("no servers yet: hakobu server create NAME --ssh root@HOST")
 	}
 	names := all.Names()
@@ -558,6 +577,10 @@ func adminClient(cmd *cobra.Command, project string) (*client.Client, error) {
 	cl, err := clientFor(cmd, project)
 	if err != nil {
 		return nil, err
+	}
+	// Root on the server is the admin already.
+	if cl.Local() && os.Geteuid() == 0 {
+		return cl, nil
 	}
 	tok := os.Getenv("HAKOBU_ADMIN_TOKEN")
 	if tok == "" {

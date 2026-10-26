@@ -33,6 +33,10 @@ type Config struct {
 	// Listen is the API's address, on the tailnet or loopback (reached
 	// through SSH): never a public one.
 	Listen string `toml:"listen"`
+	// Socket is the API for the server's own users, served if its
+	// directory is there (install.sh makes it): to root as to the admin
+	// token, to anyone else who may open it as to the operator's.
+	Socket string `toml:"socket"`
 	// DataDir holds the key, the state and the history.
 	DataDir string `toml:"data_dir"`
 	// OwnerKey is the owner's age public key: secrets and backups are
@@ -57,7 +61,7 @@ type Config struct {
 	// directory), merged in where server.toml doesn't say; fixed are the
 	// keys server.toml sets, which the API can't change; base is
 	// server.toml itself, to check a change against.
-	Settings *Settings      `toml:"-"`
+	Settings *Settings       `toml:"-"`
 	fixed    map[string]bool `toml:"-"`
 	base     []byte          `toml:"-"`
 }
@@ -169,6 +173,9 @@ func ParseConfigWith(b []byte, s *Settings) (*Config, error) {
 	}
 	if c.DataDir == "" {
 		c.DataDir = "/var/lib/hakobu"
+	}
+	if c.Socket == "" {
+		c.Socket = Socket
 	}
 	c.base = b
 	c.fixed = fixedKeys(md, &c)

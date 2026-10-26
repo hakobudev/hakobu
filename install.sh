@@ -1,22 +1,24 @@
 #!/usr/bin/env bash
 # Installs hakobu v1 on a Linux server (Debian or Ubuntu), or updates it:
-# rootless Docker for the apps, the server's key and config, and the hakobu
-# service, its API on loopback (or the tailnet). Nothing asks: everything
-# comes from the environment. hakobu server create runs it over SSH; for
-# cloud-init:
+# rootless Docker for the apps, the server's key and config, the hakobu
+# service, and an SSH user whose keys (root's) run hakobu's commands and
+# nothing else, for your agent's MCP and for you. Nothing asks: everything
+# comes from the environment. Your agent runs it, once:
 #
-#   curl -fsSL https://hakobu.dev/install.sh | sudo \
-#     HAKOBU_NAME=kasl-1 HAKOBU_OWNER_KEY=age1… bash
+#   ssh root@SERVER 'curl -fsSL https://hakobu.dev/install.sh | \
+#     HAKOBU_NAME=kasl-1 HAKOBU_OWNER_KEY=age1… bash'
 #
 # Needs, on a first install:
 #   HAKOBU_NAME        the server's name (lowercase letters, digits, -)
 #   HAKOBU_OWNER_KEY   your age public key: secrets and backups are sealed to
 #                      it too, so you can open them without the server
 # Optional:
+#   HAKOBU_SSH_USER    the SSH user for hakobu's commands (default deploy)
+#   HAKOBU_SSH_KEYS    its keys, one a line (default: root's, the first time)
 #   TS_AUTHKEY         a Tailscale auth key: the API listens on the tailnet
 #                      and nowhere else. Without one (and a server not in a
-#                      tailnet already), it listens on 127.0.0.1, reached
-#                      through SSH (ssh -L), and Tailscale isn't installed
+#                      tailnet already), it listens on 127.0.0.1, and
+#                      Tailscale isn't installed
 #   HAKOBU_API         tailnet or loopback, to say which outright
 #   TS_TAGS            the server's Tailscale tags, e.g. tag:hakobu
 #   HAKOBU_INGRESS     public (80/443 with Let's Encrypt), tunnel (a Cloudflare
@@ -31,11 +33,13 @@
 #   HAKOBU_BINARY      install this local binary instead of downloading one
 #   HAKOBU_REPO        default hakobudev/hakobu
 #   HAKOBU_TUNNEL_KEY  an SSH public key (ssh-ed25519 …) that may reach the API
-#                      and nothing else: the user hakobu-tunnel, no shell
+#                      and nothing else, for hakobu on a laptop: the user
+#                      hakobu-tunnel, no shell
 #   HAKOBU_RESULT      json: end with one line, HAKOBU_RESULT {…}, for
 #                      hakobu server create, instead of the tokens' lines
 #
-# Run again to update: the config, the key and the data stay.
+# Run again to update: the config, the key, the SSH user's keys and the
+# data stay.
 set -euo pipefail
 
 HAKOBU_REPO="${HAKOBU_REPO:-hakobudev/hakobu}"
@@ -103,6 +107,11 @@ id hakobu-docker >/dev/null 2>&1 || useradd --system --create-home --home-dir /h
 # hakobu reaches Docker's socket and the container dialer's through the
 # Docker user's group; the Docker user gets nothing of hakobu's.
 usermod -aG hakobu-docker hakobu
+# The API's socket, for root and the SSH user: its directory's group may
+# open it, and it's set-group-ID, so the socket is the group's.
+getent group hakobu-api >/dev/null || groupadd --system hakobu-api
+echo "d /run/hakobu-api 2750 hakobu hakobu-api -" > /etc/tmpfiles.d/hakobu-api.conf
+systemd-tmpfiles --create /etc/tmpfiles.d/hakobu-api.conf
 DK_UID="$(id -u hakobu-docker)"
 DK_RUN="/run/user/$DK_UID"
 SOCK_DIR=/run/hakobu-docker
@@ -245,6 +254,8 @@ else
 fi
 # Renamed over the old one: a running binary can't be written.
 mv "$BIN.new" "$BIN"
+# For root: hakobu restore, destroy and the backups' buckets are its.
+ln -sfn "$BIN" /usr/local/bin/hakobu
 
 OP_TOKEN="" ADMIN_TOKEN=""
 if [ -n "$FIRST" ]; then
@@ -287,6 +298,63 @@ if [ -n "${HAKOBU_TUNNEL_KEY:-}" ]; then
     case "$FWD" in yes|local|all|"") ;; *) echo "    warning: sshd has AllowTcpForwarding $FWD: the key can't reach the API until it's yes or local" ;; esac
     if sshd -T -C user=hakobu-tunnel,host=localhost,addr=127.0.0.1 2>/dev/null | grep -q '^allowusers '; then
       echo "    warning: sshd has AllowUsers: add hakobu-tunnel to it, or the key can't reach the API"
+    fi
+  fi
+fi
+
+SSH_USER="${HAKOBU_SSH_USER:-deploy}"
+[[ "$SSH_USER" =~ ^[a-z_][a-z0-9_-]{0,30}$ ]] || die "HAKOBU_SSH_USER: a user's name"
+echo "==> SSH: $SSH_USER runs hakobu's commands, and nothing else"
+if id "$SSH_USER" >/dev/null 2>&1 && [ ! -e "/home/$SSH_USER/.hakobu" ]; then
+  echo "    warning: there's a user $SSH_USER already, not hakobu's: run this again with HAKOBU_SSH_USER=another-name"
+  SSH_USER=""
+else
+  # sshd runs the forced command with the user's shell, so it has one;
+  # the command is the key's, whatever the client asks for. Its home and
+  # keys are root's, so nothing running as it could add a key.
+  id "$SSH_USER" >/dev/null 2>&1 || useradd --system --no-create-home --home-dir "/home/$SSH_USER" --shell /bin/sh "$SSH_USER"
+  usermod -p '*' "$SSH_USER" # no password, not locked: sshd lets a locked one in by key only with PAM
+  usermod -aG hakobu-api "$SSH_USER"
+  install -d -m 0755 -o root -g root "/home/$SSH_USER" "/home/$SSH_USER/.ssh"
+  touch "/home/$SSH_USER/.hakobu"
+  AK="/home/$SSH_USER/.ssh/authorized_keys"
+  # The keys are HAKOBU_SSH_KEYS, or the ones root (and sudo's user) log
+  # in with, the first time; then they stay as they are.
+  if [ -n "${HAKOBU_SSH_KEYS:-}" ] || [ ! -s "$AK" ]; then
+    if [ -n "${HAKOBU_SSH_KEYS:-}" ]; then
+      SRC="$HAKOBU_SSH_KEYS"
+    else
+      SRC="$(cat /root/.ssh/authorized_keys 2>/dev/null || true)"
+      if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then
+        SRC="$SRC
+$(cat "$(getent passwd "$SUDO_USER" | cut -d: -f6)/.ssh/authorized_keys" 2>/dev/null || true)"
+      fi
+    fi
+    # Each key without the options it had (a cloud image's "login as
+    # ubuntu" command, say): type and key alone.
+    printf '%s\n' "$SRC" | awk '{
+      for (i = 1; i < NF; i++)
+        if ($i ~ /^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com)$/ && $(i+1) ~ /^[A-Za-z0-9+\/]+=*$/) {
+          print "restrict,pty,command=\"'"$BIN"' ssh\" " $i " " $(i+1); break
+        }
+    }' | sort -u > "$AK.new"
+    chmod 0644 "$AK.new"
+    mv "$AK.new" "$AK"
+  fi
+  N="$(grep -c . "$AK" || true)"
+  if [ "$N" = 0 ]; then
+    echo "    warning: no SSH key to give it (root has none): run this again with HAKOBU_SSH_KEYS=\"ssh-ed25519 …\""
+  else
+    echo "    $N key(s) may log in as it"
+  fi
+  if command -v sshd >/dev/null; then
+    SSHD="$(sshd -T -C "user=$SSH_USER,host=localhost,addr=127.0.0.1" 2>/dev/null || true)"
+    if printf '%s\n' "$SSHD" | grep -q '^allowusers '; then
+      echo "    warning: sshd has AllowUsers: add $SSH_USER to it, or its keys can't log in"
+    fi
+    # SSH is safe with keys alone: a password can be guessed.
+    if printf '%s\n' "$SSHD" | grep -q '^passwordauthentication yes'; then
+      echo "    warning: sshd takes passwords: with PasswordAuthentication no, only keys log in (yours do already)"
     fi
   fi
 fi
@@ -335,7 +403,7 @@ SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=$DATA /home/hakobu/.docker
+ReadWritePaths=$DATA /home/hakobu/.docker /run/hakobu-api
 PrivateTmp=yes
 PrivateDevices=yes
 ProtectKernelTunables=yes
@@ -386,10 +454,19 @@ echo
 echo "Done: $("$BIN" --version) runs on $API_IP:$API_PORT (journalctl -u hakobu)."
 echo "The server's key: $SERVER_KEY"
 echo "Back up $DATA/key.age somewhere off this server."
+NAME="$(sed -n 's/^name = "\(.*\)"$/\1/p' "$CONFIG" | head -1)"
+# The address this was reached on over SSH, else the first one it has.
+HOST="$(printf '%s' "${SSH_CONNECTION:-}" | awk '{print $3}')"
+[ -n "$HOST" ] || HOST="$(hostname -I 2>/dev/null | awk '{print $1}')"
+if [ -n "$SSH_USER" ] && [ "${HAKOBU_RESULT:-}" != json ]; then
+  echo
+  echo "For your agent, once (Claude Code):"
+  echo "  claude mcp add --scope user $NAME -- ssh -T $SSH_USER@$HOST mcp"
+  echo "For you: ssh $SSH_USER@$HOST status (ssh $SSH_USER@$HOST help shows the rest)."
+fi
 if [ "${HAKOBU_RESULT:-}" = json ]; then
-  NAME="$(sed -n 's/^name = "\(.*\)"$/\1/p' "$CONFIG" | head -1)"
-  printf 'HAKOBU_RESULT {"name":"%s","api":"%s:%s","mode":"%s","key":"%s","version":"%s","operator_token":"%s","admin_token":"%s"}\n' \
-    "$NAME" "$API_IP" "$API_PORT" "$API" "$SERVER_KEY" "$("$BIN" --version | awk '{print $NF}')" "$OP_TOKEN" "$ADMIN_TOKEN"
+  printf 'HAKOBU_RESULT {"name":"%s","api":"%s:%s","mode":"%s","key":"%s","version":"%s","ssh":"%s","operator_token":"%s","admin_token":"%s"}\n' \
+    "$NAME" "$API_IP" "$API_PORT" "$API" "$SERVER_KEY" "$("$BIN" --version | awk '{print $NF}')" "${SSH_USER:+$SSH_USER@$HOST}" "$OP_TOKEN" "$ADMIN_TOKEN"
 elif [ -n "$OP_TOKEN" ]; then
   echo
   echo "These tokens show only now:"

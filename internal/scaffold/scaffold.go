@@ -26,6 +26,7 @@ type Options struct {
 	Image   string // the release image, without a tag ("ghcr.io/owner/repo")
 	Branch  string // the branch that deploys
 	Version string // this hakobu's, for the workflow to use the same
+	Project string // the project's name (default: the directory's)
 }
 
 // File is one file init wrote or left alone.
@@ -46,21 +47,12 @@ const Workflow = "hakobudev/hakobu/.github/workflows/build.yml"
 // skill and its section of CLAUDE.md are hakobu's, so they're always this
 // version's.
 func Init(o Options) ([]File, error) {
-	if !namePattern.MatchString(o.Server) {
-		return nil, fmt.Errorf("server %q isn't a server's name; hakobu server list shows them", o.Server)
-	}
-	if last := o.Image[strings.LastIndex(o.Image, "/")+1:]; !strings.Contains(o.Image, "/") || strings.ContainsAny(last, ":@") {
-		return nil, fmt.Errorf("image %q: give the release image without its tag, like ghcr.io/owner/repo", o.Image)
-	}
-	if o.Branch == "" {
-		o.Branch = "main"
-	}
-	toml, err := projectFile(o)
+	b, err := Bundle(o)
 	if err != nil {
 		return nil, err
 	}
 	var files []File
-	write := func(name, text string, replace bool) error {
+	write := func(name string, replace bool) error {
 		p := filepath.Join(o.Dir, filepath.FromSlash(name))
 		if _, err := os.Stat(p); err == nil && !replace {
 			files = append(files, File{Path: name, Kept: true})
@@ -70,22 +62,12 @@ func Init(o Options) ([]File, error) {
 			return err
 		}
 		files = append(files, File{Path: name})
-		return os.WriteFile(p, []byte(text), 0o644)
-	}
-	// A release's version is its tag without the v; a build of a branch
-	// ("dev") uses the workflow of main.
-	ref := "main"
-	if v := "v" + strings.TrimPrefix(o.Version, "v"); releasePattern.MatchString(v) {
-		ref = v
-	}
-	var wf bytes.Buffer
-	if err := workflow.Execute(&wf, map[string]any{"Branch": o.Branch, "Uses": Workflow + "@" + ref, "Version": ref, "Image": o.Image}); err != nil {
-		return nil, err
+		return os.WriteFile(p, []byte(b[name]), 0o644)
 	}
 	steps := []func() error{
-		func() error { return write(spec.File, toml, false) },
-		func() error { return write(".github/workflows/hakobu.yml", wf.String(), false) },
-		func() error { return write(".claude/skills/hakobu/SKILL.md", skill, true) },
+		func() error { return write(spec.File, false) },
+		func() error { return write(".github/workflows/hakobu.yml", false) },
+		func() error { return write(".claude/skills/hakobu/SKILL.md", true) },
 		func() error { return appendClaudeMD(o.Dir, &files) },
 		func() error { return mergeJSON(o.Dir, ".claude/settings.json", settings, &files) },
 		func() error { return mergeJSON(o.Dir, ".mcp.json", mcpServers, &files) },
@@ -98,6 +80,53 @@ func Init(o Options) ([]File, error) {
 	return files, nil
 }
 
+// Bundle is what init writes, as text by path, for an agent to write
+// itself (the MCP server on a server can't reach the repository): the
+// CLAUDE.md is hakobu's section of it, the settings.json what to merge in.
+// Without Dir, hakobu.toml has one app, web, as nothing is scanned.
+func Bundle(o Options) (map[string]string, error) {
+	if !namePattern.MatchString(o.Server) {
+		return nil, fmt.Errorf("server %q isn't a server's name; hakobu server list shows them", o.Server)
+	}
+	if last := o.Image[strings.LastIndex(o.Image, "/")+1:]; !strings.Contains(o.Image, "/") || strings.ContainsAny(last, ":@") {
+		return nil, fmt.Errorf("image %q: give the release image without its tag, like ghcr.io/owner/repo", o.Image)
+	}
+	if o.Branch == "" {
+		o.Branch = "main"
+	}
+	if o.Project == "" {
+		o.Project = toName(filepath.Base(absDir(o.Dir)))
+	}
+	if !namePattern.MatchString(o.Project) {
+		return nil, fmt.Errorf("project %q isn't a name (lowercase letters, digits and -)", o.Project)
+	}
+	toml, err := projectFile(o)
+	if err != nil {
+		return nil, err
+	}
+	// A release's version is its tag without the v; a build of a branch
+	// ("dev") uses the workflow of main.
+	ref := "main"
+	if v := "v" + strings.TrimPrefix(o.Version, "v"); releasePattern.MatchString(v) {
+		ref = v
+	}
+	var wf bytes.Buffer
+	if err := workflow.Execute(&wf, map[string]any{"Branch": o.Branch, "Uses": Workflow + "@" + ref, "Version": ref, "Image": o.Image}); err != nil {
+		return nil, err
+	}
+	set, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return map[string]string{
+		spec.File:                        toml,
+		".github/workflows/hakobu.yml":   wf.String(),
+		".claude/skills/hakobu/SKILL.md": skill,
+		"CLAUDE.md":                      claudeSection,
+		".claude/settings.json":          string(set) + "\n",
+	}, nil
+}
+
 var (
 	namePattern    = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)
 	releasePattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+`)
@@ -107,10 +136,13 @@ var (
 // Dockerfile or a stack detect knows (which then needs a Dockerfile
 // written), checked like any other.
 func projectFile(o Options) (string, error) {
-	presets := detect.Scan(repoFiles(o.Dir), func(name string) string {
-		b, _ := os.ReadFile(filepath.Join(o.Dir, filepath.FromSlash(name)))
-		return string(b)
-	})
+	var presets []detect.Preset
+	if o.Dir != "" {
+		presets = detect.Scan(repoFiles(o.Dir), func(name string) string {
+			b, _ := os.ReadFile(filepath.Join(o.Dir, filepath.FromSlash(name)))
+			return string(b)
+		})
+	}
 	type app struct {
 		Name, Path, Stack string
 		Port              int
@@ -135,7 +167,7 @@ func projectFile(o Options) (string, error) {
 	sort.SliceStable(apps, func(i, j int) bool { return apps[i].Path == "." && apps[j].Path != "." })
 	var b strings.Builder
 	fmt.Fprintf(&b, "# What %s runs for this repository; hakobu validate checks it.\n", o.Server)
-	fmt.Fprintf(&b, "# Reference: https://hakobu.dev/docs/hakobu-toml\nproject = %q\nserver = %q\n", toName(filepath.Base(absDir(o.Dir))), o.Server)
+	fmt.Fprintf(&b, "# Reference: https://hakobu.dev/docs/hakobu-toml\nproject = %q\nserver = %q\n", o.Project, o.Server)
 	for _, a := range apps {
 		fmt.Fprintf(&b, "\n[apps.%s]\n", a.Name)
 		switch {
@@ -235,9 +267,9 @@ const claudeSection = claudeMarker + `
 This repository deploys with hakobu: hakobu.toml says what its server runs, and each push to the default branch deploys. Before changing hakobu.toml, migrations, the Dockerfile or secrets, read the hakobu skill (.claude/skills/hakobu/SKILL.md).
 
 - Never run ` + "`hakobu destroy`" + ` or ` + "`hakobu restore`" + `, and never ask to: they're a person's to run.
-- Secrets: never read, print or commit one. Ask the person to run ` + "`hakobu secret set APP NAME`" + `; hakobu secret list shows the names.
+- Secrets: never read, print or commit one, nor ask for one in the chat. Ask the person to run ` + "`ssh -t SERVER secret set PROJECT APP NAME`" + ` in their terminal, then write what the MCP tool pending_secrets gives into hakobu.secrets.toml (the skill says how).
 - Migrations stay backward compatible: the version running uses the database while the next one migrates it.
-- The servers' state, deploys and logs: the ` + "`hakobu`" + ` MCP tools (status, deploys, logs), or ` + "`hakobu status`, `hakobu deploys`, `hakobu logs PROJECT/APP`" + `. Never ssh and docker on the server. Whether a push is live: its run of the deploy workflow (` + "`gh run list -w hakobu.yml -L 1`, then `gh run watch ID`" + `; not the tests' workflow), which waits for the deploy, or ` + "`hakobu deploys`" + `.
+- The servers' state, deploys and logs: the server's MCP tools (status, deploys, logs; the MCP server is named after the server). Never a shell or docker on the server. Whether a push is live: its run of the deploy workflow (` + "`gh run list -w hakobu.yml -L 1`, then `gh run watch ID`" + `; not the tests' workflow), which waits for the deploy, or ` + "`hakobu deploys`" + `.
 `
 
 // appendClaudeMD adds hakobu's section to CLAUDE.md, or brings the one there
