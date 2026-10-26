@@ -37,12 +37,13 @@ curl -fsSL https://hakobu.dev/install.sh | sudo \
   bash
 ```
 
-It installs rootless Docker (as the user `hakobu-docker`), Tailscale, unattended upgrades, hakobu (its signature checked) as a sandboxed systemd service running as `hakobu`, writes `/etc/hakobu/server.toml` and makes the server's key. Run it again to update: the config, the key and the data stay.
+It installs rootless Docker (as the user `hakobu-docker`), Tailscale (unless `HAKOBU_API=loopback`), unattended upgrades, hakobu (its signature checked) as a sandboxed systemd service running as `hakobu`, writes `/etc/hakobu/server.toml` and makes the server's key. Run it again to update: the config, the key and the data stay.
 
 ## Before you start
 
 - **Your key.** `age-keygen` makes one; keep the secret half in your password manager and give the public half (`age1…`) as `HAKOBU_OWNER_KEY`. Every secret and backup is sealed to it as well as to the server, so you can open them if the server is gone.
 - **A Tailscale auth key** ([admin console](https://login.tailscale.com/admin/settings/keys)), with the tag you'll give the server. The API listens only on the server's tailnet address. Your tailnet's policy should let your devices reach the tag on port 7070, and nothing else need reach it.
+- **Or no Tailscale:** with `HAKOBU_API=loopback` the API listens on 127.0.0.1 alone, and your laptop reaches it through SSH: `ssh -N -L 7070:127.0.0.1:7070 root@the-server`, then `hakobu server add NAME http://127.0.0.1:7070`.
 
 ## Settings
 
@@ -50,7 +51,8 @@ It installs rootless Docker (as the user `hakobu-docker`), Tailscale, unattended
 |---|---|
 | `HAKOBU_NAME` | the server's name: lowercase letters, digits and `-` |
 | `HAKOBU_OWNER_KEY` | your age public key |
-| `TS_AUTHKEY` | a Tailscale auth key, unless the server is in the tailnet already |
+| `HAKOBU_API` | `tailnet` (the default) or `loopback`: the API on 127.0.0.1, reached through SSH |
+| `TS_AUTHKEY` | a Tailscale auth key, unless the server is in the tailnet already (or `HAKOBU_API=loopback`) |
 | `TS_TAGS` | the server's Tailscale tags, `tag:hakobu` say |
 | `HAKOBU_INGRESS` | `public`, `tunnel` or `none` (the default): see below |
 | `HAKOBU_ACME_EMAIL` | Let's Encrypt's contact, for `public` |
