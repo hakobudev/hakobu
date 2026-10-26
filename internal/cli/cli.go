@@ -19,7 +19,6 @@ import (
 	"sort"
 	"strings"
 	"syscall"
-	"text/tabwriter"
 	"time"
 	"unicode"
 
@@ -342,68 +341,182 @@ func statusCmd() *cobra.Command {
 	}
 }
 
+// printStatus is a server at a glance: what's wrong first, then each
+// project's apps and data, then how full the machine is.
 func printStatus(w io.Writer, st server.Status) {
-	fmt.Fprintln(w, st.Server)
-	tw := tabwriter.NewWriter(w, 2, 4, 2, ' ', 0)
-	projects := make([]string, 0, len(st.Apps))
-	for p := range st.Apps {
-		projects = append(projects, p)
+	l := lookFor(w)
+	down := map[string]bool{}
+	for _, a := range st.Down {
+		down[a] = true
 	}
-	sort.Strings(projects)
-	for _, p := range projects {
-		apps := make([]string, 0, len(st.Apps[p]))
-		for a := range st.Apps[p] {
-			apps = append(apps, a)
-		}
-		sort.Strings(apps)
-		for _, a := range apps {
-			as := st.Apps[p][a]
-			fmt.Fprintf(tw, "  app\t%s/%s\t%s\t127.0.0.1:%d\n", p, a, short(as.Image), as.ProxyPort)
-		}
-	}
-	for _, r := range st.Resources {
-		note := ""
-		if r.Orphan {
-			note = "not in hakobu.toml: hakobu destroy " + r.Project + "/" + r.Name
-		}
-		fmt.Fprintf(tw, "  %s\t%s/%s\t%s\n", r.Kind, r.Project, r.Name, note)
-	}
-	tw.Flush()
+
+	// What's wrong, each a subject and its detail.
+	type issue struct{ sym, title, detail string }
+	var issues []issue
 	for _, e := range st.PollErrors {
-		fmt.Fprintf(w, "  release: %s\n", e)
-	}
-	if d := st.LastDeploy; d != nil {
-		outcome := "ok"
-		if d.Error != "" {
-			outcome = "FAILED: " + firstLine(d.Error)
-		}
-		what := strings.TrimSpace(d.Project + " " + shortRev(d.Revision))
-		fmt.Fprintf(w, "  last deploy: %s %s, %s\n", ago(d.At), what, outcome)
+		issues = append(issues, issue{symBad, "release", printable(e)})
 	}
 	for _, p := range st.Problems {
-		fmt.Fprintf(w, "  PROBLEM since %s: %s\n", ago(p.Since), p.Subject)
-	}
-	if !st.Mail {
-		fmt.Fprintln(w, "  mail: none configured — problems show only here")
-	}
-	switch b := st.LastBackup; {
-	case !st.Backups:
-		fmt.Fprintln(w, "  backups: NONE — no bucket configured")
-	case b == nil:
-		fmt.Fprintln(w, "  backups: none since hakobu started")
-	case len(b.Errors) > 0:
-		fmt.Fprintf(w, "  backups: %s, %d made, %d FAILED: %s\n", ago(b.At), len(b.Made), len(b.Errors), firstLine(b.Errors[0]))
-	default:
-		fmt.Fprintf(w, "  backups: %s, %d made\n", ago(b.At), len(b.Made))
-	}
-	switch {
-	case st.Latest != "":
-		fmt.Fprintf(w, "  hakobu: %s; %s is out: hakobu server update %s\n", st.Version, st.Latest, st.Server)
-	case st.Version != "":
-		fmt.Fprintf(w, "  hakobu: %s\n", st.Version)
+		title, detail := split(p.Subject)
+		issues = append(issues, issue{symBad, title, strings.TrimPrefix(detail+" · "+since(p.Since), " · ")})
 	}
 	if u := st.LastUpdate; u != nil && (u.State == "failed" || u.State == "rolled back") && time.Since(u.At) < 7*24*time.Hour {
-		fmt.Fprintf(w, "  last update %s: %s\n", ago(u.At), firstLine(u.Message))
+		issues = append(issues, issue{symBad, "update " + u.State, firstLine(printable(u.Message)) + " · " + since(u.At)})
+	}
+	bad := len(issues)
+	if !st.Mail {
+		issues = append(issues, issue{symData, "no mail", "problems show only here: ssh " + st.Server + " server set mail"})
+	}
+	if !st.Backups {
+		issues = append(issues, issue{symData, "no backups", "no bucket: ssh root@" + st.Server + " hakobu server set backups"})
+	}
+
+	head := l.bold(st.Server) + "  "
+	if bad > 0 {
+		plural := "s"
+		if bad == 1 {
+			plural = ""
+		}
+		head += l.bad(fmt.Sprintf("%s %d problem%s", symBad, bad, plural))
+	} else if len(issues) > 0 {
+		head += l.warn(fmt.Sprintf("%s %d to set up", symData, len(issues)))
+	} else {
+		head += l.ok(symOK + " all good")
+	}
+	var about []string
+	if st.Version != "" {
+		about = append(about, "hakobu "+st.Version)
+	}
+	if h := st.Host; h != nil {
+		if h.OS != "" {
+			about = append(about, h.OS)
+		}
+		about = append(about, h.Arch)
+		if h.Uptime > 0 {
+			about = append(about, "up "+since(time.Now().Add(-time.Duration(h.Uptime)*time.Second)))
+		}
+	}
+	if len(about) > 0 {
+		head += "  " + l.dim(strings.Join(about, " · "))
+	}
+	fmt.Fprintln(w, head)
+	if st.Latest != "" {
+		fmt.Fprintln(w, l.warn(symUpdate+" "+st.Latest+" is out")+"  "+l.dim("ssh "+st.Server+" server update"))
+	}
+
+	if len(issues) > 0 {
+		fmt.Fprintln(w)
+		titles := make([]string, len(issues))
+		for i, x := range issues {
+			titles[i] = x.title
+		}
+		tw := width(titles...)
+		for _, x := range issues {
+			sym, title := l.bad(x.sym), l.bold(x.title)
+			if x.sym == symData {
+				sym, title = l.warn(x.sym), l.warn(x.title)
+			}
+			fmt.Fprintf(w, "  %s %s  %s\n", sym, pad(title, x.title, tw), l.dim(x.detail))
+		}
+	}
+
+	// Each project: its apps, then its data.
+	type row struct{ sym, name, state, detail, hint string }
+	rows := map[string][]row{}
+	for p, apps := range st.Apps {
+		for a, as := range apps {
+			image, _, _ := strings.Cut(as.Image, "@")
+			r := row{l.ok(symOK), a, "up", l.dim(image), ""}
+			if down[p+"/"+a] {
+				r.sym, r.state = l.bad(symBad), "down"
+			}
+			rows[p] = append(rows[p], r)
+		}
+	}
+	slices.SortFunc(st.Resources, func(a, b server.ResourceStatus) int { return strings.Compare(a.Name, b.Name) })
+	kinds := map[string]string{"database": "postgres", "cache": "valkey"}
+	for _, x := range st.Resources {
+		kind := kinds[x.Kind]
+		if kind == "" {
+			kind = x.Kind
+		}
+		r := row{l.ok(symData), x.Name, kind, "", ""}
+		switch {
+		case x.Orphan:
+			r.sym, r.detail = l.warn(symData), l.warn("not in hakobu.toml")
+			r.hint = "ssh root@" + st.Server + " hakobu destroy " + x.Project + "/" + x.Name
+		case st.LastBackup != nil && slices.ContainsFunc(st.LastBackup.Made, func(m string) bool {
+			return strings.HasPrefix(m, x.Kind+" "+x.Project+"/"+x.Name+" of ")
+		}):
+			r.detail = l.dim("backed up " + since(st.LastBackup.At) + " ago")
+		}
+		rows[x.Project] = append(rows[x.Project], r)
+	}
+	projects := slices.Sorted(maps.Keys(rows))
+	var names, states []string
+	for _, p := range projects {
+		for _, r := range rows[p] {
+			names, states = append(names, r.name), append(states, r.state)
+		}
+	}
+	nw, sw := width(names...), width(states...)
+	for _, p := range projects {
+		fmt.Fprintln(w)
+		line := l.bold(p)
+		if d, ok := st.Deployed[p]; ok {
+			if d.Error != "" {
+				line += "  " + l.bad("deploy failed") + " " + l.dim(shortRev(d.Revision)+" · "+since(d.At)+" ago")
+			} else {
+				line += "  " + l.dim(strings.TrimSpace("deployed "+shortRev(d.Revision))+" · "+since(d.At)+" ago")
+			}
+		}
+		fmt.Fprintln(w, line)
+		// Apps first, as the server lists them; then the data.
+		slices.SortStableFunc(rows[p], func(a, b row) int {
+			if (a.state == "up" || a.state == "down") != (b.state == "up" || b.state == "down") {
+				if a.state == "up" || a.state == "down" {
+					return -1
+				}
+				return 1
+			}
+			return strings.Compare(a.name, b.name)
+		})
+		for _, r := range rows[p] {
+			state := r.state
+			if state == "down" {
+				state = l.bad(state)
+			}
+			fmt.Fprintln(w, strings.TrimRight(fmt.Sprintf("  %s %s  %s  %s", r.sym, pad(r.name, r.name, nw), pad(state, r.state, sw), r.detail), " "))
+			if r.hint != "" {
+				fmt.Fprintf(w, "    %s  %s  %s\n", strings.Repeat(" ", nw), strings.Repeat(" ", sw), l.dim(r.hint))
+			}
+		}
+	}
+	if len(projects) == 0 {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, l.dim("Nothing deployed yet: ask your agent to set a repository up."))
+	}
+
+	if h := st.Host; h != nil {
+		var meters []string
+		add := func(name string, used, total float64, warnAt float64) {
+			if total <= 0 {
+				return
+			}
+			share := used / total
+			pct := fmt.Sprintf("%3.0f%%", share*100)
+			if share >= warnAt {
+				pct = l.warn(pct)
+			}
+			meters = append(meters, l.dim(name)+" "+l.meter(share, share >= warnAt)+" "+pct)
+		}
+		add("disk", float64(h.DiskUsed), float64(h.DiskTotal), 0.8)
+		add("mem", float64(h.MemUsed), float64(h.MemTotal), 0.9)
+		add("cpu", h.CPU, 1, 0.9)
+		if len(meters) > 0 {
+			fmt.Fprintln(w)
+			fmt.Fprintln(w, strings.Join(meters, "   "))
+		}
 	}
 }
 
@@ -418,18 +531,15 @@ func deploysCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			for _, c := range cs {
+			for i, c := range cs {
 				var rs []apply.Result
 				if err := c.Get(cmd.Context(), fmt.Sprintf("/v1/deploys?n=%d", n), &rs); err != nil {
 					return err
 				}
-				for _, r := range rs {
-					outcome := fmt.Sprintf("%d changes", len(r.Changes))
-					if r.Error != "" {
-						outcome = "FAILED: " + firstLine(r.Error)
-					}
-					fmt.Printf("%s  %s  %s %s  %s\n", r.At.Local().Format("2006-01-02 15:04"), c.Name, r.Project, shortRev(r.Revision), outcome)
+				if i > 0 {
+					fmt.Println()
 				}
+				printDeploys(os.Stdout, c.Name, rs)
 			}
 			return nil
 		},
@@ -557,11 +667,9 @@ func backupCmd() *cobra.Command {
 					errs = append(errs, err)
 					continue
 				}
-				for _, m := range run.Made {
-					fmt.Printf("%s: %s\n", c.Name, m)
-				}
-				for _, e := range run.Errors {
-					errs = append(errs, fmt.Errorf("%s: %s", c.Name, e))
+				printBackupRun(os.Stdout, c.Name, run)
+				if len(run.Errors) > 0 {
+					errs = append(errs, fmt.Errorf("%s: %d of %d backups failed", c.Name, len(run.Errors), len(run.Made)+len(run.Errors)))
 				}
 			}
 			return errors.Join(errs...)
@@ -583,11 +691,8 @@ func backupsCmd() *cobra.Command {
 			if err := cl.Get(cmd.Context(), "/v1/backups?project="+url.QueryEscape(args[0]), &ms); err != nil {
 				return err
 			}
-			tw := tabwriter.NewWriter(os.Stdout, 2, 4, 2, ' ', 0)
-			for _, m := range ms {
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", m.At.Format(time.RFC3339), m.Kind, m.Name, m.Checked)
-			}
-			return tw.Flush()
+			printBackups(os.Stdout, cl.Name, args[0], ms)
+			return nil
 		},
 	}
 }
