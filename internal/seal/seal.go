@@ -117,6 +117,9 @@ func New(recipients ...string) (*Secrets, error) {
 // Set seals value as app's variable name; app "hakobu" is hakobu's own
 // table.
 func (s *Secrets) Set(app, name, value string) error {
+	if len(value) > maxSecret {
+		return fmt.Errorf("%s is more than 1 MiB: a secret that big goes in a volume, not the environment", name)
+	}
 	sealed, err := s.seal(value)
 	if err != nil {
 		return err
@@ -240,9 +243,15 @@ func unseal(v string, id age.Identity) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	plain, err := io.ReadAll(io.LimitReader(r, 1<<20))
+	plain, err := io.ReadAll(io.LimitReader(r, maxSecret+1))
+	if err == nil && len(plain) > maxSecret {
+		return "", errors.New("a secret of more than 1 MiB")
+	}
 	return string(plain), err
 }
+
+// maxSecret is the most a secret holds.
+const maxSecret = 1 << 20
 
 // Marshal writes the file back, keys in order, recipients first.
 func (s *Secrets) Marshal() ([]byte, error) {
