@@ -77,6 +77,7 @@ The `hakobu` MCP server (`hakobu mcp`, in `.mcp.json`; its tools are the command
 - `hakobu deploy [PROJECT]` checks for a new release now; `--force` deploys the current one again (a restart).
 - `hakobu rollback PROJECT`: the release before, with today's secrets. It doesn't undo a migration.
 - `hakobu backup`, `hakobu backups PROJECT`: back up now, list them.
+- `hakobu server update [NAME]` (MCP `update`): when status shows a newer hakobu, update it. Only releases signed by hakobu and newer than the server's; one that doesn't come up is replaced by the one before. Don't update in the middle of something the user is watching (a migration, a deploy).
 
 `hakobu wait` is CI's: it needs the commit and a GitHub token. From here, the servers are read with these, and only these: not ssh, not docker on the server, not `printenv HAKOBU_REVISION` in a container.
 

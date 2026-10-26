@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 
 	"github.com/hakobudev/hakobu/internal/apply"
 	"github.com/hakobudev/hakobu/internal/backups"
 	"github.com/hakobudev/hakobu/internal/client"
 	"github.com/hakobudev/hakobu/internal/server"
+	"github.com/hakobudev/hakobu/internal/update"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 )
@@ -17,14 +19,14 @@ const mcpInstructions = `hakobu deploys projects to servers the user owns. A pro
 
 To change what runs, edit hakobu.toml in the repository and push: never change a server by hand. Check it with hakobu validate. Secrets go in with hakobu secret set APP NAME (the value on stdin); you can add them but not read them.
 
-These tools see the servers and act on them: status, deploys, logs and backups to look; deploy to check for a release now; rollback to go back one release; backup to back up now. Restoring a backup and destroying data aren't here: they're the user's to do, with the admin token.
+These tools see the servers and act on them: status, deploys, logs and backups to look; deploy to check for a release now; rollback to go back one release; backup to back up now; update to update hakobu itself when status shows a newer release (it installs only newer releases signed by hakobu, and puts the old one back if the new one doesn't come up). Restoring a backup and destroying data aren't here: they're the user's to do, with the admin token.
 
 A deploy never destroys data: a database, cache or volume taken out of hakobu.toml stays (status shows it as an orphan). Migrations run in the app's release command, after a dump; write them so the previous version still works with the new schema, as a rollback doesn't undo them.`
 
 func mcpCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "mcp",
-		Short: "Serve the servers to an agent over MCP (stdio), with the operator tokens: it can look, deploy, roll back and back up, never restore or destroy",
+		Short: "Serve the servers to an agent over MCP (stdio), with the operator tokens: it can look, deploy, roll back, back up and update hakobu, never restore or destroy",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return newMCP(cmd).Run(cmd.Context(), &mcp.StdioTransport{})
@@ -158,6 +160,36 @@ func newMCP(cmd *cobra.Command) *mcp.Server {
 	type runs struct {
 		Runs map[string]server.BackupRun `json:"runs"`
 	}
+	type updateIn struct {
+		Server string `json:"server,omitempty" jsonschema:"the server; all of them if empty"`
+		To     string `json:"to,omitempty" jsonschema:"a release, like v1.3.0; the latest if empty"`
+	}
+	type updates struct {
+		Updates map[string]update.Status `json:"updates"`
+		Errors  []string                 `json:"errors,omitempty"`
+	}
+	mcp.AddTool(s, &mcp.Tool{Name: "update", Description: "Update hakobu on a server to a newer release (status shows one as latest), and wait for how it went: only releases signed by hakobu, only newer ones; if the new version doesn't come up within minutes, the one before goes back. Apps keep running; their proxies pause for about a second.", Annotations: acts},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in updateIn) (*mcp.CallToolResult, updates, error) {
+			out := updates{Updates: map[string]update.Status{}}
+			cs, err := pick(cmd, in.Server)
+			if err != nil {
+				return nil, out, err
+			}
+			to := in.To
+			if to != "" {
+				to = update.Tag(to)
+			}
+			for _, c := range cs {
+				st, err := updateServer(ctx, c, to, io.Discard)
+				if err != nil {
+					out.Errors = append(out.Errors, c.Name+": "+err.Error())
+				}
+				if st.State != "" {
+					out.Updates[c.Name] = st
+				}
+			}
+			return nil, out, nil
+		})
 	mcp.AddTool(s, &mcp.Tool{Name: "backup", Description: "Back up every database and volume of a server now, as the daily backups do, each read back before it counts. Takes a while for big databases.", Annotations: acts},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in serverIn) (*mcp.CallToolResult, runs, error) {
 			out := runs{Runs: map[string]server.BackupRun{}}

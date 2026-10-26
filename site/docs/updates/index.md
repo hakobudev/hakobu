@@ -1,17 +1,20 @@
 # Updates
 
-To update a server, run on it, as root:
+Each server looks for a newer hakobu once a day, and `hakobu status` (and the MCP `status`) shows one that's out. To update, from your laptop:
 
 ```bash
-sudo hakobu server update            # the latest release
-sudo hakobu server update --to v1.3.0
+hakobu server update kasl-1            # the latest release
+hakobu server update kasl-1 --to v1.3.0
+hakobu server update                   # every server
 ```
 
-It installs only a newer release, and only one signed by hakobu's key; it runs that release's own installer (the `install.sh` it carries), so an update does what installing it by hand does. If the new version doesn't come up within three minutes, the binary from before goes back in and is started again. `/opt/hakobu/update-status.json` says how the last update went.
+It waits and says how it went. An agent does the same with the MCP tool `update`, with the operator token: an update installs only a newer release signed by hakobu's key, so the most it can do is move a server forward.
 
-hakobu itself can ask for one: creating `update-request` in its data directory (empty, or a release's tag) makes systemd run the same update as root (`hakobu-update.path`). hakobu runs as a user that can't write its own binary, so the worst such a request does is install a newer signed release.
+On the server, the API only asks: hakobu runs as a user that can't write its own binary, so it creates `update-request` in its data directory, and systemd (`hakobu-update.path`) runs the update as root. That checks the release's signature and checksum, refuses one that isn't newer, and runs the new release's own installer (the `install.sh` it carries), so an update does what installing it by hand does. If the new version doesn't come up within three minutes, the binary from before goes back in and is started again. `/opt/hakobu/update-status.json` says how the last update went, and status shows a failed one.
 
-A server on v1.2.0 or older updates the first time by running the installer again, which sets this up:
+On the server itself, as root, `sudo hakobu server update [--to v1.3.0]` does the same without the API.
+
+A server on v1.2.0 or older has no updater yet: run the installer on it once, which sets it up.
 
 ```bash
 curl -fsSL https://hakobu.dev/install.sh | sudo HAKOBU_VERSION=v1.3.0 bash

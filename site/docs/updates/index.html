@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Updates · hakobu docs</title>
-<meta name="description" content="To update a server, run on it, as root:">
+<meta name="description" content="Each server looks for a newer hakobu once a day, and hakobu status (and the MCP status) shows one that&#39;s out. To update, from your laptop:">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/style.css?v=8c38cfb7">
@@ -54,13 +54,15 @@
           <a class="btn btn-sm" href="index.md">View as Markdown</a>
         </div>
       </div>
-      <p>To update a server, run on it, as root:</p>
-<pre><code class="language-bash">sudo hakobu server update            # the latest release
-sudo hakobu server update --to v1.3.0
+      <p>Each server looks for a newer hakobu once a day, and <code>hakobu status</code> (and the MCP <code>status</code>) shows one that's out. To update, from your laptop:</p>
+<pre><code class="language-bash">hakobu server update kasl-1            # the latest release
+hakobu server update kasl-1 --to v1.3.0
+hakobu server update                   # every server
 </code></pre>
-<p>It installs only a newer release, and only one signed by hakobu's key; it runs that release's own installer (the <code>install.sh</code> it carries), so an update does what installing it by hand does. If the new version doesn't come up within three minutes, the binary from before goes back in and is started again. <code>/opt/hakobu/update-status.json</code> says how the last update went.</p>
-<p>hakobu itself can ask for one: creating <code>update-request</code> in its data directory (empty, or a release's tag) makes systemd run the same update as root (<code>hakobu-update.path</code>). hakobu runs as a user that can't write its own binary, so the worst such a request does is install a newer signed release.</p>
-<p>A server on v1.2.0 or older updates the first time by running the installer again, which sets this up:</p>
+<p>It waits and says how it went. An agent does the same with the MCP tool <code>update</code>, with the operator token: an update installs only a newer release signed by hakobu's key, so the most it can do is move a server forward.</p>
+<p>On the server, the API only asks: hakobu runs as a user that can't write its own binary, so it creates <code>update-request</code> in its data directory, and systemd (<code>hakobu-update.path</code>) runs the update as root. That checks the release's signature and checksum, refuses one that isn't newer, and runs the new release's own installer (the <code>install.sh</code> it carries), so an update does what installing it by hand does. If the new version doesn't come up within three minutes, the binary from before goes back in and is started again. <code>/opt/hakobu/update-status.json</code> says how the last update went, and status shows a failed one.</p>
+<p>On the server itself, as root, <code>sudo hakobu server update [--to v1.3.0]</code> does the same without the API.</p>
+<p>A server on v1.2.0 or older has no updater yet: run the installer on it once, which sets it up.</p>
 <pre><code class="language-bash">curl -fsSL https://hakobu.dev/install.sh | sudo HAKOBU_VERSION=v1.3.0 bash
 </code></pre>
 <p>The config, the key and the data stay. Apps keep running; their proxies live in hakobu, so they don't answer for about half a second while it restarts. Docker is restarted only if its settings changed.</p>

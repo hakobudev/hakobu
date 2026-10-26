@@ -46,7 +46,7 @@ func Root(version string) *cobra.Command {
 		SilenceErrors:    true,
 	}
 	root.PersistentFlags().String("server", "", "the server to talk to (default: the one the project is on, or the only one)")
-	root.AddCommand(serveCmd(), serverCmd(version), statusCmd(), deploysCmd(), logsCmd(), deployCmd(), rollbackCmd(),
+	root.AddCommand(serveCmd(version), serverCmd(version), statusCmd(), deploysCmd(), logsCmd(), deployCmd(), rollbackCmd(),
 		backupCmd(), backupsCmd(), restoreCmd(), destroyCmd(), initCmd(), secretCmd(), validateCmd(), buildCmd(), waitCmd(),
 		mcpCmd(), dialerCmd())
 	return root
@@ -54,7 +54,7 @@ func Root(version string) *cobra.Command {
 
 // On the server.
 
-func serveCmd() *cobra.Command {
+func serveCmd(version string) *cobra.Command {
 	config := server.ConfigFile
 	c := &cobra.Command{
 		Use:   "serve",
@@ -68,6 +68,10 @@ func serveCmd() *cobra.Command {
 			d, err := server.New(cfg, node.Local{}, os.Stderr)
 			if err != nil {
 				return err
+			}
+			d.Version, d.LatestRelease = version, update.Latest
+			if bin, err := os.Executable(); err == nil {
+				d.InstallDir = filepath.Dir(bin)
 			}
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
@@ -160,37 +164,7 @@ func serverCmd(version string) *cobra.Command {
 			return nil
 		},
 	}
-	var requested bool
-	var to string
-	updateCmd := &cobra.Command{
-		Use:   "update",
-		Short: "On this server, as root: install a newer signed release (the latest, or --to's), and put this one back if it doesn't come up",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if os.Geteuid() != 0 {
-				return errors.New("run it on the server as root")
-			}
-			cfg, err := server.LoadConfig(config)
-			if err != nil {
-				return fmt.Errorf("%s: %w", config, err)
-			}
-			bin, err := os.Executable()
-			if err != nil {
-				return err
-			}
-			in := &update.Install{Dir: filepath.Dir(bin), Data: cfg.DataDir, Version: version, Listen: cfg.Listen, Out: os.Stdout}
-			if requested {
-				return in.UpdateRequested()
-			}
-			if to != "" {
-				to = update.Tag(to)
-			}
-			return in.Update(to)
-		},
-	}
-	updateCmd.Flags().StringVar(&config, "config", config, "the server's config")
-	updateCmd.Flags().StringVar(&to, "to", "", "the release to install (default: the latest)")
-	updateCmd.Flags().BoolVar(&requested, "requested", false, "the release hakobu asked for (hakobu-update.service runs it so)")
+	updateCmd := serverUpdateCmd(version, &config)
 	installer := &cobra.Command{
 		Use:    "installer",
 		Short:  "Print this release's install.sh (an update runs it)",
@@ -368,6 +342,15 @@ func printStatus(w io.Writer, st server.Status) {
 		fmt.Fprintf(w, "  backups: %s, %d made, %d FAILED: %s\n", ago(b.At), len(b.Made), len(b.Errors), firstLine(b.Errors[0]))
 	default:
 		fmt.Fprintf(w, "  backups: %s, %d made\n", ago(b.At), len(b.Made))
+	}
+	switch {
+	case st.Latest != "":
+		fmt.Fprintf(w, "  hakobu: %s; %s is out: hakobu server update %s\n", st.Version, st.Latest, st.Server)
+	case st.Version != "":
+		fmt.Fprintf(w, "  hakobu: %s\n", st.Version)
+	}
+	if u := st.LastUpdate; u != nil && (u.State == "failed" || u.State == "rolled back") && time.Since(u.At) < 7*24*time.Hour {
+		fmt.Fprintf(w, "  last update %s: %s\n", ago(u.At), firstLine(u.Message))
 	}
 }
 

@@ -13,11 +13,12 @@ import (
 	"github.com/hakobudev/hakobu/internal/apply"
 	"github.com/hakobudev/hakobu/internal/backups"
 	"github.com/hakobudev/hakobu/internal/registry"
+	"github.com/hakobudev/hakobu/internal/update"
 )
 
 // API is the daemon's HTTP API, for the CLI and its MCP server. Every
-// call needs a token: the operator's sees, deploys, rolls back and backs
-// up; only the admin's restores and destroys.
+// call needs a token: the operator's sees, deploys, rolls back, backs up
+// and updates hakobu; only the admin's restores and destroys.
 func (d *Daemon) API() http.Handler {
 	mux := http.NewServeMux()
 	op, admin := d.need(Operator), d.need(Admin)
@@ -29,6 +30,7 @@ func (d *Daemon) API() http.Handler {
 	mux.Handle("POST /v1/deploy", op(d.deploy))
 	mux.Handle("POST /v1/rollback", op(d.rollback))
 	mux.Handle("POST /v1/backup", op(d.backupNow))
+	mux.Handle("POST /v1/update", op(d.requestUpdate))
 	mux.Handle("POST /v1/restore", admin(d.restore))
 	mux.Handle("POST /v1/destroy", admin(d.destroy))
 	return mux
@@ -107,6 +109,9 @@ type Status struct {
 	Backups    bool                                 `json:"backups"` // a bucket is configured
 	Problems   []alert.Problem                      `json:"problems,omitempty"`
 	Mail       bool                                 `json:"mail"` // a mail server is configured
+	Version    string                               `json:"version"`
+	Latest     string                               `json:"latest,omitempty"` // a newer release of hakobu
+	LastUpdate *update.Status                       `json:"last_update,omitempty"`
 }
 
 type ResourceStatus struct {
@@ -141,6 +146,7 @@ func (d *Daemon) status(w http.ResponseWriter, r *http.Request) (any, error) {
 		s.LastBackup = &b
 	}
 	d.mu.Unlock()
+	d.updateStatus(&s)
 	return s, nil
 }
 

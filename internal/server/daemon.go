@@ -51,9 +51,16 @@ type Daemon struct {
 	// Containers names the running containers, for the audit.
 	Containers func(ctx context.Context) ([]string, error)
 	Log        io.Writer
+	// Version is hakobu's own; InstallDir holds its binary and the last
+	// update's status; LatestRelease finds hakobu's newest release (nil:
+	// none is looked for).
+	Version       string
+	InstallDir    string
+	LatestRelease func() (string, error)
 
 	mu         sync.Mutex
 	lastBackup BackupRun
+	latest     string // hakobu's newest release, as last found
 }
 
 // BackupRun is how the last daily backups went.
@@ -145,6 +152,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	go d.Watch.Run(ctx)
 	go d.backupDaily(ctx)
 	go d.monitor(ctx)
+	go d.checkReleases(ctx)
 	go func() {
 		if err := ingress.Serve(ctx, d.Config.Ingress, d.Applier.Domains, d.Config.CertDir(), d.log()); err != nil {
 			fmt.Fprintln(d.log(), err)
