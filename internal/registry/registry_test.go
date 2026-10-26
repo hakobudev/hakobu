@@ -19,9 +19,9 @@ import (
 func TestParseRef(t *testing.T) {
 	d := "sha256:" + strings.Repeat("a", 64)
 	for in, want := range map[string]Ref{
-		"ghcr.io/org/kasl:main":     {Host: "ghcr.io", Repo: "org/kasl", Tag: "main"},
-		"ghcr.io/org/kasl@" + d:     {Host: "ghcr.io", Repo: "org/kasl", Digest: d},
-		"ghcr.io/org/kasl:v1@" + d:  {Host: "ghcr.io", Repo: "org/kasl", Tag: "v1", Digest: d},
+		"ghcr.io/org/nova:main":     {Host: "ghcr.io", Repo: "org/nova", Tag: "main"},
+		"ghcr.io/org/nova@" + d:     {Host: "ghcr.io", Repo: "org/nova", Digest: d},
+		"ghcr.io/org/nova:v1@" + d:  {Host: "ghcr.io", Repo: "org/nova", Tag: "v1", Digest: d},
 		"busybox:1.36":              {Host: "registry-1.docker.io", Repo: "library/busybox", Tag: "1.36"},
 		"user/app":                  {Host: "registry-1.docker.io", Repo: "user/app", Tag: "latest"},
 		"localhost:5000/app:dev":    {Host: "localhost:5000", Repo: "app", Tag: "dev"},
@@ -72,10 +72,10 @@ func newFakeRegistry(t *testing.T, labels map[string]string) *fakeRegistry {
 		map[string]any{"digest": manDigest, "platform": map[string]string{"os": "linux", "architecture": runtime.GOARCH}},
 	}})
 	f.tag = idxDigest
-	docs := map[string][]byte{"/v2/org/kasl/manifests/main": idx, "/v2/org/kasl/manifests/" + idxDigest: idx, "/v2/org/kasl/manifests/" + manDigest: man, "/v2/org/kasl/blobs/" + cfgDigest: cfg}
+	docs := map[string][]byte{"/v2/org/nova/manifests/main": idx, "/v2/org/nova/manifests/" + idxDigest: idx, "/v2/org/nova/manifests/" + manDigest: man, "/v2/org/nova/blobs/" + cfgDigest: cfg}
 	f.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/token" {
-			if u, p, _ := r.BasicAuth(); u != "bot" || p != "pat" || r.URL.Query().Get("scope") != "repository:org/kasl:pull" {
+			if u, p, _ := r.BasicAuth(); u != "bot" || p != "pat" || r.URL.Query().Get("scope") != "repository:org/nova:pull" {
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
@@ -107,12 +107,12 @@ func newFakeRegistry(t *testing.T, labels map[string]string) *fakeRegistry {
 func (f *fakeRegistry) client(user, pass string) (*Client, Ref) {
 	host := strings.TrimPrefix(f.URL, "http://")
 	c := &Client{Insecure: map[string]bool{host: true}, Auth: map[string]Credentials{host: {user, pass}}}
-	r, _ := ParseRef(host + "/org/kasl:main")
+	r, _ := ParseRef(host + "/org/nova:main")
 	return c, r
 }
 
 func TestDigestAndLabels(t *testing.T) {
-	f := newFakeRegistry(t, map[string]string{"dev.hakobu.spec": "project = \"kasl\""})
+	f := newFakeRegistry(t, map[string]string{"dev.hakobu.spec": "project = \"nova\""})
 	c, r := f.client("bot", "pat")
 	ctx := context.Background()
 	d, err := c.Digest(ctx, r)
@@ -127,7 +127,7 @@ func TestDigestAndLabels(t *testing.T) {
 		t.Errorf("second poll: %v, %d heads", err, f.heads.Load())
 	}
 	labels, err := c.Labels(ctx, r.Pinned(d))
-	if err != nil || labels["dev.hakobu.spec"] != `project = "kasl"` {
+	if err != nil || labels["dev.hakobu.spec"] != `project = "nova"` {
 		t.Errorf("labels %v, %v", labels, err)
 	}
 }

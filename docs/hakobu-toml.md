@@ -4,7 +4,7 @@ What a project's server runs, at the root of its repository. It's strict: an unk
 
 ```toml
 project = "crm"
-server = "kasl-1"
+server = "nova-1"
 
 [apps.web]
 domain = "crm.example.com"

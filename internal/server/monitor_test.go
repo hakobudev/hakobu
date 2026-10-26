@@ -41,7 +41,7 @@ func watched(t *testing.T) (*Daemon, *nodetest.Fake, *inbox) {
 		f.Images[app][node.Next] = ref
 		return nil
 	}
-	p, err := spec.Parse([]byte("project = \"kasl\"\nserver = \"kasl-1\"\n[apps.crm]\nuses = [\"main\"]\n[databases.main]\n"))
+	p, err := spec.Parse([]byte("project = \"nova\"\nserver = \"nova-1\"\n[apps.crm]\nuses = [\"main\"]\n[databases.main]\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,12 +64,12 @@ func TestAppDown(t *testing.T) {
 	}
 	d.checkApps(ctx, misses)
 	d.checkApps(ctx, misses)
-	if len(box.subjects) != 1 || !strings.Contains(box.last(), "kasl/crm is down: didn't return 2xx") {
+	if len(box.subjects) != 1 || !strings.Contains(box.last(), "nova/crm is down: didn't return 2xx") {
 		t.Fatalf("after 3 misses: %q", box.subjects)
 	}
 	f.Fail("CheckHealth", nil)
 	d.checkApps(ctx, misses)
-	if len(box.subjects) != 2 || !strings.Contains(box.last(), "resolved: kasl/crm is down") {
+	if len(box.subjects) != 2 || !strings.Contains(box.last(), "resolved: nova/crm is down") {
 		t.Errorf("after it answered: %q", box.subjects)
 	}
 }
@@ -103,11 +103,11 @@ func TestDiskAndPostgres(t *testing.T) {
 func TestAuditContainers(t *testing.T) {
 	d, _, box := watched(t)
 	ctx := context.Background()
-	running := []string{"kasl-crm-green", node.PostgresContainer, "adminer"}
+	running := []string{"nova-crm-green", node.PostgresContainer, "adminer"}
 	d.Containers = func(context.Context) ([]string, error) { return running, nil }
 	d.Audit(ctx)
 	mailed := strings.Join(box.subjects, "\n")
-	if !strings.Contains(mailed, "container adminer runs, and hakobu didn't start it") || strings.Contains(mailed, "kasl-crm-green") {
+	if !strings.Contains(mailed, "container adminer runs, and hakobu didn't start it") || strings.Contains(mailed, "nova-crm-green") {
 		t.Fatalf("%s", mailed)
 	}
 	// Docker not answering isn't adminer gone.
@@ -126,20 +126,20 @@ func TestAuditContainers(t *testing.T) {
 
 func TestDeployAlerts(t *testing.T) {
 	d, _, box := watched(t)
-	d.Watch.Done(apply.Meta{}, apply.Result{Release: "ghcr.io/kasl/rel@sha256:1", Error: "not found"})
-	if !strings.Contains(box.last(), "deploy of ghcr.io/kasl/rel failed: not found") {
+	d.Watch.Done(apply.Meta{}, apply.Result{Release: "ghcr.io/nova/rel@sha256:1", Error: "not found"})
+	if !strings.Contains(box.last(), "deploy of ghcr.io/nova/rel failed: not found") {
 		t.Fatalf("%q", box.subjects)
 	}
-	d.Watch.Done(apply.Meta{}, apply.Result{Release: "ghcr.io/kasl/rel@sha256:2", Project: "kasl"})
-	if !strings.Contains(box.last(), "resolved: deploy of ghcr.io/kasl/rel") {
+	d.Watch.Done(apply.Meta{}, apply.Result{Release: "ghcr.io/nova/rel@sha256:2", Project: "nova"})
+	if !strings.Contains(box.last(), "resolved: deploy of ghcr.io/nova/rel") {
 		t.Fatalf("a failure before the project was known stays open: %q", box.subjects)
 	}
-	d.Watch.Done(apply.Meta{}, apply.Result{Release: "ghcr.io/kasl/rel@sha256:3", Project: "kasl", Error: "apps.crm: release command: exit 3\nmore"})
-	if !strings.Contains(box.last(), "deploy of kasl failed: apps.crm: release command: exit 3") {
+	d.Watch.Done(apply.Meta{}, apply.Result{Release: "ghcr.io/nova/rel@sha256:3", Project: "nova", Error: "apps.crm: release command: exit 3\nmore"})
+	if !strings.Contains(box.last(), "deploy of nova failed: apps.crm: release command: exit 3") {
 		t.Fatalf("%q", box.subjects)
 	}
-	d.Watch.Done(apply.Meta{}, apply.Result{Release: "ghcr.io/kasl/rel@sha256:4", Project: "kasl"})
-	if !strings.Contains(box.last(), "resolved: deploy of kasl failed") {
+	d.Watch.Done(apply.Meta{}, apply.Result{Release: "ghcr.io/nova/rel@sha256:4", Project: "nova"})
+	if !strings.Contains(box.last(), "resolved: deploy of nova failed") {
 		t.Errorf("%q", box.subjects)
 	}
 }

@@ -10,7 +10,7 @@ hakobu runs your projects on servers you own. A project says what it needs in a 
 - **Secrets in the repository**, each sealed with [age](https://age-encryption.org) to the server and to you: anyone, an agent too, can add one; only the server and you can read them.
 - **Backups** of every database and volume each day, sealed, to any S3 bucket and a copy elsewhere, each restored into scratch right after upload to prove it restores.
 - **Alerts** by email when an app is down, a deploy or backup fails, the disk fills, or the audit finds a port open to the internet or a container hakobu didn't start; a pulse to a dead man's switch says hakobu itself is alive.
-- **Agents welcome, nothing on your laptop.** Each server is its own MCP server, over SSH: your agent sees status and logs, deploys, rolls back and sets a repository up, with a skill for Claude Code that says how to change the file and migrations safely. You run the same commands, `ssh kasl-1 status`. Deleting or restoring data is root's, and the agent can't.
+- **Agents welcome, nothing on your laptop.** Each server is its own MCP server, over SSH: your agent sees status and logs, deploys, rolls back and sets a repository up, with a skill for Claude Code that says how to change the file and migrations safely. You run the same commands, `ssh nova-1 status`. Deleting or restoring data is root's, and the agent can't.
 
 ## What it needs
 

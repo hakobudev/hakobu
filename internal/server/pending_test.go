@@ -16,31 +16,31 @@ func TestPendingSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 	s, _ := seal.New(id.Recipient().String(), owner.Recipient().String())
-	sealed := func(v string) string { x, _ := s.SealAt("kasl/web/DATABASE_URL", v); return x }
+	sealed := func(v string) string { x, _ := s.SealAt("nova/web/DATABASE_URL", v); return x }
 	add := func(project, app, name, value string) int {
 		b, _ := json.Marshal(map[string]string{"project": project, "app": app, "name": name, "sealed": value})
 		code, _ := call(t, srv, "op-token", "POST", "/v1/secrets", string(b))
 		return code
 	}
-	if code := add("kasl", "web", "DATABASE_URL", sealed("one")); code != http.StatusOK {
+	if code := add("nova", "web", "DATABASE_URL", sealed("one")); code != http.StatusOK {
 		t.Fatalf("add: %d", code)
 	}
-	if code := add("kasl", "web", "DATABASE_URL", sealed("two")); code != http.StatusOK {
+	if code := add("nova", "web", "DATABASE_URL", sealed("two")); code != http.StatusOK {
 		t.Fatalf("again: %d", code)
 	}
 	siteKey, _ := s.SealAt("site/web/KEY", "x")
 	_ = add("site", "web", "KEY", siteKey)
 	bare, _ := s.Seal("x")
 	other, _ := seal.New(owner.Recipient().String())
-	notOurs, _ := other.SealAt("kasl/web/DATABASE_URL", "x")
+	notOurs, _ := other.SealAt("nova/web/DATABASE_URL", "x")
 	for _, bad := range []struct{ project, app, name, sealed string }{
-		{"kasl", "web", "DATABASE_URL", notOurs},
-		{"kasl", "web", "DATABASE_URL", bare},
-		{"kasl", "web", "OTHER", sealed("x")}, // sealed for DATABASE_URL
+		{"nova", "web", "DATABASE_URL", notOurs},
+		{"nova", "web", "DATABASE_URL", bare},
+		{"nova", "web", "OTHER", sealed("x")}, // sealed for DATABASE_URL
 		{"site", "web", "DATABASE_URL", sealed("x")},
-		{"kasl", "web", "lower", sealed("x")},
-		{"kasl", "hakobu", "nope", sealed("x")},
-		{"Kasl!", "web", "X", sealed("x")},
+		{"nova", "web", "lower", sealed("x")},
+		{"nova", "hakobu", "nope", sealed("x")},
+		{"Nova!", "web", "X", sealed("x")},
 	} {
 		if code := add(bad.project, bad.app, bad.name, bad.sealed); code != http.StatusBadRequest {
 			t.Errorf("%v: %d", bad, code)
@@ -59,17 +59,17 @@ func TestPendingSecrets(t *testing.T) {
 		_ = json.NewDecoder(resp.Body).Decode(&ps)
 		return ps
 	}
-	ps := get("GET", "/v1/secrets?project=kasl")
+	ps := get("GET", "/v1/secrets?project=nova")
 	if len(ps) != 1 {
-		t.Fatalf("kasl's: %+v", ps)
+		t.Fatalf("nova's: %+v", ps)
 	}
-	if v, _, err := seal.OpenAt(ps[0].Sealed, owner, "kasl/web/DATABASE_URL"); err != nil || v != "two" {
+	if v, _, err := seal.OpenAt(ps[0].Sealed, owner, "nova/web/DATABASE_URL"); err != nil || v != "two" {
 		t.Errorf("the newer one: %q %v", v, err)
 	}
-	if got := get("POST", "/v1/secrets/clear?project=kasl"); len(got) != 1 {
+	if got := get("POST", "/v1/secrets/clear?project=nova"); len(got) != 1 {
 		t.Errorf("clear gave %+v", got)
 	}
-	if got := get("GET", "/v1/secrets?project=kasl"); len(got) != 0 {
+	if got := get("GET", "/v1/secrets?project=nova"); len(got) != 0 {
 		t.Errorf("after clear: %+v", got)
 	}
 	if got := get("GET", "/v1/secrets?project=site"); len(got) != 1 {

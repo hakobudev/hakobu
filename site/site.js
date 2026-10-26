@@ -16,23 +16,23 @@ tabs.forEach(t => t.addEventListener("click", () => {
 }));
 
 // A push, as CI, the server and the commit see it: [source, step, detail,
-// class of the detail]. A source of "" is the shell; "kasl-1" the server.
+// class of the detail]. A source of "" is the shell; "nova-1" the server.
 const PUSHES = {
   ok: {
     sha: "a1f3c9e", msg: "Add invoices",
     lines: [
       ["", "git push", "main → a1f3c9e Add invoices"],
       ["CI", "validate", "hakobu.toml ok"],
-      ["CI", "build", "web → ghcr.io/kasl/crm-web@sha256:90c7…"],
-      ["CI", "build", "admin → ghcr.io/kasl/crm-admin@sha256:4be1…"],
-      ["CI", "release", "ghcr.io/kasl/crm:main, last"],
+      ["CI", "build", "web → ghcr.io/nova/crm-web@sha256:90c7…"],
+      ["CI", "build", "admin → ghcr.io/nova/crm-admin@sha256:4be1…"],
+      ["CI", "release", "ghcr.io/nova/crm:main, last"],
       ["CI", "wait", "for hakobu/deploy…", "", "pending"],
-      ["kasl-1", "found", "a new release, a1f3c9e"],
-      ["kasl-1", "plan", "2 apps, 1 database, 1 cache"],
-      ["kasl-1", "dump", "main, before the migration"],
-      ["kasl-1", "release", "bin/rails db:migrate  ok in 3.8s", "ok"],
-      ["kasl-1", "start", "web, admin: GET /up 200", "ok"],
-      ["kasl-1", "switch", "live; the old version stopped", "ok"],
+      ["nova-1", "found", "a new release, a1f3c9e"],
+      ["nova-1", "plan", "2 apps, 1 database, 1 cache"],
+      ["nova-1", "dump", "main, before the migration"],
+      ["nova-1", "release", "bin/rails db:migrate  ok in 3.8s", "ok"],
+      ["nova-1", "start", "web, admin: GET /up 200", "ok"],
+      ["nova-1", "switch", "live; the old version stopped", "ok"],
       ["CI", "status", "hakobu/deploy success: job green", "ok", "success"],
     ],
   },
@@ -41,16 +41,16 @@ const PUSHES = {
     lines: [
       ["", "git push", "main → b72e01d Rename invoices.total"],
       ["CI", "validate", "hakobu.toml ok"],
-      ["CI", "build", "web → ghcr.io/kasl/crm-web@sha256:e3a0…"],
-      ["CI", "release", "ghcr.io/kasl/crm:main, last"],
+      ["CI", "build", "web → ghcr.io/nova/crm-web@sha256:e3a0…"],
+      ["CI", "release", "ghcr.io/nova/crm:main, last"],
       ["CI", "wait", "for hakobu/deploy…", "", "pending"],
-      ["kasl-1", "found", "a new release, b72e01d"],
-      ["kasl-1", "plan", "1 app changed"],
-      ["kasl-1", "dump", "main, before the migration"],
-      ["kasl-1", "release", "bin/rails db:migrate  FAILED", "err"],
-      ["kasl-1", "", "PG::UndefinedColumn: column \"total\" does not exist", "err"],
-      ["kasl-1", "kept", "the running version; nothing changed", "ok"],
-      ["mail", "sent", "[hakobu kasl-1] deploy of crm failed: release …"],
+      ["nova-1", "found", "a new release, b72e01d"],
+      ["nova-1", "plan", "1 app changed"],
+      ["nova-1", "dump", "main, before the migration"],
+      ["nova-1", "release", "bin/rails db:migrate  FAILED", "err"],
+      ["nova-1", "", "PG::UndefinedColumn: column \"total\" does not exist", "err"],
+      ["nova-1", "kept", "the running version; nothing changed", "ok"],
+      ["mail", "sent", "[hakobu nova-1] deploy of crm failed: release …"],
       ["CI", "status", "hakobu/deploy failure: job red", "err", "failure"],
     ],
   },
@@ -67,7 +67,7 @@ function line([src, step, det, cls = ""], fresh) {
     ln.innerHTML = `<span><span class="p">$</span> ${step} <span class="m">${det}</span></span>`;
   } else {
     const s = document.createElement("span");
-    s.className = "src" + (src === "kasl-1" ? " is-srv" : src === "mail" ? " is-mail" : "");
+    s.className = "src" + (src === "nova-1" ? " is-srv" : src === "mail" ? " is-mail" : "");
     s.textContent = src;
     const st = document.createElement("span");
     st.className = "step";
@@ -93,7 +93,7 @@ async function push(kind) {
     term.append(line(l, true));
     if (l[4]) status.dataset.state = l[4];
     term.scrollTop = term.scrollHeight;
-    await wait(l[0] === "kasl-1" ? 520 : 380);
+    await wait(l[0] === "nova-1" ? 520 : 380);
   }
   playing = false;
   pushButtons.forEach(b => { b.disabled = false; });
@@ -114,7 +114,7 @@ $("#rollback")?.addEventListener("click", () => {
     d.classList.toggle("is-live", i === live);
     d.classList.toggle("is-held", i < live);
   });
-  $("#rollback-label").textContent = live === deploys.length - 1 ? "start over" : "ssh kasl-1 rollback crm";
+  $("#rollback-label").textContent = live === deploys.length - 1 ? "start over" : "ssh nova-1 rollback crm";
 });
 
 document.querySelectorAll("[data-copy]").forEach(b => b.addEventListener("click", () => {

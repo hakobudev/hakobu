@@ -63,7 +63,7 @@
 <li><strong>Secrets in the repository</strong>, each sealed with <a href="https://age-encryption.org">age</a> to the server and to you: anyone, an agent too, can add one; only the server and you can read them.</li>
 <li><strong>Backups</strong> of every database and volume each day, sealed, to any S3 bucket and a copy elsewhere, each restored into scratch right after upload to prove it restores.</li>
 <li><strong>Alerts</strong> by email when an app is down, a deploy or backup fails, the disk fills, or the audit finds a port open to the internet or a container hakobu didn't start; a pulse to a dead man's switch says hakobu itself is alive.</li>
-<li><strong>Agents welcome, nothing on your laptop.</strong> Each server is its own MCP server, over SSH: your agent sees status and logs, deploys, rolls back and sets a repository up, with a skill for Claude Code that says how to change the file and migrations safely. You run the same commands, <code>ssh kasl-1 status</code>. Deleting or restoring data is root's, and the agent can't.</li>
+<li><strong>Agents welcome, nothing on your laptop.</strong> Each server is its own MCP server, over SSH: your agent sees status and logs, deploys, rolls back and sets a repository up, with a skill for Claude Code that says how to change the file and migrations safely. You run the same commands, <code>ssh nova-1 status</code>. Deleting or restoring data is root's, and the agent can't.</li>
 </ul>
 <h2 id="what-it-needs">What it needs</h2>
 <ul>

@@ -10,7 +10,7 @@
 # Your agent, with no terminal, says it all in the environment instead, and
 # is asked nothing:
 #
-#   ssh root@SERVER 'curl -fsSL https://hakobu.dev/install.sh | HAKOBU_NAME=kasl-1 HAKOBU_INGRESS=public bash'
+#   ssh root@SERVER 'curl -fsSL https://hakobu.dev/install.sh | HAKOBU_NAME=nova-1 HAKOBU_INGRESS=public bash'
 #
 # Needs, on a first install (asked at a terminal):
 #   HAKOBU_NAME        the server's name (lowercase letters, digits, -)

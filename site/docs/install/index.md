@@ -9,7 +9,7 @@ ssh -t root@203.0.113.7 'curl -fsSL https://hakobu.dev/install.sh | bash'
 It asks what it needs:
 
 ```
-  Server name [ubuntu-4gb-hel1]: kasl-1
+  Server name [ubuntu-4gb-hel1]: nova-1
   How do visitors reach your apps?
     1) ports 80 and 443, with Let's Encrypt
     2) a Cloudflare Tunnel, no port open
@@ -21,7 +21,7 @@ It asks what it needs:
 Your agent has no terminal to answer at, so it gives the answers as variables, and is asked nothing:
 
 ```bash
-ssh root@203.0.113.7 'curl -fsSL https://hakobu.dev/install.sh | HAKOBU_NAME=kasl-1 HAKOBU_INGRESS=public HAKOBU_ACME_EMAIL=you@example.com bash'
+ssh root@203.0.113.7 'curl -fsSL https://hakobu.dev/install.sh | HAKOBU_NAME=nova-1 HAKOBU_INGRESS=public HAKOBU_ACME_EMAIL=you@example.com bash'
 ```
 
 A tunnel is `HAKOBU_INGRESS=tunnel` with `CLOUDFLARE_TUNNEL_TOKEN=…`; the rest of the variables are at the top of [install.sh](https://hakobu.dev/install.sh).
@@ -30,15 +30,15 @@ That's the one time anything runs on the server by hand. It installs rootless Do
 
 ```
 For your agent, once (Claude Code):
-  claude mcp add --scope user kasl-1 -- ssh -T deploy@203.0.113.7 mcp
+  claude mcp add --scope user nova-1 -- ssh -T deploy@203.0.113.7 mcp
 For you, in ~/.ssh/config:
-  Host kasl-1
+  Host nova-1
     HostName 203.0.113.7
     User deploy
-then ssh kasl-1 status
+then ssh nova-1 status
 ```
 
-The first line gives your agent the server's own MCP server, over SSH; the block lets you write `ssh kasl-1 status`, as these docs do. After that hakobu updates itself (see [Updates](https://hakobu.dev/docs/updates/index.md)), and you and your agent reach it only through those commands. Then take [your owner's key](#your-owners-key), and set up [a project](https://hakobu.dev/docs/project/index.md).
+The first line gives your agent the server's own MCP server, over SSH; the block lets you write `ssh nova-1 status`, as these docs do. After that hakobu updates itself (see [Updates](https://hakobu.dev/docs/updates/index.md)), and you and your agent reach it only through those commands. Then take [your owner's key](#your-owners-key), and set up [a project](https://hakobu.dev/docs/project/index.md).
 
 ## The SSH user
 
@@ -46,18 +46,18 @@ The first line gives your agent the server's own MCP server, over SSH; the block
 
 | | |
 |---|---|
-| `ssh kasl-1 status` | what runs, the last deploy, alerts, backups |
-| `ssh kasl-1 deploys` | the last deploys, and why one failed |
-| `ssh kasl-1 logs PROJECT/APP [--worker]` | an app's output |
-| `ssh kasl-1 deploy PROJECT [--force]` | check for its release now; again with `--force` |
-| `ssh kasl-1 rollback PROJECT` | back one release |
-| `ssh kasl-1 backup`, `backups PROJECT` | back up now, list them |
-| `ssh -t kasl-1 secret set PROJECT APP NAME` | seal a secret, typed unseen: see [Secrets](https://hakobu.dev/docs/secrets/index.md) |
-| `ssh kasl-1 server get`, `server set …` | the server's settings: see [Server config](https://hakobu.dev/docs/servers/index.md) |
-| `ssh kasl-1 server update [--to v1.5.0]` | update hakobu |
-| `ssh kasl-1 mcp` | the MCP server, for an agent |
+| `ssh nova-1 status` | what runs, the last deploy, alerts, backups |
+| `ssh nova-1 deploys` | the last deploys, and why one failed |
+| `ssh nova-1 logs PROJECT/APP [--worker]` | an app's output |
+| `ssh nova-1 deploy PROJECT [--force]` | check for its release now; again with `--force` |
+| `ssh nova-1 rollback PROJECT` | back one release |
+| `ssh nova-1 backup`, `backups PROJECT` | back up now, list them |
+| `ssh -t nova-1 secret set PROJECT APP NAME` | seal a secret, typed unseen: see [Secrets](https://hakobu.dev/docs/secrets/index.md) |
+| `ssh nova-1 server get`, `server set …` | the server's settings: see [Server config](https://hakobu.dev/docs/servers/index.md) |
+| `ssh nova-1 server update [--to v1.5.0]` | update hakobu |
+| `ssh nova-1 mcp` | the MCP server, for an agent |
 
-They ask hakobu's API on its Unix socket, `/run/hakobu-api/api.sock`, which only root and `deploy`'s group may open; the kernel tells hakobu who's on the other end, so no token is kept anywhere: root may do anything, `deploy` what an operator may. Restore, destroy and the backups' buckets are root's: `ssh root@kasl-1 hakobu restore …`.
+They ask hakobu's API on its Unix socket, `/run/hakobu-api/api.sock`, which only root and `deploy`'s group may open; the kernel tells hakobu who's on the other end, so no token is kept anywhere: root may do anything, `deploy` what an operator may. Restore, destroy and the backups' buckets are root's: `ssh root@nova-1 hakobu restore …`.
 
 To let another person or agent in, add their key as root to `/home/deploy/.ssh/authorized_keys`, with the same options as the line there.
 
@@ -66,7 +66,7 @@ To let another person or agent in, add their key as root to `/home/deploy/.ssh/a
 Every secret and backup is sealed to your owner's key as well as to the server's, so you can open them if the server is gone. Without `HAKOBU_OWNER_KEY`, the installer makes one, and its secret half waits on the server, root's alone, for you to take it into your password manager, in your own terminal, not an agent's:
 
 ```bash
-ssh -t root@kasl-1 hakobu server owner-key
+ssh -t root@nova-1 hakobu server owner-key
 ```
 
 It shows the key, and once you type `saved`, takes it off the server. Until then, the [audit](https://hakobu.dev/docs/alerts/index.md) reminds you. With [age](https://age-encryption.org) of your own, give the public half instead: `HAKOBU_OWNER_KEY=age1…` (`age-keygen` makes a pair).
@@ -76,7 +76,7 @@ It shows the key, and once you type `saved`, takes it off the server. Until then
 SSH is safe with keys alone. Many images take passwords too (Hetzner's Ubuntu does), and the installer warns if the server does; turn them off, as your key logs you in already:
 
 ```bash
-ssh root@kasl-1 'echo "PasswordAuthentication no" > /etc/ssh/sshd_config.d/00-keys-only.conf && systemctl reload ssh'
+ssh root@nova-1 'echo "PasswordAuthentication no" > /etc/ssh/sshd_config.d/00-keys-only.conf && systemctl reload ssh'
 ```
 
 The audit expects SSH to listen.
@@ -112,10 +112,10 @@ Run it again to update by hand: the config, the keys and the data stay.
 
 ## hakobu on a laptop
 
-You don't need it, but the CLI from the [releases](https://github.com/hakobudev/hakobu/releases) does the same from a laptop, for several servers at once: every `ssh kasl-1 COMMAND` above is `hakobu COMMAND` there, and `hakobu mcp` serves them all to an agent. Install a server with it, and it remembers the server and its operator token:
+You don't need it, but the CLI from the [releases](https://github.com/hakobudev/hakobu/releases) does the same from a laptop, for several servers at once: every `ssh nova-1 COMMAND` above is `hakobu COMMAND` there, and `hakobu mcp` serves them all to an agent. Install a server with it, and it remembers the server and its operator token:
 
 ```bash
-hakobu server create kasl-1 --ssh root@203.0.113.7 --ingress public --email you@example.com
+hakobu server create nova-1 --ssh root@203.0.113.7 --ingress public --email you@example.com
 ```
 
 It reaches the API (on the server's 127.0.0.1:7070) through SSH, with a key it makes for a user, `hakobu-tunnel`, that may reach that port and nothing else; `--tailscale` (with `TS_AUTHKEY`) has the API listen on the tailnet instead. Your age key is asked for the first time and kept in `~/.config/hakobu/owner.pub`. The API's tokens: the **operator**'s, kept in `~/.config/hakobu/servers.toml`, looks, deploys, rolls back, backs up and updates; the **admin**'s, shown once for your password manager, also restores and deletes. A server installed otherwise doesn't show them: `hakobu server create` it from the start.

@@ -3,19 +3,19 @@
 A server's settings change through its API, from your terminal or your agent's: no one edits a file on the server.
 
 ```bash
-ssh kasl-1 server get                          # what's set, never a password or key
-ssh kasl-1 server set release ghcr.io/kasl/crm:main   # the init tool does this
-ssh -t kasl-1 server set mail --host smtp.example.com --from hakobu@example.com --to you@example.com --username …
-ssh kasl-1 server set pulse https://hc-ping.com/… https://hc-ping.com/…/fail
-ssh kasl-1 server set updates --auto patch --at 04:00
-ssh -t kasl-1 server set registry registry.example.com --username …   # ghcr.io needs none
+ssh nova-1 server get                          # what's set, never a password or key
+ssh nova-1 server set release ghcr.io/nova/crm:main   # the init tool does this
+ssh -t nova-1 server set mail --host smtp.example.com --from hakobu@example.com --to you@example.com --username …
+ssh nova-1 server set pulse https://hc-ping.com/… https://hc-ping.com/…/fail
+ssh nova-1 server set updates --auto patch --at 04:00
+ssh -t nova-1 server set registry registry.example.com --username …   # ghcr.io needs none
 ```
 
 The backups' buckets are root's, as a change of them could stop the backups, or send them elsewhere:
 
 ```bash
-ssh -t root@kasl-1 hakobu server set backups --endpoint https://ACCOUNT.r2.cloudflarestorage.com --bucket kasl-backups --access-key …
-ssh -t root@kasl-1 hakobu server set backups --copy hetzner --endpoint https://fsn1.your-objectstorage.com --region fsn1 --bucket kasl-copy --access-key …
+ssh -t root@nova-1 hakobu server set backups --endpoint https://ACCOUNT.r2.cloudflarestorage.com --bucket nova-backups --access-key …
+ssh -t root@nova-1 hakobu server set backups --copy hetzner --endpoint https://fsn1.your-objectstorage.com --region fsn1 --bucket nova-copy --access-key …
 ```
 
 Passwords and keys never go in an argument: each is typed, hidden (hence `-t`), or comes from its variable on a laptop (`HAKOBU_SMTP_PASSWORD`, `HAKOBU_S3_SECRET_KEY`, `HAKOBU_REGISTRY_PASSWORD`). A change is proved before it's kept: the mail server sends you a mail, a bucket takes an object and gives it back (a copy only takes one, as its key may only write). hakobu then restarts itself into it, as soon as no deploy or backup runs, and the command waits for that.
@@ -27,16 +27,16 @@ hakobu keeps them in `settings.toml` in its data directory.
 The server's own file, `/etc/hakobu/server.toml`, readable by hakobu alone, is what the installer wrote: its name, the API's address, your key and the tokens' hashes, and how the web gets in. The settings above may be set there too (then `sudo systemctl restart hakobu`), and what it sets wins: the API refuses to change it. Like `hakobu.toml`, it's strict: an unknown key stops hakobu from starting, and `journalctl -u hakobu` says why.
 
 ```toml
-name = "kasl-1"
+name = "nova-1"
 listen = "100.101.102.103:7070"
 owner_key = "age1…"
 operator_token_sha256 = "…"
 admin_token_sha256 = "…"
 
-releases = ["ghcr.io/kasl/crm:main", "ghcr.io/kasl/site:main"]
+releases = ["ghcr.io/nova/crm:main", "ghcr.io/nova/site:main"]
 
 [registries."registry.example.com"]   # ghcr.io needs none
-username = "kasl"
+username = "nova"
 password = "…"
 
 [ingress]
@@ -48,14 +48,14 @@ at = "03:00"
 [backups.primary]
 endpoint = "https://ACCOUNT.r2.cloudflarestorage.com"
 region = "auto"
-bucket = "kasl-backups"
+bucket = "nova-backups"
 access_key = "…"
 secret_key = "…"
 [[backups.copies]]
 name = "hetzner"
 endpoint = "https://fsn1.your-objectstorage.com"
 region = "fsn1"
-bucket = "kasl-backups-copy"
+bucket = "nova-backups-copy"
 access_key = "…"   # a key that can only write
 secret_key = "…"
 
@@ -94,19 +94,19 @@ A bucket has `endpoint`, `region`, `bucket`, `access_key`, `secret_key`, and `pr
 
 ## Reaching the API
 
-The API listens on 127.0.0.1:7070, and on a Unix socket, `/run/hakobu-api/api.sock`, for root and the SSH user's group: `ssh kasl-1 …` and `ssh kasl-1 mcp` go through the socket (see [A server](https://hakobu.dev/docs/install/index.md)). The audit expects SSH to listen.
+The API listens on 127.0.0.1:7070, and on a Unix socket, `/run/hakobu-api/api.sock`, for root and the SSH user's group: `ssh nova-1 …` and `ssh nova-1 mcp` go through the socket (see [A server](https://hakobu.dev/docs/install/index.md)). The audit expects SSH to listen.
 
 With a Tailscale key at install, the API listens on the server's tailnet address instead of 127.0.0.1, for hakobu on a laptop. In your tailnet's policy, let your own devices reach the server's tag on port 7070; nothing else needs to. The installer leaves Tailscale's SSH, routes and DNS off.
 
 ## From a laptop
 
 ```bash
-hakobu server create kasl-1 --ssh root@203.0.113.7   # once: installs, and remembers it
-hakobu server add kasl-2 http://100.101.102.103:7070  # one installed otherwise; the operator token on stdin
+hakobu server create nova-1 --ssh root@203.0.113.7   # once: installs, and remembers it
+hakobu server add nova-2 http://100.101.102.103:7070  # one installed otherwise; the operator token on stdin
 hakobu server list
 hakobu status              # every server
-hakobu --server kasl-1 deploys
-hakobu server set mail kasl-1 --host …               # the commands above, with the server's name
+hakobu --server nova-1 deploys
+hakobu server set mail nova-1 --host …               # the commands above, with the server's name
 ```
 
 The backups' buckets need the admin token there (`HAKOBU_ADMIN_TOKEN`, or typed).

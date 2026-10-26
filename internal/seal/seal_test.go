@@ -29,10 +29,10 @@ func TestSealOpen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Set("kasl", "crm", "STRIPE_KEY", "sk_live_123"); err != nil {
+	if err := s.Set("nova", "crm", "STRIPE_KEY", "sk_live_123"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Set("kasl", "hakobu", StatusToken, "github_pat_x"); err != nil {
+	if err := s.Set("nova", "hakobu", StatusToken, "github_pat_x"); err != nil {
 		t.Fatal(err)
 	}
 	b, err := s.Marshal()
@@ -50,7 +50,7 @@ func TestSealOpen(t *testing.T) {
 		t.Fatalf("%v\n%s", err, b)
 	}
 	for _, id := range []*age.X25519Identity{server, owner} {
-		o, err := read.Open(id, "kasl")
+		o, err := read.Open(id, "nova")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -63,8 +63,8 @@ func TestSealOpen(t *testing.T) {
 func TestOpenByStranger(t *testing.T) {
 	server, owner, stranger := keys(t)
 	s, _ := New(server.Recipient().String(), owner.Recipient().String())
-	_ = s.Set("kasl", "crm", "KEY", "v")
-	_, err := s.Open(stranger, "kasl")
+	_ = s.Set("nova", "crm", "KEY", "v")
+	_, err := s.Open(stranger, "nova")
 	if !errors.Is(err, ErrNotARecipient) || !strings.Contains(err.Error(), "apps.crm.KEY") {
 		t.Errorf("err = %v", err)
 	}
@@ -73,20 +73,20 @@ func TestOpenByStranger(t *testing.T) {
 func TestOpensOnlyWhereSealed(t *testing.T) {
 	server, _, _ := keys(t)
 	s, _ := New(server.Recipient().String())
-	_ = s.Set("kasl", "crm", "STRIPE_KEY", "sk_live")
+	_ = s.Set("nova", "crm", "STRIPE_KEY", "sk_live")
 	stripe := s.Apps["crm"]["STRIPE_KEY"]
 	// Pasted into another project's file, or as another app's or variable.
-	for _, at := range []struct{ project, app, name string }{{"shop", "crm", "STRIPE_KEY"}, {"kasl", "web", "STRIPE_KEY"}, {"kasl", "crm", "OTHER"}} {
+	for _, at := range []struct{ project, app, name string }{{"shop", "crm", "STRIPE_KEY"}, {"nova", "web", "STRIPE_KEY"}, {"nova", "crm", "OTHER"}} {
 		other, _ := New(server.Recipient().String())
 		other.Apps = map[string]map[string]string{at.app: {at.name: stripe}}
-		if _, err := other.Open(server, at.project); err == nil || !strings.Contains(err.Error(), "sealed for kasl/crm/STRIPE_KEY") {
+		if _, err := other.Open(server, at.project); err == nil || !strings.Contains(err.Error(), "sealed for nova/crm/STRIPE_KEY") {
 			t.Errorf("%v: %v", at, err)
 		}
 	}
 	// One sealed bare, by hakobu before 1.6, opens, and says so.
 	bare, _ := s.Seal("old")
 	s.Apps["crm"]["OLD"] = bare
-	o, err := s.Open(server, "kasl")
+	o, err := s.Open(server, "nova")
 	if err != nil || o.Apps["crm"]["OLD"] != "old" || o.Apps["crm"]["STRIPE_KEY"] != "sk_live" {
 		t.Fatalf("%+v, %v", o, err)
 	}
@@ -98,8 +98,8 @@ func TestOpensOnlyWhereSealed(t *testing.T) {
 func TestSameValueSealsDifferently(t *testing.T) {
 	server, _, _ := keys(t)
 	s, _ := New(server.Recipient().String())
-	_ = s.Set("kasl", "a", "X", "same")
-	_ = s.Set("kasl", "a", "Y", "same")
+	_ = s.Set("nova", "a", "X", "same")
+	_ = s.Set("nova", "a", "Y", "same")
 	if s.Apps["a"]["X"] == s.Apps["a"]["Y"] {
 		t.Error("equal values give equal ciphertexts, which tells that they're equal")
 	}
@@ -127,10 +127,10 @@ func TestParseRefuses(t *testing.T) {
 func TestSetRefuses(t *testing.T) {
 	server, _, _ := keys(t)
 	s, _ := New(server.Recipient().String())
-	if err := s.Set("kasl", "crm", "lower", "v"); err == nil {
+	if err := s.Set("nova", "crm", "lower", "v"); err == nil {
 		t.Error("a lowercase name was taken")
 	}
-	if err := s.Set("kasl", "hakobu", "nope", "v"); err == nil {
+	if err := s.Set("nova", "hakobu", "nope", "v"); err == nil {
 		t.Error("an unknown hakobu secret was taken")
 	}
 }
@@ -138,7 +138,7 @@ func TestSetRefuses(t *testing.T) {
 func TestUnset(t *testing.T) {
 	server, _, _ := keys(t)
 	s, _ := New(server.Recipient().String())
-	_ = s.Set("kasl", "crm", "A", "1")
+	_ = s.Set("nova", "crm", "A", "1")
 	if !s.Unset("crm", "A") || s.Unset("crm", "A") || s.Apps["crm"] != nil {
 		t.Errorf("apps %v", s.Apps)
 	}
@@ -165,8 +165,8 @@ func TestIdentityFile(t *testing.T) {
 func TestCheckApps(t *testing.T) {
 	id, _ := age.GenerateX25519Identity()
 	s, _ := New(id.Recipient().String())
-	_ = s.Set("kasl", "web", "KEY", "v")
-	_ = s.Set("kasl", "wbe", "KEY", "v")
+	_ = s.Set("nova", "web", "KEY", "v")
+	_ = s.Set("nova", "wbe", "KEY", "v")
 	err := s.CheckApps([]string{"api", "web"})
 	if err == nil || !strings.Contains(err.Error(), "apps.wbe: hakobu.toml has no such app") || strings.Contains(err.Error(), "apps.web") {
 		t.Errorf("err %v", err)

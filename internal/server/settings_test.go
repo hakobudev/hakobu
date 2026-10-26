@@ -19,13 +19,13 @@ import (
 // for the API to set.
 func bareConfig(dataDir string) string {
 	return fmt.Sprintf(`
-name = "kasl-2"
+name = "nova-2"
 listen = "127.0.0.1:7070"
 data_dir = %q
 owner_key = %q
 operator_token_sha256 = %q
 admin_token_sha256 = %q
-releases = ["ghcr.io/kasl/site:main"]
+releases = ["ghcr.io/nova/site:main"]
 `, dataDir, owner.Recipient().String(), HashToken("op-token"), HashToken("admin-token"))
 }
 
@@ -77,7 +77,7 @@ func fakeBucket(t *testing.T) *httptest.Server {
 func TestSettingsMerge(t *testing.T) {
 	dir := t.TempDir()
 	s := &Settings{
-		Releases:   []string{"ghcr.io/kasl/crm:main", "ghcr.io/kasl/site:main"},
+		Releases:   []string{"ghcr.io/nova/crm:main", "ghcr.io/nova/site:main"},
 		Registries: map[string]Credentials{"ghcr.io": {Username: "api", Password: "x"}, "quay.io": {Username: "robot", Password: "y"}},
 		Updates:    &Updates{Auto: "none"},
 		Pulse:      "https://hc-ping.com/abc",
@@ -86,7 +86,7 @@ func TestSettingsMerge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(c.Releases, " ") != "ghcr.io/kasl/crm-release:main ghcr.io/kasl/crm:main ghcr.io/kasl/site:main" {
+	if strings.Join(c.Releases, " ") != "ghcr.io/nova/crm-release:main ghcr.io/nova/crm:main ghcr.io/nova/site:main" {
 		t.Errorf("releases %v", c.Releases)
 	}
 	if c.Registries["ghcr.io"].Username != "bot" || c.Registries["quay.io"].Username != "robot" {
@@ -107,7 +107,7 @@ func TestAPISettings(t *testing.T) {
 		return call(t, srv, token, "POST", "/v1/settings", body)
 	}
 
-	if code, body := post("op-token", `{"add_release":"ghcr.io/kasl/crm:main"}`); code != http.StatusOK || body["rev"] != 1.0 {
+	if code, body := post("op-token", `{"add_release":"ghcr.io/nova/crm:main"}`); code != http.StatusOK || body["rev"] != 1.0 {
 		t.Fatalf("add a release: %d %v", code, body)
 	}
 	select {
@@ -115,7 +115,7 @@ func TestAPISettings(t *testing.T) {
 	default:
 		t.Error("no restart asked for")
 	}
-	if code, body := post("op-token", `{"remove_release":"ghcr.io/kasl/site:main"}`); code != http.StatusConflict || !strings.Contains(fmt.Sprint(body), "server.toml") {
+	if code, body := post("op-token", `{"remove_release":"ghcr.io/nova/site:main"}`); code != http.StatusConflict || !strings.Contains(fmt.Sprint(body), "server.toml") {
 		t.Errorf("remove server.toml's release: %d %v", code, body)
 	}
 	if code, body := post("op-token", `{"updates":{"auto":"sometimes"}}`); code != http.StatusBadRequest {
@@ -145,7 +145,7 @@ func TestAPISettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	if s.Rev != 3 || len(s.Releases) != 1 || s.Registries["ghcr.io"].Password != "p4ss" || s.SMTP != nil ||
-		s.Backups == nil || s.Backups.Primary == nil || s.Backups.Primary.Prefix != "hakobu/kasl-2/" {
+		s.Backups == nil || s.Backups.Primary == nil || s.Backups.Primary.Prefix != "hakobu/nova-2/" {
 		t.Errorf("settings %+v", s)
 	}
 	if fi, _ := os.Stat(d.Config.SettingsFile()); fi.Mode().Perm() != 0o600 {
@@ -160,13 +160,13 @@ func TestAPISettings(t *testing.T) {
 
 	// A release that deployed a project is the admin's to remove: another
 	// image may deploy the project then.
-	if err := os.WriteFile(d.Config.WatchFile(), []byte(`{"ghcr.io/kasl/crm:main":{"project":"crm"}}`), 0o600); err != nil {
+	if err := os.WriteFile(d.Config.WatchFile(), []byte(`{"ghcr.io/nova/crm:main":{"project":"crm"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code, body := post("op-token", `{"remove_release":"ghcr.io/kasl/crm:main"}`); code != http.StatusForbidden || !strings.Contains(fmt.Sprint(body), "deploys project crm") {
+	if code, body := post("op-token", `{"remove_release":"ghcr.io/nova/crm:main"}`); code != http.StatusForbidden || !strings.Contains(fmt.Sprint(body), "deploys project crm") {
 		t.Errorf("remove a project's release with the operator token: %d %v", code, body)
 	}
-	if code, body := post("admin-token", `{"remove_release":"ghcr.io/kasl/crm:main"}`); code != http.StatusOK {
+	if code, body := post("admin-token", `{"remove_release":"ghcr.io/nova/crm:main"}`); code != http.StatusOK {
 		t.Errorf("remove a project's release: %d %v", code, body)
 	}
 	if b, _ := os.ReadFile(d.Config.WatchFile()); strings.Contains(string(b), "crm") {
