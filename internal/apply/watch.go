@@ -395,7 +395,12 @@ func (w *Watch) Rollback(ctx context.Context, ref registry.Ref) (*Result, error)
 	if err != nil {
 		res.Error = "rollback: " + err.Error()
 	} else {
-		s.Failed, s.Applied, s.Previous = s.Applied, s.Previous, ""
+		// Held back: the release rolled back from, or a newer one that
+		// failed, which is what the tag names now.
+		if s.Failed == "" {
+			s.Failed = s.Applied
+		}
+		s.Applied, s.Previous = s.Previous, ""
 	}
 	seen[key] = s
 	return w.finish(seen, meta, res)
