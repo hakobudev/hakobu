@@ -183,3 +183,26 @@ func TestDigestRefusesNonDigests(t *testing.T) {
 		srv.Close()
 	}
 }
+
+func TestLabelsRefusesLoopsAndNonDigests(t *testing.T) {
+	self := "sha256:" + strings.Repeat("1", 64)
+	for name, doc := range map[string]string{
+		// An index naming itself would be read forever.
+		"loop":   `{"manifests":[{"digest":"` + self + `","platform":{"os":"linux","architecture":"` + runtime.GOARCH + `"}}]}`,
+		"index":  `{"manifests":[{"digest":"../../evil","platform":{"os":"linux","architecture":"` + runtime.GOARCH + `"}}]}`,
+		"config": `{"config":{"digest":"../../evil"}}`,
+	} {
+		var gets atomic.Int32
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			gets.Add(1)
+			fmt.Fprint(w, doc)
+		}))
+		host := strings.TrimPrefix(srv.URL, "http://")
+		c := &Client{Insecure: map[string]bool{host: true}}
+		ref, _ := ParseRef(host + "/org/app@" + self)
+		if _, err := c.Labels(context.Background(), ref); err == nil || gets.Load() > 2 {
+			t.Errorf("%s: %v after %d requests", name, err, gets.Load())
+		}
+		srv.Close()
+	}
+}
