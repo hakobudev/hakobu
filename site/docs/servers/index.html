@@ -114,7 +114,7 @@ to = &quot;you@example.com&quot;
 </tr>
 <tr>
 <td><code>listen</code></td>
-<td>the API's address, on the tailnet; an address on every interface is refused</td>
+<td>the API's address, on the tailnet or 127.0.0.1 (reached through SSH); an address on every interface is refused</td>
 </tr>
 <tr>
 <td><code>data_dir</code></td>
@@ -147,6 +147,10 @@ to = &quot;you@example.com&quot;
 <tr>
 <td><code>backups</code></td>
 <td><code>at</code> (UTC, default <code>03:00</code>), <code>keep_daily</code> (7), <code>keep_weekly</code> (4), <code>primary</code> and <code>copies</code>: see <a href="/docs/backups/">Backups</a></td>
+</tr>
+<tr>
+<td><code>updates</code></td>
+<td><code>auto</code>: the newer releases hakobu installs by itself, <code>patch</code> (the default: 1.2.x of the 1.2 running), <code>minor</code> (any 1.x) or <code>none</code>; <code>at</code> (UTC, default an hour after <code>backups.at</code>): see <a href="/docs/updates/">Updates</a></td>
 </tr>
 <tr>
 <td><code>alerts</code></td>

@@ -8,6 +8,7 @@ The server watches itself and emails you through any SMTP server (`[alerts.smtp]
 - a failed deploy (closed by the next one that works) or backup, and a backup that didn't prove it restores;
 - the disk 85% full (closed under 80%);
 - PostgreSQL not answering;
+- an update of hakobu that didn't install (closed once it does), and a newer minor release of hakobu out for 14 days that this server hasn't updated to;
 - the **audit**, hourly:
   - a port listening beyond loopback and the tailnet that isn't in `alerts.allow_ports` (80 and 443 are allowed for `public` ingress by themselves; add 22 if SSH listens on every address);
   - a container hakobu didn't start;

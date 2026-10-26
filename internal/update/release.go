@@ -104,32 +104,76 @@ func parseTag(tag string) ([3]int, bool) {
 	return v, true
 }
 
+// Release is one of hakobu's releases.
+type Release struct {
+	Tag       string    `json:"tag_name"`
+	Published time.Time `json:"published_at"`
+}
+
 // Latest returns the tag of the latest release.
 func Latest() (string, error) {
+	r, err := LatestRelease()
+	return r.Tag, err
+}
+
+// Auto policies: which newer releases a server installs by itself.
+const (
+	AutoPatch = "patch" // 1.2.x of the 1.2 running: fixes only
+	AutoMinor = "minor" // any 1.x of the 1 running
+	AutoNone  = "none"
+)
+
+// Allowed reports whether policy lets a server running current install
+// tag by itself: a newer release, of the same minor version (patch) or
+// major one (minor). A server on a build from source or a pre-release
+// updates only when asked.
+func Allowed(policy, tag, current string) bool {
+	t, ok := parseTag(tag)
+	c, cok := parseTag(current)
+	if !ok || !cok || !Newer(tag, current) || t[0] != c[0] {
+		return false
+	}
+	switch policy {
+	case AutoPatch:
+		return t[1] == c[1]
+	case AutoMinor:
+		return true
+	}
+	return false
+}
+
+// Behind reports whether tag is a newer minor or major release than
+// current: one an update by hand is for.
+func Behind(tag, current string) bool {
+	t, ok := parseTag(tag)
+	c, cok := parseTag(current)
+	return ok && (!cok || t[0] > c[0] || t[0] == c[0] && t[1] > c[1])
+}
+
+// LatestRelease returns the latest release.
+func LatestRelease() (Release, error) {
+	var r Release
 	req, err := http.NewRequest("GET", APIURL+"/repos/"+Repo+"/releases/latest", nil)
 	if err != nil {
-		return "", err
+		return r, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	c := &http.Client{Timeout: 15 * time.Second}
 	resp, err := c.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("asking GitHub for the latest release: %w", err)
+		return r, fmt.Errorf("asking GitHub for the latest release: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("asking GitHub for the latest release: %s", resp.Status)
-	}
-	var r struct {
-		TagName string `json:"tag_name"`
+		return r, fmt.Errorf("asking GitHub for the latest release: %s", resp.Status)
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&r); err != nil {
-		return "", err
+		return Release{}, err
 	}
-	if _, ok := parseTag(r.TagName); !ok {
-		return "", fmt.Errorf("the latest release has an odd tag %q", r.TagName)
+	if _, ok := parseTag(r.Tag); !ok {
+		return Release{}, fmt.Errorf("the latest release has an odd tag %q", r.Tag)
 	}
-	return r.TagName, nil
+	return r, nil
 }
 
 // SignedMessage is what a release's signature covers.

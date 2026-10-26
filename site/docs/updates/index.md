@@ -14,6 +14,16 @@ On the server, the API only asks: hakobu runs as a user that can't write its own
 
 On the server itself, as root, `sudo hakobu server update [--to v1.3.0]` does the same without the API.
 
+## By itself
+
+Fixes install themselves: at `updates.at` (UTC, an hour after the backups by default) a server installs the latest release if it's a patch of the version it runs (1.2.3 → 1.2.4), and not during a deploy or the backups (it waits for the next day then). A release that didn't install isn't tried again by itself. Newer minor and major releases wait for `hakobu server update`; one that's been out for 14 days mails you.
+
+```toml
+[updates]
+auto = "patch"   # or "minor" (any 1.x), or "none"
+at = "04:00"
+```
+
 A server on v1.2.0 or older has no updater yet: run the installer on it once, which sets it up.
 
 ```bash

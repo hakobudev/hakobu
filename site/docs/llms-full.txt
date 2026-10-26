@@ -439,7 +439,7 @@ to = "you@example.com"
 | Key | |
 |---|---|
 | `name` | the server's name; a project's `server` must match it |
-| `listen` | the API's address, on the tailnet; an address on every interface is refused |
+| `listen` | the API's address, on the tailnet or 127.0.0.1 (reached through SSH); an address on every interface is refused |
 | `data_dir` | default `/var/lib/hakobu`: the key, state, deploy history, dumps |
 | `owner_key` | your age public key |
 | `operator_token_sha256`, `admin_token_sha256` | the tokens' SHA-256 (`hakobu server token` makes a new pair) |
@@ -448,6 +448,7 @@ to = "you@example.com"
 | `registries."HOST"` | `username` and `password` to pull from a registry |
 | `ingress` | `mode` (`public` or `tunnel`), `email` (Let's Encrypt's contact), `listen` (for `tunnel`, on loopback; default `127.0.0.1:8080`) |
 | `backups` | `at` (UTC, default `03:00`), `keep_daily` (7), `keep_weekly` (4), `primary` and `copies`: see [Backups](https://hakobu.dev/docs/backups/index.md) |
+| `updates` | `auto`: the newer releases hakobu installs by itself, `patch` (the default: 1.2.x of the 1.2 running), `minor` (any 1.x) or `none`; `at` (UTC, default an hour after `backups.at`): see [Updates](https://hakobu.dev/docs/updates/index.md) |
 | `alerts` | `smtp`, `pulse_url`, `pulse_fail_url`, `allow_ports`: see [Alerts](https://hakobu.dev/docs/alerts/index.md) |
 
 A bucket has `endpoint`, `region`, `bucket`, `access_key`, `secret_key`, and `prefix` (default `hakobu/NAME/`); copies have a `name`.
@@ -512,6 +513,7 @@ The server watches itself and emails you through any SMTP server (`[alerts.smtp]
 - a failed deploy (closed by the next one that works) or backup, and a backup that didn't prove it restores;
 - the disk 85% full (closed under 80%);
 - PostgreSQL not answering;
+- an update of hakobu that didn't install (closed once it does), and a newer minor release of hakobu out for 14 days that this server hasn't updated to;
 - the **audit**, hourly:
   - a port listening beyond loopback and the tailnet that isn't in `alerts.allow_ports` (80 and 443 are allowed for `public` ingress by themselves; add 22 if SSH listens on every address);
   - a container hakobu didn't start;
@@ -544,6 +546,16 @@ It waits and says how it went. An agent does the same with the MCP tool `update`
 On the server, the API only asks: hakobu runs as a user that can't write its own binary, so it creates `update-request` in its data directory, and systemd (`hakobu-update.path`) runs the update as root. That checks the release's signature and checksum, refuses one that isn't newer, and runs the new release's own installer (the `install.sh` it carries), so an update does what installing it by hand does. If the new version doesn't come up within three minutes, the binary from before goes back in and is started again. `/opt/hakobu/update-status.json` says how the last update went, and status shows a failed one.
 
 On the server itself, as root, `sudo hakobu server update [--to v1.3.0]` does the same without the API.
+
+## By itself
+
+Fixes install themselves: at `updates.at` (UTC, an hour after the backups by default) a server installs the latest release if it's a patch of the version it runs (1.2.3 → 1.2.4), and not during a deploy or the backups (it waits for the next day then). A release that didn't install isn't tried again by itself. Newer minor and major releases wait for `hakobu server update`; one that's been out for 14 days mails you.
+
+```toml
+[updates]
+auto = "patch"   # or "minor" (any 1.x), or "none"
+at = "04:00"
+```
 
 A server on v1.2.0 or older has no updater yet: run the installer on it once, which sets it up.
 

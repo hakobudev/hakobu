@@ -61,6 +61,7 @@
 <li>a failed deploy (closed by the next one that works) or backup, and a backup that didn't prove it restores;</li>
 <li>the disk 85% full (closed under 80%);</li>
 <li>PostgreSQL not answering;</li>
+<li>an update of hakobu that didn't install (closed once it does), and a newer minor release of hakobu out for 14 days that this server hasn't updated to;</li>
 <li>the <strong>audit</strong>, hourly:
 <ul>
 <li>a port listening beyond loopback and the tailnet that isn't in <code>alerts.allow_ports</code> (80 and 443 are allowed for <code>public</code> ingress by themselves; add 22 if SSH listens on every address);</li>

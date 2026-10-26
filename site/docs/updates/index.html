@@ -62,6 +62,12 @@ hakobu server update                   # every server
 <p>It waits and says how it went. An agent does the same with the MCP tool <code>update</code>, with the operator token: an update installs only a newer release signed by hakobu's key, so the most it can do is move a server forward.</p>
 <p>On the server, the API only asks: hakobu runs as a user that can't write its own binary, so it creates <code>update-request</code> in its data directory, and systemd (<code>hakobu-update.path</code>) runs the update as root. That checks the release's signature and checksum, refuses one that isn't newer, and runs the new release's own installer (the <code>install.sh</code> it carries), so an update does what installing it by hand does. If the new version doesn't come up within three minutes, the binary from before goes back in and is started again. <code>/opt/hakobu/update-status.json</code> says how the last update went, and status shows a failed one.</p>
 <p>On the server itself, as root, <code>sudo hakobu server update [--to v1.3.0]</code> does the same without the API.</p>
+<h2 id="by-itself">By itself</h2>
+<p>Fixes install themselves: at <code>updates.at</code> (UTC, an hour after the backups by default) a server installs the latest release if it's a patch of the version it runs (1.2.3 → 1.2.4), and not during a deploy or the backups (it waits for the next day then). A release that didn't install isn't tried again by itself. Newer minor and major releases wait for <code>hakobu server update</code>; one that's been out for 14 days mails you.</p>
+<pre><code class="language-toml">[updates]
+auto = &quot;patch&quot;   # or &quot;minor&quot; (any 1.x), or &quot;none&quot;
+at = &quot;04:00&quot;
+</code></pre>
 <p>A server on v1.2.0 or older has no updater yet: run the installer on it once, which sets it up.</p>
 <pre><code class="language-bash">curl -fsSL https://hakobu.dev/install.sh | sudo HAKOBU_VERSION=v1.3.0 bash
 </code></pre>
@@ -76,6 +82,7 @@ hakobu server update                   # every server
   </main>
   <aside class="docs-toc">
     <div class="docs-toc-title">On this page</div>
+    <a href="#by-itself" class="toc-2">By itself</a>
     <a href="#signed-releases" class="toc-2">Signed releases</a>
   </aside>
 </div>

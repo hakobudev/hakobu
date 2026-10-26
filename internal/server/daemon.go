@@ -23,6 +23,7 @@ import (
 	"github.com/hakobudev/hakobu/internal/registry"
 	"github.com/hakobudev/hakobu/internal/s3"
 	"github.com/hakobudev/hakobu/internal/seal"
+	"github.com/hakobudev/hakobu/internal/update"
 	"github.com/hakobudev/hakobu/internal/status"
 )
 
@@ -56,11 +57,12 @@ type Daemon struct {
 	// none is looked for).
 	Version       string
 	InstallDir    string
-	LatestRelease func() (string, error)
+	LatestRelease func() (update.Release, error)
 
 	mu         sync.Mutex
 	lastBackup BackupRun
-	latest     string // hakobu's newest release, as last found
+	latest     update.Release // hakobu's newest release, as last found
+	backingUp  bool
 }
 
 // BackupRun is how the last daily backups went.
@@ -153,6 +155,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	go d.backupDaily(ctx)
 	go d.monitor(ctx)
 	go d.checkReleases(ctx)
+	go d.updateDaily(ctx)
 	go func() {
 		if err := ingress.Serve(ctx, d.Config.Ingress, d.Applier.Domains, d.Config.CertDir(), d.log()); err != nil {
 			fmt.Fprintln(d.log(), err)
@@ -223,6 +226,14 @@ func nextAt(now time.Time, at string) time.Time {
 // BackupAll backs up every database and volume the projects have in their
 // files, then rotates each project's backups.
 func (d *Daemon) BackupAll(ctx context.Context) BackupRun {
+	d.mu.Lock()
+	d.backingUp = true
+	d.mu.Unlock()
+	defer func() {
+		d.mu.Lock()
+		d.backingUp = false
+		d.mu.Unlock()
+	}()
 	run := BackupRun{At: time.Now().UTC()}
 	resources, err := d.Applier.Resources()
 	if err != nil {

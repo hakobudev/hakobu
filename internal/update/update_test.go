@@ -294,3 +294,31 @@ func TestUpdateRequestedRefusedSays(t *testing.T) {
 		t.Errorf("%v, ran %v, %+v", err, s.ran, s.status(t))
 	}
 }
+
+func TestAllowed(t *testing.T) {
+	for _, c := range []struct {
+		policy, tag, current string
+		want                 bool
+	}{
+		{AutoPatch, "v1.2.4", "1.2.3", true},
+		{AutoPatch, "v1.3.0", "1.2.3", false},
+		{AutoPatch, "v1.2.3", "1.2.3", false},
+		{AutoMinor, "v1.3.0", "1.2.3", true},
+		{AutoMinor, "v2.0.0", "1.2.3", false}, // a major one is always by hand
+		{AutoNone, "v1.2.4", "1.2.3", false},
+		{AutoPatch, "v1.2.4", "dev", false}, // a build from source updates when asked
+		{AutoPatch, "v1.2.4", "1.2.4-rc.1", false},
+	} {
+		if got := Allowed(c.policy, c.tag, c.current); got != c.want {
+			t.Errorf("Allowed(%s, %s, %s) = %v", c.policy, c.tag, c.current, got)
+		}
+	}
+	for _, c := range []struct {
+		tag, current string
+		want         bool
+	}{{"v1.3.0", "1.2.9", true}, {"v2.0.0", "1.9.9", true}, {"v1.2.9", "1.2.3", false}, {"v1.2.3", "1.3.0", false}, {"", "1.2.3", false}} {
+		if got := Behind(c.tag, c.current); got != c.want {
+			t.Errorf("Behind(%s, %s) = %v", c.tag, c.current, got)
+		}
+	}
+}

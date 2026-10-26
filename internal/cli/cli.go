@@ -69,7 +69,7 @@ func serveCmd(version string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			d.Version, d.LatestRelease = version, update.Latest
+			d.Version, d.LatestRelease = version, update.LatestRelease
 			if bin, err := os.Executable(); err == nil {
 				d.InstallDir = filepath.Dir(bin)
 			}

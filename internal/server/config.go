@@ -20,6 +20,7 @@ import (
 	"github.com/hakobudev/hakobu/internal/alert"
 	"github.com/hakobudev/hakobu/internal/ingress"
 	"github.com/hakobudev/hakobu/internal/registry"
+	"github.com/hakobudev/hakobu/internal/update"
 )
 
 // ConfigFile is the server's config: its name, where it listens, its
@@ -46,6 +47,7 @@ type Config struct {
 	// Registries sign in to pull from, by host ("ghcr.io").
 	Registries map[string]Credentials `toml:"registries"`
 	Backups    Backups                `toml:"backups"`
+	Updates    Updates                `toml:"updates"`
 	Alerts     Alerts                 `toml:"alerts"`
 	Ingress    ingress.Config         `toml:"ingress"`
 	// Every is the time between polls of the release images.
@@ -65,6 +67,17 @@ type Alerts struct {
 	// for a server that serves the web itself, 22 for SSH on every
 	// address.
 	AllowPorts []int `toml:"allow_ports"`
+}
+
+// Updates are hakobu's own: which newer releases the server installs by
+// itself, and when.
+type Updates struct {
+	// Auto is "patch" (the default: 1.2.x of the 1.2 running), "minor"
+	// (any 1.x) or "none"; a newer one waits for hakobu server update.
+	Auto string `toml:"auto"`
+	// At is the time of day (UTC) it looks: default an hour after the
+	// backups start.
+	At string `toml:"at"`
 }
 
 type Credentials struct {
@@ -148,6 +161,14 @@ func ParseConfig(b []byte) (*Config, error) {
 	if c.Backups.Weekly == 0 {
 		c.Backups.Weekly = 4
 	}
+	if c.Updates.Auto == "" {
+		c.Updates.Auto = update.AutoPatch
+	}
+	if c.Updates.At == "" && atPattern.MatchString(c.Backups.At) {
+		var h, m int
+		_, _ = fmt.Sscanf(c.Backups.At, "%d:%d", &h, &m)
+		c.Updates.At = fmt.Sprintf("%02d:%02d", (h+1)%24, m)
+	}
 	for _, b := range c.buckets() {
 		if b.Prefix == "" {
 			b.Prefix = "hakobu/" + c.Name + "/"
@@ -199,6 +220,14 @@ func (c *Config) check() error {
 	}
 	if !atPattern.MatchString(c.Backups.At) {
 		bad("backups.at: %q should be a time of day like 03:00", c.Backups.At)
+	}
+	switch c.Updates.Auto {
+	case update.AutoPatch, update.AutoMinor, update.AutoNone:
+	default:
+		bad("updates.auto: %q should be patch, minor or none", c.Updates.Auto)
+	}
+	if !atPattern.MatchString(c.Updates.At) {
+		bad("updates.at: %q should be a time of day like 04:00", c.Updates.At)
 	}
 	if err := c.Ingress.Check(); err != nil {
 		errs = append(errs, err)

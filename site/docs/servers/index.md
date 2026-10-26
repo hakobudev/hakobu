@@ -53,7 +53,7 @@ to = "you@example.com"
 | Key | |
 |---|---|
 | `name` | the server's name; a project's `server` must match it |
-| `listen` | the API's address, on the tailnet; an address on every interface is refused |
+| `listen` | the API's address, on the tailnet or 127.0.0.1 (reached through SSH); an address on every interface is refused |
 | `data_dir` | default `/var/lib/hakobu`: the key, state, deploy history, dumps |
 | `owner_key` | your age public key |
 | `operator_token_sha256`, `admin_token_sha256` | the tokens' SHA-256 (`hakobu server token` makes a new pair) |
@@ -62,6 +62,7 @@ to = "you@example.com"
 | `registries."HOST"` | `username` and `password` to pull from a registry |
 | `ingress` | `mode` (`public` or `tunnel`), `email` (Let's Encrypt's contact), `listen` (for `tunnel`, on loopback; default `127.0.0.1:8080`) |
 | `backups` | `at` (UTC, default `03:00`), `keep_daily` (7), `keep_weekly` (4), `primary` and `copies`: see [Backups](https://hakobu.dev/docs/backups/index.md) |
+| `updates` | `auto`: the newer releases hakobu installs by itself, `patch` (the default: 1.2.x of the 1.2 running), `minor` (any 1.x) or `none`; `at` (UTC, default an hour after `backups.at`): see [Updates](https://hakobu.dev/docs/updates/index.md) |
 | `alerts` | `smtp`, `pulse_url`, `pulse_fail_url`, `allow_ports`: see [Alerts](https://hakobu.dev/docs/alerts/index.md) |
 
 A bucket has `endpoint`, `region`, `bucket`, `access_key`, `secret_key`, and `prefix` (default `hakobu/NAME/`); copies have a `name`.

@@ -90,6 +90,16 @@ func DBKey(project, db string) string {
 	return strings.ReplaceAll(project+"_"+db, "-", "_")
 }
 
+// Busy reports whether something changes the state now: a deploy, a
+// destroy.
+func (a *Applier) Busy() bool {
+	if !a.mu.TryLock() {
+		return true
+	}
+	a.mu.Unlock()
+	return false
+}
+
 // Apply brings the server in line with r and returns what it changed. On
 // an error the apps it didn't reach keep running as they were, and the
 // state keeps what was made, so applying again picks up where it stopped.
