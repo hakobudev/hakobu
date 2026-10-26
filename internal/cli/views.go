@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/hakobudev/hakobu/internal/apply"
 	"github.com/hakobudev/hakobu/internal/backups"
@@ -144,4 +146,84 @@ func sizeOf(n int64) string {
 		return fmt.Sprintf("%.0f kB", float64(n)/(1<<10))
 	}
 	return fmt.Sprintf("%d B", n)
+}
+
+// deployed is a deploy or rollback as the server sends it, with its log
+// and steps.
+type deployed struct {
+	apply.Result
+	Log   string       `json:"log"`
+	Steps []apply.Step `json:"steps"`
+}
+
+// ErrShown is an error the command has already shown, in its output.
+var ErrShown = errors.New("failed, as shown above")
+
+// printDeploy is a deploy or rollback step by step, and how it ended.
+func printDeploy(w io.Writer, name string, d deployed) {
+	l := lookFor(w)
+	head := l.bold(printable(d.Project))
+	if rev := shortRev(d.Revision); rev != "" && d.Rollback {
+		head += "  back to " + rev
+	} else if rev != "" {
+		head += "  " + rev
+	}
+	head += "  " + l.dim(name)
+	if d.Error == "" && len(d.Changes) == 0 {
+		fmt.Fprintln(w, head+"  "+l.ok(symOK+" nothing to change"))
+		return
+	}
+	fmt.Fprintln(w, head)
+	fmt.Fprintln(w)
+	var took time.Duration
+	failed := ""
+	for _, s := range d.Steps {
+		took += s.Took
+		sym := l.ok(symOK)
+		if s.Error != "" {
+			sym, failed = l.bad(symBad), s.Name
+		}
+		line := "  " + sym + " " + pad(s.Name, s.Name, 8) + " " + printable(s.Detail)
+		if s.Took >= time.Second {
+			line += l.dim(" · " + seconds(s.Took))
+		}
+		fmt.Fprintln(w, line)
+		if s.Error != "" {
+			fmt.Fprintln(w, strings.Repeat(" ", 13)+l.dim(firstLine(printable(s.Error))))
+		}
+	}
+	if len(d.Steps) > 0 {
+		fmt.Fprintln(w)
+	}
+	switch {
+	case d.Error != "" && (failed == "worker" || failed == "remove"):
+		fmt.Fprintln(w, l.bad(symBad+" not "+outcome(d))+l.dim(" · the new version is live"))
+	case d.Error != "" && failed != "":
+		// Up to the switch, a failed step leaves the live version alone.
+		fmt.Fprintln(w, l.bad(symBad+" not "+outcome(d))+l.dim(" · the live version keeps running"))
+	case d.Error != "":
+		fmt.Fprintln(w, l.bad(symBad+" not "+outcome(d))+"  "+l.dim(firstLine(printable(d.Error))))
+	case d.Rollback:
+		fmt.Fprintln(w, l.warn(symBack+" rolled back")+l.dim(" in "+seconds(took)+" · the release after it waits for a newer one"))
+	default:
+		fmt.Fprintln(w, l.ok(symOK+" deployed")+l.dim(" in "+seconds(took)))
+	}
+}
+
+func outcome(d deployed) string {
+	if d.Rollback {
+		return "rolled back"
+	}
+	return "deployed"
+}
+
+// seconds is a step's time, short: "0.4 s", "38 s", "2 min 5 s".
+func seconds(d time.Duration) string {
+	switch {
+	case d < 10*time.Second:
+		return fmt.Sprintf("%.1f s", d.Seconds())
+	case d < time.Minute:
+		return fmt.Sprintf("%d s", int(d.Seconds()))
+	}
+	return fmt.Sprintf("%d min %d s", int(d.Minutes()), int(d.Seconds())%60)
 }

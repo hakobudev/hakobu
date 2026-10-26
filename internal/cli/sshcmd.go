@@ -74,6 +74,7 @@ func sshCmd(version string) *cobra.Command {
 		Hidden: true,
 		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			overSSH = true
 			return runSSH(cmd.Context(), version, os.Getenv("SSH_ORIGINAL_COMMAND"), cmd.OutOrStdout())
 		},
 	}

@@ -185,6 +185,7 @@ type Result struct {
 	Error    string    `json:"error,omitempty"`
 	Rollback bool      `json:"rollback,omitempty"` // back to the release before
 	Log      string    `json:"-"`
+	Steps    []Step    `json:"-"`
 }
 
 // Watch polls the release images of the server's projects and deploys
@@ -303,7 +304,7 @@ func (w *Watch) Check(ctx context.Context, ref registry.Ref, force bool) (*Resul
 	}
 	pinned := ref.Pinned(digest).String()
 	res := Result{At: time.Now().UTC(), Release: pinned}
-	var log strings.Builder
+	var log Log
 	release, meta, err := w.fetch(ctx, ref.Pinned(digest))
 	meta.Ref = pinned
 	res.Source, res.Revision = meta.Source, meta.Revision
@@ -332,7 +333,7 @@ func (w *Watch) Check(ctx context.Context, ref registry.Ref, force bool) (*Resul
 			return nil, ctx.Err()
 		}
 	}
-	res.Log = log.String()
+	res.Log, res.Steps = log.String(), log.Steps
 	if err != nil {
 		res.Error = err.Error()
 		s.Failed = digest
@@ -359,7 +360,7 @@ func (w *Watch) Rollback(ctx context.Context, ref registry.Ref) (*Result, error)
 	}
 	pinned := ref.Pinned(s.Previous).String()
 	res := Result{At: time.Now().UTC(), Release: pinned, Rollback: true}
-	var log strings.Builder
+	var log Log
 	release, meta, err := w.fetch(ctx, ref.Pinned(s.Previous))
 	if err == nil && s.Applied != "" {
 		// The code goes back; the secrets stay current, so a key replaced
@@ -388,7 +389,7 @@ func (w *Watch) Rollback(ctx context.Context, ref registry.Ref) (*Result, error)
 			res.Changes = append(res.Changes, c.String())
 		}
 	}
-	res.Log = log.String()
+	res.Log, res.Steps = log.String(), log.Steps
 	if err != nil {
 		res.Error = "rollback: " + err.Error()
 	} else {

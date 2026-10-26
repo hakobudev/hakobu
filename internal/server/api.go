@@ -269,7 +269,7 @@ func withLogs(rs []*apply.Result) []map[string]any {
 		b, _ := json.Marshal(r)
 		var m map[string]any
 		_ = json.Unmarshal(b, &m)
-		m["log"] = r.Log
+		m["log"], m["steps"] = r.Log, r.Steps
 		out = append(out, m)
 	}
 	return out

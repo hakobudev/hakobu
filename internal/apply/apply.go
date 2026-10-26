@@ -142,41 +142,15 @@ func (a *Applier) Apply(ctx context.Context, r Release, out io.Writer) (Plan, er
 	}
 	fmt.Fprint(out, plan)
 	if plan.Empty() {
+		_ = step(out, "plan", "nothing to change")(nil)
 		return plan, nil
 	}
+	_ = step(out, "plan", plan.names())(nil)
 	save := func() error { return st.Save(a.StateFile) }
 	project := r.Spec.Name
 
-	if len(r.Spec.Databases) > 0 {
-		if err := a.Node.EnsurePostgres(ctx); err != nil {
-			return plan, fmt.Errorf("postgres: %w", err)
-		}
-	}
-	if err := a.Node.EnsureProjectNetworks(ctx, project); err != nil {
+	if err := a.data(ctx, r, ps, save, out); err != nil {
 		return plan, err
-	}
-	for _, n := range sortedKeys(r.Spec.Databases) {
-		d, err := a.database(ps, project, n, save)
-		if err != nil {
-			return plan, err
-		}
-		if err := a.Node.EnsureDatabase(ctx, d); err != nil {
-			return plan, fmt.Errorf("databases.%s: %w", n, err)
-		}
-	}
-	for _, n := range sortedKeys(r.Spec.Caches) {
-		c, ok := ps.Caches[n]
-		if !ok {
-			c = &CacheState{Password: randomHex()}
-			ps.Caches[n] = c
-			if err := save(); err != nil {
-				return plan, err
-			}
-		}
-		spec := node.CacheSpec{Name: CacheKey(project, n), Project: project, Password: c.Password, MemoryMB: int64(r.Spec.Caches[n].Memory >> 20)}
-		if err := a.Node.EnsureCache(ctx, spec); err != nil {
-			return plan, fmt.Errorf("caches.%s: %w", n, err)
-		}
 	}
 	for app, w := range r.Spec.Apps {
 		for v := range w.Volumes {
@@ -208,7 +182,8 @@ func (a *Applier) Apply(ctx context.Context, r Release, out io.Writer) (Plan, er
 			return plan, fmt.Errorf("apps.%s: %w", n, err)
 		}
 		if w.Worker != "" {
-			if err := a.runWorker(ctx, r, ps, n, out); err != nil {
+			done := step(out, "worker", n)
+			if err := done(a.runWorker(ctx, r, ps, n, out)); err != nil {
 				return plan, fmt.Errorf("apps.%s: worker: %w", n, err)
 			}
 		}
@@ -218,7 +193,8 @@ func (a *Applier) Apply(ctx context.Context, r Release, out io.Writer) (Plan, er
 			continue
 		}
 		fmt.Fprintln(out, "removing app", n)
-		if err := a.Node.RemoveApp(ctx, AppKey(project, n), nil); err != nil {
+		done := step(out, "remove", n)
+		if err := done(a.Node.RemoveApp(ctx, AppKey(project, n), nil)); err != nil {
 			return plan, fmt.Errorf("apps.%s: %w", n, err)
 		}
 		delete(ps.Apps, n)
@@ -228,6 +204,48 @@ func (a *Applier) Apply(ctx context.Context, r Release, out io.Writer) (Plan, er
 	}
 	ps.Spec = r.Spec
 	return plan, save()
+}
+
+// data makes the project's network, databases and caches, if they aren't
+// there: one step, as they're quick and seldom new.
+func (a *Applier) data(ctx context.Context, r Release, ps *ProjectState, save func() error, out io.Writer) error {
+	project := r.Spec.Name
+	done := func(err error) error { return err }
+	if names := append(sortedKeys(r.Spec.Databases), sortedKeys(r.Spec.Caches)...); len(names) > 0 {
+		done = step(out, "data", strings.Join(names, ", "))
+	}
+	if len(r.Spec.Databases) > 0 {
+		if err := a.Node.EnsurePostgres(ctx); err != nil {
+			return done(fmt.Errorf("postgres: %w", err))
+		}
+	}
+	if err := a.Node.EnsureProjectNetworks(ctx, project); err != nil {
+		return done(err)
+	}
+	for _, n := range sortedKeys(r.Spec.Databases) {
+		d, err := a.database(ps, project, n, save)
+		if err != nil {
+			return done(err)
+		}
+		if err := a.Node.EnsureDatabase(ctx, d); err != nil {
+			return done(fmt.Errorf("databases.%s: %w", n, err))
+		}
+	}
+	for _, n := range sortedKeys(r.Spec.Caches) {
+		c, ok := ps.Caches[n]
+		if !ok {
+			c = &CacheState{Password: randomHex()}
+			ps.Caches[n] = c
+			if err := save(); err != nil {
+				return done(err)
+			}
+		}
+		spec := node.CacheSpec{Name: CacheKey(project, n), Project: project, Password: c.Password, MemoryMB: int64(r.Spec.Caches[n].Memory >> 20)}
+		if err := a.Node.EnsureCache(ctx, spec); err != nil {
+			return done(fmt.Errorf("caches.%s: %w", n, err))
+		}
+	}
+	return done(nil)
 }
 
 // domainsFree refuses a domain another project on the server serves: the
@@ -386,12 +404,14 @@ func (a *Applier) deployApp(ctx context.Context, r Release, st *State, ps *Proje
 	switch id := a.localImage(ctx, ref, as); {
 	case id != "":
 		fmt.Fprintln(out, "using", ref, "from this server")
-		if err := deploy.TagImage(ctx, id, next); err != nil {
+		done := step(out, "pull", name+" · on this server")
+		if err := done(deploy.TagImage(ctx, id, next)); err != nil {
 			return err
 		}
 	default:
 		fmt.Fprintln(out, "pulling", ref)
-		if err := a.pull(ctx, r, ref, next); err != nil {
+		done := step(out, "pull", name+" · "+ref)
+		if err := done(a.pull(ctx, r, ref, next)); err != nil {
 			return err
 		}
 	}
@@ -404,10 +424,12 @@ func (a *Applier) deployApp(ctx context.Context, r Release, st *State, ps *Proje
 			return err
 		}
 	}
+	done := step(out, "start", name)
 	c, err := a.Node.StartCandidate(ctx, app, node.Next, out)
-	if err != nil {
+	if done(err) != nil {
 		return err
 	}
+	done = step(out, "switch", name)
 	// The state first: after a crash between the two, the slot it names is
 	// the live one, and the other is a leftover to remove.
 	prev := *as
@@ -415,26 +437,28 @@ func (a *Applier) deployApp(ctx context.Context, r Release, st *State, ps *Proje
 	as.PreviousID, as.ImageID = as.ImageID, imageID
 	if err := save(); err != nil {
 		*as = prev
-		return a.Node.Discard(ctx, app, c, out, err)
+		return done(a.Node.Discard(ctx, app, c, out, err))
 	}
 	if err := a.Node.Switch(ctx, app, c); err != nil {
 		*as = prev
 		if serr := save(); serr != nil {
 			fmt.Fprintln(out, "warning:", serr)
 		}
-		return a.Node.Discard(ctx, app, c, out, err)
+		return done(a.Node.Discard(ctx, app, c, out, err))
 	}
 	a.Node.Retire(ctx, app, c, out)
 	if err := a.Node.Promote(ctx, key); err != nil {
 		fmt.Fprintln(out, "warning:", err)
 	}
 	fmt.Fprintf(out, "%s is live on 127.0.0.1:%d\n", name, as.ProxyPort)
+	_ = done(nil)
 
 	if err := a.Node.RemoveWorker(ctx, key); err != nil {
 		return err
 	}
 	if w.Worker != "" {
-		if err := a.runWorker(ctx, r, ps, name, out); err != nil {
+		done := step(out, "worker", name)
+		if err := done(a.runWorker(ctx, r, ps, name, out)); err != nil {
 			return fmt.Errorf("worker: %w", err)
 		}
 	}
@@ -454,11 +478,13 @@ func (a *Applier) release(ctx context.Context, r Release, ps *ProjectState, name
 			return err
 		}
 		fmt.Fprintln(out, "saving a dump of", db, "before the release command")
-		if err := a.snapshot(ctx, d); err != nil {
+		done := step(out, "dump", db+", before the release command")
+		if err := done(a.snapshot(ctx, d)); err != nil {
 			return fmt.Errorf("dump of %s: %w", db, err)
 		}
 	}
 	fmt.Fprintln(out, "running", r.Spec.Apps[name].Release)
+	done := step(out, "release", name+" · "+r.Spec.Apps[name].Release)
 	run := a.RunOnce
 	if run == nil {
 		timeout := a.ReleaseTimeout
@@ -477,11 +503,11 @@ func (a *Applier) release(ctx context.Context, r Release, ps *ProjectState, name
 		// Its last words go in the error, so the commit's status and the
 		// mail say why without opening the log.
 		if last := lastLine(output); last != "" {
-			return fmt.Errorf("%w: %s; the live version keeps running", err, last)
+			err = fmt.Errorf("%w: %s", err, last)
 		}
-		return fmt.Errorf("%w; the live version keeps running", err)
+		return fmt.Errorf("%w; the live version keeps running", done(err))
 	}
-	return nil
+	return done(nil)
 }
 
 func (a *Applier) runWorker(ctx context.Context, r Release, ps *ProjectState, name string, out io.Writer) error {

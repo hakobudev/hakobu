@@ -24,13 +24,17 @@ const (
 
 type look struct{ on bool }
 
-// lookFor styles what goes to w if w is a terminal that takes colour, or
-// CLICOLOR_FORCE asks for it anyway (ssh without -t has no terminal).
+// overSSH is set for a command an SSH key ran: ssh without -t gives it no
+// terminal, yet its output goes to one, so it's in colour all the same.
+var overSSH bool
+
+// lookFor styles what goes to w if w is a terminal that takes colour, the
+// command came over SSH, or CLICOLOR_FORCE asks for it.
 func lookFor(w io.Writer) look {
 	if os.Getenv("NO_COLOR") != "" {
 		return look{}
 	}
-	if f := os.Getenv("CLICOLOR_FORCE"); f != "" && f != "0" {
+	if f := os.Getenv("CLICOLOR_FORCE"); overSSH || f != "" && f != "0" {
 		return look{true}
 	}
 	f, ok := w.(*os.File)

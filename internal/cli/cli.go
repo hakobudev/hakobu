@@ -601,34 +601,31 @@ func deployCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			for _, c := range cs {
-				var rs []map[string]any
+			l, failed := lookFor(os.Stdout), false
+			for i, c := range cs {
+				var rs []deployed
 				if err := c.Post(cmd.Context(), "/v1/deploy", map[string]any{"project": project, "force": force}, &rs); err != nil {
 					return err
 				}
 				if len(rs) == 0 {
-					fmt.Printf("%s: nothing new\n", c.Name)
+					fmt.Println(l.bold(c.Name) + "  " + l.dim("nothing new"))
 				}
-				if err := printResults(rs); err != nil {
-					return err
+				for j, r := range rs {
+					if i+j > 0 {
+						fmt.Println()
+					}
+					printDeploy(os.Stdout, c.Name, r)
+					failed = failed || r.Error != ""
 				}
+			}
+			if failed {
+				return ErrShown
 			}
 			return nil
 		},
 	}
 	c.Flags().BoolVar(&force, "force", false, "deploy even a release that was deployed or failed before")
 	return c
-}
-
-func printResults(rs []map[string]any) error {
-	var errs []error
-	for _, r := range rs {
-		fmt.Print(printable(fmt.Sprint(r["log"])))
-		if e, _ := r["error"].(string); e != "" {
-			errs = append(errs, errors.New(e))
-		}
-	}
-	return errors.Join(errs...)
 }
 
 func rollbackCmd() *cobra.Command {
@@ -641,11 +638,15 @@ func rollbackCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			var r map[string]any
+			var r deployed
 			if err := cl.Post(cmd.Context(), "/v1/rollback", map[string]string{"project": args[0]}, &r); err != nil {
 				return err
 			}
-			return printResults([]map[string]any{r})
+			printDeploy(os.Stdout, cl.Name, r)
+			if r.Error != "" {
+				return ErrShown
+			}
+			return nil
 		},
 	}
 }
