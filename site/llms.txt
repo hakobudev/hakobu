@@ -5,7 +5,7 @@
 ## Getting started
 
 - [Introduction](https://hakobu.dev/docs/index.md): hakobu runs your projects on servers you own. A project says what it needs in a file in its repository, hakobu.toml; CI builds each commit into images; the server pulls the new release and swaps it…
-- [A server](https://hakobu.dev/docs/install/index.md): You need a new Debian or Ubuntu server you can SSH to as root (or a user with sudo), and nothing on your laptop but ssh. You, or your agent, run one line:
+- [A server](https://hakobu.dev/docs/install/index.md): You need a new Debian or Ubuntu server you can SSH to as root (or a user with sudo), and nothing on your laptop but ssh. Run one line:
 - [A project](https://hakobu.dev/docs/project/index.md): A project is a repository with a hakobu.toml at its root. With a server and its MCP added to your agent, ask it to set the repository up for hakobu: its init tool registers the release image on the…
 
 ## Reference

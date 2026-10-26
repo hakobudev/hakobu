@@ -26,11 +26,31 @@ Start with [a server](https://hakobu.dev/docs/install/index.md), then [a project
 
 # A server
 
-You need a new Debian or Ubuntu server you can SSH to as root (or a user with sudo), and nothing on your laptop but `ssh`. You, or your agent, run one line:
+You need a new Debian or Ubuntu server you can SSH to as root (or a user with sudo), and nothing on your laptop but `ssh`. Run one line:
+
+```bash
+ssh -t root@203.0.113.7 'curl -fsSL https://hakobu.dev/install.sh | bash'
+```
+
+It asks what it needs:
+
+```
+  Server name [ubuntu-4gb-hel1]: kasl-1
+  How do visitors reach your apps?
+    1) ports 80 and 443, with Let's Encrypt
+    2) a Cloudflare Tunnel, no port open
+    3) not yet
+  > [1] 1
+  Email for Let's Encrypt (Enter for none): you@example.com
+```
+
+Your agent has no terminal to answer at, so it gives the answers as variables, and is asked nothing:
 
 ```bash
 ssh root@203.0.113.7 'curl -fsSL https://hakobu.dev/install.sh | HAKOBU_NAME=kasl-1 HAKOBU_INGRESS=public HAKOBU_ACME_EMAIL=you@example.com bash'
 ```
+
+A tunnel is `HAKOBU_INGRESS=tunnel` with `CLOUDFLARE_TUNNEL_TOKEN=…`; the rest of the variables are at the top of [install.sh](https://hakobu.dev/install.sh).
 
 That's the one time anything runs on the server by hand. It installs rootless Docker (as the user `hakobu-docker`), unattended upgrades, and hakobu (its signature checked) as a sandboxed systemd service running as `hakobu`; writes `/etc/hakobu/server.toml` and makes the server's key; and makes an SSH user, `deploy`, whose keys run hakobu's commands and nothing else. At its end it prints:
 

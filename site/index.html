@@ -321,11 +321,10 @@
     </div>
     <ol class="start">
       <li>
-        <div class="start-text"><span class="step-n">1</span><div><h3>A server</h3><p>One command, nothing asked, so your agent can run it. It ends with the line that gives your agent the server's MCP. After that it updates itself. <a href="/docs/install/">A server</a></p></div></div>
-        <div class="copyable"><pre class="console"><span class="p">$</span> ssh root@203.0.113.7 'curl -fsSL https://hakobu.dev/install.sh \
-    | HAKOBU_NAME=kasl-1 HAKOBU_INGRESS=public bash'
+        <div class="start-text"><span class="step-n">1</span><div><h3>A server</h3><p>One command; it asks the server's name and how visitors reach your apps (your agent gives them as variables). It ends with the line that gives your agent the server's MCP. After that it updates itself. <a href="/docs/install/">A server</a></p></div></div>
+        <div class="copyable"><pre class="console"><span class="p">$</span> ssh -t root@203.0.113.7 'curl -fsSL https://hakobu.dev/install.sh | bash'
 <span class="p">$</span> claude mcp add --scope user kasl-1 -- \
-    ssh -T deploy@203.0.113.7 mcp</pre><button class="copy" type="button" data-copy="ssh root@203.0.113.7 'curl -fsSL https://hakobu.dev/install.sh | HAKOBU_NAME=kasl-1 HAKOBU_INGRESS=public bash'" aria-label="Copy the install command"><svg class="icon"><use href="#i-copy"/></svg></button></div>
+    ssh -T deploy@203.0.113.7 mcp</pre><button class="copy" type="button" data-copy="ssh -t root@203.0.113.7 'curl -fsSL https://hakobu.dev/install.sh | bash'" aria-label="Copy the install command"><svg class="icon"><use href="#i-copy"/></svg></button></div>
       </li>
       <li>
         <div class="start-text"><span class="step-n">2</span><div><h3>A project</h3><p>Ask your agent to set the repository up: it writes hakobu.toml, the workflow and its skill. You type the secrets in your own terminal, sealed on the server; the agent adds them, never seeing one. <a href="/docs/project/">A project</a></p></div></div>

@@ -2,12 +2,17 @@
 # Installs hakobu v1 on a Linux server (Debian or Ubuntu), or updates it:
 # rootless Docker for the apps, the server's key and config, the hakobu
 # service, and an SSH user whose keys (root's) run hakobu's commands and
-# nothing else, for your agent's MCP and for you. Nothing asks: everything
-# comes from the environment. Your agent runs it, once:
+# nothing else, for your agent's MCP and for you. At a terminal it asks the
+# server's name and how visitors reach its apps:
 #
-#   ssh root@SERVER 'curl -fsSL https://hakobu.dev/install.sh | HAKOBU_NAME=kasl-1 bash'
+#   ssh -t root@SERVER 'curl -fsSL https://hakobu.dev/install.sh | bash'
 #
-# Needs, on a first install:
+# Your agent, with no terminal, says it all in the environment instead, and
+# is asked nothing:
+#
+#   ssh root@SERVER 'curl -fsSL https://hakobu.dev/install.sh | HAKOBU_NAME=kasl-1 HAKOBU_INGRESS=public bash'
+#
+# Needs, on a first install (asked at a terminal):
 #   HAKOBU_NAME        the server's name (lowercase letters, digits, -)
 # Optional:
 #   HAKOBU_OWNER_KEY   your age public key: secrets and backups are sealed to
@@ -23,10 +28,10 @@
 #   HAKOBU_API         tailnet or loopback, to say which outright
 #   TS_TAGS            the server's Tailscale tags, e.g. tag:hakobu
 #   HAKOBU_INGRESS     public (80/443 with Let's Encrypt), tunnel (a Cloudflare
-#                      Tunnel to loopback) or none (default)
-#   HAKOBU_ACME_EMAIL  Let's Encrypt's contact, for public
+#                      Tunnel to loopback) or none (default; asked at a terminal)
+#   HAKOBU_ACME_EMAIL  Let's Encrypt's contact, for public (asked)
 #   CLOUDFLARE_TUNNEL_TOKEN  the tunnel's token, for tunnel: cloudflared runs
-#                      on the server as a system service
+#                      on the server as a system service (asked, unseen)
 #   HAKOBU_CONFIG_EXTRA  a file whose TOML goes into the config, after its
 #                      top-level keys:
 #                      releases, registries, backups, alerts
@@ -77,11 +82,53 @@ if [ ! -f "$CONFIG" ]; then
     if [ -n "${TS_AUTHKEY:-}" ] || { command -v tailscale >/dev/null && tailscale ip -4 >/dev/null 2>&1; }; then API=tailnet; else API=loopback; fi
   fi
   case "$API" in tailnet|loopback) ;; *) die "HAKOBU_API: tailnet or loopback" ;; esac
-  [[ "${HAKOBU_NAME:-}" =~ ^[a-z][a-z0-9-]{0,30}$ ]] || die "HAKOBU_NAME: a name of lowercase letters, digits and -"
+  # At a terminal (ssh -t), ask for what the environment doesn't say. An
+  # agent, or hakobu server create, has none and is asked nothing.
+  if [ "${HAKOBU_RESULT:-}" != json ] && { : </dev/tty; } 2>/dev/null; then
+    ask() { local a; read -r -p "  $1" a </dev/tty; printf '%s' "$a"; }
+    echo "hakobu: install on this server"
+    echo
+    if [ -z "${HAKOBU_NAME:-}" ]; then
+      NAME_GUESS="$(hostname -s 2>/dev/null | tr 'A-Z_.' 'a-z--' | sed 's/[^a-z0-9-]//g; s/^[^a-z]*//' | cut -c1-31)"
+      while :; do
+        HAKOBU_NAME="$(ask "Server name${NAME_GUESS:+ [$NAME_GUESS]}: ")"
+        HAKOBU_NAME="${HAKOBU_NAME:-$NAME_GUESS}"
+        [[ "$HAKOBU_NAME" =~ ^[a-z][a-z0-9-]{0,30}$ ]] && break
+        echo "  A name of lowercase letters, digits and -, from a letter."
+      done
+    fi
+    if [ -z "${HAKOBU_INGRESS:-}" ]; then
+      echo "  How do visitors reach your apps?"
+      echo "    1) ports 80 and 443, with Let's Encrypt"
+      echo "    2) a Cloudflare Tunnel, no port open"
+      echo "    3) not yet"
+      while [ -z "${HAKOBU_INGRESS:-}" ]; do
+        case "$(ask "> [1] ")" in
+          1|"") HAKOBU_INGRESS=public ;;
+          2) HAKOBU_INGRESS=tunnel ;;
+          3) HAKOBU_INGRESS=none ;;
+        esac
+      done
+    fi
+    if [ "$HAKOBU_INGRESS" = public ] && [ -z "${HAKOBU_ACME_EMAIL:-}" ]; then
+      HAKOBU_ACME_EMAIL="$(ask "Email for Let's Encrypt (Enter for none): ")"
+    fi
+    if [ "$HAKOBU_INGRESS" = tunnel ]; then
+      while [ -z "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; do
+        read -r -s -p "  The tunnel's token (unseen): " CLOUDFLARE_TUNNEL_TOKEN </dev/tty
+        echo
+      done
+    fi
+    echo
+  fi
+  [[ "${HAKOBU_NAME:-}" =~ ^[a-z][a-z0-9-]{0,30}$ ]] || die "HAKOBU_NAME: a name of lowercase letters, digits and - (or run it with ssh -t to be asked)"
   if [ -n "${HAKOBU_OWNER_KEY:-}" ]; then
     [[ "$HAKOBU_OWNER_KEY" =~ ^age1[a-z0-9]{58}$ ]] || die "HAKOBU_OWNER_KEY: your age public key (age1…), or none for the server to make one"
   fi
   case "${HAKOBU_INGRESS:-none}" in public|tunnel|none) ;; *) die "HAKOBU_INGRESS: public, tunnel or none" ;; esac
+  # It goes into server.toml between quotes.
+  EMAIL_RE='^[^"\\[:space:][:cntrl:]]*$'
+  [[ "${HAKOBU_ACME_EMAIL:-}" =~ $EMAIL_RE ]] || die "HAKOBU_ACME_EMAIL: an email address"
   if [ "${HAKOBU_INGRESS:-none}" = tunnel ] && [ -z "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then
     die "HAKOBU_INGRESS=tunnel needs CLOUDFLARE_TUNNEL_TOKEN"
   fi
