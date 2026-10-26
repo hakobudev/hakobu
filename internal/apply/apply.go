@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -117,6 +118,9 @@ func (a *Applier) Apply(ctx context.Context, r Release, out io.Writer) (Plan, er
 		return Plan{}, err
 	}
 	if err := domainsFree(st, r.Spec); err != nil {
+		return Plan{Project: r.Spec.Name}, err
+	}
+	if err := namesFree(st, r.Spec); err != nil {
 		return Plan{Project: r.Spec.Name}, err
 	}
 	ps := st.Project(r.Spec.Name)
@@ -241,6 +245,104 @@ func domainsFree(st *State, want *spec.Project) error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// reservedNames are the containers of hakobu's own, which no project's
+// may take.
+var reservedNames = []string{"container " + node.PostgresContainer, "container hakobu-cloudflared"}
+
+// namesFree refuses a project whose names on the server would be another
+// one's, or another of its own: containers, volumes and databases are
+// named project-name, and both may have a -, so project kasl's app crm-web
+// would get project kasl-crm's app web: its containers, its proxy (and
+// domain), its volumes. Apps and caches of the state count too, as
+// orphans keep theirs until they're destroyed.
+func namesFree(st *State, want *spec.Project) error {
+	if want.Name == "hakobu" || strings.HasPrefix(want.Name, "hakobu-") {
+		return fmt.Errorf("project: %s would be named as hakobu's own containers and volumes are (hakobu-…)", want.Name)
+	}
+	taken := map[string]string{} // name → whose
+	for _, n := range reservedNames {
+		taken[n] = "hakobu's own"
+	}
+	for _, other := range sortedKeys(st.Projects) {
+		if other != want.Name {
+			names, _ := projectNames(other, st.Projects[other], nil)
+			maps.Copy(taken, names)
+		}
+	}
+	names, errs := projectNames(want.Name, st.Projects[want.Name], want)
+	told := map[string]bool{} // once for each two that clash
+	for _, n := range sortedKeys(names) {
+		if other, ok := taken[n]; ok && !told[names[n]+other] {
+			told[names[n]+other] = true
+			errs = append(errs, fmt.Errorf("%s would be named as %s is (%s): rename one", names[n], other, strings.SplitN(n, " ", 2)[1]))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// projectNames are the names project takes on the server, each with
+// whose it is, as "kind name" (a container's, an app's (its image, proxy
+// and volumes), a database's), and the names two of its own would share.
+// It has the apps and caches of sp, if given, else of its state's spec,
+// and of its state.
+func projectNames(project string, ps *ProjectState, sp *spec.Project) (map[string]string, []error) {
+	if ps == nil {
+		ps = &ProjectState{}
+	}
+	if sp == nil {
+		sp = ps.Spec
+	}
+	if sp == nil {
+		sp = &spec.Project{}
+	}
+	apps, caches, dbs := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	for n := range sp.Apps {
+		apps[n] = true
+	}
+	for n := range ps.Apps {
+		apps[n] = true
+	}
+	for n := range sp.Caches {
+		caches[n] = true
+	}
+	for n := range ps.Caches {
+		caches[n] = true
+	}
+	for n := range sp.Databases {
+		dbs[n] = true
+	}
+	for n := range ps.Databases {
+		dbs[n] = true
+	}
+	names, told := map[string]string{}, map[string]bool{}
+	var errs []error
+	add := func(name, whose string) {
+		if other, ok := names[name]; ok && other != whose {
+			if told[whose+other] {
+				return
+			}
+			told[whose+other] = true
+			errs = append(errs, fmt.Errorf("%s would be named as %s is (%s): rename one", whose, other, strings.SplitN(name, " ", 2)[1]))
+			return
+		}
+		names[name] = whose
+	}
+	for _, n := range sortedKeys(apps) {
+		key, whose := AppKey(project, n), project+"'s apps."+n
+		add("app "+key, whose)
+		for _, suffix := range []string{"-blue", "-green", "-worker", "-release"} {
+			add("container "+key+suffix, whose)
+		}
+	}
+	for _, n := range sortedKeys(caches) {
+		add("container "+CacheKey(project, n), project+"'s caches."+n)
+	}
+	for _, n := range sortedKeys(dbs) {
+		add("database "+DBKey(project, n), project+"'s databases."+n)
+	}
+	return names, errs
 }
 
 // database is d's spec, its password made and saved on first use, before
