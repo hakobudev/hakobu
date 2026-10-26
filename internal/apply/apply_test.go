@@ -408,6 +408,59 @@ func TestApplyRefusesAnotherProjectsDomain(t *testing.T) {
 	}
 }
 
+func TestApplyRefusesAnotherProjectsNames(t *testing.T) {
+	h := newHarness(t)
+	first, err := spec.Parse([]byte("project = \"kasl-crm\"\nserver = \"kasl-1\"\n[apps.web]\nvolumes = { uploads = \"/data\" }\n[caches.jobs]\n[databases.main]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.a.Apply(context.Background(), Release{Spec: first, Images: map[string]string{"web": "reg/web@sha256:aaa"}}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ toml, want string }{
+		// kasl + crm-web is kasl-crm + web: its containers, proxy, volumes.
+		{"[apps.crm-web]\n", "kasl's apps.crm-web would be named as kasl-crm's apps.web is"},
+		{"[apps.web]\n[caches.crm-jobs]\n", "kasl's caches.crm-jobs would be named as kasl-crm's caches.jobs is"},
+		{"[apps.web]\n[databases.crm-main]\n", "kasl's databases.crm-main would be named as kasl-crm's databases.main is"},
+	} {
+		other, err := spec.Parse([]byte("project = \"kasl\"\nserver = \"kasl-1\"\n" + tc.toml))
+		if err != nil {
+			t.Fatal(err)
+		}
+		before := len(h.f.Calls())
+		_, err = h.a.Apply(context.Background(), Release{Spec: other, Images: map[string]string{"web": "reg/web@sha256:bbb", "crm-web": "reg/web@sha256:bbb"}}, io.Discard)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%q: err %v", tc.toml, err)
+		}
+		if len(h.f.Calls()) != before {
+			t.Errorf("%q: it changed something first", tc.toml)
+		}
+	}
+}
+
+func TestApplyRefusesNamesOfItsOwnAndHakobus(t *testing.T) {
+	h := newHarness(t)
+	for _, tc := range []struct{ toml, want string }{
+		// The cache would be the app's worker container.
+		{"project = \"shop\"\n[apps.web]\n[caches.web-worker]\n", "shop's caches.web-worker would be named as shop's apps.web is (shop-web-worker)"},
+		// The cache would be the shared Postgres.
+		{"project = \"hakobu\"\n[apps.web]\n[caches.postgres]\n", "hakobu's own"},
+		{"project = \"hakobu-vol\"\n[apps.web]\n", "hakobu's own"},
+	} {
+		p, err := spec.Parse([]byte("server = \"kasl-1\"\n" + tc.toml))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = h.a.Apply(context.Background(), Release{Spec: p, Images: map[string]string{"web": "reg/web@sha256:bbb"}}, io.Discard)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%q: err %v", tc.toml, err)
+		}
+	}
+	if calls := h.f.Calls(); len(calls) != 0 {
+		t.Errorf("it changed something: %v", calls)
+	}
+}
+
 type reconciled struct{ apps []node.AppSpec }
 
 func (r *reconciled) Reconcile(_ context.Context, apps []node.AppSpec) { r.apps = apps }
