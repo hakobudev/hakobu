@@ -938,10 +938,32 @@ func Disk(ctx context.Context) (used, total uint64, err error) {
 	}
 	var st syscall.Statfs_t
 	if err := syscall.Statfs(root, &st); err != nil {
-		return 0, 0, err
+		// Rootless, Docker's root is in its user's home, which hakobu's
+		// user may not enter: the mount it's on tells the same.
+		m, merr := os.ReadFile("/proc/self/mountinfo")
+		if merr != nil || syscall.Statfs(mountOf(root, string(m)), &st) != nil {
+			return 0, 0, err
+		}
 	}
 	total = st.Blocks * uint64(st.Bsize)
 	return total - st.Bavail*uint64(st.Bsize), total, nil
+}
+
+// mountOf is the mount point path is on, from mountinfo: the longest
+// that path is in.
+func mountOf(path, mountinfo string) string {
+	best := "/"
+	for line := range strings.SplitSeq(mountinfo, "\n") {
+		f := strings.Fields(line)
+		if len(f) < 5 {
+			continue
+		}
+		mp := f[4]
+		if (path == mp || strings.HasPrefix(path, strings.TrimSuffix(mp, "/")+"/")) && len(mp) > len(best) {
+			best = mp
+		}
+	}
+	return best
 }
 
 // Listener is a TCP socket listening, from /proc/net/tcp{,6}.
