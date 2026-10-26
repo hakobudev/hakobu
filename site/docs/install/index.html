@@ -68,7 +68,7 @@ then ssh kasl-1 status
 </code></pre>
 <p>The first line gives your agent the server's own MCP server, over SSH; the block lets you write <code>ssh kasl-1 status</code>, as these docs do. After that hakobu updates itself (see <a href="/docs/updates/">Updates</a>), and you and your agent reach it only through those commands. Then take <a href="#your-owners-key">your owner's key</a>, and set up <a href="/docs/project/">a project</a>.</p>
 <h2 id="the-ssh-user">The SSH user</h2>
-<p><code>deploy</code> logs in with the keys root has (or <code>sudo</code>'s user), copied at the first install without their options; <code>HAKOBU_SSH_KEYS</code> gives others, one a line. Each key is <code>restrict</code>ed to one forced command, hakobu's: no shell, no files, no port forwarding, whatever the client asks for. Its home and keys are root's, so nothing running as it could add a key. <code>HAKOBU_SSH_USER</code> names it otherwise (the installer won't take over a <code>deploy</code> that's there already).</p>
+<p><code>deploy</code> logs in with the keys root has (or <code>sudo</code>'s user), copied at the first install with only their <code>from=</code> and <code>expiry-time=</code> options; <code>HAKOBU_SSH_KEYS</code> gives others, one a line. Each key is <code>restrict</code>ed to one forced command, hakobu's: no shell, no files, no port forwarding, whatever the client asks for. Its home and keys are root's, so nothing running as it could add a key. <code>HAKOBU_SSH_USER</code> names it otherwise (the installer won't take over a <code>deploy</code> that's there already).</p>
 <table>
 <thead>
 <tr>

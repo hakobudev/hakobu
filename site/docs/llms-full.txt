@@ -48,7 +48,7 @@ The first line gives your agent the server's own MCP server, over SSH; the block
 
 ## The SSH user
 
-`deploy` logs in with the keys root has (or `sudo`'s user), copied at the first install without their options; `HAKOBU_SSH_KEYS` gives others, one a line. Each key is `restrict`ed to one forced command, hakobu's: no shell, no files, no port forwarding, whatever the client asks for. Its home and keys are root's, so nothing running as it could add a key. `HAKOBU_SSH_USER` names it otherwise (the installer won't take over a `deploy` that's there already).
+`deploy` logs in with the keys root has (or `sudo`'s user), copied at the first install with only their `from=` and `expiry-time=` options; `HAKOBU_SSH_KEYS` gives others, one a line. Each key is `restrict`ed to one forced command, hakobu's: no shell, no files, no port forwarding, whatever the client asks for. Its home and keys are root's, so nothing running as it could add a key. `HAKOBU_SSH_USER` names it otherwise (the installer won't take over a `deploy` that's there already).
 
 | | |
 |---|---|

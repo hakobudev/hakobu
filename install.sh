@@ -313,7 +313,11 @@ fi
 SSH_USER="${HAKOBU_SSH_USER:-deploy}"
 [[ "$SSH_USER" =~ ^[a-z_][a-z0-9_-]{0,30}$ ]] || die "HAKOBU_SSH_USER: a user's name"
 echo "==> SSH: $SSH_USER runs hakobu's commands, and nothing else"
-if id "$SSH_USER" >/dev/null 2>&1 && [ ! -e "/home/$SSH_USER/.hakobu" ]; then
+# hakobu's user has root's marker in a home that's root's; a user of the
+# same name that was there before could make a marker of its own, or point
+# its home or .ssh elsewhere for root to write in.
+if id "$SSH_USER" >/dev/null 2>&1 && { [ -L "/home/$SSH_USER" ] || [ -L "/home/$SSH_USER/.ssh" ] || [ -L "/home/$SSH_USER/.hakobu" ] ||
+  [ "$(stat -c %U "/home/$SSH_USER/.hakobu" 2>/dev/null)" != root ] || [ "$(stat -c %U "/home/$SSH_USER" 2>/dev/null)" != root ]; }; then
   echo "    warning: there's a user $SSH_USER already, not hakobu's: run this again with HAKOBU_SSH_USER=another-name"
   SSH_USER=""
 else
@@ -338,12 +342,17 @@ else
 $(cat "$(getent passwd "$SUDO_USER" | cut -d: -f6)/.ssh/authorized_keys" 2>/dev/null || true)"
       fi
     fi
-    # Each key without the options it had (a cloud image's "login as
-    # ubuntu" command, say): type and key alone.
+    # Each key with hakobu's options for its own (a cloud image's "login
+    # as ubuntu" command, say goes), but where it may come from and until
+    # when, which stay: a key held to an address isn't let in from others.
     printf '%s\n' "$SRC" | awk '{
       for (i = 1; i < NF; i++)
         if ($i ~ /^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com)$/ && $(i+1) ~ /^[A-Za-z0-9+\/]+=*$/) {
-          print "restrict,pty,command=\"'"$BIN"' ssh\" " $i " " $(i+1); break
+          opts = substr($0, 1, index($0, $i " " $(i+1)) - 1)
+          keep = ""
+          if (match(opts, /from="[^"]*"/)) keep = keep "," substr(opts, RSTART, RLENGTH)
+          if (match(opts, /expiry-time="[^"]*"/)) keep = keep "," substr(opts, RSTART, RLENGTH)
+          print "restrict,pty,command=\"'"$BIN"' ssh\"" keep " " $i " " $(i+1); break
         }
     }' | sort -u > "$AK.new"
     chmod 0644 "$AK.new"
